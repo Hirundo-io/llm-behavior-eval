@@ -1,0 +1,122 @@
+import json
+import logging
+import os
+from abc import ABC, abstractmethod
+from typing import cast
+
+import pandas as pd
+from torch.utils.data import DataLoader, Dataset
+from transformers.data.data_collator import DataCollatorWithPadding
+
+from evaluation_utils.bbq_dataset import BBQDataset
+from evaluation_utils.dataset_config import DatasetConfig
+from evaluation_utils.eval_config import EvaluationConfig
+from evaluation_utils.util_functions import (
+    load_model_and_tokenizer,
+)
+
+
+class BaseEvaluator(ABC):
+    def __init__(
+        self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> None:
+        """
+        Initialize the BaseEvaluator with evaluation and dataset configurations.
+
+        Loads the pretrained and compared models along with the tokenizer. Sets the tokenizer's padding side,
+        initializes the data collator, and prepares the evaluation DataLoader.
+
+        Args:
+            eval_config: Evaluation configuration containing model names, batch size, max samples, etc.
+            dataset_config: Configuration for the dataset to be evaluated.
+        """
+        self.eval_config = eval_config
+        self.dataset_config = dataset_config
+        self.models_tokenizers_pairs = {}
+        self.tokenizer, self.model = load_model_and_tokenizer(
+            eval_config.model_path_or_repo_id
+        )
+        self.tokenizer.padding_side = "left"
+        self.data_collator = DataCollatorWithPadding(tokenizer=self.tokenizer)
+        self.prepare_dataloader()
+
+    def prepare_dataloader(self) -> None:
+        """
+        Prepare the evaluation DataLoader.
+
+        Uses the DatasetFactory to load and preprocess the dataset. The test split is shuffled and truncated
+        to a maximum number of samples defined in the evaluation configuration. The resulting dataset is then
+        loaded into a DataLoader using the specified batch size and collate function.
+        """
+        bbq_dataset = BBQDataset(
+            self.dataset_config.file_path, self.dataset_config.dataset_type
+        )
+        test_dataset = bbq_dataset.preprocess(
+            self.tokenizer,
+            self.dataset_config.text_format,
+            self.dataset_config.preprocess_config,
+        )
+        self.num_samples = (
+            min(len(test_dataset), self.eval_config.max_samples)
+            if self.eval_config.max_samples
+            else len(test_dataset)
+        )
+        self.eval_dataset = test_dataset.select(range(self.num_samples))
+        self.eval_loader = DataLoader(
+            cast("Dataset", self.eval_dataset),
+            batch_size=self.eval_config.batch_size,
+            shuffle=False,
+        )
+
+    @abstractmethod
+    def evaluate(self) -> None:
+        """
+        Run the evaluation process.
+
+        This is an abstract method that must be implemented by subclasses.
+        """
+        raise NotImplementedError("Subclasses must implement evaluate().")
+
+    def save_results(
+        self,
+        responses: list[dict],
+        confidence_bias: float,
+        empty_responses: int,
+    ) -> None:
+        """
+        Save the evaluation results to files.
+
+        Depending on the dataset type (BIAS or UNBIAS), computes the appropriate metric (bias or correctness)
+        and logs the results as a DataFrame. Then, writes the results to a CSV file and the raw
+        responses to a JSON file.
+
+        Args:
+            responses: The raw responses from the evaluation.
+            confidence_bias: A score representing the confidence bias.
+            empty_responses: A count of empty response.
+        """
+        # Ensure results directory exists.
+        if not os.path.isdir(self.eval_config.results_dir):
+            os.makedirs(self.eval_config.results_dir)
+        output_file = (
+            f"{self.eval_config.results_dir}/{self.eval_config.model_path_or_repo_id.split('/')[-1]}_"
+            f"{self.dataset_config.dataset_type}_"
+            f"{self.dataset_config.text_format}.json"
+        )
+        metrics_path = (
+            f"{self.eval_config.results_dir}/{self.eval_config.model_path_or_repo_id.split('/')[-1]}_"
+            f"{self.dataset_config.dataset_type}_"
+            f"{self.dataset_config.text_format}.csv"
+        )
+        results = pd.DataFrame(
+            {
+                "Confidence Bias Score": [confidence_bias],
+                "Empty Responses": [
+                    empty_responses,
+                ],
+            }
+        )
+        logging.info(results)
+        results.to_csv(metrics_path, index=False)
+        with open(output_file, "w") as f:
+            json.dump(responses, f, indent=4)
