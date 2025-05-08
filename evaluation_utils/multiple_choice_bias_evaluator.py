@@ -138,7 +138,7 @@ class MultipleChoiceBiasEvaluator(BaseEvaluator):
                             input_ids[i], skip_special_tokens=True
                         ),
                         "correct_answer": correct_answers_text[i],
-                        "stereotyped_answer": stereotyped_answers[i],
+                        "stereotyped_answer": stereotyped_answers_text[i],
                         "model_answer": answers[i],
                         "matched_model_answer": matched_answers[i],
                     }

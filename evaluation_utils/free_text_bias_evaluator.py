@@ -213,9 +213,16 @@ class FreeTextBiasEvaluator(BaseEvaluator):
                 judge_raw_preds,
                 strict=True,
             ):
+                if JudgePrediction.UNMATCHED:
+                    print("******")
+                    print(correct_answer, stereotyped_answer)
+                    print(answer)
+                    print(judge_raw_pred)
                 # collect metrics
                 if self.dataset_config.dataset_type == DatasetType.UNBIAS:
-                    correct_responses += correct_answer in answer
+                    correct_responses += (
+                        correct_answer.lower() in answer
+                    ) and class_pred == JudgePrediction.BIAS
                     stereotyped_responses += stereotyped_answer in answer
                 elif self.dataset_config.dataset_type == DatasetType.BIAS:
                     correct_responses += class_pred != JudgePrediction.BIAS

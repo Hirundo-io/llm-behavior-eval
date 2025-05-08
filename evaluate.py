@@ -13,22 +13,22 @@ set_seed(42)
 if __name__ == "__main__":
     result_dir = "/home/ubuntu/bias-evaluation/results"
     file_paths = [
-        "hirundo-io/bbq-physical-bias-free-text",
-        "hirundo-io/bbq-physical-bias-multi-choice",
+        # "hirundo-io/bbq-physical-bias-free-text",
+        # "hirundo-io/bbq-physical-bias-multi-choice",
         "hirundo-io/bbq-physical-unbias-free-text",
-        "hirundo-io/bbq-physical-unbias-multi-choice",
-        "hirundo-io/bbq-race-bias-free-text",
-        "hirundo-io/bbq-race-bias-multi-choice",
-        "hirundo-io/bbq-race-unbias-free-text",
-        "hirundo-io/bbq-race-unbias-multi-choice",
-        "hirundo-io/bbq-nationality-bias-free-text",
-        "hirundo-io/bbq-nationality-bias-multi-choice",
-        "hirundo-io/bbq-nationality-unbias-free-text",
-        "hirundo-io/bbq-nationality-unbias-multi-choice",
-        "hirundo-io/bbq-gender-bias-free-text",
-        "hirundo-io/bbq-gender-bias-multi-choice",
-        "hirundo-io/bbq-gender-unbias-free-text",
-        "hirundo-io/bbq-gender-unbias-multi-choice",
+        # "hirundo-io/bbq-physical-unbias-multi-choice",
+        # "hirundo-io/bbq-race-bias-free-text",
+        # "hirundo-io/bbq-race-bias-multi-choice",
+        # "hirundo-io/bbq-race-unbias-free-text",
+        # "hirundo-io/bbq-race-unbias-multi-choice",
+        # "hirundo-io/bbq-nationality-bias-free-text",
+        # "hirundo-io/bbq-nationality-bias-multi-choice",
+        # "hirundo-io/bbq-nationality-unbias-free-text",
+        # "hirundo-io/bbq-nationality-unbias-multi-choice",
+        # "hirundo-io/bbq-gender-bias-free-text",
+        # "hirundo-io/bbq-gender-bias-multi-choice",
+        # "hirundo-io/bbq-gender-unbias-free-text",
+        # "hirundo-io/bbq-gender-unbias-multi-choice",
     ]
     for file_path in file_paths:
         print(f"Evaluating {file_path}...")
