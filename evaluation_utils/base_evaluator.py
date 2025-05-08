@@ -107,16 +107,15 @@ class BaseEvaluator(ABC):
         # Ensure results directory exists.
         if not os.path.isdir(self.eval_config.results_dir):
             os.makedirs(self.eval_config.results_dir)
-        output_file = (
-            f"{self.eval_config.results_dir}/{self.eval_config.model_path_or_repo_id.split('/')[-1]}_"
+        output_name = (
+            f"{self.eval_config.results_dir}/"
+            f"{self.eval_config.model_path_or_repo_id.split('/')[-1]}_"
+            f"{self.dataset_config.file_path.split('/')[-1]}_"
             f"{self.dataset_config.dataset_type}_"
-            f"{self.dataset_config.text_format}.json"
+            f"{self.dataset_config.text_format}"
         )
-        metrics_path = (
-            f"{self.eval_config.results_dir}/{self.eval_config.model_path_or_repo_id.split('/')[-1]}_"
-            f"{self.dataset_config.dataset_type}_"
-            f"{self.dataset_config.text_format}.csv"
-        )
+        output_responses = f"{output_name}.json"
+        output_metrics = f"{output_name}.csv"
         results = pd.DataFrame(
             {
                 "Accuracy": [accuracy],
@@ -127,6 +126,6 @@ class BaseEvaluator(ABC):
             }
         )
         logging.info(results)
-        results.to_csv(metrics_path, index=False)
-        with open(output_file, "w") as f:
+        results.to_csv(output_metrics, index=False)
+        with open(output_responses, "w") as f:
             json.dump(responses, f, indent=4)

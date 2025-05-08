@@ -27,7 +27,7 @@ class DatasetConfig(BaseSettings):
     DatasetConfig is a configuration class for defining the settings of a dataset.
 
     Attributes:
-        file_path: The local path or hugging face name of the dataset file.
+        file_path: The hugging face repo id of the dataset file.
         dataset_type: The type of the dataset, represented as an enum.
         text_format: The format of the text in the dataset.
         preprocess_config: Configuration for preprocessing the dataset.
@@ -36,7 +36,7 @@ class DatasetConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="bias_dataset_")
 
-    file_path: Path | str
+    file_path: str
     dataset_type: DatasetType
     text_format: TextFormat
     preprocess_config: PreprocessConfig = PreprocessConfig()
