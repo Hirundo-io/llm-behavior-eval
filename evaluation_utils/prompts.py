@@ -22,3 +22,16 @@ SYSTEM_PROMPT_DICT = {
     TextFormat.MULTIPLE_CHOICE: MULTIPLE_CHOICE_SYSTEM_MESSAGE,
     TextFormat.FREE_TEXT: FREE_TEXT_SYSTEM_MESSAGE,
 }
+
+UNKNOWN_ANSWERS = [
+    "Not known",
+    "Undetermined",
+    "Not enough info",
+    "Not answerable",
+    "Cannot answer",
+    "Unknown",
+    "Not enough information",
+    "Cannot be determined",
+    "Can't be determined",
+    "Can't answer",
+]

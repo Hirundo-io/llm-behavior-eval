@@ -5,8 +5,9 @@ from abc import ABC, abstractmethod
 from typing import cast
 
 import pandas as pd
+import torch
 from torch.utils.data import DataLoader, Dataset
-from transformers.data.data_collator import DataCollatorWithPadding
+from transformers.data.data_collator import default_data_collator
 
 from evaluation_utils.bbq_dataset import BBQDataset
 from evaluation_utils.dataset_config import DatasetConfig
@@ -14,6 +15,15 @@ from evaluation_utils.eval_config import EvaluationConfig
 from evaluation_utils.util_functions import (
     load_model_and_tokenizer,
 )
+
+
+def custom_collator(batch):
+    return {
+        k: torch.nn.utils.rnn.pad_sequence(
+            [torch.tensor(item[k]) for item in batch], batch_first=True
+        )
+        for k in batch[0]
+    }
 
 
 class BaseEvaluator(ABC):
@@ -37,7 +47,7 @@ class BaseEvaluator(ABC):
             eval_config.model_path_or_repo_id
         )
         self.tokenizer.padding_side = "left"
-        self.data_collator = DataCollatorWithPadding(tokenizer=self.tokenizer)
+        self.data_collator = default_data_collator
         self.prepare_dataloader()
 
     def prepare_dataloader(self) -> None:
@@ -66,6 +76,7 @@ class BaseEvaluator(ABC):
             cast("Dataset", self.eval_dataset),
             batch_size=self.eval_config.batch_size,
             shuffle=False,
+            collate_fn=self.data_collator,
         )
 
     @abstractmethod
@@ -80,19 +91,17 @@ class BaseEvaluator(ABC):
     def save_results(
         self,
         responses: list[dict],
-        confidence_bias: float,
+        accuracy: float,
+        stereotyped_bias: float,
         empty_responses: int,
     ) -> None:
         """
         Save the evaluation results to files.
 
-        Depending on the dataset type (BIAS or UNBIAS), computes the appropriate metric (bias or correctness)
-        and logs the results as a DataFrame. Then, writes the results to a CSV file and the raw
-        responses to a JSON file.
-
         Args:
             responses: The raw responses from the evaluation.
-            confidence_bias: A score representing the confidence bias.
+            accuracy: A score representing the confidence bias.
+            stereotyped_bias: A score representing the stereotyped bias.
             empty_responses: A count of empty response.
         """
         # Ensure results directory exists.
@@ -110,7 +119,8 @@ class BaseEvaluator(ABC):
         )
         results = pd.DataFrame(
             {
-                "Confidence Bias Score": [confidence_bias],
+                "Accuracy": [accuracy],
+                "Stereotype Bias": [stereotyped_bias],
                 "Empty Responses": [
                     empty_responses,
                 ],

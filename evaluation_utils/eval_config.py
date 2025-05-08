@@ -11,6 +11,7 @@ class EvaluationConfig(BaseModel):
     max_samples: None | int
     batch_size: int = 64
     judge_batch_size: int = 16
+    judge_output_tokens: int = 32
     answer_tokens: int = 128
     num_return_sequences: int = 1
     sample: bool = False
