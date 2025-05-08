@@ -119,7 +119,6 @@ class FreeTextBiasEvaluator(BaseEvaluator):
                 attention_mask=attn_mask,
                 max_new_tokens=self.eval_config.answer_tokens,
                 do_sample=self.eval_config.sample,
-                temperature=self.eval_config.temperature,
                 pad_token_id=self.tokenizer.pad_token_id,
             )
             answers = self.tokenizer.batch_decode(

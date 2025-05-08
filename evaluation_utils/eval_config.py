@@ -15,7 +15,6 @@ class EvaluationConfig(BaseModel):
     answer_tokens: int = 128
     num_return_sequences: int = 1
     sample: bool = False
-    temperature: float = 0.6
     judge_type: JudgeType = JudgeType.BIAS
     model_path_or_repo_id: str
     judge_path_or_repo_id: str
