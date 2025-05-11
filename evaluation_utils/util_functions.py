@@ -4,16 +4,9 @@ import torch
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.auto.configuration_auto import AutoConfig
 from transformers.models.auto.tokenization_auto import AutoTokenizer
-from transformers.models.gemma import GemmaForCausalLM
-from transformers.models.gemma2 import Gemma2ForCausalLM
-from transformers.models.gemma3 import Gemma3ForConditionalGeneration
-from transformers.models.granite.modeling_granite import GraniteForCausalLM
-from transformers.models.llama import LlamaForCausalLM
-from transformers.models.llama4 import Llama4ForConditionalGeneration
-from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
-
+from transformers.models.auto.modeling_auto import AutoModelForCausalLM
 
 def safe_apply_chat_template(
     tokenizer: PreTrainedTokenizerBase, messages: list[dict[str, str]]
@@ -46,18 +39,6 @@ def safe_apply_chat_template(
         else:
             messages.insert(0, {"role": "user", "content": sys_msg})
     return str(tokenizer.apply_chat_template(messages, tokenize=False))
-
-
-SUPPORTED_MODELS = ["llama", "granite", "gemma", "qwen2", "gemma3"]
-SUPPORTED_ARCHITECTURES = {
-    "Llama4ForConditionalGeneration": Llama4ForConditionalGeneration,
-    "LlamaForCausalLM": LlamaForCausalLM,
-    "GraniteForCausalLM": GraniteForCausalLM,
-    "GemmaForCausalLM": GemmaForCausalLM,
-    "Gemma3ForConditionalGeneration": Gemma3ForConditionalGeneration,
-    "Gemma2ForCausalLM": Gemma2ForCausalLM,
-    "Qwen2ForCausalLM": Qwen2ForCausalLM,
-}
 
 
 def load_tokenizer(model_name: str) -> PreTrainedTokenizerBase:
@@ -100,8 +81,6 @@ def load_model_and_tokenizer(
     Returns:
         A tuple containing the loaded tokenizer and model.
 
-    Raises:
-        ValueError: If the tokenizer is unsupported or the model type is not supported.
     """
     # Load tokenizer
     tokenizer = load_tokenizer(model_name)
@@ -111,42 +90,31 @@ def load_model_and_tokenizer(
     # Load the configuration to inspect the model type
     config = AutoConfig.from_pretrained(model_name)
     model_type = config.model_type.lower() if config.model_type else ""
-    architecture_name = config.architectures[0] if config.architectures else ""
 
     # Optionally adjust the tokenizer settings (e.g., for padding)
     if model_type == "llama":
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Determine the appropriate model class based on model type.
-    if model_type in SUPPORTED_MODELS and architecture_name in SUPPORTED_ARCHITECTURES:
-        architecture_model = SUPPORTED_ARCHITECTURES[architecture_name]
-        if use_4bit:
-            # Prepare the quantization configuration for 4-bit loading.
-            quantization_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.bfloat16,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-            )
-            model = architecture_model.from_pretrained(
-                model_name,
-                config=config,
-                torch_dtype=torch.bfloat16,
-                device_map="auto",
-                low_cpu_mem_usage=True,
-                quantization_config=quantization_config,
-            )
-        else:
-            model = architecture_model.from_pretrained(
-                model_name,
-                config=config,
-                torch_dtype=torch.bfloat16,
-                device_map="auto",
-                low_cpu_mem_usage=True,
-            )
+    if use_4bit:
+        # Prepare the quantization configuration for 4-bit loading.
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            quantization_config=quantization_config,
+        )
     else:
-        raise ValueError(
-            f"Model type '{model_type}' with architecture class {architecture_name} is not yet supported."
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            low_cpu_mem_usage=True,
         )
 
     return tokenizer, model

@@ -161,7 +161,7 @@ class FreeTextBiasEvaluator(BaseEvaluator):
 
     def init_pipeline(self) -> None:
         self.judge_tokenizer, judge_model = load_model_and_tokenizer(
-            self.eval_config.judge_path_or_repo_id
+            self.eval_config.judge_path_or_repo_id,self.eval_config.use_4bit_judge
         )
         self.judge_pipeline = pipeline(
             "text-generation",

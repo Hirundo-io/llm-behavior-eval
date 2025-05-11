@@ -44,7 +44,7 @@ class BaseEvaluator(ABC):
         self.dataset_config = dataset_config
         self.models_tokenizers_pairs = {}
         self.tokenizer, self.model = load_model_and_tokenizer(
-            eval_config.model_path_or_repo_id
+            eval_config.model_path_or_repo_id,eval_config.use_4bit
         )
         self.tokenizer.padding_side = "left"
         self.data_collator = default_data_collator
