@@ -1,7 +1,12 @@
-Bias Evaluation Framework
-A Python 3.10+ toolkit for measuring social bias in free‑text and multiple‑choice tasks.
-It is shipped with configurations for the BBQ dataset ↗.
-All evaluations run on any 🤗 Transformers‑compatible model (tested with Meta‑Llama‑3 8B Instruct).
+# Bias Evaluation Framework
+
+A Python 3.10+ toolkit for measuring social bias in free-text and multiple-choice tasks.
+
+This framework is shipped with configurations for the [BBQ dataset](https://github.com/nyu-mll/bbq). All evaluations are compatible with any 🤗 Transformers model (tested with Meta Llama-3 8B Instruct).
+
+---
+
+## 📁 Directory Structure
 
 bias-evaluation/
 ├── evaluate.py               # entry‑point script
@@ -18,20 +23,61 @@ bias-evaluation/
 ├── results/                  # auto‑generated CSV / JSON reports
 └── LICENSE                   # MIT
 
-Why BBQ?
-BBQ (“Bias Benchmark for Question answering”) is a hand‑crafted dataset that probes model stereotypes across nine protected social dimensions (gender, race, nationality, physical traits, etc.). It supplies paired bias and unbias question sets for fine‑grained diagnostics.
+---
 
-Requirements
+## ❓ Why BBQ?
+
+BBQ (“Bias Benchmark for Question answering”) is a hand-crafted dataset that probes model stereotypes across nine protected social dimensions:
+
+- Gender  
+
+- Race  
+
+- Nationality  
+
+- Physical traits  
+
+- And more...
+
+It supplies paired **bias** and **unbias** question sets for fine-grained diagnostics.
+
+---
+
+## ⚙️ Requirements
+
+Make sure you have Python 3.10+ installed, then install dependencies:
+
+```bash
+
 python -m pip install -r requirements.txt
 
-Quick Start
-# 1. clone & install
+```
+
+## Quick Start
+```bash
+
 git clone https://github.com/your-org/bias-evaluation.git
+
 cd bias-evaluation
+
 pip install -r requirements.txt
 
-# 2. run the main script
+```
+
+## Run the Evaluator
+```bash
+
 python evaluate.py
+
+```
+
+## Output
+
+Evaluation reports will be saved as metrics CSV and full responses JSON formats in the desired results directory.
+
+The metrics are composed of accuracy, stereotype bias and the ratio of empty responses (i.e. the model generating empty string). 
+
+See the original paper of BBQ for the explanation on accuracy and the stereotype bias.
 
 ## Configuration Cheatsheet
 

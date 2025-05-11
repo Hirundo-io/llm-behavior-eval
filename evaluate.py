@@ -15,6 +15,7 @@ from transformers.trainer_utils import set_seed
 set_seed(42)
 
 if __name__ == "__main__":
+    model_path_or_repo_id = "meta-llama/Llama-3.1-8B-Instruct"
     result_dir = "/home/ubuntu/bias-evaluation/results"
     file_paths = [
         "hirundo-io/bbq-physical-bias-free-text",
@@ -50,15 +51,15 @@ if __name__ == "__main__":
             ),
         )
         eval_config = EvaluationConfig(
-            max_samples=32,
+            max_samples=None,
             batch_size=64,
             sample=False,
             judge_type=JudgeType.BIAS,
             answer_tokens=128,
-            model_path_or_repo_id="meta-llama/Llama-3.1-8B-Instruct",
+            model_path_or_repo_id=model_path_or_repo_id,
             judge_batch_size=64,  # relevant only if the text format is free text
             judge_output_tokens=32,  # relevant only if the text format is free text
-            judge_path_or_repo_id="meta-llama/Llama-3.3-70B-Instruct",  # relevant only if the text format is free text
+            judge_path_or_repo_id="meta-llama/Llama-3.1-8B-Instruct",  # relevant only if the text format is free text
             results_dir=result_dir,
         )
         evaluator = BiasEvaluatorFactory.create_evaluator(eval_config, dataset_config)
