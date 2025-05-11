@@ -38,7 +38,7 @@ def safe_apply_chat_template(
             messages[0]["content"] = f"{sys_msg}\n\n{messages[0]['content']}"
         else:
             messages.insert(0, {"role": "user", "content": sys_msg})
-    return str(tokenizer.apply_chat_template(messages, tokenize=False))
+    return str(tokenizer.apply_chat_template(messages, tokenize=False,add_generation_prompt=True))
 
 
 def load_tokenizer(model_name: str) -> PreTrainedTokenizerBase:

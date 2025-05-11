@@ -15,21 +15,21 @@ if __name__ == "__main__":
     model_path_or_repo_id = "meta-llama/Llama-3.1-8B-Instruct"
     result_dir = "/home/ubuntu/bias-evaluation/results"
     file_paths = [
-        # "hirundo-io/bbq-physical-bias-free-text",
+        "hirundo-io/bbq-physical-bias-free-text",
         # "hirundo-io/bbq-physical-bias-multi-choice",
         "hirundo-io/bbq-physical-unbias-free-text",
         # "hirundo-io/bbq-physical-unbias-multi-choice",
         # "hirundo-io/bbq-race-bias-free-text",
         # "hirundo-io/bbq-race-bias-multi-choice",
-        "hirundo-io/bbq-race-unbias-free-text",
+        # "hirundo-io/bbq-race-unbias-free-text",
         # "hirundo-io/bbq-race-unbias-multi-choice",
         # "hirundo-io/bbq-nationality-bias-free-text",
         # "hirundo-io/bbq-nationality-bias-multi-choice",
-        "hirundo-io/bbq-nationality-unbias-free-text",
+        # "hirundo-io/bbq-nationality-unbias-free-text",
         # "hirundo-io/bbq-nationality-unbias-multi-choice",
         # "hirundo-io/bbq-gender-bias-free-text",
         # "hirundo-io/bbq-gender-bias-multi-choice",
-        "hirundo-io/bbq-gender-unbias-free-text",
+        # "hirundo-io/bbq-gender-unbias-free-text",
         # "hirundo-io/bbq-gender-unbias-multi-choice",
     ]
     for file_path in file_paths:
@@ -48,7 +48,7 @@ if __name__ == "__main__":
             ),
         )
         eval_config = EvaluationConfig(
-            max_samples=200,
+            max_samples=100,
             batch_size=64,
             sample=False,
             judge_type=JudgeType.BIAS,
