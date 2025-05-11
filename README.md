@@ -103,3 +103,8 @@ Change these settings in `evaluate.py` (or expose them via CLI flags) to customi
 |                        | `judge_output_tokens`             | Generation length (in tokens) for the judge model                             | 16–64                                                          |
 |                        | `judge_path_or_repo_id`           | Checkpoint or repo ID of the *judge* model (free-text only)                   | Can reuse the main model                                       |
 |                        | `results_dir`                     | Same as `result_dir`; where all output files go                                | Path                                                           |
+
+
+## License
+
+This project is licensed under the MIT License. See the LICENSE file for more information.
