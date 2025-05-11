@@ -1,3 +1,5 @@
+import logging
+
 import torch
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.auto.configuration_auto import AutoConfig
@@ -36,6 +38,8 @@ def safe_apply_chat_template(
     )
     if is_gemma_v1 and messages and messages[0]["role"] == "system":
         # merge system into next user turn or retag
+        # Gemma v1 models do not support system messages in their chat templates.
+        # To handle this, we merge the system message into the next user message or retag it as a user message.
         sys_msg = messages.pop(0)["content"]
         if messages and messages[0]["role"] == "user":
             messages[0]["content"] = f"{sys_msg}\n\n{messages[0]['content']}"
@@ -64,15 +68,16 @@ def load_tokenizer(model_name: str) -> PreTrainedTokenizerBase:
     try:
         # Attempt to load the tokenizer normally
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-        print("Tokenizer loaded successfully from the remote repository.")
+        logging.info("Tokenizer loaded successfully from the remote repository.")
     except ValueError as e:
         # Print or log the error details if desired
-        print(
-            f"Standard loading failed: {e}. Falling back to local loading using 'local_files_only=True'."
+        logging.info(
+            "Standard loading failed: %s. Falling back to local loading using 'local_files_only=True'.",
+            e,
         )
         # Retry loading with local_files_only flag
         tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
-        print("Tokenizer loaded successfully from the local files.")
+        logging.info("Tokenizer loaded successfully from the local files.")
 
     return tokenizer
 

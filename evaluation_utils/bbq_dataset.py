@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import TypedDict
 
@@ -246,5 +247,5 @@ class BBQDataset:
         text = tokenizer.batch_decode(
             processed_dataset["test_input_ids"], skip_special_tokens=True
         )
-        print("Validation text:", text[0])
+        logging.info("Validation text: %s", text[0])
         return processed_dataset
