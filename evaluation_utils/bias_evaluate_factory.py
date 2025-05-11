@@ -1,6 +1,6 @@
 from evaluation_utils.base_evaluator import BaseEvaluator
 from evaluation_utils.dataset_config import DatasetConfig
-from evaluation_utils.enums import DatasetType, TextFormat
+from evaluation_utils.enums import TextFormat
 from evaluation_utils.eval_config import EvaluationConfig
 from evaluation_utils.free_text_bias_evaluator import FreeTextBiasEvaluator
 from evaluation_utils.multiple_choice_bias_evaluator import (

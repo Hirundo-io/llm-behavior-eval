@@ -1,16 +1,13 @@
 import gc
 import logging
-import sys
-from pathlib import Path
 
 import torch
+from transformers.trainer_utils import set_seed
 
 from evaluation_utils.bias_evaluate_factory import BiasEvaluatorFactory
 from evaluation_utils.dataset_config import DatasetConfig, PreprocessConfig
 from evaluation_utils.enums import DatasetType, TextFormat
 from evaluation_utils.eval_config import EvaluationConfig, JudgeType
-
-from transformers.trainer_utils import set_seed
 
 set_seed(42)
 
@@ -62,6 +59,7 @@ if __name__ == "__main__":
             judge_path_or_repo_id="meta-llama/Llama-3.1-8B-Instruct",  # relevant only if the text format is free text
             results_dir=result_dir,
         )
+        set_seed(dataset_config.seed)
         evaluator = BiasEvaluatorFactory.create_evaluator(eval_config, dataset_config)
         evaluator.evaluate()
         del evaluator
