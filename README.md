@@ -107,7 +107,7 @@ Change these settings in `evaluate.py` to customize your runs.
 |                        | `model_path_or_repo_id`           | Checkpoint or repo ID of the **under test** model                                   | e.g. `"meta-llama/Llama-3.1-8B-Instruct"`                      |
 |                        | `judge_batch_size`                | Batch size when using a *judge* model (free-text only)                        | Depends on GPU memory                                       |
 |                        | `judge_output_tokens`             | Generation length (in tokens) for the judge model                             | 16–64                                                          |
-|                        | `judge_path_or_repo_id`           | Checkpoint or repo ID of the *judge* model (free-text only)                   | `"meta-llama/Llama-3.3-70B-Instruct"` is a robust option, but other models can also be used (requires manual validation)                                      |
+|                        | `judge_path_or_repo_id`           | Checkpoint or repo ID of the *judge* model (free-text only)                   | `"meta-llama/Llama-3.3-70B-Instruct"` is a robust option (even in 4 bits), but other models can also be used (requires manual validation)                                      |
 |                        | `use_4bit_judge`                     | Whether to load the judge model in 4-bit mode (using bitsandbytes). This is only relevant for the judge model.                                | Boolean          
 |                        | `results_dir`                     | where all output files are saved                                | Path                                                           |
 
