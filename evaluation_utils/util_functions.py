@@ -3,10 +3,11 @@ import logging
 import torch
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.auto.configuration_auto import AutoConfig
+from transformers.models.auto.modeling_auto import AutoModelForCausalLM
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
-from transformers.models.auto.modeling_auto import AutoModelForCausalLM
+
 
 def safe_apply_chat_template(
     tokenizer: PreTrainedTokenizerBase, messages: list[dict[str, str]]
@@ -38,7 +39,11 @@ def safe_apply_chat_template(
             messages[0]["content"] = f"{sys_msg}\n\n{messages[0]['content']}"
         else:
             messages.insert(0, {"role": "user", "content": sys_msg})
-    return str(tokenizer.apply_chat_template(messages, tokenize=False,add_generation_prompt=True))
+    return str(
+        tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+    )
 
 
 def load_tokenizer(model_name: str) -> PreTrainedTokenizerBase:
