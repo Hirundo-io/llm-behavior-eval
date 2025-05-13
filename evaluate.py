@@ -1,6 +1,7 @@
 import gc
 import logging
 from pathlib import Path
+
 import torch
 from transformers.trainer_utils import set_seed
 
@@ -18,9 +19,7 @@ if __name__ == "__main__":
         "google/gemma-2b-it",
         "google/gemma-3-4b-it",
     ]
-    judge_path_or_repo_id = (
-        "google/gemma-3-12b-it",
-    )
+    judge_path_or_repo_id = "google/gemma-3-12b-it"
     result_dir = Path(__file__).parent / "results"
     file_paths = [
         "hirundo-io/bbq-physical-bias-free-text",
