@@ -85,6 +85,29 @@ The metrics are composed of accuracy, stereotype bias and the ratio of empty res
 
 See the original paper of BBQ for the explanation on accuracy and the stereotype bias.
 
+## Tested on
+
+Validated the pipeline on the next models:
+
+- `"google/gemma-3-12b-it"`
+
+- `"meta-llama/Meta-Llama-3.1-8B-Instruct"`
+
+- `"meta-llama/Llama-3.2-3B-Instruct"`
+
+- `"google/gemma-7b-it"`
+
+- `"google/gemma-2b-it"`
+
+- `"google/gemma-3-4b-it"`
+
+Using the next models as judges:
+
+- `"google/gemma-3-12b-it"`
+
+- `"meta-llama/Llama-3.3-70B-Instruct"`
+
+
 ## Configuration Cheatsheet
 
 Change these settings in `evaluate.py` to customize your runs.

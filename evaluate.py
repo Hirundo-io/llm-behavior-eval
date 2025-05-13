@@ -14,11 +14,11 @@ set_seed(42)
 if __name__ == "__main__":
     model_path_or_repo_ids = [
         "google/gemma-3-12b-it",
-        # "meta-llama/Meta-Llama-3.1-8B-Instruct",
-        # "meta-llama/Llama-3.2-3B-Instruct",
-        # "google/gemma-7b-it",
-        # "google/gemma-2b-it",
-        # "google/gemma-3-4b-it",
+        "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "meta-llama/Llama-3.2-3B-Instruct",
+        "google/gemma-7b-it",
+        "google/gemma-2b-it",
+        "google/gemma-3-4b-it",
     ]
     judge_path_or_repo_id = (
         "google/gemma-3-12b-it"  # "meta-llama/Llama-3.3-70B-Instruct"
