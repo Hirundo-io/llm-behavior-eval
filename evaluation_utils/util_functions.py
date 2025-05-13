@@ -68,6 +68,20 @@ def load_tokenizer(model_name: str) -> PreTrainedTokenizerBase:
     return tokenizer
 
 
+def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
+    """
+    Robust dtype checker that adapts to the hardware:
+      • chooses bf16→fp16→fp32 automatically
+    """
+    if device == "cuda" and prefer_bf16 and torch.cuda.is_bf16_supported():
+        return torch.bfloat16
+    if device == "cuda":
+        # fp16 is universally supported on CUDA GPUs ≥ sm_50
+        return torch.float16
+    # CPU or MPS → stay in full precision for safety
+    return torch.float32
+
+
 def load_model_and_tokenizer(
     model_name: str,
     use_4bit: bool = False,
@@ -87,6 +101,10 @@ def load_model_and_tokenizer(
         A tuple containing the loaded tokenizer and model.
 
     """
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = pick_best_dtype(device)
+    logging.info("Using dtype: %s", dtype)
+
     # Load tokenizer
     tokenizer = load_tokenizer(model_name)
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
@@ -104,20 +122,20 @@ def load_model_and_tokenizer(
         # Prepare the quantization configuration for 4-bit loading.
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_compute_dtype=dtype,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
         )
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype=torch.bfloat16,
+            torch_dtype=dtype,
             device_map="auto",
             quantization_config=quantization_config,
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype=torch.bfloat16,
+            torch_dtype=dtype,
             device_map="auto",
             low_cpu_mem_usage=True,
         )
