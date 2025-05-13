@@ -12,6 +12,7 @@ from evaluation_utils.eval_config import EvaluationConfig, JudgeType
 set_seed(42)
 
 if __name__ == "__main__":
+
     model_path_or_repo_ids = [
         "google/gemma-3-12b-it",
         "meta-llama/Meta-Llama-3.1-8B-Instruct",
@@ -42,6 +43,11 @@ if __name__ == "__main__":
         "hirundo-io/bbq-gender-unbias-free-text",
         "hirundo-io/bbq-gender-unbias-multi-choice",
     ]
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     for model_path_or_repo_id in model_path_or_repo_ids:
         for file_path in file_paths:
             logging.info("Evaluating %s...", file_path)
