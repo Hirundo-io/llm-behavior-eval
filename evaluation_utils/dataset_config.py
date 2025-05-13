@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from evaluation_utils.enums import DatasetType, TextFormat
@@ -27,7 +25,7 @@ class DatasetConfig(BaseSettings):
     DatasetConfig is a configuration class for defining the settings of a dataset.
 
     Attributes:
-        file_path: The hugging face repo id of the dataset file.
+        file_path: The HuggingFace repo id of the dataset file.
         dataset_type: The type of the dataset, represented as an enum.
         text_format: The format of the text in the dataset.
         preprocess_config: Configuration for preprocessing the dataset.

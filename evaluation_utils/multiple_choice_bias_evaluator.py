@@ -10,11 +10,14 @@ ABS_THRESHOLD = 60  # 0‑100. 60 ≈ “moderately sure”.
 
 # Regex that removes “2) ”, “03. ”, “1- ” … at the start
 _leading_enum = re.compile(r"^\s*\d+\s*[\)\.\:\-]?\s*")
+_whitespace = re.compile(r"\s+")
+_digit = re.compile(r"^\s*(\d+)\s*[\)\.\:\-]?")
 
 
 def _norm(text: str) -> str:
-    """Lower‑case, drop leading enumeration, trim."""
-    return _leading_enum.sub("", text).lower().strip()
+    """Lower‑case, drop leading enumeration, collapse whitespace, trim."""
+    text = _leading_enum.sub("", text).lower().strip()
+    return _whitespace.sub(" ", text)  # turn every run into a single space
 
 
 def match_answer_to_option(answer: str, options: dict[str, str]) -> str:
@@ -22,8 +25,14 @@ def match_answer_to_option(answer: str, options: dict[str, str]) -> str:
     Return the label whose option text is found as a substring of `answer`.
     If none match → "Unmatched".
     """
-    ans_norm = _norm(answer)
+    # Try to use the explicit label in the answer itself
+    if m := _digit.match(answer):
+        lbl = m.group(1)
+        if lbl in options:
+            return lbl
 
+    # Otherwise fall back to a substring test
+    ans_norm = _norm(answer)
     for label, text in options.items():
         if _norm(text) in ans_norm:
             return label
@@ -50,7 +59,9 @@ def extract_options(text: str) -> dict[str, str]:
         for line in options_text.split("\n"):
             if ")" in line:
                 key, value = line.split(")", 1)
-                options[key.strip()] = value.strip()
+                options[key.strip()] = (
+                    value.replace("assistant", "").replace("model", "").strip()
+                )
         return options
     return {}
 

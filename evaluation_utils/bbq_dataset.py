@@ -1,10 +1,12 @@
 import logging
+from functools import partial
 from pathlib import Path
-from typing import TypedDict
+from typing import Annotated, Dict, List, cast
 
 import numpy as np
 import torch
-from datasets import Dataset, load_dataset
+from datasets import Dataset, DatasetDict, load_dataset
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from evaluation_utils.dataset_config import PreprocessConfig
@@ -13,173 +15,157 @@ from evaluation_utils.prompts import SYSTEM_PROMPT_DICT
 from evaluation_utils.util_functions import safe_apply_chat_template
 
 
-class CustomOpenTextExamples(TypedDict):
-    question: list[str]
-    answer: list[str]
-    stereotyped_answer: list[str]
+class OpenTextRow(BaseModel):
+    question: Annotated[str, Field(min_length=1)]
+    answer: Annotated[str, Field(min_length=1)]
+    stereotyped_answer: Annotated[str, Field(min_length=1)]
 
 
-class CustomCloseChoiceExamples(TypedDict):
-    question: list[str]
-    correct_answer: list[str]
-    incorrect_answers: list[list[str]]
-    stereotyped_answer: list[str]
+class CloseChoiceRow(BaseModel):
+    question: Annotated[str, Field(min_length=1)]
+    correct_answer: Annotated[str, Field(min_length=1)]
+    incorrect_answers: Annotated[List[str], Field(min_length=1)]
+    stereotyped_answer: Annotated[str, Field(min_length=1)]
 
 
-def validate_dataset_columns(hf_dataset: Dataset, text_format: TextFormat):
+# TypeAdapters for batch validation (list-of-rows)
+OpenTextAdapter = TypeAdapter(List[OpenTextRow])
+CloseChoiceAdapter = TypeAdapter(List[CloseChoiceRow])
+
+
+def validate_dataset_columns(hf_dataset: Dataset, text_format: TextFormat) -> None:
     """
     Validates that the dataset contains the required columns based on the text format.
     Raises a ValueError if any required columns are missing.
     """
     if text_format == TextFormat.FREE_TEXT:
-        required_columns = set(CustomOpenTextExamples.__annotations__.keys())
-    else:  # assume multiple-choice close text format
-        required_columns = set(CustomCloseChoiceExamples.__annotations__.keys())
+        expected = set(OpenTextRow.model_fields.keys())
+    else:
+        expected = set(CloseChoiceRow.model_fields.keys())
 
-    dataset_columns = set(hf_dataset.column_names)
-    missing = required_columns - dataset_columns
+    missing = expected - set(hf_dataset.column_names)
     if missing:
         raise ValueError(
-            f"Dataset is missing the following required columns for {text_format} format: {missing}. "
-            f"Found columns: {dataset_columns}"
+            f"Dataset is missing required columns for {text_format}: {missing}; found {hf_dataset.column_names}"
         )
 
 
 def open_text_preprocess_function(
-    examples_batch: CustomOpenTextExamples,
+    examples_batch: Dict[str, List[str]],
     tokenizer: PreTrainedTokenizerBase,
     text_format: TextFormat,
     max_length: int,
     gt_max_length: int,
-) -> dict[str, torch.Tensor]:
-    """
-    Preprocesses a batch of open text examples for training and evaluation by tokenizing input texts and ground truth answers.
+) -> Dict[str, torch.Tensor]:
+    # 1) Column check
+    rows = [
+        dict(zip(examples_batch.keys(), vals))
+        for vals in zip(*examples_batch.values(), strict=True)
+    ]
+    try:
+        OpenTextAdapter.validate_python(rows)
+    except ValidationError as exc:
+        raise ValueError(f"OpenText batch validation error: {exc}")
 
-    Args:
-        examples_batch: A type dict of question and answer.
-        tokenizer: The tokenizer to be used for processing the texts.
-        text_format: The format of the text (free-text, structured free-text, or multiple-choice).
-        max_length: The maximum length for tokenization.
-        gt_max_length: The maximum length for ground truth answer.
-
-    Returns:
-        dict: A dictionary with tokenized fields:
-              - "input_ids": List of tokenized input IDs with answer appended.
-              - "attention_mask": List of corresponding attention masks.
-              - "test_input_ids": List of tokenized input IDs without answer (for evaluation).
-              - "test_attention_mask": List of corresponding attention masks for test text.
-              - "gt_answers": List of tokenized ground truth answer IDs.
-    """
-    eval_strings, answer_strings, stereotyped_answers_strings = [], [], []
-
-    for question, answer, stereotyped_answer in zip(
-        examples_batch["question"],
-        examples_batch["answer"],
-        examples_batch["stereotyped_answer"],
-        strict=True,
-    ):
-        user_msg = {"role": "user", "content": f"###Question: {question}\n"}
+    # 2) Tokenization logic
+    eval_strings, answer_strings, stereotyped_strings = [], [], []
+    for row in rows:
+        q, a, s = row["question"], row["answer"], row["stereotyped_answer"]
+        user_msg = {"role": "user", "content": f"###Question: {q}\n"}
         system_msg = SYSTEM_PROMPT_DICT[text_format]
-        # question only
-        eval_conv = [system_msg, user_msg]
-        eval_strings.append(safe_apply_chat_template(tokenizer, eval_conv))
-        # bare answer
-        answer_strings.append(answer)
-        stereotyped_answers_strings.append(stereotyped_answer)
+        eval_strings.append(safe_apply_chat_template(tokenizer, [system_msg, user_msg]))
+        answer_strings.append(a)
+        stereotyped_strings.append(s)
 
-    enc_eval = tokenizer(
-        eval_strings, truncation=True, padding="max_length", max_length=max_length
-    )
-    enc_stereotyped = tokenizer(
-        stereotyped_answers_strings,
+    tokenize = partial(
+        tokenizer,
         truncation=True,
         padding="max_length",
-        max_length=gt_max_length,
-        add_special_tokens=False,
     )
-    enc_gt = tokenizer(
+    enc_eval = tokenize(
+        eval_strings,
+        max_length=max_length,
+    )
+    enc_gt = tokenize(
         answer_strings,
-        truncation=True,
-        padding="max_length",
         max_length=gt_max_length,
         add_special_tokens=False,
     )
-    results = {
+    enc_stereo = tokenize(
+        stereotyped_strings,
+        max_length=gt_max_length,
+        add_special_tokens=False,
+    )
+
+    return {
         "test_input_ids": torch.tensor(enc_eval["input_ids"]),
         "test_attention_mask": torch.tensor(enc_eval["attention_mask"]),
         "gt_answers": torch.tensor(enc_gt["input_ids"]),
-        "stereotyped_answers": torch.tensor(enc_stereotyped["input_ids"]),
+        "stereotyped_answers": torch.tensor(enc_stereo["input_ids"]),
     }
-    return results
 
 
 def close_text_preprocess_function(
-    examples_batch: CustomCloseChoiceExamples,
+    examples_batch: Dict[str, List],
     tokenizer: PreTrainedTokenizerBase,
     text_format: TextFormat,
     max_length: int,
     gt_max_length: int,
-) -> dict[str, torch.Tensor]:
-    """
-    Preprocesses a batch of multiple-choice text examples for training and evaluation by tokenizing input texts and ground truth answers.
-    """
-    rng = np.random.default_rng()
-    eval_strings: list[str] = []
-    answer_strings: list[str] = []
-    stereotyped_answer_strings: list[str] = []
+) -> Dict[str, torch.Tensor]:
+    # 1) Batch validation
+    rows = [
+        dict(zip(examples_batch.keys(), vals))
+        for vals in zip(*examples_batch.values(), strict=True)
+    ]
+    try:
+        CloseChoiceAdapter.validate_python(rows)
+    except ValidationError as exc:
+        raise ValueError(f"CloseChoice batch validation error: {exc}")
 
-    for question, correct_answer, incorrect_answers, stereotyped_answer in zip(
-        examples_batch["question"],
-        examples_batch["correct_answer"],
-        examples_batch["incorrect_answers"],
-        examples_batch["stereotyped_answer"],
-        strict=True,
-    ):
-        # Randomise option order once per question
-        shuffled_answers = rng.permutation(
-            [correct_answer, *incorrect_answers]
-        ).tolist()
-        options_string = "\n".join(
-            f"{i + 1}) {opt}" for i, opt in enumerate(shuffled_answers)
-        )
-        # Message objects used by the chat template
+    # 2) Tokenization logic
+    rng = np.random.default_rng()
+    eval_strings, answer_strings, stereotyped_strings = [], [], []
+
+    for row in rows:
+        opts = [row["correct_answer"], *row["incorrect_answers"]]
+        shuffled = rng.permutation(opts).tolist()
+        opt_str = "\n".join(f"{i + 1}) {o}" for i, o in enumerate(shuffled))
+
         user_msg = {
             "role": "user",
-            "content": f"###Question: {question}\n###Options:\n{options_string}\n",
+            "content": f"###Question: {row['question']}\n###Options:\n{opt_str}\n",
         }
         system_msg = SYSTEM_PROMPT_DICT[text_format]
-        # Build evaluation (question‑only) conversation once per question
-        eval_conv = [system_msg, user_msg]
-        eval_string = safe_apply_chat_template(tokenizer, eval_conv)
-        eval_strings.append(str(eval_string))
-        answer_strings.append(correct_answer)
-        stereotyped_answer_strings.append(stereotyped_answer)
+        eval_strings.append(safe_apply_chat_template(tokenizer, [system_msg, user_msg]))
+        answer_strings.append(row["correct_answer"])
+        stereotyped_strings.append(row["stereotyped_answer"])
 
-    enc_eval = tokenizer.batch_encode_plus(
-        eval_strings, truncation=True, padding="max_length", max_length=max_length
-    )
-    enc_stereotyped_answer = tokenizer.batch_encode_plus(
-        stereotyped_answer_strings,
+    tokenize = partial(
+        tokenizer,
         truncation=True,
         padding="max_length",
-        max_length=gt_max_length,
-        add_special_tokens=False,
     )
-    enc_gt = tokenizer.batch_encode_plus(
+    enc_eval = tokenize(
+        eval_strings,
+        max_length=max_length,
+    )
+    enc_gt = tokenize(
         answer_strings,
-        truncation=True,
-        padding="max_length",
+        max_length=gt_max_length,
+        add_special_tokens=False,
+    )
+    enc_stereo = tokenize(
+        stereotyped_strings,
         max_length=gt_max_length,
         add_special_tokens=False,
     )
 
-    results = {
+    return {
         "test_input_ids": torch.tensor(enc_eval["input_ids"]),
         "test_attention_mask": torch.tensor(enc_eval["attention_mask"]),
         "gt_answers": torch.tensor(enc_gt["input_ids"]),
-        "stereotyped_answers": torch.tensor(enc_stereotyped_answer["input_ids"]),
+        "stereotyped_answers": torch.tensor(enc_stereo["input_ids"]),
     }
-    return results
 
 
 class BBQDataset:
@@ -197,12 +183,16 @@ class BBQDataset:
         Initializes the custom dataset with a specified dataset type and bias type.
 
         Args:
-            file_path: The local path or hugging face name of the dataset csv file.
+            file_path: The local path or HuggingFace name of the dataset csv file.
             dataset_type: The type of the dataset (e.g., BIAS or UNBIAS).
         """
         self.file_path = file_path
         self.dataset_type = dataset_type
-        self.ds: Dataset = load_dataset(str(self.file_path))["train"]  # type: ignore
+        # Type "DatasetDict | Dataset | IterableDatasetDict | IterableDataset" is not assignable to declared type "DatasetDict"
+        # To ignore this error, since the loaded dataset is always a DatasetDict
+        # and we are using the "cast" function to ensure type safety.
+        raw: DatasetDict = load_dataset(str(self.file_path))  # type: ignore
+        self.ds = cast(Dataset, raw["train"])
 
     def preprocess(
         self,
@@ -217,7 +207,7 @@ class BBQDataset:
         and answer-exclusive texts along with the ground truth answers.
 
         Args:
-            datasets_dict: Dictionary mapping dataset split names to Hugging Face Datasets.
+            datasets_dict: Dictionary mapping dataset split names to HuggingFace Datasets.
             tokenizer: Tokenizer used for text processing.
             text_format: Format of the text (free-text, structured free-text, or multiple-choice).
             preprocess_config: Configuration for preprocessing the dataset.

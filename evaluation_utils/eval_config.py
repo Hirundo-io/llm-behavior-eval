@@ -1,4 +1,5 @@
 from enum import Enum
+from pathlib import Path
 
 from pydantic import BaseModel
 
@@ -39,4 +40,4 @@ class EvaluationConfig(BaseModel):
     judge_output_tokens: int = 32
     judge_path_or_repo_id: str
     use_4bit_judge: bool = False
-    results_dir: str
+    results_dir: Path
