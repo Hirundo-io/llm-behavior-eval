@@ -38,14 +38,9 @@ For example:
 Make sure you have Python 3.10+ installed, then install dependencies:
 
 ```bash
-python -m pip install -r requirements.txt
-```
-
-## Quick Start
-```bash
 git clone https://github.com/your-org/bias-evaluation.git
 cd bias-evaluation
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ## Run the Evaluator
