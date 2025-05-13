@@ -12,7 +12,6 @@ from evaluation_utils.eval_config import EvaluationConfig, JudgeType
 set_seed(42)
 
 if __name__ == "__main__":
-
     model_path_or_repo_ids = [
         "google/gemma-3-12b-it",
         "meta-llama/Meta-Llama-3.1-8B-Instruct",
@@ -65,13 +64,13 @@ if __name__ == "__main__":
                 ),
             )
             eval_config = EvaluationConfig(
-                max_samples=200,
-                batch_size=40,
+                max_samples=None,  # Set to 100 or lower for testing the pipeline works
+                batch_size=64,
                 sample=False,
                 judge_type=JudgeType.BIAS,
                 answer_tokens=128,
                 model_path_or_repo_id=model_path_or_repo_id,
-                judge_batch_size=40,  # relevant only if the text format is free text
+                judge_batch_size=64,  # relevant only if the text format is free text
                 judge_output_tokens=32,  # relevant only if the text format is free text
                 judge_path_or_repo_id=judge_path_or_repo_id,  # relevant only if the text format is free text
                 use_4bit_judge=False,  # relevant only if the text format is free text

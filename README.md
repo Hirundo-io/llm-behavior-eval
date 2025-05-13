@@ -2,7 +2,7 @@
 
 A Python 3.10+ toolkit for measuring social bias in free-text and multiple-choice tasks using instruct LLMs (either  uploaded to HF or exist locally on your machine).
 
-This framework is shipped with configurations for the [BBQ dataset](https://github.com/nyu-mll/bbq). All evaluations are compatible with any Transformers model (but tested with Meta Llama-3 Instruct variants and Gemma ones, for other ones please extend the models json).
+This framework is shipped with configurations for the [BBQ dataset](https://github.com/nyu-mll/bbq). All evaluations are compatible with Transformers instruct models. Tested with multiple Llama and Gemma models, see the list below.
 
 ---
 
