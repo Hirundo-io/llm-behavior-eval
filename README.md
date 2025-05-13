@@ -60,7 +60,7 @@ See the original paper of BBQ for the explanation on accuracy and the stereotype
 
 ## Tested on
 
-Validated the pipeline on the next models:
+Validated the pipeline on the following models:
 
 - `"google/gemma-3-12b-it"`
 

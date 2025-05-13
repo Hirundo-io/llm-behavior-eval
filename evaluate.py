@@ -9,8 +9,6 @@ from evaluation_utils.dataset_config import DatasetConfig, PreprocessConfig
 from evaluation_utils.enums import DatasetType, TextFormat
 from evaluation_utils.eval_config import EvaluationConfig, JudgeType
 
-set_seed(42)
-
 if __name__ == "__main__":
     model_path_or_repo_ids = [
         "google/gemma-3-12b-it",
@@ -21,9 +19,9 @@ if __name__ == "__main__":
         "google/gemma-3-4b-it",
     ]
     judge_path_or_repo_id = (
-        "google/gemma-3-12b-it"  # "meta-llama/Llama-3.3-70B-Instruct"
+        "google/gemma-3-12b-it",
     )
-    result_dir = Path("/home/ubuntu/bias-evaluation/results")
+    result_dir = Path(__file__).parent / "results"
     file_paths = [
         "hirundo-io/bbq-physical-bias-free-text",
         "hirundo-io/bbq-physical-bias-multi-choice",

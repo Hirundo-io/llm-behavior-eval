@@ -1,7 +1,7 @@
 import json
 import logging
-import os
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import cast
 
 import pandas as pd
@@ -105,8 +105,8 @@ class BaseEvaluator(ABC):
             empty_responses: A count of empty response.
         """
         # Ensure results directory exists.
-        if not os.path.isdir(self.eval_config.results_dir):
-            os.makedirs(self.eval_config.results_dir)
+        Path(self.eval_config.results_dir).mkdir(parents=True, exist_ok=True)
+
         output_name = (
             f"{self.eval_config.results_dir}/"
             f"{self.eval_config.model_path_or_repo_id.split('/')[-1]}_"
