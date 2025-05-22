@@ -1,0 +1,65 @@
+name: Push new release of the package to PyPI
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  push_to_pypi:
+    name: Upload release to PyPI
+    if: ${{ github.event.pull_request.merged == true && (contains(github.event.pull_request.labels.*.name, 'release') || contains(github.event.pull_request.labels.*.name, 'test')) }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ contains(github.event.pull_request.labels.*.name, 'release') && 'pypi' || 'testpypi' }}
+      url: ${{ contains(github.event.pull_request.labels.*.name, 'release') && 'https://pypi.org/p/llm-behavior-eval' || 'https://test.pypi.org/p/llm-behavior-eval' }}
+    permissions:
+      contents: write  # Used to push tag with release
+      pull-requests: read  # Used to create and merge PR with release
+      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+          cache: 'pip'
+      - name: Push tag with release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "GitHub Actions [release-bot]"
+          git config user.email "github-actions@hirundo.io"
+          git pull origin ${{ github.event.pull_request.base.ref }}
+          git tag -a ${{ github.event.pull_request.title }} -m "${{ github.event.pull_request.body }}"
+          git push origin ${{ github.event.pull_request.title }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install the project
+        run: uv sync --locked
+
+      - run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
+
+      - name: Install twine & build package
+        run: |
+		  pip install build twine
+          python -m build
+      - name: Publish package distributions to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'test') }}
+        with:
+          repository-url: https://test.pypi.org/legacy/
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'release') }}
