@@ -1,10 +1,31 @@
-# pyproject.toml
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "bias-evaluation"
+name = "llm-behavior-eval"
 version = "0.1.0"
-description = "LLMs evaluation for large language models"
+description = "Evaluate large-language models for undesirable behaviors such as bias."
+authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
 readme = "README.md"
+license = { file = "LICENSE" }
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+]
+keywords = [
+  "dataset",
+  "machine learning",
+  "data science",
+  "data engineering",
+  "large language models",
+  "LLMs evaluation",
+  "bias evaluation",
+  "bias in LLMs",
+]
 requires-python = ">=3.10"
+
 dependencies = [
   "datasets>=3.5.1,<4.0.0",
   "numpy>=2.2.5,<3.0.0",
@@ -15,10 +36,9 @@ dependencies = [
   "transformers>=4.51.3,<5.0.0",
 ]
 
-[build-system] # already present in your file; keep as‑is
-requires = ["setuptools>=64", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [tool.setuptools.packages.find]
-include = ["evaluation_utils*"] # the code you want to ship
-exclude = ["results*"]          # folders to ignore
+include = ["evaluation_utils*"]
+exclude = ["results*"]
+
+[project.urls]
+Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
