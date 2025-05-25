@@ -1,4 +1,4 @@
-from evaluation_utils.multiple_choice_bias_evaluator import (
+from llm_behavior_eval.evaluation_utils.multiple_choice_bias_evaluator import (
     _norm,
     match_answer_to_option,
 )

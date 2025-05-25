@@ -1,8 +1,8 @@
 import pytest
 from datasets import Dataset
 
-from evaluation_utils.bbq_dataset import validate_dataset_columns
-from evaluation_utils.enums import TextFormat
+from llm_behavior_eval.evaluation_utils.bbq_dataset import validate_dataset_columns
+from llm_behavior_eval import TextFormat
 
 
 def test_validate_dataset_columns_pass_free_text():
