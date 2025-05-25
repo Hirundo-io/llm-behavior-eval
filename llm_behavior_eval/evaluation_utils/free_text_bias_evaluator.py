@@ -6,9 +6,9 @@ from enum import Enum
 import torch
 from transformers.pipelines import pipeline
 
-from evaluation_utils.base_evaluator import BaseEvaluator
-from evaluation_utils.enums import DatasetType
-from evaluation_utils.util_functions import (
+from llm_behavior_eval.evaluation_utils.base_evaluator import BaseEvaluator
+from llm_behavior_eval.evaluation_utils.enums import DatasetType
+from llm_behavior_eval.evaluation_utils.util_functions import (
     load_model_and_tokenizer,
     safe_apply_chat_template,
 )

@@ -1,9 +1,11 @@
-from evaluation_utils.base_evaluator import BaseEvaluator
-from evaluation_utils.dataset_config import DatasetConfig
-from evaluation_utils.enums import TextFormat
-from evaluation_utils.eval_config import EvaluationConfig
-from evaluation_utils.free_text_bias_evaluator import FreeTextBiasEvaluator
-from evaluation_utils.multiple_choice_bias_evaluator import (
+from llm_behavior_eval.evaluation_utils.base_evaluator import BaseEvaluator
+from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
+from llm_behavior_eval.evaluation_utils.enums import TextFormat
+from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
+    FreeTextBiasEvaluator,
+)
+from llm_behavior_eval.evaluation_utils.multiple_choice_bias_evaluator import (
     MultipleChoiceBiasEvaluator,
 )
 

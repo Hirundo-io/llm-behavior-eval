@@ -1,5 +1,7 @@
 import gc
 import logging
+import os
+import sys
 from pathlib import Path
 
 import torch
@@ -8,21 +10,25 @@ from transformers.trainer_utils import set_seed
 from llm_behavior_eval import (
     BiasEvaluatorFactory,
     DatasetConfig,
-    PreprocessConfig,
     DatasetType,
-    TextFormat,
     EvaluationConfig,
     JudgeType,
+    PreprocessConfig,
+    TextFormat,
 )
+
+project_root = os.path.dirname(os.path.abspath(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 if __name__ == "__main__":
     model_path_or_repo_ids = [
-        "google/gemma-3-12b-it",
+        # "google/gemma-3-12b-it",
         "meta-llama/Meta-Llama-3.1-8B-Instruct",
         "meta-llama/Llama-3.2-3B-Instruct",
-        "google/gemma-7b-it",
+        # "google/gemma-7b-it",
         "google/gemma-2b-it",
-        "google/gemma-3-4b-it",
+        # "google/gemma-3-4b-it",
     ]
     judge_path_or_repo_id = "google/gemma-3-12b-it"
     result_dir = Path(__file__).parent / "results"
@@ -63,7 +69,7 @@ if __name__ == "__main__":
                 preprocess_config=PreprocessConfig(),
             )
             eval_config = EvaluationConfig(
-                max_samples=None,  # Set to 100 or lower for testing the pipeline works
+                max_samples=100,  # Set to 100 or lower for testing the pipeline works
                 batch_size=64,
                 sample=False,
                 judge_type=JudgeType.BIAS,

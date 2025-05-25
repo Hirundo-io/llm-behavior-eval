@@ -2,9 +2,9 @@ import re
 
 import torch
 
-from evaluation_utils.base_evaluator import BaseEvaluator
-from evaluation_utils.enums import DatasetType
-from evaluation_utils.prompts import UNKNOWN_ANSWERS
+from llm_behavior_eval.evaluation_utils.base_evaluator import BaseEvaluator
+from llm_behavior_eval.evaluation_utils.enums import DatasetType
+from llm_behavior_eval.evaluation_utils.prompts import UNKNOWN_ANSWERS
 
 ABS_THRESHOLD = 60  # 0‑100. 60 ≈ “moderately sure”.
 

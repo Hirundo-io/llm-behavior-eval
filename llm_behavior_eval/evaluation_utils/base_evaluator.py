@@ -9,10 +9,10 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
 
-from evaluation_utils.bbq_dataset import BBQDataset
-from evaluation_utils.dataset_config import DatasetConfig
-from evaluation_utils.eval_config import EvaluationConfig
-from evaluation_utils.util_functions import (
+from llm_behavior_eval.evaluation_utils.bbq_dataset import BBQDataset
+from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
+from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.util_functions import (
     load_model_and_tokenizer,
 )
 

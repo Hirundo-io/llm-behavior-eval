@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from evaluation_utils.enums import DatasetType, TextFormat
+from llm_behavior_eval.evaluation_utils.enums import DatasetType, TextFormat
 
 
 class PreprocessConfig(BaseSettings):
