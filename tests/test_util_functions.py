@@ -1,11 +1,14 @@
-import pytest
-pytest.importorskip("torch")
+from typing import TYPE_CHECKING, cast
+
 import torch
 
 from llm_behavior_eval.evaluation_utils.util_functions import (
     pick_best_dtype,
     safe_apply_chat_template,
 )
+
+if TYPE_CHECKING:
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 
 class StubTokenizer:
@@ -38,5 +41,7 @@ def test_safe_apply_chat_template_merges_system_message() -> None:
         {"role": "system", "content": "system"},
         {"role": "user", "content": "user"},
     ]
-    formatted = safe_apply_chat_template(tokenizer, messages)
+    formatted = safe_apply_chat_template(
+        cast("PreTrainedTokenizerBase", tokenizer), messages
+    )
     assert "system" in formatted and "user" in formatted
