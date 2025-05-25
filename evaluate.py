@@ -46,7 +46,7 @@ if __name__ == "__main__":
     )
     for model_path_or_repo_id in model_path_or_repo_ids:
         for file_path in file_paths:
-            logging.info("Evaluating %s...", file_path)
+            logging.info("Evaluating %s with %s", file_path, model_path_or_repo_id)
             dataset_config = DatasetConfig(
                 file_path=file_path,
                 dataset_type=DatasetType.UNBIAS
@@ -55,10 +55,7 @@ if __name__ == "__main__":
                 text_format=TextFormat.FREE_TEXT
                 if "free-text" in file_path
                 else TextFormat.MULTIPLE_CHOICE,
-                preprocess_config=PreprocessConfig(
-                    max_length=512,
-                    gt_max_length=64,
-                ),
+                preprocess_config=PreprocessConfig(),
             )
             eval_config = EvaluationConfig(
                 max_samples=None,  # Set to 100 or lower for testing the pipeline works

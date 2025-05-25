@@ -16,7 +16,7 @@ class PreprocessConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="bias_preprocess_")
 
     max_length: int = 512
-    gt_max_length: int = 32
+    gt_max_length: int = 64
     preprocess_batch_size: int = 128
 
 
