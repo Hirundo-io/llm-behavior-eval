@@ -55,11 +55,11 @@ def load_tokenizer(model_name: str) -> PreTrainedTokenizerBase:
         # Attempt to load the tokenizer normally
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         logging.info("Tokenizer loaded successfully from the remote repository.")
-    except ValueError as e:
+    except ValueError as error:
         # Print or log the error details if desired
         logging.info(
             "Standard loading failed: %s. Falling back to local loading using 'local_files_only=True'.",
-            e,
+            error,
         )
         # Retry loading with local_files_only flag
         tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
