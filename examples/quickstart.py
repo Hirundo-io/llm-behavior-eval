@@ -1,10 +1,15 @@
 from pathlib import Path
 from transformers.trainer_utils import set_seed
 
-from evaluation_utils.bias_evaluate_factory import BiasEvaluatorFactory
-from evaluation_utils.dataset_config import DatasetConfig, PreprocessConfig
-from evaluation_utils.enums import DatasetType, TextFormat
-from evaluation_utils.eval_config import EvaluationConfig, JudgeType
+from llm_behavior_eval import (
+    BiasEvaluatorFactory,
+    DatasetConfig,
+    PreprocessConfig,
+    DatasetType,
+    TextFormat,
+    EvaluationConfig,
+    JudgeType,
+)
 
 
 def main() -> None:
