@@ -50,9 +50,13 @@ python evaluate.py
 
 Change the evaluation/dataset settings in `evaluate.py` to customize your runs, see the full options in `dataset_config.py` and `eval_config.py`.
 
+See `examples/quickstart.py` for a minimal script-based workflow.
+
 ## Output
 
 Evaluation reports will be saved as metrics CSV and full responses JSON formats in the desired results directory.
+
+Outputs are organised as `results/<model>/<dataset>_<dataset_type>_<text_format>/`, and a `summary.csv` collects metrics from every run.
 
 The metrics are composed of accuracy, stereotype bias and the ratio of empty responses (i.e. the model generating empty string). 
 
