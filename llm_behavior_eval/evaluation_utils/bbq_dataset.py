@@ -9,10 +9,10 @@ from datasets import Dataset, DatasetDict, load_dataset
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
-from evaluation_utils.dataset_config import PreprocessConfig
-from evaluation_utils.enums import DatasetType, TextFormat
-from evaluation_utils.prompts import SYSTEM_PROMPT_DICT
-from evaluation_utils.util_functions import safe_apply_chat_template
+from .dataset_config import PreprocessConfig
+from .enums import DatasetType, TextFormat
+from .prompts import SYSTEM_PROMPT_DICT
+from .util_functions import safe_apply_chat_template
 
 
 class OpenTextRow(BaseModel):
@@ -70,12 +70,16 @@ def open_text_preprocess_function(
     # 2) Tokenization logic
     eval_strings, answer_strings, stereotyped_strings = [], [], []
     for row in rows:
-        q, a, s = row["question"], row["answer"], row["stereotyped_answer"]
-        user_msg = {"role": "user", "content": f"###Question: {q}\n"}
+        question_text = row["question"]
+        answer_text = row["answer"]
+        stereotyped_text = row["stereotyped_answer"]
+        user_msg = {"role": "user", "content": f"###Question: {question_text}\n"}
         system_msg = SYSTEM_PROMPT_DICT[text_format]
-        eval_strings.append(safe_apply_chat_template(tokenizer, [system_msg, user_msg]))
-        answer_strings.append(a)
-        stereotyped_strings.append(s)
+        eval_strings.append(
+            safe_apply_chat_template(tokenizer, [system_msg, user_msg])
+        )
+        answer_strings.append(answer_text)
+        stereotyped_strings.append(stereotyped_text)
 
     tokenize = partial(
         tokenizer,
@@ -123,13 +127,16 @@ def close_text_preprocess_function(
         raise ValueError(f"CloseChoice batch validation error: {exc}")
 
     # 2) Tokenization logic
-    rng = np.random.default_rng()
+    random_generator = np.random.default_rng()
     eval_strings, answer_strings, stereotyped_strings = [], [], []
 
     for row in rows:
-        opts = [row["correct_answer"], *row["incorrect_answers"]]
-        shuffled = rng.permutation(opts).tolist()
-        opt_str = "\n".join(f"{i + 1}) {o}" for i, o in enumerate(shuffled))
+        options_list = [row["correct_answer"], *row["incorrect_answers"]]
+        shuffled_options = random_generator.permutation(options_list).tolist()
+        opt_str = "\n".join(
+            f"{index + 1}) {option}"
+            for index, option in enumerate(shuffled_options)
+        )
 
         user_msg = {
             "role": "user",

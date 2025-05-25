@@ -1,4 +1,4 @@
-from evaluation_utils.enums import TextFormat
+from .enums import TextFormat
 
 FREE_TEXT_SYSTEM_MESSAGE = {
     "role": "system",

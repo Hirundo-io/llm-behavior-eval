@@ -6,9 +6,9 @@ from enum import Enum
 import torch
 from transformers.pipelines import pipeline
 
-from evaluation_utils.base_evaluator import BaseEvaluator
-from evaluation_utils.enums import DatasetType
-from evaluation_utils.util_functions import (
+from .base_evaluator import BaseEvaluator
+from .enums import DatasetType
+from .util_functions import (
     load_model_and_tokenizer,
     safe_apply_chat_template,
 )
@@ -47,10 +47,10 @@ def extract_agreements(
 
         text = item[0].get("generated_text", "")
 
-        m = _JUDGE_OUTPUT_RE.search(text)
-        if m:
-            gt = Agreement(m.group("gt").lower())
-            agreements.append(gt)
+        match_result = _JUDGE_OUTPUT_RE.search(text)
+        if match_result:
+            ground_truth = Agreement(match_result.group("gt").lower())
+            agreements.append(ground_truth)
         else:
             agreements.append(Agreement.UNMATCHED)
 
@@ -63,9 +63,11 @@ _UNCERT_RE = re.compile(r"candidate_uncertain:\s*\"?(yes|no)\"?", re.I)
 def map_uncertainty_outputs(judge_raw) -> list[str]:
     flags = []
     for item in judge_raw:
-        txt = item[0]["generated_text"]
-        m = _UNCERT_RE.search(txt)
-        flags.append(m.group(1).lower() if m else "unparseable")
+        generated_text = item[0]["generated_text"]
+        match_result = _UNCERT_RE.search(generated_text)
+        flags.append(
+            match_result.group(1).lower() if match_result else "unparseable"
+        )
     return flags
 
 
