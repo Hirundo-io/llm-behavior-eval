@@ -193,7 +193,7 @@ class BBQDataset:
         # and we are using the "cast" function to ensure type safety.
         try:
             raw: DatasetDict = load_dataset(str(self.file_path))  # type: ignore
-        except Exception as exc:  # noqa: BLE001
+        except (OSError, ValueError) as exc:
             raise RuntimeError(
                 f"Failed to load dataset '{self.file_path}'. "
                 "Check that the identifier is correct."
