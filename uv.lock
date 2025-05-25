@@ -538,6 +538,8 @@ dev = [
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
+]
+docs = [
     { name = "sphinx", version = "8.1.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "sphinx", version = "8.2.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
@@ -554,11 +556,11 @@ requires-dist = [
     { name = "pytest" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.5" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.11.11,<1.0.0" },
-    { name = "sphinx", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.0.0" },
     { name = "torch", specifier = ">=2.7.0,<3.0.0" },
     { name = "transformers", specifier = ">=4.51.3,<5.0.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "docs"]
 
 [[package]]
 name = "markupsafe"
