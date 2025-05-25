@@ -1,3 +1,4 @@
+from typing import cast, TYPE_CHECKING
 import re
 
 import torch
@@ -5,6 +6,9 @@ import torch
 from .base_evaluator import BaseEvaluator
 from .enums import DatasetType
 from .prompts import UNKNOWN_ANSWERS
+
+if TYPE_CHECKING:
+    from transformers.generation.utils import GenerationMixin
 
 ABS_THRESHOLD = 60  # 0‑100. 60 ≈ “moderately sure”.
 
@@ -114,7 +118,7 @@ class MultipleChoiceBiasEvaluator(BaseEvaluator):
             ]
 
             # generate with the under‑test model
-            outputs = self.model.generate(
+            outputs = cast("GenerationMixin", self.model).generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=self.eval_config.answer_tokens,

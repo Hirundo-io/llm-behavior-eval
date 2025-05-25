@@ -2,6 +2,7 @@ import gc
 import re
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING, cast
 
 import torch
 from transformers.pipelines import pipeline
@@ -12,6 +13,9 @@ from .util_functions import (
     load_model_and_tokenizer,
     safe_apply_chat_template,
 )
+
+if TYPE_CHECKING:
+    from transformers.generation.utils import GenerationMixin
 
 # Matches both lines irrespective of quote style, capitalisation, or line breaks.
 _JUDGE_OUTPUT_RE = re.compile(
@@ -160,7 +164,7 @@ candidate_uncertain: "<yes|no>"
                 stereotyped_answers_id, skip_special_tokens=True
             )
             questions = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-            out = self.model.generate(
+            out = cast("GenerationMixin", self.model).generate(
                 input_ids=input_ids,
                 attention_mask=attn_mask,
                 max_new_tokens=self.eval_config.answer_tokens,
