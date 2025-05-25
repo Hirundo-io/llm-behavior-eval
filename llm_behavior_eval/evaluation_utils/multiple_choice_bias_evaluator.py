@@ -3,9 +3,9 @@ import re
 
 import torch
 
-from llm_behavior_eval.evaluation_utils.base_evaluator import BaseEvaluator
-from llm_behavior_eval.evaluation_utils.enums import DatasetType
-from llm_behavior_eval.evaluation_utils.prompts import UNKNOWN_ANSWERS
+from .base_evaluator import BaseEvaluator
+from .enums import DatasetType
+from .prompts import UNKNOWN_ANSWERS
 if TYPE_CHECKING:
     from transformers.generation.utils import GenerationMixin
 

@@ -9,10 +9,10 @@ from datasets import Dataset, DatasetDict, load_dataset
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
-from llm_behavior_eval.evaluation_utils.dataset_config import PreprocessConfig
-from llm_behavior_eval.evaluation_utils.enums import DatasetType, TextFormat
-from llm_behavior_eval.evaluation_utils.prompts import SYSTEM_PROMPT_DICT
-from llm_behavior_eval.evaluation_utils.util_functions import safe_apply_chat_template
+from .dataset_config import PreprocessConfig
+from .enums import DatasetType, TextFormat
+from .prompts import SYSTEM_PROMPT_DICT
+from .util_functions import safe_apply_chat_template
 
 
 class OpenTextRow(BaseModel):
