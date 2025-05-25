@@ -191,7 +191,13 @@ class BBQDataset:
         # Type "DatasetDict | Dataset | IterableDatasetDict | IterableDataset" is not assignable to declared type "DatasetDict"
         # To ignore this error, since the loaded dataset is always a DatasetDict
         # and we are using the "cast" function to ensure type safety.
-        raw: DatasetDict = load_dataset(str(self.file_path))  # type: ignore
+        try:
+            raw: DatasetDict = load_dataset(str(self.file_path))  # type: ignore
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(
+                f"Failed to load dataset '{self.file_path}'. "
+                "Check that the identifier is correct."
+            ) from exc
         self.ds = cast(Dataset, raw["train"])
 
     def preprocess(
@@ -220,6 +226,7 @@ class BBQDataset:
             if text_format == TextFormat.FREE_TEXT
             else close_text_preprocess_function
         )
+        validate_dataset_columns(self.ds, text_format)
         old_columns = self.ds.column_names
         processed_dataset = self.ds.map(
             lambda examples: preprocess_function(
