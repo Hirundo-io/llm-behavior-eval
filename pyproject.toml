@@ -36,9 +36,24 @@ dependencies = [
   "transformers>=4.51.3,<5.0.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.11.11,<1.0.0",
+  "bumpver>=2024.1130",
+  "pyright>=1.1.399"
+]
+
 [tool.setuptools.packages.find]
-include = ["evaluation_utils*"]
+include = ["llm_behavior_eval*"]
 exclude = ["results*"]
+
+[tool.bumpver]
+current_version = "0.1.0"
+version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
+
+[tool.bumpver.file_patterns]
+"pyproject.toml" = ['^version = "{version}"$']
+"llm_behavior_eval/__init__.py" = ['^__version__ = "{version}"$']
 
 [project.urls]
 Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
