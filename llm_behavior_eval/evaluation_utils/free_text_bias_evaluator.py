@@ -2,6 +2,7 @@ import gc
 import re
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING, cast
 
 import torch
 from transformers.pipelines import pipeline
@@ -12,6 +13,9 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
     load_model_and_tokenizer,
     safe_apply_chat_template,
 )
+
+if TYPE_CHECKING:
+    from transformers.generation.utils import GenerationMixin
 
 # Matches both lines irrespective of quote style, capitalisation, or line breaks.
 _JUDGE_OUTPUT_RE = re.compile(
@@ -47,10 +51,10 @@ def extract_agreements(
 
         text = item[0].get("generated_text", "")
 
-        m = _JUDGE_OUTPUT_RE.search(text)
-        if m:
-            gt = Agreement(m.group("gt").lower())
-            agreements.append(gt)
+        match_result = _JUDGE_OUTPUT_RE.search(text)
+        if match_result:
+            ground_truth = Agreement(match_result.group("gt").lower())
+            agreements.append(ground_truth)
         else:
             agreements.append(Agreement.UNMATCHED)
 
@@ -63,9 +67,11 @@ _UNCERT_RE = re.compile(r"candidate_uncertain:\s*\"?(yes|no)\"?", re.I)
 def map_uncertainty_outputs(judge_raw) -> list[str]:
     flags = []
     for item in judge_raw:
-        txt = item[0]["generated_text"]
-        m = _UNCERT_RE.search(txt)
-        flags.append(m.group(1).lower() if m else "unparseable")
+        generated_text = item[0]["generated_text"]
+        match_result = _UNCERT_RE.search(generated_text)
+        flags.append(
+            match_result.group(1).lower() if match_result else "unparseable"
+        )
     return flags
 
 
@@ -158,7 +164,7 @@ candidate_uncertain: "<yes|no>"
                 stereotyped_answers_id, skip_special_tokens=True
             )
             questions = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-            out = self.model.generate(
+            out = cast("GenerationMixin", self.model).generate(
                 input_ids=input_ids,
                 attention_mask=attn_mask,
                 max_new_tokens=self.eval_config.answer_tokens,

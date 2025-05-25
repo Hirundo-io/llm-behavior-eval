@@ -19,10 +19,10 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
 
 def custom_collator(batch):
     return {
-        k: torch.nn.utils.rnn.pad_sequence(
-            [torch.tensor(item[k]) for item in batch], batch_first=True
+        key: torch.nn.utils.rnn.pad_sequence(
+            [torch.tensor(item[key]) for item in batch], batch_first=True
         )
-        for k in batch[0]
+        for key in batch[0]
     }
 
 
