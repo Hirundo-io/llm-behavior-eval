@@ -1,7 +1,5 @@
 import gc
 import logging
-import os
-import sys
 from pathlib import Path
 
 import torch
@@ -16,10 +14,6 @@ from llm_behavior_eval import (
     PreprocessConfig,
     TextFormat,
 )
-
-project_root = os.path.dirname(os.path.abspath(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
 
 if __name__ == "__main__":
     model_path_or_repo_ids = [
