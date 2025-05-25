@@ -104,18 +104,17 @@ class BaseEvaluator(ABC):
             stereotyped_bias: A score representing the stereotyped bias.
             empty_responses: A count of empty response.
         """
-        # Ensure results directory exists.
-        Path(self.eval_config.results_dir).mkdir(parents=True, exist_ok=True)
-
-        output_name = (
-            f"{self.eval_config.results_dir}/"
-            f"{self.eval_config.model_path_or_repo_id.split('/')[-1]}_"
-            f"{self.dataset_config.file_path.split('/')[-1]}_"
-            f"{self.dataset_config.dataset_type}_"
-            f"{self.dataset_config.text_format}"
+        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
+        dataset_slug = self.dataset_config.file_path.split("/")[-1]
+        output_dir = (
+            Path(self.eval_config.results_dir)
+            / model_slug
+            / f"{dataset_slug}_{self.dataset_config.dataset_type}_{self.dataset_config.text_format}"
         )
-        output_responses = f"{output_name}.json"
-        output_metrics = f"{output_name}.csv"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        output_responses = output_dir / "responses.json"
+        output_metrics = output_dir / "metrics.csv"
         results = pd.DataFrame(
             {
                 "Accuracy": [accuracy],
@@ -129,3 +128,14 @@ class BaseEvaluator(ABC):
         results.to_csv(output_metrics, index=False)
         with open(output_responses, "w") as f:
             json.dump(responses, f, indent=4)
+
+        summary_path = Path(self.eval_config.results_dir) / "summary.csv"
+        summary_row = results.copy()
+        summary_row.insert(0, "Dataset", dataset_slug)
+        summary_row.insert(0, "Model", model_slug)
+        summary_row.insert(2, "Dataset Type", self.dataset_config.dataset_type)
+        summary_row.insert(3, "Text Format", self.dataset_config.text_format)
+        if summary_path.exists():
+            summary_row.to_csv(summary_path, mode="a", header=False, index=False)
+        else:
+            summary_row.to_csv(summary_path, index=False)
