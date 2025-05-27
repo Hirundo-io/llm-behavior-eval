@@ -48,7 +48,6 @@ jobs:
           bumpver update --set-version ${{ github.event.inputs.version }}
           uv lock
           git commit -am "Bump version to ${{ github.event.inputs.version }}"
-          git push
           git push -u origin release-${{ github.event.inputs.version }}
           gh pr create -a ${{ github.event.sender }} --title "v${{ github.event.inputs.version }}" \
             --body "${{ github.event.inputs.message }}" \
