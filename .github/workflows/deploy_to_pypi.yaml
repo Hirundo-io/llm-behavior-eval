@@ -47,13 +47,13 @@ jobs:
           python-version-file: "pyproject.toml"
 
       - name: Install the project
-        run: uv sync --locked
-
-      - run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
+        run: |
+          uv sync --locked
+          source .venv/bin/activate
 
       - name: Install twine & build package
         run: |
-          pip install build twine
+          uv pip install build twine
           python -m build
       - name: Publish package distributions to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
