@@ -49,12 +49,11 @@ jobs:
       - name: Install the project
         run: |
           uv sync --locked
-          source .venv/bin/activate
 
       - name: Install twine & build package
         run: |
           uv pip install build twine
-          python -m build
+          uv run python -m build
       - name: Publish package distributions to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         if: ${{ contains(github.event.pull_request.labels.*.name, 'test') }}
