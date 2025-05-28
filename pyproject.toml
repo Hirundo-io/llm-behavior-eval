@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "llm-behavior-eval"
-version = "0.1.1b2"
+version = "0.1.1b3"
 description = "Evaluate large-language models for undesirable behaviors such as bias."
 authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
 readme = "README.md"
