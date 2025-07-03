@@ -178,3 +178,4 @@ results/*
 
 # ACT Secrets
 act-events/pr.secrets
+!act-events/pr.json
