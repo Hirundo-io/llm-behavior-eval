@@ -58,7 +58,7 @@ jobs:
         env:
           GITHUB_WORKFLOW_REF: .github/workflows/deploy_to_pypi.yaml
         uses: pypa/gh-action-pypi-publish@release/v1
-        if: ${{ contains(github.event.pull_request.labels.*.name, 'test') }} && ${{ vars.ACT == 'true' }}
+        if: ${{ vars.ACT == 'true' }}
         with:
           repository-url: https://test.pypi.org/legacy/
           password: ${{ secrets.TEST_PYPI_TOKEN }}
