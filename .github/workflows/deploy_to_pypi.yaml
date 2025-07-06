@@ -61,7 +61,7 @@ jobs:
         if: ${{ vars.ACT == 'true' }}
         with:
           repository-url: https://test.pypi.org/legacy/
-          password: ${{ secrets.TEST_PYPI_TOKEN }}
+          password: ${{ secrets.TESTPYPI_APIKEY }}
       - name: Publish package distributions to TestPyPI (Github Actions)
         uses: pypa/gh-action-pypi-publish@release/v1
         if: ${{ contains(github.event.pull_request.labels.*.name, 'test') }}
