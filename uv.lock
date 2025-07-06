@@ -520,7 +520,7 @@ wheels = [
 
 [[package]]
 name = "llm-behavior-eval"
-version = "0.1.2b1"
+version = "0.1.2b2"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },
