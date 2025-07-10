@@ -38,12 +38,23 @@ jobs:
         with:
             python-version-file: "pyproject.toml"
       - name: Install dependencies
+        timeout-minutes: 20
+        env:
+          SLEEP: 15
         run: |
           uv sync --extra docs
           export VERSION_TAG=${{ (github.event_name == 'pull_request' && github.event.pull_request.title) }}
           export VERSION=$(sed -e 's/^v//' <<< $VERSION_TAG)
-          pip install "llm-behavior-eval==${VERSION}"
+
+
+          until pip install "llm-behavior-eval==${VERSION}"; do
+            echo "waiting $SLEEP s"
+            sleep $SLEEP
+          done
+
       - name: Sphinx build
+        env:
+          TZ: "UTC"
         run: |
           uv run sphinx-build -b html docs docs/_build/html
       - name: Setup Pages
