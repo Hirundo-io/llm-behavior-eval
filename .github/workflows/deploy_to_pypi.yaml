@@ -47,15 +47,22 @@ jobs:
           python-version-file: "pyproject.toml"
 
       - name: Install the project
-        run: uv sync --locked
-
-      - run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
+        run: |
+          uv sync --locked
 
       - name: Install twine & build package
         run: |
-          pip install build twine
-          python -m build
-      - name: Publish package distributions to TestPyPI
+          uv pip install build twine
+          uv run python -m build
+      - name: Publish package distributions to TestPyPI (ACT)
+        env:
+          GITHUB_WORKFLOW_REF: .github/workflows/deploy_to_pypi.yaml
+        uses: pypa/gh-action-pypi-publish@release/v1
+        if: ${{ vars.ACT == 'true' }}
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          password: ${{ secrets.TESTPYPI_APIKEY }}
+      - name: Publish package distributions to TestPyPI (Github Actions)
         uses: pypa/gh-action-pypi-publish@release/v1
         if: ${{ contains(github.event.pull_request.labels.*.name, 'test') }}
         with:

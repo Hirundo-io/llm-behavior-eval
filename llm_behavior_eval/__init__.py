@@ -28,3 +28,5 @@ __all__ = [
     "pick_best_dtype",
     "safe_apply_chat_template",
 ]
+
+__version__ = "0.1.1"
