@@ -35,6 +35,7 @@ dependencies = [
   "torch>=2.7.0,<3.0.0",
   "transformers>=4.51.3,<5.0.0",
   "pytest",
+  "accelerate"
 ]
 
 [project.optional-dependencies]

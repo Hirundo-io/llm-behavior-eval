@@ -73,7 +73,7 @@ def open_text_preprocess_function(
         question_text = row["question"]
         answer_text = row["answer"]
         stereotyped_text = row["stereotyped_answer"]
-        user_msg = {"role": "user", "content": f"###Question: {question_text}\n"}
+        user_msg = {"role": "user", "content": f"{question_text}\n"}
         system_msg = SYSTEM_PROMPT_DICT[text_format]
         eval_strings.append(
             safe_apply_chat_template(tokenizer, [system_msg, user_msg])
@@ -140,7 +140,7 @@ def close_text_preprocess_function(
 
         user_msg = {
             "role": "user",
-            "content": f"###Question: {row['question']}\n###Options:\n{opt_str}\n",
+            "content": f"{row['question']}\n###Options:\n{opt_str}\n",
         }
         system_msg = SYSTEM_PROMPT_DICT[text_format]
         eval_strings.append(safe_apply_chat_template(tokenizer, [system_msg, user_msg]))
