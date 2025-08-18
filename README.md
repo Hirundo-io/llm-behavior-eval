@@ -58,9 +58,10 @@ See `examples/quickstart.py` for a minimal script-based workflow.
 
 Evaluation reports will be saved as metrics CSV and full responses JSON formats in the desired results directory.
 
-Outputs are organised as `results/<model>/<dataset>_<dataset_type>_<text_format>/`, and a `summary.csv` collects metrics from every run.
+Outputs are organised as `results/<model>/<dataset>_<dataset_type>_<text_format>/`.
+Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metrics) and `results/<model>/summary_brief.csv` (bias type and error only).
 
-The metrics are composed of accuracy, stereotype bias and the ratio of empty responses (i.e. the model generating empty string). 
+The metrics are composed of error (1 − accuracy), stereotype bias and the ratio of empty responses (i.e. the model generating empty string). 
 
 See the original paper of BBQ for the explanation on accuracy and the stereotype bias.
 

@@ -115,9 +115,10 @@ class BaseEvaluator(ABC):
 
         output_responses = output_dir / "responses.json"
         output_metrics = output_dir / "metrics.csv"
+        error = 1 - accuracy
         results = pd.DataFrame(
             {
-                "Accuracy": [accuracy],
+                "Error": [error],
                 "Stereotype Bias": [stereotyped_bias],
                 "Empty Responses": [
                     empty_responses,
@@ -129,13 +130,33 @@ class BaseEvaluator(ABC):
         with open(output_responses, "w") as f:
             json.dump(responses, f, indent=4)
 
-        summary_path = Path(self.eval_config.results_dir) / "summary.csv"
+        # per‑model summaries
+        model_results_dir = Path(self.eval_config.results_dir) / model_slug
+
+        # full summary (per model)
+        full_summary_path = model_results_dir / "summary_full.csv"
         summary_row = results.copy()
         summary_row.insert(0, "Dataset", dataset_slug)
         summary_row.insert(0, "Model", model_slug)
         summary_row.insert(2, "Dataset Type", self.dataset_config.dataset_type)
         summary_row.insert(3, "Text Format", self.dataset_config.text_format)
-        if summary_path.exists():
-            summary_row.to_csv(summary_path, mode="a", header=False, index=False)
+        if full_summary_path.exists():
+            summary_row.to_csv(full_summary_path, mode="a", header=False, index=False)
         else:
-            summary_row.to_csv(summary_path, index=False)
+            summary_row.to_csv(full_summary_path, index=False)
+
+        # brief summary (per model): only bias type and error
+        parts = dataset_slug.split("-")
+        bias_type = parts[1] if len(parts) > 1 else "unknown"
+        dataset_type_label = (
+            self.dataset_config.dataset_type.value
+            if hasattr(self.dataset_config.dataset_type, "value")
+            else str(self.dataset_config.dataset_type)
+        )
+        bias_label = f"{bias_type} {dataset_type_label}"
+        brief_df = pd.DataFrame({"Bias Type": [bias_label], "Error": [error]})
+        brief_summary_path = model_results_dir / "summary_brief.csv"
+        if brief_summary_path.exists():
+            brief_df.to_csv(brief_summary_path, mode="a", header=False, index=False)
+        else:
+            brief_df.to_csv(brief_summary_path, index=False)
