@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
 
-from .bias_dataset import BiasDataset
+from .custom_dataset import CustomDataset
 from .dataset_config import DatasetConfig
 from .eval_config import EvaluationConfig
 from .util_functions import (
@@ -60,7 +60,7 @@ class BaseEvaluator(ABC):
         to a maximum number of samples defined in the evaluation configuration. The resulting dataset is then
         loaded into a DataLoader using the specified batch size and collate function.
         """
-        bbq_dataset = BiasDataset(
+        bbq_dataset = CustomDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
         test_dataset = bbq_dataset.preprocess(

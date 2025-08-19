@@ -91,7 +91,7 @@ def open_text_preprocess_function(
     return result
 
 
-class BiasDataset:
+class CustomDataset:
     """
     A custom dataset that loads data from a CSV file having only the fields "question" and "answer",
     """
