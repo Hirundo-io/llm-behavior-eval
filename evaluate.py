@@ -1,3 +1,4 @@
+import argparse
 import gc
 import logging
 from pathlib import Path
@@ -6,80 +7,114 @@ import torch
 from transformers.trainer_utils import set_seed
 
 from llm_behavior_eval import (
-    BiasEvaluatorFactory,
     DatasetConfig,
     DatasetType,
+    EvaluateFactory,
     EvaluationConfig,
-    JudgeType,
     PreprocessConfig,
-    TextFormat,
 )
 
-if __name__ == "__main__":
-    model_path_or_repo_ids = [
-        "google/gemma-3-12b-it",
-        "meta-llama/Meta-Llama-3.1-8B-Instruct",
-        "meta-llama/Llama-3.2-3B-Instruct",
-        "google/gemma-7b-it",
-        "google/gemma-2b-it",
-        "google/gemma-3-4b-it",
-    ]
-    judge_path_or_repo_id = "google/gemma-3-12b-it"
+torch.set_float32_matmul_precision("high")
+
+
+def _behavior_presets(behavior: str) -> list[str]:
+    """
+    Map behavior presets to dataset identifiers (free‑text only).
+
+    New formats:
+    - BBQ: "bias:<bias_type>" or "unbias:<bias_type>"
+    - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
+    - Hallucination retained for backward compatibility: "hallu" or "hallu-med"
+    """
+    behavior_parts = [p.strip().lower() for p in behavior.split(":")]
+
+    # Hallucination shortcuts
+    if behavior in {"hallu", "hallucination"}:
+        return ["hirundo-io/halueval"]
+    if behavior in {"hallu-med", "hallucination-med"}:
+        return ["hirundo-io/medhallu"]
+
+    # Expected structures:
+    # [kind, bias_type] for BBQ, where kind in {bias, unbias}
+    # ["unqover", kind, bias_type] for UNQOVER (kind must be 'bias')
+    if len(behavior_parts) == 2:
+        kind, bias_type = behavior_parts
+        if kind not in {"bias", "unbias"}:
+            raise ValueError("For BBQ use 'bias:<bias_type>' or 'unbias:<bias_type>'")
+        from llm_behavior_eval.evaluation_utils.enums import BBQ_BIAS_TYPES
+
+        if bias_type not in BBQ_BIAS_TYPES:
+            allowed = ", ".join(sorted(BBQ_BIAS_TYPES))
+            raise ValueError(f"BBQ supports: {allowed}")
+        return [f"hirundo-io/bbq-{bias_type}-{kind}-free-text"]
+
+    if len(behavior_parts) == 3 and behavior_parts[0] == "unqover":
+        _, kind, bias_type = behavior_parts
+        if kind != "bias":
+            raise ValueError(
+                "UNQOVER supports only 'bias:<bias_type>' (no 'unbias' for UNQOVER)"
+            )
+        from llm_behavior_eval.evaluation_utils.enums import UNQOVER_BIAS_TYPES
+
+        if bias_type not in UNQOVER_BIAS_TYPES:
+            allowed = ", ".join(sorted(UNQOVER_BIAS_TYPES))
+            raise ValueError(f"UNQOVER supports: {allowed}")
+        return [f"unqover/unqover-{bias_type}-{kind}-free-text"]
+
+    raise ValueError(
+        "--behavior must be 'bias:<bias_type>' | 'unbias:<bias_type>' | 'unqover:bias:<bias_type>' | 'hallu' | 'hallu-med'"
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Run LLM behavior evaluation with presets"
+    )
+    parser.add_argument(
+        "--model",
+        required=True,
+        help="Model repo id or path, e.g. meta-llama/Llama-3.1-8B-Instruct",
+    )
+    parser.add_argument(
+        "--behavior",
+        required=True,
+        help=(
+            "Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; "
+            "UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'"
+        ),
+    )
+    args = parser.parse_args()
+
+    model_path_or_repo_id = args.model
     result_dir = Path(__file__).parent / "results"
-    file_paths = [
-        "hirundo-io/bbq-physical-bias-free-text",
-        "hirundo-io/bbq-physical-bias-multi-choice",
-        "hirundo-io/bbq-physical-unbias-free-text",
-        "hirundo-io/bbq-physical-unbias-multi-choice",
-        "hirundo-io/bbq-race-bias-free-text",
-        "hirundo-io/bbq-race-bias-multi-choice",
-        "hirundo-io/bbq-race-unbias-free-text",
-        "hirundo-io/bbq-race-unbias-multi-choice",
-        "hirundo-io/bbq-nationality-bias-free-text",
-        "hirundo-io/bbq-nationality-bias-multi-choice",
-        "hirundo-io/bbq-nationality-unbias-free-text",
-        "hirundo-io/bbq-nationality-unbias-multi-choice",
-        "hirundo-io/bbq-gender-bias-free-text",
-        "hirundo-io/bbq-gender-bias-multi-choice",
-        "hirundo-io/bbq-gender-unbias-free-text",
-        "hirundo-io/bbq-gender-unbias-multi-choice",
-    ]
+    file_paths = _behavior_presets(args.behavior)
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)-8s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    for model_path_or_repo_id in model_path_or_repo_ids:
-        for file_path in file_paths:
-            logging.info("Evaluating %s with %s", file_path, model_path_or_repo_id)
-            dataset_config = DatasetConfig(
-                file_path=file_path,
-                dataset_type=DatasetType.UNBIAS
-                if "unbias" in file_path
-                else DatasetType.BIAS,
-                text_format=TextFormat.FREE_TEXT
-                if "free-text" in file_path
-                else TextFormat.MULTIPLE_CHOICE,
-                preprocess_config=PreprocessConfig(),
-            )
-            eval_config = EvaluationConfig(
-                max_samples=None,  # Set to 100 or lower for testing the pipeline works
-                batch_size=64,
-                sample=False,
-                judge_type=JudgeType.BIAS,
-                answer_tokens=128,
-                model_path_or_repo_id=model_path_or_repo_id,
-                judge_batch_size=64,  # relevant only if the text format is free text
-                judge_output_tokens=32,  # relevant only if the text format is free text
-                judge_path_or_repo_id=judge_path_or_repo_id,  # relevant only if the text format is free text
-                use_4bit_judge=False,  # relevant only if the text format is free text
-                results_dir=result_dir,
-            )
-            set_seed(dataset_config.seed)
-            evaluator = BiasEvaluatorFactory.create_evaluator(
-                eval_config, dataset_config
-            )
-            evaluator.evaluate()
-            del evaluator
-            gc.collect()
-            torch.cuda.empty_cache()
+
+    for file_path in file_paths:
+        logging.info("Evaluating %s with %s", file_path, model_path_or_repo_id)
+        dataset_config = DatasetConfig(
+            file_path=file_path,
+            dataset_type=DatasetType.UNBIAS
+            if "-unbias-" in file_path
+            else DatasetType.BIAS,
+            preprocess_config=PreprocessConfig(),
+        )
+        eval_config = EvaluationConfig(
+            model_path_or_repo_id=model_path_or_repo_id,
+            results_dir=result_dir,
+        )
+        set_seed(dataset_config.seed)
+        evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
+        evaluator.evaluate()
+        del evaluator
+        gc.collect()
+        torch.cuda.empty_cache()
+
+
+if __name__ == "__main__":
+    main()

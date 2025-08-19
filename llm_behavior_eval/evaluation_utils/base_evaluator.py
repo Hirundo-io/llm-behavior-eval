@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
 
-from .bbq_dataset import BBQDataset
+from .bias_dataset import BiasDataset
 from .dataset_config import DatasetConfig
 from .eval_config import EvaluationConfig
 from .util_functions import (
@@ -49,6 +49,8 @@ class BaseEvaluator(ABC):
         self.tokenizer.padding_side = "left"
         self.data_collator = default_data_collator
         self.prepare_dataloader()
+        # set stereotype availability flag from underlying dataset
+        self.has_stereotype: bool = getattr(self, "has_stereotype", False)
 
     def prepare_dataloader(self) -> None:
         """
@@ -58,12 +60,11 @@ class BaseEvaluator(ABC):
         to a maximum number of samples defined in the evaluation configuration. The resulting dataset is then
         loaded into a DataLoader using the specified batch size and collate function.
         """
-        bbq_dataset = BBQDataset(
+        bbq_dataset = BiasDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
         test_dataset = bbq_dataset.preprocess(
             self.tokenizer,
-            self.dataset_config.text_format,
             self.dataset_config.preprocess_config,
         )
         self.num_samples = (
@@ -78,6 +79,8 @@ class BaseEvaluator(ABC):
             shuffle=False,
             collate_fn=self.data_collator,
         )
+        # propagate flag
+        self.has_stereotype = getattr(bbq_dataset, "has_stereotype", False)
 
     @abstractmethod
     def evaluate(self) -> None:
@@ -92,7 +95,7 @@ class BaseEvaluator(ABC):
         self,
         responses: list[dict],
         accuracy: float,
-        stereotyped_bias: float,
+        stereotyped_bias: float | None,
         empty_responses: int,
     ) -> None:
         """
@@ -109,7 +112,7 @@ class BaseEvaluator(ABC):
         output_dir = (
             Path(self.eval_config.results_dir)
             / model_slug
-            / f"{dataset_slug}_{self.dataset_config.dataset_type}_{self.dataset_config.text_format}"
+            / f"{dataset_slug}_{self.dataset_config.dataset_type}"
         )
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -139,7 +142,7 @@ class BaseEvaluator(ABC):
         summary_row.insert(0, "Dataset", dataset_slug)
         summary_row.insert(0, "Model", model_slug)
         summary_row.insert(2, "Dataset Type", self.dataset_config.dataset_type)
-        summary_row.insert(3, "Text Format", self.dataset_config.text_format)
+        summary_row.insert(3, "Text Format", "free_text")
         if full_summary_path.exists():
             summary_row.to_csv(full_summary_path, mode="a", header=False, index=False)
         else:

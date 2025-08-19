@@ -1,151 +1,64 @@
 import logging
 from functools import partial
 from pathlib import Path
-from typing import Annotated, Dict, List, cast
+from typing import Dict, List, cast
 
-import numpy as np
 import torch
 from datasets import Dataset, DatasetDict, load_dataset
-from pydantic import BaseModel, Field, TypeAdapter, ValidationError
+
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from .dataset_config import PreprocessConfig
-from .enums import DatasetType, TextFormat
+from .enums import DatasetType
 from .prompts import SYSTEM_PROMPT_DICT
 from .util_functions import safe_apply_chat_template
 
 
-class OpenTextRow(BaseModel):
-    question: Annotated[str, Field(min_length=1)]
-    answer: Annotated[str, Field(min_length=1)]
-    stereotyped_answer: Annotated[str, Field(min_length=1)]
-
-
-class CloseChoiceRow(BaseModel):
-    question: Annotated[str, Field(min_length=1)]
-    correct_answer: Annotated[str, Field(min_length=1)]
-    incorrect_answers: Annotated[List[str], Field(min_length=1)]
-    stereotyped_answer: Annotated[str, Field(min_length=1)]
-
-
-# TypeAdapters for batch validation (list-of-rows)
-OpenTextAdapter = TypeAdapter(List[OpenTextRow])
-CloseChoiceAdapter = TypeAdapter(List[CloseChoiceRow])
-
-
-def validate_dataset_columns(hf_dataset: Dataset, text_format: TextFormat) -> None:
+def validate_dataset_columns(hf_dataset: Dataset) -> None:
     """
     Validates that the dataset contains the required columns based on the text format.
     Raises a ValueError if any required columns are missing.
     """
-    if text_format == TextFormat.FREE_TEXT:
-        expected = set(OpenTextRow.model_fields.keys())
-    else:
-        expected = set(CloseChoiceRow.model_fields.keys())
+    # Minimum required columns for free-text
+    required = {"question", "answer"}
 
-    missing = expected - set(hf_dataset.column_names)
+    missing = required - set(hf_dataset.column_names)
     if missing:
         raise ValueError(
-            f"Dataset is missing required columns for {text_format}: {missing}; found {hf_dataset.column_names}"
+            f"Dataset is missing required columns: {missing}; found {hf_dataset.column_names}"
         )
 
 
 def open_text_preprocess_function(
     examples_batch: Dict[str, List[str]],
     tokenizer: PreTrainedTokenizerBase,
-    text_format: TextFormat,
     max_length: int,
     gt_max_length: int,
+    has_stereotype: bool,
 ) -> Dict[str, torch.Tensor]:
     # 1) Column check
     rows = [
         dict(zip(examples_batch.keys(), vals))
         for vals in zip(*examples_batch.values(), strict=True)
     ]
-    try:
-        OpenTextAdapter.validate_python(rows)
-    except ValidationError as exc:
-        raise ValueError(f"OpenText batch validation error: {exc}")
+    # Validate minimally required fields only
+    for row in rows:
+        if not row.get("question") or not row.get("answer"):
+            raise ValueError("OpenText row must contain 'question' and 'answer'")
 
     # 2) Tokenization logic
-    eval_strings, answer_strings, stereotyped_strings = [], [], []
+    eval_strings, answer_strings = [], []
+    stereotyped_strings: List[str] = []
     for row in rows:
         question_text = row["question"]
         answer_text = row["answer"]
-        stereotyped_text = row["stereotyped_answer"]
+        stereotyped_text = row.get("stereotyped_answer") if has_stereotype else None
         user_msg = {"role": "user", "content": f"{question_text}\n"}
-        system_msg = SYSTEM_PROMPT_DICT[text_format]
-        eval_strings.append(
-            safe_apply_chat_template(tokenizer, [system_msg, user_msg])
-        )
-        answer_strings.append(answer_text)
-        stereotyped_strings.append(stereotyped_text)
-
-    tokenize = partial(
-        tokenizer,
-        truncation=True,
-        padding="max_length",
-    )
-    enc_eval = tokenize(
-        eval_strings,
-        max_length=max_length,
-    )
-    enc_gt = tokenize(
-        answer_strings,
-        max_length=gt_max_length,
-        add_special_tokens=False,
-    )
-    enc_stereo = tokenize(
-        stereotyped_strings,
-        max_length=gt_max_length,
-        add_special_tokens=False,
-    )
-
-    return {
-        "test_input_ids": torch.tensor(enc_eval["input_ids"]),
-        "test_attention_mask": torch.tensor(enc_eval["attention_mask"]),
-        "gt_answers": torch.tensor(enc_gt["input_ids"]),
-        "stereotyped_answers": torch.tensor(enc_stereo["input_ids"]),
-    }
-
-
-def close_text_preprocess_function(
-    examples_batch: Dict[str, List],
-    tokenizer: PreTrainedTokenizerBase,
-    text_format: TextFormat,
-    max_length: int,
-    gt_max_length: int,
-) -> Dict[str, torch.Tensor]:
-    # 1) Batch validation
-    rows = [
-        dict(zip(examples_batch.keys(), vals))
-        for vals in zip(*examples_batch.values(), strict=True)
-    ]
-    try:
-        CloseChoiceAdapter.validate_python(rows)
-    except ValidationError as exc:
-        raise ValueError(f"CloseChoice batch validation error: {exc}")
-
-    # 2) Tokenization logic
-    random_generator = np.random.default_rng()
-    eval_strings, answer_strings, stereotyped_strings = [], [], []
-
-    for row in rows:
-        options_list = [row["correct_answer"], *row["incorrect_answers"]]
-        shuffled_options = random_generator.permutation(options_list).tolist()
-        opt_str = "\n".join(
-            f"{index + 1}) {option}"
-            for index, option in enumerate(shuffled_options)
-        )
-
-        user_msg = {
-            "role": "user",
-            "content": f"{row['question']}\n###Options:\n{opt_str}\n",
-        }
-        system_msg = SYSTEM_PROMPT_DICT[text_format]
+        system_msg = SYSTEM_PROMPT_DICT
         eval_strings.append(safe_apply_chat_template(tokenizer, [system_msg, user_msg]))
-        answer_strings.append(row["correct_answer"])
-        stereotyped_strings.append(row["stereotyped_answer"])
+        answer_strings.append(answer_text)
+        if has_stereotype:
+            stereotyped_strings.append(stereotyped_text or "")
 
     tokenize = partial(
         tokenizer,
@@ -161,21 +74,24 @@ def close_text_preprocess_function(
         max_length=gt_max_length,
         add_special_tokens=False,
     )
-    enc_stereo = tokenize(
-        stereotyped_strings,
-        max_length=gt_max_length,
-        add_special_tokens=False,
-    )
+    if has_stereotype:
+        enc_stereo = tokenize(
+            stereotyped_strings,
+            max_length=gt_max_length,
+            add_special_tokens=False,
+        )
 
-    return {
+    result = {
         "test_input_ids": torch.tensor(enc_eval["input_ids"]),
         "test_attention_mask": torch.tensor(enc_eval["attention_mask"]),
         "gt_answers": torch.tensor(enc_gt["input_ids"]),
-        "stereotyped_answers": torch.tensor(enc_stereo["input_ids"]),
     }
+    if has_stereotype:
+        result["stereotyped_answers"] = torch.tensor(enc_stereo["input_ids"])  # type: ignore[index]
+    return result
 
 
-class BBQDataset:
+class BiasDataset:
     """
     A custom dataset that loads data from a CSV file having only the fields "question" and "answer",
     and only supports free-text or structured-free-text formats.
@@ -206,11 +122,11 @@ class BBQDataset:
                 "Check that the identifier is correct."
             ) from exc
         self.ds = cast(Dataset, raw["train"])
+        self.has_stereotype: bool = "stereotyped_answer" in self.ds.column_names
 
     def preprocess(
         self,
         tokenizer: PreTrainedTokenizerBase,
-        text_format: TextFormat,
         preprocess_config: PreprocessConfig,
     ) -> Dataset:
         """
@@ -228,20 +144,16 @@ class BBQDataset:
         Returns:
             A test dataset with tokenized fields
         """
-        preprocess_function = (
-            open_text_preprocess_function
-            if text_format == TextFormat.FREE_TEXT
-            else close_text_preprocess_function
-        )
-        validate_dataset_columns(self.ds, text_format)
+        preprocess_function = open_text_preprocess_function
+        validate_dataset_columns(self.ds)
         old_columns = self.ds.column_names
         processed_dataset = self.ds.map(
             lambda examples: preprocess_function(
                 examples,
                 tokenizer,
-                text_format,
                 max_length=preprocess_config.max_length,
                 gt_max_length=preprocess_config.gt_max_length,
+                has_stereotype=self.has_stereotype,
             ),
             batched=True,
             remove_columns=old_columns,

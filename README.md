@@ -20,39 +20,84 @@ BBQ (“Bias Benchmark for Question answering”) is a hand-crafted dataset that
 
 - And more...
 
-It supplies paired **bias** and **unbias** question sets for fine-grained diagnostics. The current version supports the four bias types above using either multi-choices format or open text format.
+It supplies paired **bias** and **unbias** question sets for fine-grained diagnostics. The current version supports the four bias types above using open text format only.
 
-The dataset path format is a HuggingFace id with the following name:
+The dataset path format is a HuggingFace id with the following name (BBQ):
 ```python
-"hirundo-io/bbq-{bias_type}-{either bias or unbias}-{multi-choice or free-text}"
+"hirundo-io/bbq-{bias_type}-{either bias or unbias}-free-text"
 ```
 Where `bias_type` is one of the following values: `{race, nationality, physical, gender}`. Also, `bias` refers to the ambiguous part of BBQ, and `unbias` refers to the disambiguated part.
 
 For example:
 ```python
-"hirundo-io/bbq-race-bias-multi-choice"
+"hirundo-io/bbq-race-bias-free-text"
+
+For UNQOVER datasets use `unqover/<bias_type>` with the same structure, e.g. `unqover/unqover-gender-bias-free-text`.
 ```
 
 ---
 
 ## Requirements
 
-Make sure you have Python 3.10+ installed, then install dependencies:
+Make sure you have Python 3.10+ installed, then set up a virtual environment and install dependencies with `uv`:
 
 ```bash
-git clone https://github.com/your-org/bias-evaluation.git
-cd bias-evaluation
-pip install -e .
+# 1) Clone and enter the repository
+git clone https://github.com/hirundo-io/llm-behavior-eval.git
+cd llm-behavior-eval
+
+# 2) Create and activate a virtual environment (venv)
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 3) Install dependencies using uv
+# (Assumes the `uv` CLI is installed. If not, follow https://docs.astral.sh/uv/ to install it.)
+uv sync
 ```
 
 ## Run the Evaluator
+
+Use the CLI with the required `--model` and `--behavior` arguments. The `--behavior` preset selects datasets for you.
+
 ```bash
-python evaluate.py
+python evaluate.py --model <model_repo_or_path> --behavior <behavior_preset>
 ```
 
-Change the evaluation/dataset settings in `evaluate.py` to customize your runs, see the full options in `dataset_config.py` and `eval_config.py`.
+### Examples
 
-See `examples/quickstart.py` for a minimal script-based workflow.
+- **BBQ (bias)** — evaluate a model on a biased split (free‑text):
+```bash
+python evaluate.py --model google/gemma-2b-it --behavior bias:gender
+```
+
+- **BBQ (unbias)** — evaluate a model on an unambiguous split:
+```bash
+python evaluate.py --model meta-llama/Llama-3.1-8B-Instruct --behavior unbias:race
+```
+
+- **UNQOVER (bias)** — use UNQOVER source datasets (UNQOVER does not support 'unbias'):
+```bash
+python evaluate.py --model google/gemma-2b-it --behavior unqover:bias:gender
+```
+
+- **Hallucination (general)** — HaluEval free‑text:
+```bash
+python evaluate.py --model google/gemma-2b-it --behavior hallu:hallu
+```
+
+- **Hallucination (medical)** — Med-Hallu:
+```bash
+python evaluate.py --model meta-llama/Llama-3.1-8B-Instruct --behavior hallu:hallu-med
+```
+
+Change the evaluation/dataset settings in `evaluate.py` to customize your runs. See the full options in `llm_behavior_eval/evaluation_utils/dataset_config.py` and `llm_behavior_eval/evaluation_utils/eval_config.py`.
+
+See `examples/presets_customization.py` for a minimal script-based workflow.
+
+### Supported bias types
+
+- **BBQ**: gender, race, nationality, physical, age, religion
+- **UNQOVER**: religion, gender, race, nationality (bias only)
 
 ## Output
 
@@ -61,7 +106,7 @@ Evaluation reports will be saved as metrics CSV and full responses JSON formats 
 Outputs are organised as `results/<model>/<dataset>_<dataset_type>_<text_format>/`.
 Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metrics) and `results/<model>/summary_brief.csv` (bias type and error only).
 
-The metrics are composed of error (1 − accuracy), stereotype bias and the ratio of empty responses (i.e. the model generating empty string). 
+The metrics are composed of error (1 − accuracy), stereotype bias (when available) and the ratio of empty responses (i.e. the model generating empty string). 
 
 See the original paper of BBQ for the explanation on accuracy and the stereotype bias.
 
