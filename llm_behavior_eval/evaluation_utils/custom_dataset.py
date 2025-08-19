@@ -102,7 +102,7 @@ class BiasDataset:
         dataset_type: DatasetType,
     ):
         """
-        Initializes the custom dataset with a specified dataset type and bias type.
+        Initializes the custom dataset with a specified dataset type and behavior type.
 
         Args:
             file_path: The local path or HuggingFace name of the dataset csv file.
@@ -137,7 +137,6 @@ class BiasDataset:
         Args:
             datasets_dict: Dictionary mapping dataset split names to HuggingFace Datasets.
             tokenizer: Tokenizer used for text processing.
-            text_format: Format of the text (free-text, structured free-text, or multiple-choice).
             preprocess_config: Configuration for preprocessing the dataset.
 
         Returns:
