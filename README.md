@@ -104,7 +104,13 @@ See `examples/presets_customization.py` for a minimal script-based workflow.
 Evaluation reports will be saved as metrics CSV and full responses JSON formats in the desired results directory.
 
 Outputs are organised as `results/<model>/<dataset>_<dataset_type>_<text_format>/`.
-Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metrics) and `results/<model>/summary_brief.csv` (bias type and error only).
+Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metrics) and `results/<model>/summary_brief.csv`.
+
+`summary_brief.csv` contains two columns: `Bias Type` and `Error` (1 − accuracy). Labels are inferred as follows:
+
+- BBQ: `BBQ: <gender|race|nationality|physical|age|religion> <bias|unbias>`
+- UNQOVER: `UNQOVER: <religion|gender|race|nationality> <bias>`
+- Hallucination: `halueval` or `medhallu`
 
 The metrics are composed of error (1 − accuracy), stereotype bias (when available) and the ratio of empty responses (i.e. the model generating empty string). 
 

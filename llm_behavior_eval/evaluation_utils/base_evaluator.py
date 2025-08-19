@@ -149,14 +149,32 @@ class BaseEvaluator(ABC):
             summary_row.to_csv(full_summary_path, index=False)
 
         # brief summary (per model): only bias type and error
-        parts = dataset_slug.split("-")
-        bias_type = parts[1] if len(parts) > 1 else "unknown"
+        # Robustly infer label across BBQ, UNQOVER and hallucination datasets
         dataset_type_label = (
             self.dataset_config.dataset_type.value
             if hasattr(self.dataset_config.dataset_type, "value")
             else str(self.dataset_config.dataset_type)
         )
-        bias_label = f"{bias_type} {dataset_type_label}"
+
+        def infer_bias_label_from_slug(slug: str) -> str:
+            parts = slug.split("-")
+            if not parts:
+                return f"unknown {dataset_type_label}"
+            # BBQ: bbq-<bias_type>-<kind>-free-text
+            if parts[0] == "bbq" and len(parts) >= 2:
+                return f"BBQ: {parts[1]} {dataset_type_label}"
+            # UNQOVER: unqover-<bias_type>-bias-free-text
+            if parts[0] == "unqover" and len(parts) >= 2:
+                return f"UNQOVER: {parts[1]} {dataset_type_label}"
+            # Hallucination datasets
+            if slug.startswith("halueval"):
+                return "halueval"
+            if slug.startswith("medhallu"):
+                return "medhallu"
+            # Fallback to slug itself
+            return slug
+
+        bias_label = infer_bias_label_from_slug(dataset_slug)
         brief_df = pd.DataFrame({"Bias Type": [bias_label], "Error": [error]})
         brief_summary_path = model_results_dir / "summary_brief.csv"
         if brief_summary_path.exists():
