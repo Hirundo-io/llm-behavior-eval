@@ -32,7 +32,7 @@ dependencies = [
   "pandas==2.3.1",
   "pydantic==2.11.7",
   "pydantic_settings==2.10.1",
-  "torch==2.6.0+cu124",
+  "torch==2.6.0",
   "transformers==4.54.1",
   "networkx==3.4.2",
   "pytest==8.4.1",

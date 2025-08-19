@@ -1,4 +1,4 @@
-from .evaluation_utils.bias_evaluate_factory import EvaluateFactory
+from .evaluation_utils.evaluate_factory import EvaluateFactory
 from .evaluation_utils.dataset_config import DatasetConfig, PreprocessConfig
 from .evaluation_utils.enums import DatasetType
 from .evaluation_utils.eval_config import EvaluationConfig

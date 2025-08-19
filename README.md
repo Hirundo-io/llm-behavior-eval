@@ -56,7 +56,11 @@ source .venv/bin/activate
 
 # 3) Install dependencies using uv
 # (Assumes the `uv` CLI is installed. If not, follow https://docs.astral.sh/uv/ to install it.)
-uv sync
+uv sync --active
+
+or 
+
+pip install -e .
 ```
 
 ## Run the Evaluator
