@@ -24,7 +24,7 @@ class EvaluationConfig(BaseModel):
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
     """
 
-    max_samples: None | int = None
+    max_samples: None | int = 1000
     batch_size: int = 32
     sample: bool = False
     use_4bit: bool = False
