@@ -94,7 +94,6 @@ def open_text_preprocess_function(
 class BiasDataset:
     """
     A custom dataset that loads data from a CSV file having only the fields "question" and "answer",
-    and only supports free-text or structured-free-text formats.
     """
 
     def __init__(
