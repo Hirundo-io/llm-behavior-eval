@@ -43,9 +43,19 @@ class BaseEvaluator(ABC):
         self.eval_config = eval_config
         self.dataset_config = dataset_config
         self.models_tokenizers_pairs = {}
-        self.tokenizer, self.model = load_model_and_tokenizer(
-            eval_config.model_path_or_repo_id, eval_config.use_4bit
-        )
+        if self.eval_config.use_plugin:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            plugin_path = eval_config.model_path_or_repo_id
+            cfg = AutoConfig.from_pretrained(plugin_path)
+            self.tokenizer = AutoTokenizer.from_pretrained(cfg.base_model_name_or_path)
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+            self.model = PluginModelForCausalLM.from_pretrained(plugin_path) 
+            self.model.to(self.device)
+        else:
+            self.tokenizer, self.model = load_model_and_tokenizer(
+                eval_config.model_path_or_repo_id, eval_config.use_4bit
+            )
         self.tokenizer.padding_side = "left"
         self.data_collator = default_data_collator
         self.prepare_dataloader()
@@ -111,6 +121,8 @@ class BaseEvaluator(ABC):
             / model_slug
             / f"{dataset_slug}_{self.dataset_config.dataset_type}_{self.dataset_config.text_format}"
         )
+        if self.eval_config.use_plugin:
+            output_dir = output_dir / "_plugin"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         output_responses = output_dir / "responses.json"
