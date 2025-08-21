@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
-
+from transformers import AutoConfig, AutoTokenizer
 from .bbq_dataset import BBQDataset
 from .dataset_config import DatasetConfig
 from .eval_config import EvaluationConfig
@@ -50,7 +50,7 @@ class BaseEvaluator(ABC):
             self.tokenizer = AutoTokenizer.from_pretrained(cfg.base_model_name_or_path)
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
-            self.model = PluginModelForCausalLM.from_pretrained(plugin_path) 
+            self.model = PluginModelForCausalLM.from_pretrained(plugin_path)
             self.model.to(self.device)
         else:
             self.tokenizer, self.model = load_model_and_tokenizer(

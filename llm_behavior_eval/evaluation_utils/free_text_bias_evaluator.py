@@ -350,8 +350,10 @@ candidate_uncertain: "<yes|no>"
                 strict=True,
             ):
                 is_correct = (
-                    agreement[0] == Agreement.YES                   # normal match
-                    or (correct_answer in UNKNOWN_ANSWERS and is_uncertain_flag == "yes")  # “both / can’t tell” match
+                    agreement[0] == Agreement.YES  # normal match
+                    or (
+                        correct_answer in UNKNOWN_ANSWERS and is_uncertain_flag == "yes"
+                    )  # “both / can’t tell” match
                 )
                 correct_responses += is_correct
 
