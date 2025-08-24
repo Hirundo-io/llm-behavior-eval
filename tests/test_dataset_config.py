@@ -7,4 +7,3 @@ def test_preprocess_config_defaults() -> None:
     assert defaults.max_length == 1024
     assert defaults.gt_max_length == 256
     assert defaults.preprocess_batch_size == 128
-
