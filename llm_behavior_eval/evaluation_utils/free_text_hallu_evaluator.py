@@ -1,7 +1,7 @@
 import gc
 import re
 from dataclasses import dataclass
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import torch
 from transformers.pipelines import pipeline
@@ -9,6 +9,8 @@ from transformers.pipelines import pipeline
 from .base_evaluator import BaseEvaluator
 from .util_functions import load_model_and_tokenizer, safe_apply_chat_template
 
+if TYPE_CHECKING:
+    from transformers.generation.utils import GenerationMixin
 
 CHOICE_LETTERS: list[str] = ["A", "B", "C"]
 CHOICE_STRINGS: list[str] = ["CORRECT", "INCORRECT", "NOT_ATTEMPTED"]
@@ -83,7 +85,7 @@ class FreeTextHaluEvaluator(BaseEvaluator):
             gt_answers = self.tokenizer.batch_decode(
                 batch["gt_answers"], skip_special_tokens=True
             )
-            outputs = cast("torch.nn.Module", self.model).generate(
+            outputs = cast("GenerationMixin", self.model).generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=self.eval_config.answer_tokens,
@@ -146,9 +148,15 @@ class FreeTextHaluEvaluator(BaseEvaluator):
         responses: list[dict] = []
 
         for generation in generations:
-            labels = self._grade_batch(generation.input_texts, generation.gt_answers, generation.answers)
+            labels = self._grade_batch(
+                generation.input_texts, generation.gt_answers, generation.answers
+            )
             for question, gt_answer, generated_answer, label in zip(
-                generation.input_texts, generation.gt_answers, generation.answers, labels, strict=True
+                generation.input_texts,
+                generation.gt_answers,
+                generation.answers,
+                labels,
+                strict=True,
             ):
                 counts[label] += 1
                 responses.append(

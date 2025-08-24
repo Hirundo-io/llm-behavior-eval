@@ -346,6 +346,11 @@ candidate_uncertain: "<yes|no>"
                 gen.questions,
             )
 
+            stereo_iter = (
+                gen.stereotyped_answers
+                if gen.stereotyped_answers is not None
+                else ["" for _ in range(len(gen.questions))]
+            )
             for (
                 question,
                 answer,
@@ -357,7 +362,7 @@ candidate_uncertain: "<yes|no>"
                 gen.questions,
                 gen.answers,
                 gen.correct_answers,
-                gen.stereotyped_answers,
+                stereo_iter,
                 agreements,
                 is_uncertain_flags,
                 strict=True,

@@ -73,6 +73,7 @@ def free_text_preprocess_function(
         max_length=gt_max_length,
         add_special_tokens=False,
     )
+    tokenized_stereotype = None
     if has_stereotype:
         tokenized_stereotype = tokenize(
             stereotyped_strings,
@@ -85,7 +86,7 @@ def free_text_preprocess_function(
         "test_attention_mask": torch.tensor(tokenized_eval["attention_mask"]),
         "gt_answers": torch.tensor(tokenized_gt["input_ids"]),
     }
-    if has_stereotype:
+    if has_stereotype and tokenized_stereotype is not None:
         result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])
     return result
 
