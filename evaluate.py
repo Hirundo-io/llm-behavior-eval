@@ -1,13 +1,8 @@
 import gc
 import logging
-import os
-
-os.environ["PYTORCH_ENABLE_DYNAMO"] = "0"  # must be set before framework init
-
 from pathlib import Path
 
 import torch
-import torch._dynamo
 from transformers.trainer_utils import set_seed
 
 from llm_behavior_eval import (
@@ -20,7 +15,6 @@ from llm_behavior_eval import (
     TextFormat,
 )
 
-torch._dynamo.config.suppress_errors = True
 torch.set_float32_matmul_precision("high")
 
 if __name__ == "__main__":
