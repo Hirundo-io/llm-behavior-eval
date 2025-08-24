@@ -65,34 +65,34 @@ uv is a fast Python package manager from Astral; it’s compatible with pip comm
 Use the CLI with the required `--model` and `--behavior` arguments. The `--behavior` preset selects datasets for you.
 
 ```bash
-python -m llm-behavior-eval --model <model_repo_or_path> --behavior <behavior_preset>
+python -m llm_behavior_eval <model_repo_or_path> <behavior_preset>
 ```
 
 ### Examples
 
 - **BBQ (bias)** — evaluate a model on a biased split (free‑text):
 ```bash
-python evaluate.py --model google/gemma-2b-it --behavior bias:gender
+python -m llm_behavior_eval google/gemma-2b-it bias:gender
 ```
 
 - **BBQ (unbias)** — evaluate a model on an unambiguous split:
 ```bash
-python evaluate.py --model meta-llama/Llama-3.1-8B-Instruct --behavior unbias:race
+python -m llm_behavior_eval meta-llama/Llama-3.1-8B-Instruct unbias:race
 ```
 
 - **UNQOVER (bias)** — use UNQOVER source datasets (UNQOVER does not support 'unbias'):
 ```bash
-python evaluate.py --model google/gemma-2b-it --behavior unqover:bias:gender
+python -m llm_behavior_eval google/gemma-2b-it unqover:bias:gender
 ```
 
 - **Hallucination (general)** — HaluEval free‑text:
 ```bash
-python evaluate.py --model google/gemma-2b-it --behavior hallu:hallu
+python -m llm_behavior_eval google/gemma-2b-it hallu
 ```
 
 - **Hallucination (medical)** — Med-Hallu:
 ```bash
-python evaluate.py --model meta-llama/Llama-3.1-8B-Instruct --behavior hallu:hallu-med
+python -m llm_behavior_eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 ```
 
 Change the evaluation/dataset settings in `evaluate.py` to customize your runs. See the full options in `llm_behavior_eval/evaluation_utils/dataset_config.py` and `llm_behavior_eval/evaluation_utils/eval_config.py`.

@@ -29,7 +29,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     New formats:
     - BBQ: "bias:<bias_type>" or "unbias:<bias_type>"
     - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
-    - Hallucination retained for backward compatibility: "hallu" or "hallu-med"
+    - Hallucinations: "hallu" or "hallu-med"
     """
     behavior_parts = [part.strip().lower() for part in behavior.split(":")]
 
