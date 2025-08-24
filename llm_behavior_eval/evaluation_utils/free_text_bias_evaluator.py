@@ -219,9 +219,13 @@ candidate_uncertain: "<yes|no>"
     ) -> tuple[list[tuple[Agreement, Agreement]], list[str]]:
         gt_prompts = []
         stereotyped_prompts = []
-        seq = zip(
-            llm_answers, correct_answers, stereotyped_answers, questions, strict=True
+        # If stereotyped answers are not available, use empty strings as placeholders
+        stereo_iter = (
+            stereotyped_answers
+            if stereotyped_answers is not None
+            else ["" for _ in range(len(llm_answers))]
         )
+        seq = zip(llm_answers, correct_answers, stereo_iter, questions, strict=True)
         for llm_ans, correct_ans, stereotyped_ans, question in seq:
             gt_messages = [
                 {"role": "system", "content": self.AGREEMENT_CHECK_SYSTEM_PROMPT},
@@ -279,7 +283,7 @@ candidate_uncertain: "<yes|no>"
                 (gt_agreement, Agreement.NO) for gt_agreement in gt_agreements
             ]
         uncertainty_prompts = []
-        for llm_ans in zip(llm_answers, strict=True):
+        for llm_ans in llm_answers:
             messages = [
                 {"role": "system", "content": self.UNCERTAINTY_CHECK_SYSTEM_PROMPT},
                 {
@@ -305,10 +309,10 @@ candidate_uncertain: "<yes|no>"
         self.judge_tokenizer, judge_model = load_model_and_tokenizer(
             self.eval_config.judge_path_or_repo_id, self.eval_config.use_4bit_judge
         )
-        self.judge_pipeline = pipeline(
+        self.judge_pipeline = pipeline(  # type: ignore[call-overload]
             "text-generation",
             model=judge_model,
-            tokenizer=self.judge_tokenizer,
+            tokenizer=self.judge_tokenizer,  # type: ignore[arg-type]
             max_new_tokens=self.eval_config.judge_output_tokens,
             return_full_text=False,
             pad_token_id=self.judge_tokenizer.pad_token_id,

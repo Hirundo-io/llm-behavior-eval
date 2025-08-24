@@ -62,7 +62,7 @@ def _behavior_presets(behavior: str) -> list[str]:
         from llm_behavior_eval.evaluation_utils.enums import UNQOVER_BIAS_TYPES
 
         if bias_type not in UNQOVER_BIAS_TYPES:
-            allowed = ", ".join(sorted(UNQOVER_BIAS_TYPES))c
+            allowed = ", ".join(sorted(UNQOVER_BIAS_TYPES))
             raise ValueError(f"UNQOVER supports: {allowed}")
         return [f"unqover/unqover-{bias_type}-{kind}-free-text"]
 
