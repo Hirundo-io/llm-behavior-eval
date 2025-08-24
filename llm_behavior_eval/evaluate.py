@@ -3,7 +3,9 @@ import logging
 from pathlib import Path
 
 import torch
+import typer
 from transformers.trainer_utils import set_seed
+from typing_extensions import Annotated
 
 from llm_behavior_eval import (
     DatasetConfig,
@@ -12,10 +14,12 @@ from llm_behavior_eval import (
     EvaluationConfig,
     PreprocessConfig,
 )
-import typer
-from typing_extensions import Annotated
 
 torch.set_float32_matmul_precision("high")
+
+BIAS_KINDS = {"bias", "unbias"}
+HALUEVAL_ALIAS = {"hallu", "hallucination"}
+MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 
 
 def _behavior_presets(behavior: str) -> list[str]:
@@ -27,12 +31,12 @@ def _behavior_presets(behavior: str) -> list[str]:
     - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
     - Hallucination retained for backward compatibility: "hallu" or "hallu-med"
     """
-    behavior_parts = [p.strip().lower() for p in behavior.split(":")]
+    behavior_parts = [part.strip().lower() for part in behavior.split(":")]
 
     # Hallucination shortcuts
-    if behavior in {"hallu", "hallucination"}:
+    if behavior in HALUEVAL_ALIAS:
         return ["hirundo-io/halueval"]
-    if behavior in {"hallu-med", "hallucination-med"}:
+    if behavior in MEDHALLU_ALIAS:
         return ["hirundo-io/medhallu"]
 
     # Expected structures:
@@ -40,7 +44,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     # ["unqover", kind, bias_type] for UNQOVER (kind must be 'bias')
     if len(behavior_parts) == 2:
         kind, bias_type = behavior_parts
-        if kind not in {"bias", "unbias"}:
+        if kind not in BIAS_KINDS:
             raise ValueError("For BBQ use 'bias:<bias_type>' or 'unbias:<bias_type>'")
         from llm_behavior_eval.evaluation_utils.enums import BBQ_BIAS_TYPES
 
@@ -58,7 +62,7 @@ def _behavior_presets(behavior: str) -> list[str]:
         from llm_behavior_eval.evaluation_utils.enums import UNQOVER_BIAS_TYPES
 
         if bias_type not in UNQOVER_BIAS_TYPES:
-            allowed = ", ".join(sorted(UNQOVER_BIAS_TYPES))
+            allowed = ", ".join(sorted(UNQOVER_BIAS_TYPES))c
             raise ValueError(f"UNQOVER supports: {allowed}")
         return [f"unqover/unqover-{bias_type}-{kind}-free-text"]
 

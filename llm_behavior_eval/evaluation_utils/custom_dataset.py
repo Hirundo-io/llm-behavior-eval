@@ -1,11 +1,10 @@
 import logging
 from functools import partial
 from pathlib import Path
-from typing import Dict, List, cast
+from typing import cast
 
 import torch
 from datasets import Dataset, DatasetDict, load_dataset
-
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from .dataset_config import PreprocessConfig
@@ -29,13 +28,13 @@ def validate_dataset_columns(hf_dataset: Dataset) -> None:
         )
 
 
-def open_text_preprocess_function(
-    examples_batch: Dict[str, List[str]],
+def free_text_preprocess_function(
+    examples_batch: dict[str, list[str]],
     tokenizer: PreTrainedTokenizerBase,
     max_length: int,
     gt_max_length: int,
     has_stereotype: bool,
-) -> Dict[str, torch.Tensor]:
+) -> dict[str, torch.Tensor]:
     # 1) Column check
     rows = [
         dict(zip(examples_batch.keys(), vals))
@@ -44,11 +43,11 @@ def open_text_preprocess_function(
     # Validate minimally required fields only
     for row in rows:
         if not row.get("question") or not row.get("answer"):
-            raise ValueError("OpenText row must contain 'question' and 'answer'")
+            raise ValueError("FreeText row must contain 'question' and 'answer'")
 
     # 2) Tokenization logic
     eval_strings, answer_strings = [], []
-    stereotyped_strings: List[str] = []
+    stereotyped_strings: list[str] = []
     for row in rows:
         question_text = row["question"]
         answer_text = row["answer"]
@@ -65,29 +64,29 @@ def open_text_preprocess_function(
         truncation=True,
         padding="max_length",
     )
-    enc_eval = tokenize(
+    tokenized_eval = tokenize(
         eval_strings,
         max_length=max_length,
     )
-    enc_gt = tokenize(
+    tokenized_gt = tokenize(
         answer_strings,
         max_length=gt_max_length,
         add_special_tokens=False,
     )
     if has_stereotype:
-        enc_stereo = tokenize(
+        tokenized_stereotype = tokenize(
             stereotyped_strings,
             max_length=gt_max_length,
             add_special_tokens=False,
         )
 
     result = {
-        "test_input_ids": torch.tensor(enc_eval["input_ids"]),
-        "test_attention_mask": torch.tensor(enc_eval["attention_mask"]),
-        "gt_answers": torch.tensor(enc_gt["input_ids"]),
+        "test_input_ids": torch.tensor(tokenized_eval["input_ids"]),
+        "test_attention_mask": torch.tensor(tokenized_eval["attention_mask"]),
+        "gt_answers": torch.tensor(tokenized_gt["input_ids"]),
     }
     if has_stereotype:
-        result["stereotyped_answers"] = torch.tensor(enc_stereo["input_ids"])
+        result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])
     return result
 
 
@@ -110,16 +109,15 @@ class CustomDataset:
         """
         self.file_path = file_path
         self.dataset_type = dataset_type
-        # Type "DatasetDict | Dataset | IterableDatasetDict | IterableDataset" is not assignable to declared type "DatasetDict"
-        # To ignore this error, since the loaded dataset is always a DatasetDict
-        # and we are using the "cast" function to ensure type safety.
         try:
-            raw: DatasetDict = load_dataset(str(self.file_path))  # type: ignore
+            raw = load_dataset(str(self.file_path))
         except (OSError, ValueError) as exc:
             raise RuntimeError(
                 f"Failed to load dataset '{self.file_path}'. "
                 "Check that the identifier is correct."
             ) from exc
+        if not isinstance(raw, DatasetDict):
+            raise ValueError(f"Expected DatasetDict, got {type(raw)}")
         self.ds = cast(Dataset, raw["train"])
         self.has_stereotype: bool = "stereotyped_answer" in self.ds.column_names
 
@@ -142,7 +140,7 @@ class CustomDataset:
         Returns:
             A test dataset with tokenized fields
         """
-        preprocess_function = open_text_preprocess_function
+        preprocess_function = free_text_preprocess_function
         validate_dataset_columns(self.ds)
         old_columns = self.ds.column_names
         processed_dataset = self.ds.map(
