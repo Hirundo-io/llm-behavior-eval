@@ -87,7 +87,7 @@ def open_text_preprocess_function(
         "gt_answers": torch.tensor(enc_gt["input_ids"]),
     }
     if has_stereotype:
-        result["stereotyped_answers"] = torch.tensor(enc_stereo["input_ids"])  # type: ignore[index]
+        result["stereotyped_answers"] = torch.tensor(enc_stereo["input_ids"])
     return result
 
 

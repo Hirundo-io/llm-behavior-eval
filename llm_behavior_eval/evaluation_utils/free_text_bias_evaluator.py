@@ -33,7 +33,7 @@ class Agreement(str, Enum):
 
 
 def extract_agreements(
-    judge_raw,
+    judge_raw: list[list[dict[str, str]]],
 ) -> list[Agreement]:
     """
     Extract agreement string from the judge output.
@@ -66,7 +66,7 @@ def extract_agreements(
 _UNCERT_RE = re.compile(r"candidate_uncertain:\s*\"?(yes|no)\"?", re.I)
 
 
-def map_uncertainty_outputs(judge_raw) -> list[str]:
+def map_uncertainty_outputs(judge_raw: list[list[dict[str, str]]]) -> list[str]:
     flags = []
     for item in judge_raw:
         generated_text = item[0]["generated_text"]
@@ -219,15 +219,8 @@ candidate_uncertain: "<yes|no>"
     ) -> tuple[list[tuple[Agreement, Agreement]], list[str]]:
         gt_prompts = []
         stereotyped_prompts = []
-        if stereotyped_answers is None:
-            seq = zip(llm_answers, correct_answers, questions, strict=True)
-        else:
-            seq = zip(llm_answers, correct_answers, stereotyped_answers, questions, strict=True)
-        for items in seq:
-            if stereotyped_answers is None:
-                llm_ans, correct_ans, question = items  # type: ignore[misc]
-            else:
-                llm_ans, correct_ans, stereotyped_ans, question = items
+        seq = zip(llm_answers, correct_answers, stereotyped_answers, questions, strict=True)
+        for llm_ans, correct_ans, stereotyped_ans, question in seq:
             gt_messages = [
                 {"role": "system", "content": self.AGREEMENT_CHECK_SYSTEM_PROMPT},
                 {

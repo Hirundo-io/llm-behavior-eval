@@ -2,6 +2,9 @@
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[project.scripts]
+llm-behavior-eval = "llm_behavior_eval.evaluate:app"
+
 [project]
 name = "llm-behavior-eval"
 version = "0.1.1"

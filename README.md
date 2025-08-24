@@ -54,13 +54,10 @@ cd llm-behavior-eval
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 3) Install dependencies using uv
-# (Assumes the `uv` CLI is installed. If not, follow https://docs.astral.sh/uv/ to install it.)
-uv sync --active
+# 3) Install dependencies using pip/uv
+pip install llm-behavior-eval (or uv pip install llm-behavior-eval)
 
-or 
-
-pip install -e .
+uv is a fast Python package manager from Astral; it’s compatible with pip commands and typically installs dependencies significantly faster.
 ```
 
 ## Run the Evaluator
@@ -68,7 +65,7 @@ pip install -e .
 Use the CLI with the required `--model` and `--behavior` arguments. The `--behavior` preset selects datasets for you.
 
 ```bash
-python evaluate.py --model <model_repo_or_path> --behavior <behavior_preset>
+python -m llm-behavior-eval --model <model_repo_or_path> --behavior <behavior_preset>
 ```
 
 ### Examples

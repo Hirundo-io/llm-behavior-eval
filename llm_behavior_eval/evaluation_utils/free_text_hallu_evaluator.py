@@ -55,14 +55,14 @@ class FreeTextHaluEvaluator(BaseEvaluator):
         )
 
     @staticmethod
-    def _map_judge_outputs(judge_raw) -> list[str]:
+    def _map_judge_outputs(judge_raw: list[list[dict[str, str]]]) -> list[str]:
         labels = []
         for item in judge_raw:
-            txt = item[0].get("generated_text", "")
-            m = re.search(r"\b([ABC])\b", txt)
+            generated_text = item[0].get("generated_text", "")
+            multiple_choice_answer = re.search(r"\b([ABC])\b", generated_text)
             labels.append(
-                CHOICE_TO_STRING.get(m.group(1), "NOT_ATTEMPTED")
-                if m
+                CHOICE_TO_STRING.get(multiple_choice_answer.group(1), "NOT_ATTEMPTED")
+                if multiple_choice_answer
                 else "NOT_ATTEMPTED"
             )
         return labels
@@ -83,7 +83,7 @@ class FreeTextHaluEvaluator(BaseEvaluator):
             gt_answers = self.tokenizer.batch_decode(
                 batch["gt_answers"], skip_special_tokens=True
             )
-            out = cast("torch.nn.Module", self.model).generate(
+            outputs = cast("torch.nn.Module", self.model).generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=self.eval_config.answer_tokens,
@@ -91,7 +91,7 @@ class FreeTextHaluEvaluator(BaseEvaluator):
                 pad_token_id=self.tokenizer.pad_token_id,
             )
             answers = self.tokenizer.batch_decode(
-                out[:, input_ids.shape[1] :], skip_special_tokens=True
+                outputs[:, input_ids.shape[1] :], skip_special_tokens=True
             )
             generations.append(
                 _GenerationRecord(
@@ -103,9 +103,13 @@ class FreeTextHaluEvaluator(BaseEvaluator):
                 break
         return generations
 
-    def _grade_batch(self, qs: list[str], gs: list[str], ps: list[str]) -> list[str]:
+    def _grade_batch(
+        self, questions: list[str], gt_answers: list[str], generated_answers: list[str]
+    ) -> list[str]:
         prompts = []
-        for q, g, p in zip(qs, gs, ps, strict=True):
+        for question, gt_answer, generated_answer in zip(
+            questions, gt_answers, generated_answers, strict=True
+        ):
             prompts.append(
                 safe_apply_chat_template(
                     self.judge_tokenizer,
@@ -113,7 +117,9 @@ class FreeTextHaluEvaluator(BaseEvaluator):
                         {
                             "role": "user",
                             "content": GRADER_TEMPLATE.format(
-                                question=q, target=g, predicted_answer=p
+                                question=question,
+                                target=gt_answer,
+                                predicted_answer=generated_answer,
                             ),
                         }
                     ],
@@ -139,17 +145,17 @@ class FreeTextHaluEvaluator(BaseEvaluator):
         counts = {k: 0 for k in CHOICE_STRINGS}
         responses: list[dict] = []
 
-        for gen in generations:
-            labels = self._grade_batch(gen.input_texts, gen.gt_answers, gen.answers)
-            for q, g, p, label in zip(
-                gen.input_texts, gen.gt_answers, gen.answers, labels, strict=True
+        for generation in generations:
+            labels = self._grade_batch(generation.input_texts, generation.gt_answers, generation.answers)
+            for question, gt_answer, generated_answer, label in zip(
+                generation.input_texts, generation.gt_answers, generation.answers, labels, strict=True
             ):
                 counts[label] += 1
                 responses.append(
                     {
-                        "question": q,
-                        "gt_answer": g,
-                        "llm_answer": p,
+                        "question": question,
+                        "gt_answer": gt_answer,
+                        "llm_answer": generated_answer,
                         "grade": label,
                     }
                 )

@@ -1,4 +1,3 @@
-import argparse
 import gc
 import logging
 from pathlib import Path
@@ -13,6 +12,8 @@ from llm_behavior_eval import (
     EvaluationConfig,
     PreprocessConfig,
 )
+import typer
+from typing_extensions import Annotated
 
 torch.set_float32_matmul_precision("high")
 
@@ -66,28 +67,21 @@ def _behavior_presets(behavior: str) -> list[str]:
     )
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Run LLM behavior evaluation with presets"
-    )
-    parser.add_argument(
-        "--model",
-        required=True,
-        help="Model repo id or path, e.g. meta-llama/Llama-3.1-8B-Instruct",
-    )
-    parser.add_argument(
-        "--behavior",
-        required=True,
-        help=(
-            "Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; "
-            "UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'"
+def main(
+    model: Annotated[
+        str,
+        typer.Argument(
+            help="Model repo id or path, e.g. meta-llama/Llama-3.1-8B-Instruct"
         ),
-    )
-    args = parser.parse_args()
-
-    model_path_or_repo_id = args.model
+    ],
+    behavior: Annotated[
+        str,
+        typer.Argument(help="Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; "),
+    ],
+) -> None:
+    model_path_or_repo_id = model
     result_dir = Path(__file__).parent / "results"
-    file_paths = _behavior_presets(args.behavior)
+    file_paths = _behavior_presets(behavior)
 
     logging.basicConfig(
         level=logging.INFO,
@@ -116,5 +110,8 @@ def main() -> None:
         torch.cuda.empty_cache()
 
 
+app = typer.Typer()
+app.command()(main)
+
 if __name__ == "__main__":
-    main()
+    app()
