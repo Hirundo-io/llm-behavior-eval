@@ -584,7 +584,7 @@ requires-dist = [
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.0.0" },
     { name = "torch", specifier = "==2.6.0" },
     { name = "transformers", specifier = "==4.54.1" },
-    { name = "typer" },
+    { name = "typer", specifier = "==0.16.1" },
 ]
 provides-extras = ["dev", "docs"]
 
