@@ -1,8 +1,11 @@
 import gc
 import logging
+import os
 from pathlib import Path
 
 import torch
+
+os.environ["TORCHDYNAMO_DISABLE"] = "1"
 from transformers.trainer_utils import set_seed
 
 from llm_behavior_eval import (
@@ -65,13 +68,13 @@ if __name__ == "__main__":
                 preprocess_config=PreprocessConfig(),
             )
             eval_config = EvaluationConfig(
-                max_samples=500,  # Set to 100 or lower for testing the pipeline works
-                batch_size=128,
+                max_samples=100,  # Set to 100 or lower for testing the pipeline works
+                batch_size=64,
                 sample=False,
                 judge_type=JudgeType.BIAS,
                 answer_tokens=128,
                 model_path_or_repo_id=model_path_or_repo_id,
-                judge_batch_size=32,  # relevant only if the text format is free text
+                judge_batch_size=64,  # relevant only if the text format is free text
                 judge_output_tokens=32,  # relevant only if the text format is free text
                 judge_path_or_repo_id=judge_path_or_repo_id,  # relevant only if the text format is free text
                 use_4bit_judge=False,  # relevant only if the text format is free text
