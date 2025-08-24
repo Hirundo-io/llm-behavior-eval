@@ -39,7 +39,7 @@ dependencies = [
   "transformers==4.54.1",
   "networkx==3.4.2",
   "pytest==8.4.1",
-  "typer",
+  "typer==0.16.1",
   "accelerate==1.10.0"
 ]
 
