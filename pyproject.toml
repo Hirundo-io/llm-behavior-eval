@@ -41,6 +41,7 @@ dependencies = [
   "pytest==8.4.1",
   "typer==0.16.1",
   "accelerate==1.10.0"
+  "bitsandbytes==0.47.0"
 ]
 
 [project.optional-dependencies]

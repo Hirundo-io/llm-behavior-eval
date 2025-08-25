@@ -1,4 +1,6 @@
 import gc
+import json
+from pathlib import Path
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
@@ -133,7 +135,32 @@ class FreeTextHaluEvaluator(BaseEvaluator):
         return self._map_judge_outputs(raw)
 
     def evaluate(self) -> None:
-        generations = self._collect_generations()
+        # Collect generations (resumable)
+        output_dir = self.get_output_dir()
+        generations_path = Path(output_dir) / "generations.json"
+        if generations_path.exists():
+            with open(generations_path, "r") as f:
+                raw = json.load(f)
+            generations = [
+                _GenerationRecord(
+                    input_texts=item["input_texts"],
+                    gt_answers=item["gt_answers"],
+                    answers=item["answers"],
+                )
+                for item in raw
+            ]
+        else:
+            generations = self._collect_generations()
+            serializable = [
+                {
+                    "input_texts": g.input_texts,
+                    "gt_answers": g.gt_answers,
+                    "answers": g.answers,
+                }
+                for g in generations
+            ]
+            with open(generations_path, "w") as f:
+                json.dump(serializable, f, indent=2)
 
         # free task model
         self.model.cpu()

@@ -1,4 +1,6 @@
 import gc
+import json
+from pathlib import Path
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -320,8 +322,35 @@ candidate_uncertain: "<yes|no>"
         )
 
     def evaluate(self) -> None:
-        # answers generation pass
-        generations = self._collect_generations()
+        # answers generation pass (resumable)
+        output_dir = self.get_output_dir()
+        generations_path = Path(output_dir) / "generations.json"
+        if generations_path.exists():
+            with open(generations_path, "r") as f:
+                raw = json.load(f)
+            generations = [
+                _GenerationRecord(
+                    questions=item["questions"],
+                    answers=item["answers"],
+                    correct_answers=item["correct_answers"],
+                    stereotyped_answers=item.get("stereotyped_answers"),
+                )
+                for item in raw
+            ]
+        else:
+            generations = self._collect_generations()
+            # persist for resume
+            serializable = [
+                {
+                    "questions": g.questions,
+                    "answers": g.answers,
+                    "correct_answers": g.correct_answers,
+                    "stereotyped_answers": g.stereotyped_answers,
+                }
+                for g in generations
+            ]
+            with open(generations_path, "w") as f:
+                json.dump(serializable, f, indent=2)
 
         # free under-test model
         self.model.cpu()

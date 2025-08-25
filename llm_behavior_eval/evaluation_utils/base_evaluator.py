@@ -52,6 +52,23 @@ class BaseEvaluator(ABC):
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
 
+    def get_output_dir(self) -> Path:
+        """
+        Compute the output directory used for this evaluation run.
+
+        Follows the same convention as save_results, without writing files.
+        Ensures the directory exists.
+        """
+        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
+        dataset_slug = self.dataset_config.file_path.split("/")[-1]
+        output_dir = (
+            Path(self.eval_config.results_dir)
+            / model_slug
+            / f"{dataset_slug}_{self.dataset_config.dataset_type}"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return output_dir
+
     def prepare_dataloader(self) -> None:
         """
         Prepare the evaluation DataLoader.
