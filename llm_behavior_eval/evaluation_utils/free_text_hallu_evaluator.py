@@ -99,7 +99,9 @@ class FreeTextHaluEvaluator(BaseEvaluator):
             )
             generations.append(
                 _GenerationRecord(
-                    input_texts=input_texts, gt_answers=gt_answers, answers=answers
+                    input_texts=input_texts,
+                    gt_answers=gt_answers,
+                    answers=answers,
                 )
             )
             remaining -= len(input_texts)
@@ -108,7 +110,10 @@ class FreeTextHaluEvaluator(BaseEvaluator):
         return generations
 
     def _grade_batch(
-        self, questions: list[str], gt_answers: list[str], generated_answers: list[str]
+        self,
+        questions: list[str],
+        gt_answers: list[str],
+        generated_answers: list[str],
     ) -> list[str]:
         prompts = []
         for question, gt_answer, generated_answer in zip(
