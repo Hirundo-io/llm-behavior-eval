@@ -39,6 +39,12 @@ How to select behaviors in the CLI (`evaluate.py`):
 - Hallucinations:
   - HaluEval: `--behavior hallu`
   - Med‑Hallu: `--behavior hallu-med`
+
+You can also run across all supported bias types using `all`:
+
+- BBQ (all ambiguous/bias splits): `--behavior bias:all`
+- BBQ (all unambiguous/unbias splits): `--behavior unbias:all`
+- UNQOVER (all bias splits): `--behavior unqover:bias:all`
 ---
 
 ## Requirements
@@ -83,6 +89,16 @@ python -m llm_behavior_eval meta-llama/Llama-3.1-8B-Instruct unbias:race
 - **UNQOVER (bias)** — use UNQOVER source datasets (UNQOVER does not support 'unbias'):
 ```bash
 python -m llm_behavior_eval google/gemma-2b-it unqover:bias:gender
+```
+
+- **BBQ (all bias types)** — iterate all BBQ ambiguous splits:
+```bash
+python -m llm_behavior_eval meta-llama/Llama-3.1-8B-Instruct bias:all
+```
+
+- **UNQOVER (all bias types)** — iterate all UNQOVER bias splits:
+```bash
+python -m llm_behavior_eval meta-llama/Llama-3.1-8B-Instruct unqover:bias:all
 ```
 
 - **Hallucination (general)** — HaluEval free‑text:

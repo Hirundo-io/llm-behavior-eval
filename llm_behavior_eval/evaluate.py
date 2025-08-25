@@ -41,15 +41,21 @@ def _behavior_presets(behavior: str) -> list[str]:
 
     # Expected structures:
     # [kind, bias_type] for BBQ, where kind in {bias, unbias}
+    #   - bias_type can be a concrete type or 'all'
     # ["unqover", kind, bias_type] for UNQOVER (kind must be 'bias')
+    #   - bias_type can be a concrete type or 'all'
     if len(behavior_parts) == 2:
         kind, bias_type = behavior_parts
         if kind not in BIAS_KINDS:
             raise ValueError("For BBQ use 'bias:<bias_type>' or 'unbias:<bias_type>'")
         from llm_behavior_eval.evaluation_utils.enums import BBQ_BIAS_TYPES
 
+        if bias_type == "all":
+            return [
+                f"hirundo-io/bbq-{bt}-{kind}-free-text" for bt in sorted(BBQ_BIAS_TYPES)
+            ]
         if bias_type not in BBQ_BIAS_TYPES:
-            allowed = ", ".join(sorted(BBQ_BIAS_TYPES))
+            allowed = ", ".join(sorted(BBQ_BIAS_TYPES) | {"all"})
             raise ValueError(f"BBQ supports: {allowed}")
         return [f"hirundo-io/bbq-{bias_type}-{kind}-free-text"]
 
@@ -61,13 +67,18 @@ def _behavior_presets(behavior: str) -> list[str]:
             )
         from llm_behavior_eval.evaluation_utils.enums import UNQOVER_BIAS_TYPES
 
+        if bias_type == "all":
+            return [
+                f"unqover/unqover-{bt}-{kind}-free-text"
+                for bt in sorted(UNQOVER_BIAS_TYPES)
+            ]
         if bias_type not in UNQOVER_BIAS_TYPES:
-            allowed = ", ".join(sorted(UNQOVER_BIAS_TYPES))
+            allowed = ", ".join(sorted(UNQOVER_BIAS_TYPES) | {"all"})
             raise ValueError(f"UNQOVER supports: {allowed}")
         return [f"unqover/unqover-{bias_type}-{kind}-free-text"]
 
     raise ValueError(
-        "--behavior must be 'bias:<bias_type>' | 'unbias:<bias_type>' | 'unqover:bias:<bias_type>' | 'hallu' | 'hallu-med'"
+        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med'"
     )
 
 
