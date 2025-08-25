@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
 
-from .bbq_dataset import BBQDataset
+from .custom_dataset import CustomDataset
 from .dataset_config import DatasetConfig
 from .eval_config import EvaluationConfig
 from .util_functions import (
@@ -49,6 +49,25 @@ class BaseEvaluator(ABC):
         self.tokenizer.padding_side = "left"
         self.data_collator = default_data_collator
         self.prepare_dataloader()
+        # set stereotype availability flag from underlying dataset
+        self.has_stereotype: bool = getattr(self, "has_stereotype", False)
+
+    def get_output_dir(self) -> Path:
+        """
+        Compute the output directory used for this evaluation run.
+
+        Follows the same convention as save_results, without writing files.
+        Ensures the directory exists.
+        """
+        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
+        dataset_slug = self.dataset_config.file_path.split("/")[-1]
+        output_dir = (
+            Path(self.eval_config.results_dir)
+            / model_slug
+            / f"{dataset_slug}_{self.dataset_config.dataset_type}"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return output_dir
 
     def prepare_dataloader(self) -> None:
         """
@@ -58,12 +77,11 @@ class BaseEvaluator(ABC):
         to a maximum number of samples defined in the evaluation configuration. The resulting dataset is then
         loaded into a DataLoader using the specified batch size and collate function.
         """
-        bbq_dataset = BBQDataset(
+        bbq_dataset = CustomDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
         test_dataset = bbq_dataset.preprocess(
             self.tokenizer,
-            self.dataset_config.text_format,
             self.dataset_config.preprocess_config,
         )
         self.num_samples = (
@@ -78,6 +96,8 @@ class BaseEvaluator(ABC):
             shuffle=False,
             collate_fn=self.data_collator,
         )
+        # propagate flag
+        self.has_stereotype = getattr(bbq_dataset, "has_stereotype", False)
 
     @abstractmethod
     def evaluate(self) -> None:
@@ -92,7 +112,7 @@ class BaseEvaluator(ABC):
         self,
         responses: list[dict],
         accuracy: float,
-        stereotyped_bias: float,
+        stereotyped_bias: float | None,
         empty_responses: int,
     ) -> None:
         """
@@ -109,15 +129,16 @@ class BaseEvaluator(ABC):
         output_dir = (
             Path(self.eval_config.results_dir)
             / model_slug
-            / f"{dataset_slug}_{self.dataset_config.dataset_type}_{self.dataset_config.text_format}"
+            / f"{dataset_slug}_{self.dataset_config.dataset_type}"
         )
         output_dir.mkdir(parents=True, exist_ok=True)
 
         output_responses = output_dir / "responses.json"
         output_metrics = output_dir / "metrics.csv"
+        error = 1 - accuracy
         results = pd.DataFrame(
             {
-                "Accuracy": [accuracy],
+                "Error": [error],
                 "Stereotype Bias": [stereotyped_bias],
                 "Empty Responses": [
                     empty_responses,
@@ -129,13 +150,51 @@ class BaseEvaluator(ABC):
         with open(output_responses, "w") as f:
             json.dump(responses, f, indent=4)
 
-        summary_path = Path(self.eval_config.results_dir) / "summary.csv"
+        # per‑model summaries
+        model_results_dir = Path(self.eval_config.results_dir) / model_slug
+
+        # full summary (per model)
+        full_summary_path = model_results_dir / "summary_full.csv"
         summary_row = results.copy()
         summary_row.insert(0, "Dataset", dataset_slug)
         summary_row.insert(0, "Model", model_slug)
         summary_row.insert(2, "Dataset Type", self.dataset_config.dataset_type)
-        summary_row.insert(3, "Text Format", self.dataset_config.text_format)
-        if summary_path.exists():
-            summary_row.to_csv(summary_path, mode="a", header=False, index=False)
+        summary_row.insert(3, "Text Format", "free_text")
+        if full_summary_path.exists():
+            summary_row.to_csv(full_summary_path, mode="a", header=False, index=False)
         else:
-            summary_row.to_csv(summary_path, index=False)
+            summary_row.to_csv(full_summary_path, index=False)
+
+        # brief summary (per model): only bias type and error
+        # Robustly infer label across BBQ, UNQOVER and hallucination datasets
+        dataset_type_label = (
+            self.dataset_config.dataset_type.value
+            if hasattr(self.dataset_config.dataset_type, "value")
+            else str(self.dataset_config.dataset_type)
+        )
+
+        def infer_bias_label_from_slug(slug: str) -> str:
+            parts = slug.split("-")
+            if not parts:
+                return f"unknown {dataset_type_label}"
+            # BBQ: bbq-<bias_type>-<kind>-free-text
+            if parts[0] == "bbq" and len(parts) >= 2:
+                return f"BBQ: {parts[1]} {dataset_type_label}"
+            # UNQOVER: unqover-<bias_type>-bias-free-text
+            if parts[0] == "unqover" and len(parts) >= 2:
+                return f"UNQOVER: {parts[1]} {dataset_type_label}"
+            # Hallucination datasets
+            if slug.startswith("halueval"):
+                return "halueval"
+            if slug.startswith("medhallu"):
+                return "medhallu"
+            # Fallback to slug itself
+            return slug
+
+        bias_label = infer_bias_label_from_slug(dataset_slug)
+        brief_df = pd.DataFrame({"Bias Type": [bias_label], "Error": [error]})
+        brief_summary_path = model_results_dir / "summary_brief.csv"
+        if brief_summary_path.exists():
+            brief_df.to_csv(brief_summary_path, mode="a", header=False, index=False)
+        else:
+            brief_df.to_csv(brief_summary_path, index=False)

@@ -1,16 +1,12 @@
 from .base_evaluator import BaseEvaluator
 from .dataset_config import DatasetConfig
-from .enums import TextFormat
 from .eval_config import EvaluationConfig
 from .free_text_bias_evaluator import (
     FreeTextBiasEvaluator,
 )
-from .multiple_choice_bias_evaluator import (
-    MultipleChoiceBiasEvaluator,
-)
 
 
-class BiasEvaluatorFactory:
+class EvaluateFactory:
     """
     Class to create and prepare evaluators.
     """
@@ -29,9 +25,15 @@ class BiasEvaluatorFactory:
         Returns:
             An instance of a class that inherits from BaseEvaluator.
         """
-        if dataset_config.text_format == TextFormat.MULTIPLE_CHOICE:
-            return MultipleChoiceBiasEvaluator(eval_config, dataset_config)
-        elif dataset_config.text_format == TextFormat.FREE_TEXT:
-            return FreeTextBiasEvaluator(eval_config, dataset_config)
-        else:
-            raise ValueError(f"Unsupported text format: {dataset_config.text_format}")
+        dataset_id = dataset_config.file_path
+        dataset_id_str = str(dataset_id)
+        if (
+            dataset_id_str.startswith("hirundo-io/halueval-free-text")
+            or "halueval" in dataset_id_str
+            or dataset_id_str.startswith("hirundo-io/medhallu")
+            or "medhallu" in dataset_id_str
+        ):
+            from .free_text_hallu_evaluator import FreeTextHaluEvaluator
+
+            return FreeTextHaluEvaluator(eval_config, dataset_config)
+        return FreeTextBiasEvaluator(eval_config, dataset_config)

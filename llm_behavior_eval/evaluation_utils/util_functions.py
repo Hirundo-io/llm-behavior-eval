@@ -2,7 +2,6 @@ import logging
 
 import torch
 from transformers.modeling_utils import PreTrainedModel
-from transformers.models.auto.configuration_auto import AutoConfig
 from transformers.models.auto.modeling_auto import AutoModelForCausalLM
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -110,12 +109,8 @@ def load_model_and_tokenizer(
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
         raise ValueError("Tokenizer is not supported!")
 
-    # Load the configuration to inspect the model type
-    config = AutoConfig.from_pretrained(model_name)
-    model_type = config.model_type.lower() if config.model_type else ""
-
     # Optionally adjust the tokenizer settings (e.g., for padding)
-    if model_type == "llama":
+    if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
 
     if use_4bit:

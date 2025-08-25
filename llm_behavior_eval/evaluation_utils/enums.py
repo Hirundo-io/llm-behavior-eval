@@ -6,6 +6,21 @@ class DatasetType(str, Enum):
     UNBIAS = "unbias"
 
 
-class TextFormat(str, Enum):
-    MULTIPLE_CHOICE = "multiple_choice"
-    FREE_TEXT = "free_text"
+# Supported bias types per source
+# BBQ supports the following bias types
+BBQ_BIAS_TYPES: set[str] = {
+    "gender",
+    "race",
+    "nationality",
+    "physical",
+    "age",
+    "religion",
+}
+
+# UNQOVER supports the following bias types
+UNQOVER_BIAS_TYPES: set[str] = {
+    "religion",
+    "gender",
+    "race",
+    "nationality",
+}
