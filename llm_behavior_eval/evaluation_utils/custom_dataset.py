@@ -55,7 +55,7 @@ def free_text_preprocess_function(
         stereotyped_text = row.get("stereotyped_answer") if has_stereotype else None
         # Optional overrides for prompt-injection datasets
         system_override = row.get("system_prompt")
-        judge_q_override = row.get("judge_question")
+        judge_question_override = row.get("judge_question")
 
         user_msg = {"role": "user", "content": f"{question_text}\n"}
         system_msg = (
@@ -67,7 +67,7 @@ def free_text_preprocess_function(
         answer_strings.append(answer_text)
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
-        judge_questions.append(judge_q_override or question_text)
+        judge_questions.append(judge_question_override or question_text)
 
     tokenize = partial(
         tokenizer,
@@ -83,7 +83,7 @@ def free_text_preprocess_function(
         max_length=gt_max_length,
         add_special_tokens=False,
     )
-    tokenized_judge_q = tokenize(
+    tokenized_judge_questions = tokenize(
         judge_questions,
         max_length=gt_max_length,
         add_special_tokens=False,
@@ -100,7 +100,7 @@ def free_text_preprocess_function(
         "test_input_ids": torch.tensor(tokenized_eval["input_ids"]),
         "test_attention_mask": torch.tensor(tokenized_eval["attention_mask"]),
         "gt_answers": torch.tensor(tokenized_gt["input_ids"]),
-        "judge_questions": torch.tensor(tokenized_judge_q["input_ids"]),
+        "judge_questions": torch.tensor(tokenized_judge_questions["input_ids"]),
     }
     if has_stereotype and tokenized_stereotype is not None:
         result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])

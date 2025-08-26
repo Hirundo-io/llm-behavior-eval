@@ -112,7 +112,7 @@ Answer in one word Yes or No:"""
                 break
         return generations
 
-    def evaluate(self) -> None:  # identical to parent but stores Yes/No
+    def evaluate(self) -> None:
         # Collect generations (resumable) including judge questions
         raw = self.load_generations()
         if raw is not None:
