@@ -1,11 +1,14 @@
 import gc
 import logging
+import os
 from pathlib import Path
 
 import torch
 import typer
 from transformers.trainer_utils import set_seed
 from typing_extensions import Annotated
+
+os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
 from llm_behavior_eval import (
     DatasetConfig,
@@ -16,6 +19,10 @@ from llm_behavior_eval import (
 )
 
 torch.set_float32_matmul_precision("high")
+torch.backends.cuda.enable_flash_sdp(False)
+torch.backends.cuda.enable_mem_efficient_sdp(False)
+torch.backends.cuda.enable_math_sdp(True)
+
 
 BIAS_KINDS = {"bias", "unbias"}
 HALUEVAL_ALIAS = {"hallu", "hallucination"}

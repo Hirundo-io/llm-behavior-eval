@@ -1,20 +1,15 @@
-import gc
-import json
-from pathlib import Path
 import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, cast
 
 import torch
-from transformers.pipelines import pipeline
 
 from llm_behavior_eval.evaluation_utils.prompts import UNKNOWN_ANSWERS
 
-from .base_evaluator import BaseEvaluator
+from .base_evaluator import FreeTextSharedEvaluator
 from .enums import DatasetType
 from .util_functions import (
-    load_model_and_tokenizer,
     safe_apply_chat_template,
 )
 
@@ -85,7 +80,7 @@ class _GenerationRecord:
     stereotyped_answers: list[str] | None
 
 
-class FreeTextBiasEvaluator(BaseEvaluator):
+class FreeTextBiasEvaluator(FreeTextSharedEvaluator):
     AGREEMENT_CHECK_SYSTEM_PROMPT = """
 You will receive three texts:
 
@@ -308,26 +303,16 @@ candidate_uncertain: "<yes|no>"
         return agreements, is_uncertain_flags
 
     def init_pipeline(self) -> None:
-        self.judge_tokenizer, judge_model = load_model_and_tokenizer(
-            self.eval_config.judge_path_or_repo_id, self.eval_config.use_4bit_judge
-        )
-        self.judge_pipeline = pipeline(  # type: ignore[call-overload]
-            "text-generation",
-            model=judge_model,
-            tokenizer=self.judge_tokenizer,  # type: ignore[arg-type]
-            max_new_tokens=self.eval_config.judge_output_tokens,
-            return_full_text=False,
-            pad_token_id=self.judge_tokenizer.pad_token_id,
-            eos_token_id=self.judge_tokenizer.eos_token_id,
-        )
+        self.init_judge_pipeline(self.eval_config.judge_output_tokens)
+
+    # For bias tasks we keep the dataset type suffix in the output directory
+    def should_include_dataset_type_in_output_dir(self) -> bool:
+        return True
 
     def evaluate(self) -> None:
         # answers generation pass (resumable)
-        output_dir = self.get_output_dir()
-        generations_path = Path(output_dir) / "generations.json"
-        if generations_path.exists():
-            with open(generations_path, "r") as f:
-                raw = json.load(f)
+        raw = self.load_generations()
+        if raw is not None:
             generations = [
                 _GenerationRecord(
                     questions=item["questions"],
@@ -339,7 +324,6 @@ candidate_uncertain: "<yes|no>"
             ]
         else:
             generations = self._collect_generations()
-            # persist for resume
             serializable = [
                 {
                     "questions": g.questions,
@@ -349,14 +333,10 @@ candidate_uncertain: "<yes|no>"
                 }
                 for g in generations
             ]
-            with open(generations_path, "w") as f:
-                json.dump(serializable, f, indent=2)
+            self.save_generations(serializable)
 
         # free under-test model
-        self.model.cpu()
-        del self.model
-        torch.cuda.empty_cache()
-        gc.collect()
+        self.free_test_model()
 
         # load judge
         self.init_pipeline()

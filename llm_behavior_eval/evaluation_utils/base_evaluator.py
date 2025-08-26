@@ -1,3 +1,4 @@
+import gc
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -8,6 +9,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
+from transformers.pipelines import pipeline
 
 from .custom_dataset import CustomDataset
 from .dataset_config import DatasetConfig
@@ -56,16 +58,15 @@ class BaseEvaluator(ABC):
         """
         Compute the output directory used for this evaluation run.
 
-        Follows the same convention as save_results, without writing files.
-        Ensures the directory exists.
+        Uses a consistent convention and ensures the directory exists.
         """
         model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
         dataset_slug = self.dataset_config.file_path.split("/")[-1]
-        output_dir = (
-            Path(self.eval_config.results_dir)
-            / model_slug
-            / f"{dataset_slug}_{self.dataset_config.dataset_type}"
-        )
+        if self.should_include_dataset_type_in_output_dir():
+            folder_name = f"{dataset_slug}_{self.dataset_config.dataset_type}"
+        else:
+            folder_name = dataset_slug
+        output_dir = Path(self.eval_config.results_dir) / model_slug / folder_name
         output_dir.mkdir(parents=True, exist_ok=True)
         return output_dir
 
@@ -126,12 +127,7 @@ class BaseEvaluator(ABC):
         """
         model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
         dataset_slug = self.dataset_config.file_path.split("/")[-1]
-        output_dir = (
-            Path(self.eval_config.results_dir)
-            / model_slug
-            / f"{dataset_slug}_{self.dataset_config.dataset_type}"
-        )
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = self.get_output_dir()
 
         output_responses = output_dir / "responses.json"
         output_metrics = output_dir / "metrics.csv"
@@ -198,3 +194,58 @@ class BaseEvaluator(ABC):
             brief_df.to_csv(brief_summary_path, mode="a", header=False, index=False)
         else:
             brief_df.to_csv(brief_summary_path, index=False)
+
+    # Hook: override in subclasses that want the dataset type in the output dir name
+    def should_include_dataset_type_in_output_dir(self) -> bool:
+        return False
+
+
+class FreeTextSharedEvaluator(BaseEvaluator):
+    """
+    Shared utilities for free‑text evaluators:
+    - Manage generations cache (JSON under output dir)
+    - Free under‑test model before judging
+    - Initialize and free judge pipeline
+    """
+
+    def generations_path(self, filename: str = "generations.json") -> Path:
+        return Path(self.get_output_dir()) / filename
+
+    def load_generations(self, filename: str = "generations.json") -> list[dict] | None:
+        path = self.generations_path(filename)
+        if path.exists():
+            with open(path, "r") as f:
+                return json.load(f)
+        return None
+
+    def save_generations(
+        self, items: list[dict], filename: str = "generations.json"
+    ) -> None:
+        path = self.generations_path(filename)
+        with open(path, "w") as f:
+            json.dump(items, f, indent=2)
+
+    def free_test_model(self) -> None:
+        self.model.cpu()
+        del self.model
+        torch.cuda.empty_cache()
+        gc.collect()
+
+    def init_judge_pipeline(self, max_new_tokens: int) -> None:
+        self.judge_tokenizer, judge_model = load_model_and_tokenizer(
+            self.eval_config.judge_path_or_repo_id, self.eval_config.use_4bit_judge
+        )
+        self.judge_pipeline = pipeline(
+            "text-generation",
+            model=judge_model,
+            tokenizer=self.judge_tokenizer,  # type: ignore
+            max_new_tokens=max_new_tokens,
+            return_full_text=False,
+            pad_token_id=self.judge_tokenizer.pad_token_id,
+            eos_token_id=self.judge_tokenizer.eos_token_id,
+        )
+
+    def free_judge(self) -> None:
+        del self.judge_pipeline
+        torch.cuda.empty_cache()
+        gc.collect()

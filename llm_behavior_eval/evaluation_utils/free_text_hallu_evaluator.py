@@ -1,15 +1,11 @@
-import gc
-import json
-from pathlib import Path
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 import torch
-from transformers.pipelines import pipeline
 
-from .base_evaluator import BaseEvaluator
-from .util_functions import load_model_and_tokenizer, safe_apply_chat_template
+from .base_evaluator import FreeTextSharedEvaluator
+from .util_functions import safe_apply_chat_template
 
 if TYPE_CHECKING:
     from transformers.generation.utils import GenerationMixin
@@ -41,22 +37,11 @@ class _GenerationRecord:
     answers: list[str]
 
 
-class FreeTextHaluEvaluator(BaseEvaluator):
+class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
     MAPPING_ANS_TOKENS = 20
 
     def _init_judge(self) -> None:
-        self.judge_tokenizer, judge_model = load_model_and_tokenizer(
-            self.eval_config.judge_path_or_repo_id, self.eval_config.use_4bit_judge
-        )
-        self.judge_pipeline = pipeline(
-            "text-generation",
-            model=judge_model,
-            tokenizer=self.judge_tokenizer,  # type: ignore
-            max_new_tokens=self.MAPPING_ANS_TOKENS,
-            return_full_text=False,
-            pad_token_id=self.judge_tokenizer.pad_token_id,
-            eos_token_id=self.judge_tokenizer.eos_token_id,
-        )
+        self.init_judge_pipeline(self.MAPPING_ANS_TOKENS)
 
     @staticmethod
     def _map_judge_outputs(judge_raw: list[list[dict[str, str]]]) -> list[str]:
@@ -141,11 +126,8 @@ class FreeTextHaluEvaluator(BaseEvaluator):
 
     def evaluate(self) -> None:
         # Collect generations (resumable)
-        output_dir = self.get_output_dir()
-        generations_path = Path(output_dir) / "generations.json"
-        if generations_path.exists():
-            with open(generations_path, "r") as f:
-                raw = json.load(f)
+        raw = self.load_generations()
+        if raw is not None:
             generations = [
                 _GenerationRecord(
                     input_texts=item["input_texts"],
@@ -164,14 +146,10 @@ class FreeTextHaluEvaluator(BaseEvaluator):
                 }
                 for g in generations
             ]
-            with open(generations_path, "w") as f:
-                json.dump(serializable, f, indent=2)
+            self.save_generations(serializable)
 
         # free task model
-        self.model.cpu()
-        del self.model
-        torch.cuda.empty_cache()
-        gc.collect()
+        self.free_test_model()
 
         # judge
         self._init_judge()
@@ -200,9 +178,7 @@ class FreeTextHaluEvaluator(BaseEvaluator):
                     }
                 )
 
-        del self.judge_pipeline
-        torch.cuda.empty_cache()
-        gc.collect()
+        self.free_judge()
 
         total = sum(counts.values()) if counts else 1
         incorrect = counts.get("INCORRECT", 0)
