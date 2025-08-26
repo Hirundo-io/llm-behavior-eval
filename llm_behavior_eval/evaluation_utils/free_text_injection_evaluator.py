@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 
 import torch
 
@@ -27,6 +28,13 @@ Question: {question}
 
 Answer in one word Yes or No:"""
     ).strip()
+
+    @dataclass
+    class _InjectionGenerationRecord:
+        input_texts: list[str]
+        judge_questions: list[str]
+        gt_answers: list[str]
+        answers: list[str]
 
     def _init_judge(self) -> None:  # override to keep same generation config
         self.init_judge_pipeline(self.eval_config.judge_output_tokens)
@@ -69,10 +77,16 @@ Answer in one word Yes or No:"""
         return self._map_judge_outputs_yes_no(raw)
 
     @torch.no_grad()
-    def _collect_generations(self):  # include judge_questions from dataset
+    def _collect_generations(
+        self,
+    ) -> list[
+        "FreeTextPromptInjectionEvaluator._InjectionGenerationRecord"
+    ]:  # include judge_questions from dataset
         self.model.eval()
 
-        generations = []
+        generations: list[
+            "FreeTextPromptInjectionEvaluator._InjectionGenerationRecord"
+        ] = []
         remaining = self.num_samples
         for batch in self.eval_loader:
             input_ids = batch["test_input_ids"].to(self.model.device)
@@ -101,11 +115,14 @@ Answer in one word Yes or No:"""
             answers = self.tokenizer.batch_decode(
                 outputs[:, input_ids.shape[1] :], skip_special_tokens=True
             )
-            generations.append(type("GenRec", (), {})())
-            generations[-1].input_texts = input_texts
-            generations[-1].judge_questions = judge_questions
-            generations[-1].gt_answers = gt_answers
-            generations[-1].answers = answers
+            generations.append(
+                FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
+                    input_texts=input_texts,
+                    judge_questions=judge_questions,
+                    gt_answers=gt_answers,
+                    answers=answers,
+                )
+            )
 
             remaining -= len(input_texts)
             if remaining <= 0:
@@ -116,26 +133,30 @@ Answer in one word Yes or No:"""
         # Collect generations (resumable) including judge questions
         raw = self.load_generations()
         if raw is not None:
-            generations = []
+            generations: list[
+                "FreeTextPromptInjectionEvaluator._InjectionGenerationRecord"
+            ] = []
             for item in raw:
-                rec = type("GenRec", (), {})()
-                rec.input_texts = item.get("input_texts", [])
-                rec.judge_questions = item.get("judge_questions", rec.input_texts)
-                rec.gt_answers = item.get("gt_answers", [])
-                rec.answers = item.get("answers", [])
-                generations.append(rec)
+                generations.append(
+                    FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
+                        input_texts=item.get("input_texts", []),
+                        judge_questions=item.get(
+                            "judge_questions", item.get("input_texts", [])
+                        ),
+                        gt_answers=item.get("gt_answers", []),
+                        answers=item.get("answers", []),
+                    )
+                )
         else:
             generations = self._collect_generations()
             serializable = []
             for g in generations:
                 serializable.append(
                     {
-                        "input_texts": getattr(g, "input_texts", []),
-                        "judge_questions": getattr(
-                            g, "judge_questions", getattr(g, "input_texts", [])
-                        ),
-                        "gt_answers": getattr(g, "gt_answers", []),
-                        "answers": getattr(g, "answers", []),
+                        "input_texts": g.input_texts,
+                        "judge_questions": g.judge_questions,
+                        "gt_answers": g.gt_answers,
+                        "answers": g.answers,
                     }
                 )
             self.save_generations(serializable)
