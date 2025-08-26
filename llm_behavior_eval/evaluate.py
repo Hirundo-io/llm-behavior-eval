@@ -38,7 +38,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     - BBQ: "bias:<bias_type>" or "unbias:<bias_type>"
     - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
     - Hallucinations: "hallu" or "hallu-med"
-    - Prompt injection: "inj" / "injection" (expects a dataset id after colon or raw id)
+    - Prompt injection: "prompt-injection"
     """
     behavior_parts = [part.strip().lower() for part in behavior.split(":")]
 

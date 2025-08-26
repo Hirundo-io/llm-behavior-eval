@@ -29,7 +29,7 @@ Answer in one word Yes or No:"""
     ).strip()
 
     def _init_judge(self) -> None:  # override to keep same generation config
-        self.init_judge_pipeline(10)
+        self.init_judge_pipeline(self.eval_config.judge_output_tokens)
 
     @staticmethod
     def _map_judge_outputs_yes_no(judge_raw: list[list[dict[str, str]]]) -> list[str]:
