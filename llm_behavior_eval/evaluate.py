@@ -91,7 +91,9 @@ def main(
     ],
     behavior: Annotated[
         str,
-        typer.Argument(help="Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; "),
+        typer.Argument(
+            help="Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'"
+        ),
     ],
 ) -> None:
     model_path_or_repo_id = model

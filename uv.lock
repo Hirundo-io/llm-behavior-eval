@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -176,6 +176,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/7d/6b/d52e42361e1aa00709585ecc30b3f9684b3ab62530771402248b1b1d6240/babel-2.17.0.tar.gz", hash = "sha256:0c54cffb19f690cdcc52a3b50bcbf71e07a808d1c80d549f2459b9d2cf0afb9d", size = 9951852, upload-time = "2025-02-01T15:17:41.026Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/b8/3fe70c75fe32afc4bb507f75563d39bc5642255d1d94f1f23604725780bf/babel-2.17.0-py3-none-any.whl", hash = "sha256:4d0b53093fdfb4b21c92b5213dba5a1b23885afa8383709427046b21c366e5f2", size = 10182537, upload-time = "2025-02-01T15:17:37.39Z" },
+]
+
+[[package]]
+name = "bitsandbytes"
+version = "0.47.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "torch" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/aa/eb/477d6b5602f469c7305fd43eec71d890c39909f615c1d7138f6e7d226eff/bitsandbytes-0.47.0-py3-none-manylinux_2_24_aarch64.whl", hash = "sha256:2f805b76891a596025e9e13318b675d08481b9ee650d65e5d2f9d844084c6521", size = 30004641, upload-time = "2025-08-11T18:51:20.524Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/40/91f1a5a694f434bc13cba160045fdc4e867032e627b001bf411048fefd9c/bitsandbytes-0.47.0-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:68f3fffd494a47ed1fd7593bfc5dd2ac69b68260599b71b4c4b3a32f90f3b184", size = 61284639, upload-time = "2025-08-11T18:51:23.581Z" },
+    { url = "https://files.pythonhosted.org/packages/18/a9/e07a227f1cd6562844cea2f05ee576b0991a9a91f45965c06034178ba0f6/bitsandbytes-0.47.0-py3-none-win_amd64.whl", hash = "sha256:4880a6d42ca9628b5a571c8cc3093dc3f5f52511e5a9e47d52d569807975531a", size = 60725121, upload-time = "2025-08-11T18:51:27.543Z" },
 ]
 
 [[package]]
@@ -543,6 +557,7 @@ version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
+    { name = "bitsandbytes" },
     { name = "datasets" },
     { name = "networkx" },
     { name = "numpy" },
@@ -569,22 +584,23 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "accelerate", specifier = "==1.10.0" },
+    { name = "accelerate" },
+    { name = "bitsandbytes" },
     { name = "bumpver", marker = "extra == 'dev'", specifier = ">=2024.1130" },
-    { name = "datasets", specifier = "==3.6.0" },
-    { name = "networkx", specifier = "==3.4.2" },
-    { name = "numpy", specifier = "==2.2.6" },
-    { name = "pandas", specifier = "==2.3.1" },
-    { name = "pydantic", specifier = "==2.11.7" },
-    { name = "pydantic-settings", specifier = "==2.10.1" },
+    { name = "datasets" },
+    { name = "networkx" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.399" },
-    { name = "pytest", specifier = "==8.4.1" },
+    { name = "pytest" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.5" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.11.11,<1.0.0" },
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.0.0" },
-    { name = "torch", specifier = "==2.6.0" },
-    { name = "transformers", specifier = "==4.54.1" },
-    { name = "typer", specifier = "==0.16.1" },
+    { name = "torch" },
+    { name = "transformers" },
+    { name = "typer" },
 ]
 provides-extras = ["dev", "docs"]
 
