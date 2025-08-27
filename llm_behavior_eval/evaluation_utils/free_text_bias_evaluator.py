@@ -447,14 +447,14 @@ candidate_uncertain: "<yes|no>"
         # save json and aggregated results
         # For UNBIAS tasks, report 1 - error → pass error as "accuracy" so that
         # BaseEvaluator.save_results writes Error = 1 - accuracy = 1 - error
-        final_accuracy = (
+        to_report_metric = (
             (1 - accuracy)
             if self.dataset_config.dataset_type == DatasetType.UNBIAS
             else accuracy
         )
         self.save_results(
             responses,
-            final_accuracy,
+            to_report_metric,
             stereotyped_bias,
             empty_responses,
         )
