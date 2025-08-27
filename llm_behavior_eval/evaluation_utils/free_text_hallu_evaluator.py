@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Sequence, cast
 
 import torch
 
@@ -57,7 +57,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         return labels
 
     @torch.no_grad()
-    def _collect_generations(self) -> list[_GenerationRecord]:
+    def _collect_generations(self) -> Sequence[_GenerationRecord]:
         self.model.eval()
 
         generations: list[_GenerationRecord] = []

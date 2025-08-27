@@ -1,9 +1,13 @@
 import re
 from dataclasses import dataclass
+from typing import Sequence
 
 import torch
 
-from .free_text_hallu_evaluator import FreeTextHaluEvaluator
+from .free_text_hallu_evaluator import (
+    FreeTextHaluEvaluator,
+    _GenerationRecord as _BaseGenerationRecord,
+)
 from .util_functions import safe_apply_chat_template
 
 
@@ -30,11 +34,8 @@ Answer in one word Yes or No:"""
     ).strip()
 
     @dataclass
-    class _InjectionGenerationRecord:
-        input_texts: list[str]
+    class _InjectionGenerationRecord(_BaseGenerationRecord):
         judge_questions: list[str]
-        gt_answers: list[str]
-        answers: list[str]
 
     def _init_judge(self) -> None:  # override to keep same generation config
         self.init_judge_pipeline(self.eval_config.judge_output_tokens)
@@ -79,9 +80,7 @@ Answer in one word Yes or No:"""
     @torch.no_grad()
     def _collect_generations(
         self,
-    ) -> list[
-        "FreeTextPromptInjectionEvaluator._InjectionGenerationRecord"
-    ]:  # include judge_questions from dataset
+    ) -> Sequence[_BaseGenerationRecord]:  # include judge_questions from dataset
         self.model.eval()
 
         generations: list[
