@@ -30,18 +30,18 @@ keywords = [
 requires-python = ">=3.10"
 
 dependencies = [
-  "datasets",
-  "numpy",
-  "pandas",
-  "pydantic",
-  "pydantic_settings",
-  "torch",
-  "transformers",
-  "networkx",
-  "pytest",
-  "typer",
-  "accelerate",
-  "bitsandbytes",
+  "datasets<4.0.0",
+  "numpy<3.0.0",
+  "pandas<3.0.0",
+  "pydantic<3.0.0",
+  "pydantic_settings<3.0.0",
+  "torch<3.0.0",
+  "transformers<5.0.0",
+  "networkx<4.0.0",
+  "pytest<9.0.0",
+  "typer<1.0.0",
+  "accelerate<2.0.0",
+  "bitsandbytes<1.0.0",
 ]
 
 [project.optional-dependencies]
