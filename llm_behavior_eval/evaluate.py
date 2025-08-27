@@ -55,7 +55,7 @@ def _behavior_presets(behavior: str) -> list[str]:
                 f"hirundo-io/bbq-{bt}-{kind}-free-text" for bt in sorted(BBQ_BIAS_TYPES)
             ]
         if bias_type not in BBQ_BIAS_TYPES:
-            allowed = ", ".join(sorted(BBQ_BIAS_TYPES) | {"all"})
+            allowed = ", ".join(sorted(list(BBQ_BIAS_TYPES)) + ["all"])
             raise ValueError(f"BBQ supports: {allowed}")
         return [f"hirundo-io/bbq-{bias_type}-{kind}-free-text"]
 
@@ -73,7 +73,7 @@ def _behavior_presets(behavior: str) -> list[str]:
                 for bt in sorted(UNQOVER_BIAS_TYPES)
             ]
         if bias_type not in UNQOVER_BIAS_TYPES:
-            allowed = ", ".join(sorted(UNQOVER_BIAS_TYPES) | {"all"})
+            allowed = ", ".join(sorted(list(UNQOVER_BIAS_TYPES)) + ["all"])
             raise ValueError(f"UNQOVER supports: {allowed}")
         return [f"unqover/unqover-{bias_type}-{kind}-free-text"]
 
