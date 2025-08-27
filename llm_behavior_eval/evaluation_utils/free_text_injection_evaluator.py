@@ -131,10 +131,10 @@ Answer in one word Yes or No:"""
     def evaluate(self) -> None:
         # Collect generations (resumable) including judge questions
         raw = self.load_generations()
+        generations: Sequence[
+            "FreeTextPromptInjectionEvaluator._InjectionGenerationRecord"
+        ] = []
         if raw is not None:
-            generations: Sequence[
-                "FreeTextPromptInjectionEvaluator._InjectionGenerationRecord"
-            ] = []
             for item in raw:
                 generations.append(
                     FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
@@ -147,7 +147,17 @@ Answer in one word Yes or No:"""
                     )
                 )
         else:
-            generations = self._collect_generations()
+            # _collect_generations returns Sequence[_GenerationRecord], so we need to convert to _InjectionGenerationRecord
+            _raw_generations = self._collect_generations()
+            generations = [
+                FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
+                    input_texts=g.input_texts,
+                    judge_questions=getattr(g, "judge_questions", g.input_texts),
+                    gt_answers=g.gt_answers,
+                    answers=g.answers,
+                )
+                for g in _raw_generations
+            ]
             serializable = []
             for g in generations:
                 serializable.append(
