@@ -43,7 +43,7 @@ def free_text_preprocess_function(
     # Validate minimally required fields only
     for row in rows:
         if not row.get("question") or not row.get("answer"):
-            raise ValueError("FreeText row must contain 'question' and 'answer'")
+            raise ValueError("Free text row must contain 'question' and 'answer'")
 
     # 2) Tokenization logic
     eval_strings, answer_strings = [], []

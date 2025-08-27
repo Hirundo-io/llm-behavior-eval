@@ -66,7 +66,7 @@ def _behavior_presets(behavior: str) -> list[str]:
                 f"hirundo-io/bbq-{bt}-{kind}-free-text" for bt in sorted(BBQ_BIAS_TYPES)
             ]
         if bias_type not in BBQ_BIAS_TYPES:
-            allowed = ", ".join(sorted(set(BBQ_BIAS_TYPES) | {"all"}))
+            allowed = ", ".join(sorted(list(BBQ_BIAS_TYPES)) + ["all"])
             raise ValueError(f"BBQ supports: {allowed}")
         return [f"hirundo-io/bbq-{bias_type}-{kind}-free-text"]
 
@@ -84,7 +84,7 @@ def _behavior_presets(behavior: str) -> list[str]:
                 for bt in sorted(UNQOVER_BIAS_TYPES)
             ]
         if bias_type not in UNQOVER_BIAS_TYPES:
-            allowed = ", ".join(sorted(set(UNQOVER_BIAS_TYPES) | {"all"}))
+            allowed = ", ".join(sorted(list(UNQOVER_BIAS_TYPES)) + ["all"])
             raise ValueError(f"UNQOVER supports: {allowed}")
         return [f"unqover/unqover-{bias_type}-{kind}-free-text"]
 
@@ -102,7 +102,9 @@ def main(
     ],
     behavior: Annotated[
         str,
-        typer.Argument(help="Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; "),
+        typer.Argument(
+            help="Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'"
+        ),
     ],
 ) -> None:
     model_path_or_repo_id = model
