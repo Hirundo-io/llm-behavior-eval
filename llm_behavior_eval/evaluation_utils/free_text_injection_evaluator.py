@@ -83,7 +83,7 @@ Answer in one word Yes or No:"""
     ) -> Sequence[_BaseGenerationRecord]:  # include judge_questions from dataset
         self.model.eval()
 
-        generations: list[
+        generations: Sequence[
             "FreeTextPromptInjectionEvaluator._InjectionGenerationRecord"
         ] = []
         remaining = self.num_samples
@@ -132,7 +132,7 @@ Answer in one word Yes or No:"""
         # Collect generations (resumable) including judge questions
         raw = self.load_generations()
         if raw is not None:
-            generations: list[
+            generations: Sequence[
                 "FreeTextPromptInjectionEvaluator._InjectionGenerationRecord"
             ] = []
             for item in raw:
