@@ -71,44 +71,44 @@ uv is a fast Python package manager from Astral; it’s compatible with pip comm
 Use the CLI with the required `--model` and `--behavior` arguments. The `--behavior` preset selects datasets for you.
 
 ```bash
-python -m llm_behavior_eval <model_repo_or_path> <behavior_preset>
+llm-behavior-eval <model_repo_or_path> <behavior_preset>
 ```
 
 ### Examples
 
 - **BBQ (bias)** — evaluate a model on a biased split (free‑text):
 ```bash
-python -m llm_behavior_eval google/gemma-2b-it bias:gender
+llm-behavior-eval google/gemma-2b-it bias:gender
 ```
 
 - **BBQ (unbias)** — evaluate a model on an unambiguous split:
 ```bash
-python -m llm_behavior_eval meta-llama/Llama-3.1-8B-Instruct unbias:race
+llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct unbias:race
 ```
 
 - **UNQOVER (bias)** — use UNQOVER source datasets (UNQOVER does not support 'unbias'):
 ```bash
-python -m llm_behavior_eval google/gemma-2b-it unqover:bias:gender
+llm-behavior-eval google/gemma-2b-it unqover:bias:gender
 ```
 
 - **BBQ (all bias types)** — iterate all BBQ ambiguous splits:
 ```bash
-python -m llm_behavior_eval meta-llama/Llama-3.1-8B-Instruct bias:all
+llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct bias:all
 ```
 
 - **UNQOVER (all bias types)** — iterate all UNQOVER bias splits:
 ```bash
-python -m llm_behavior_eval meta-llama/Llama-3.1-8B-Instruct unqover:bias:all
+llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct unqover:bias:all
 ```
 
 - **Hallucination (general)** — HaluEval free‑text:
 ```bash
-python -m llm_behavior_eval google/gemma-2b-it hallu
+llm-behavior-eval google/gemma-2b-it hallu
 ```
 
 - **Hallucination (medical)** — Med-Hallu:
 ```bash
-python -m llm_behavior_eval meta-llama/Llama-3.1-8B-Instruct hallu-med
+llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 ```
 
 Change the evaluation/dataset settings in `evaluate.py` to customize your runs. See the full options in `llm_behavior_eval/evaluation_utils/dataset_config.py` and `llm_behavior_eval/evaluation_utils/eval_config.py`.
