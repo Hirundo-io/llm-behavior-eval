@@ -1,8 +1,8 @@
 import gc
 import json
-from pathlib import Path
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import torch
@@ -205,7 +205,7 @@ class FreeTextHaluEvaluator(BaseEvaluator):
 
         self.save_results(
             responses=responses,
-            accuracy=1 - error_rate,
+            metric_value=1 - error_rate,
             stereotyped_bias=None,
             empty_responses=counts.get("NOT_ATTEMPTED", 0),
         )
