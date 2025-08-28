@@ -142,7 +142,7 @@ class BaseEvaluator(ABC):
             }
         )
         logging.info(results)
-        results.to_csv(output_metrics, index=False)
+        results.to_csv(output_metrics, index=False, float_format="%.3f")
         with open(output_responses, "w") as f:
             json.dump(responses, f, indent=4)
 
@@ -157,9 +157,15 @@ class BaseEvaluator(ABC):
         summary_row.insert(2, "Dataset Type", self.dataset_config.dataset_type)
         summary_row.insert(3, "Text Format", "free_text")
         if full_summary_path.exists():
-            summary_row.to_csv(full_summary_path, mode="a", header=False, index=False)
+            summary_row.to_csv(
+                full_summary_path,
+                mode="a",
+                header=False,
+                index=False,
+                float_format="%.3f",
+            )
         else:
-            summary_row.to_csv(full_summary_path, index=False)
+            summary_row.to_csv(full_summary_path, index=False, float_format="%.3f")
 
         # brief summary (per model): only bias type and error
         # Robustly infer label across BBQ, UNQOVER and hallucination datasets
@@ -191,9 +197,15 @@ class BaseEvaluator(ABC):
         brief_df = pd.DataFrame({"Bias Type": [bias_label], "Error": [error]})
         brief_summary_path = model_results_dir / "summary_brief.csv"
         if brief_summary_path.exists():
-            brief_df.to_csv(brief_summary_path, mode="a", header=False, index=False)
+            brief_df.to_csv(
+                brief_summary_path,
+                mode="a",
+                header=False,
+                index=False,
+                float_format="%.3f",
+            )
         else:
-            brief_df.to_csv(brief_summary_path, index=False)
+            brief_df.to_csv(brief_summary_path, index=False, float_format="%.3f")
 
     # Hook: override in subclasses that want the dataset type in the output dir name
     def should_include_dataset_type_in_output_dir(self) -> bool:
