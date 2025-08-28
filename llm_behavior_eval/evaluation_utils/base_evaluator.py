@@ -85,6 +85,8 @@ class BaseEvaluator(ABC):
             self.tokenizer,
             self.dataset_config.preprocess_config,
         )
+        # Deterministic shuffle before sampling
+        test_dataset = test_dataset.shuffle(seed=self.dataset_config.seed)
         self.num_samples = (
             min(len(test_dataset), self.eval_config.max_samples)
             if self.eval_config.max_samples
