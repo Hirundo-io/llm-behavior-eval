@@ -78,10 +78,10 @@ class BaseEvaluator(ABC):
         to a maximum number of samples defined in the evaluation configuration. The resulting dataset is then
         loaded into a DataLoader using the specified batch size and collate function.
         """
-        bbq_dataset = CustomDataset(
+        custom_dataset = CustomDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
-        test_dataset = bbq_dataset.preprocess(
+        test_dataset = custom_dataset.preprocess(
             self.tokenizer,
             self.dataset_config.preprocess_config,
         )
@@ -100,7 +100,7 @@ class BaseEvaluator(ABC):
             collate_fn=self.data_collator,
         )
         # propagate flag
-        self.has_stereotype = getattr(bbq_dataset, "has_stereotype", False)
+        self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
 
     @abstractmethod
     def evaluate(self) -> None:
@@ -134,10 +134,15 @@ class BaseEvaluator(ABC):
         output_responses = output_dir / "responses.json"
         output_metrics = output_dir / "metrics.csv"
         error = 1 - accuracy
+        # Convert ratios to percentages
+        error *= 100.0
+        stereo_percent = (
+            stereotyped_bias * 100.0 if stereotyped_bias is not None else None
+        )
         results = pd.DataFrame(
             {
                 "Error": [error],
-                "Stereotype Bias": [stereotyped_bias],
+                "Stereotype Bias": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
                 ],
