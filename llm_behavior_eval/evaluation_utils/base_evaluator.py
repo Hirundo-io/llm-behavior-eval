@@ -114,7 +114,7 @@ class BaseEvaluator(ABC):
     def save_results(
         self,
         responses: list[dict],
-        accuracy: float,
+        metric_value: float,
         stereotyped_bias: float | None,
         empty_responses: int,
     ) -> None:
@@ -123,7 +123,10 @@ class BaseEvaluator(ABC):
 
         Args:
             responses: The raw responses from the evaluation.
-            accuracy: A score representing the confidence bias.
+            metric_value: A score representing the metric value between 0 and 1.
+                          For bias it is the error.
+                          For unbias and halluciantions it is the accuracy.
+                          For prompt injection it is the accuracy.
             stereotyped_bias: A score representing the stereotyped bias.
             empty_responses: A count of empty response.
         """
@@ -133,15 +136,14 @@ class BaseEvaluator(ABC):
 
         output_responses = output_dir / "responses.json"
         output_metrics = output_dir / "metrics.csv"
-        error = 1 - accuracy
         # Convert ratios to percentages
-        error *= 100.0
+        metric_value *= 100.0
         stereo_percent = (
             stereotyped_bias * 100.0 if stereotyped_bias is not None else None
         )
         results = pd.DataFrame(
             {
-                "Error": [error],
+                "Metric Value": [metric_value],
                 "Stereotype Bias": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
@@ -201,7 +203,9 @@ class BaseEvaluator(ABC):
             return slug
 
         bias_label = infer_bias_label_from_slug(dataset_slug)
-        brief_df = pd.DataFrame({"Bias Type": [bias_label], "Error": [error]})
+        brief_df = pd.DataFrame(
+            {"Bias Type": [bias_label], "Metric Value": [metric_value]}
+        )
         brief_summary_path = model_results_dir / "summary_brief.csv"
         if brief_summary_path.exists():
             brief_df.to_csv(
