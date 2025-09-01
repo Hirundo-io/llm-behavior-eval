@@ -39,7 +39,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         judge_questions: list[str]
 
     def _init_judge(self) -> None:  # override to keep same generation config
-        self.init_judge_pipeline(self.eval_config.judge_output_tokens)
+        self.init_judge_pipeline()
 
     @staticmethod
     def _map_judge_outputs_yes_no(judge_raw: list[list[dict[str, str]]]) -> list[str]:
