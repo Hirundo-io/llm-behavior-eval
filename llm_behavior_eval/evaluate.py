@@ -52,7 +52,7 @@ def _behavior_presets(behavior: str) -> list[str]:
 
         if bias_type == "all":
             return [
-                f"hirundo-io/bbq-{bt}-{kind}-free-text" for bt in sorted(BBQ_BIAS_TYPES)
+                f"hirundo-io/bbq-{bias_type}-{kind}-free-text" for bias_type in sorted(BBQ_BIAS_TYPES)
             ]
         if bias_type not in BBQ_BIAS_TYPES:
             allowed = ", ".join(sorted(list(BBQ_BIAS_TYPES)) + ["all"])

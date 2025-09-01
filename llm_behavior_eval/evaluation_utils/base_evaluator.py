@@ -15,6 +15,7 @@ from .eval_config import EvaluationConfig
 from .util_functions import (
     load_model_and_tokenizer,
 )
+from .enums import DatasetType
 
 
 def custom_collator(batch):
@@ -138,9 +139,25 @@ class BaseEvaluator(ABC):
 
         output_responses = output_dir / "responses.json"
         output_metrics = output_dir / "metrics.csv"
+        # Decide column header based on dataset kind:
+        # - Hallucination and UNBIAS report Accuracy
+        # - Otherwise (BIAS) report Error
+        dataset_type_value = (
+            self.dataset_config.dataset_type.value
+            if hasattr(self.dataset_config.dataset_type, "value")
+            else str(self.dataset_config.dataset_type)
+        )
+        is_unbias = (
+            self.dataset_config.dataset_type == DatasetType.UNBIAS
+            or dataset_type_value == "unbias"
+        )
+        is_hallucination = dataset_slug.startswith(
+            "halueval"
+        ) or dataset_slug.startswith("medhallu")
+        metric_column_name = "Accuracy" if (is_unbias or is_hallucination) else "Error"
         results = pd.DataFrame(
             {
-                "Metric Value": [metric_value],
+                metric_column_name: [metric_value],
                 "Stereotype Bias": [stereotyped_bias],
                 "Empty Responses": [
                     empty_responses,
