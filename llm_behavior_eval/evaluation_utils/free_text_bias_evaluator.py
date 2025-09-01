@@ -303,7 +303,7 @@ candidate_uncertain: "<yes|no>"
         return agreements, is_uncertain_flags
 
     def init_pipeline(self) -> None:
-        self.init_judge_pipeline(self.eval_config.judge_output_tokens)
+        self.init_judge_pipeline()
 
     # For bias tasks we keep the dataset type suffix in the output directory
     def should_include_dataset_type_in_output_dir(self) -> bool:

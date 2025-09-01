@@ -17,6 +17,7 @@ from .eval_config import EvaluationConfig
 from .util_functions import (
     load_model_and_tokenizer,
 )
+from .enums import DatasetType
 
 
 def custom_collator(batch):
@@ -136,15 +137,31 @@ class BaseEvaluator(ABC):
 
         output_responses = output_dir / "responses.json"
         output_metrics = output_dir / "metrics.csv"
-        # Convert ratios to percentages
+        # Decide column header based on dataset kind:
+        # - Hallucination and UNBIAS report Accuracy
+        # - Otherwise (BIAS) report Error
+        dataset_type_value = (
+            self.dataset_config.dataset_type.value
+            if hasattr(self.dataset_config.dataset_type, "value")
+            else str(self.dataset_config.dataset_type)
+        )
+        is_unbias = (
+            self.dataset_config.dataset_type == DatasetType.UNBIAS
+            or dataset_type_value == "unbias"
+        )
+        is_hallucination = dataset_slug.startswith(
+            "halueval"
+        ) or dataset_slug.startswith("medhallu")
+        metric_column_name = "Accuracy" if (is_unbias or is_hallucination) else "Error"
+                # Convert ratios to percentages
         metric_value *= 100.0
         stereo_percent = (
             stereotyped_bias * 100.0 if stereotyped_bias is not None else None
         )
         results = pd.DataFrame(
             {
-                "Metric Value": [metric_value],
-                "Stereotype Bias": [stereo_percent],
+                metric_column_name: [metric_value],
+                "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
                 ],
@@ -254,7 +271,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         torch.cuda.empty_cache()
         gc.collect()
 
-    def init_judge_pipeline(self, max_new_tokens: int) -> None:
+    def init_judge_pipeline(self) -> None:
         self.judge_tokenizer, judge_model = load_model_and_tokenizer(
             self.eval_config.judge_path_or_repo_id, self.eval_config.use_4bit_judge
         )
@@ -262,7 +279,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             "text-generation",
             model=judge_model,
             tokenizer=self.judge_tokenizer,  # type: ignore
-            max_new_tokens=max_new_tokens,
+            max_new_tokens=self.eval_config.judge_output_tokens,
             return_full_text=False,
             pad_token_id=self.judge_tokenizer.pad_token_id,
             eos_token_id=self.judge_tokenizer.eos_token_id,

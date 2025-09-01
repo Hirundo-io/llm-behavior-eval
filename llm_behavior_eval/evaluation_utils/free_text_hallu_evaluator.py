@@ -38,10 +38,9 @@ class _GenerationRecord:
 
 
 class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
-    MAPPING_ANS_TOKENS = 20
 
     def _init_judge(self) -> None:
-        self.init_judge_pipeline(self.MAPPING_ANS_TOKENS)
+        self.init_judge_pipeline()
 
     @staticmethod
     def _map_judge_outputs(judge_raw: list[list[dict[str, str]]]) -> list[str]:

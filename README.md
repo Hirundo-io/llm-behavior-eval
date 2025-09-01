@@ -52,19 +52,15 @@ You can also run across all supported bias types using `all`:
 Make sure you have Python 3.10+ installed, then set up a virtual environment and install dependencies with `uv`:
 
 ```bash
-# 1) Clone and enter the repository
-git clone https://github.com/hirundo-io/llm-behavior-eval.git
-cd llm-behavior-eval
-
-# 2) Create and activate a virtual environment (venv)
+# 1) Create and activate a virtual environment (venv)
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 3) Install dependencies using pip/uv
+# 2) Install dependencies using pip/uv
 pip install llm-behavior-eval (or uv pip install llm-behavior-eval)
+```
 
 uv is a fast Python package manager from Astral; it’s compatible with pip commands and typically installs dependencies significantly faster.
-```
 
 ## Run the Evaluator
 

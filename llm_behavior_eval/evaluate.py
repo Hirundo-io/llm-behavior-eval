@@ -19,10 +19,6 @@ from llm_behavior_eval import (
 )
 
 torch.set_float32_matmul_precision("high")
-torch.backends.cuda.enable_flash_sdp(False)
-torch.backends.cuda.enable_mem_efficient_sdp(False)
-torch.backends.cuda.enable_math_sdp(True)
-
 
 BIAS_KINDS = {"bias", "unbias"}
 HALUEVAL_ALIAS = {"hallu", "hallucination"}
@@ -63,7 +59,7 @@ def _behavior_presets(behavior: str) -> list[str]:
 
         if bias_type == "all":
             return [
-                f"hirundo-io/bbq-{bt}-{kind}-free-text" for bt in sorted(BBQ_BIAS_TYPES)
+                f"hirundo-io/bbq-{bias_type}-{kind}-free-text" for bias_type in sorted(BBQ_BIAS_TYPES)
             ]
         if bias_type not in BBQ_BIAS_TYPES:
             allowed = ", ".join(sorted(list(BBQ_BIAS_TYPES)) + ["all"])
