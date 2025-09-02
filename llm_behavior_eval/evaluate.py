@@ -1,11 +1,14 @@
 import gc
 import logging
+import os
 from pathlib import Path
 
 import torch
 import typer
 from transformers.trainer_utils import set_seed
 from typing_extensions import Annotated
+
+os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
 from llm_behavior_eval import (
     DatasetConfig,
@@ -20,6 +23,7 @@ torch.set_float32_matmul_precision("high")
 BIAS_KINDS = {"bias", "unbias"}
 HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
+INJECTION_ALIAS = {"prompt-injection"}
 
 
 def _behavior_presets(behavior: str) -> list[str]:
@@ -30,6 +34,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     - BBQ: "bias:<bias_type>" or "unbias:<bias_type>"
     - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
     - Hallucinations: "hallu" or "hallu-med"
+    - Prompt injection: "prompt-injection"
     """
     behavior_parts = [part.strip().lower() for part in behavior.split(":")]
 
@@ -38,6 +43,8 @@ def _behavior_presets(behavior: str) -> list[str]:
         return ["hirundo-io/halueval"]
     if behavior in MEDHALLU_ALIAS:
         return ["hirundo-io/medhallu"]
+    if behavior in INJECTION_ALIAS:
+        return ["hirundo-io/prompt-injection-purple-llama"]
 
     # Expected structures:
     # [kind, bias_type] for BBQ, where kind in {bias, unbias}
@@ -78,7 +85,7 @@ def _behavior_presets(behavior: str) -> list[str]:
         return [f"unqover/unqover-{bias_type}-{kind}-free-text"]
 
     raise ValueError(
-        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med'"
+        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
     )
 
 

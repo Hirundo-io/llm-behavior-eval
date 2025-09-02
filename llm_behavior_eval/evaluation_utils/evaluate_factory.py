@@ -1,9 +1,6 @@
 from .base_evaluator import BaseEvaluator
 from .dataset_config import DatasetConfig
 from .eval_config import EvaluationConfig
-from .free_text_bias_evaluator import (
-    FreeTextBiasEvaluator,
-)
 
 
 class EvaluateFactory:
@@ -26,14 +23,17 @@ class EvaluateFactory:
             An instance of a class that inherits from BaseEvaluator.
         """
         dataset_id = dataset_config.file_path
-        dataset_id_str = str(dataset_id)
-        if (
-            dataset_id_str.startswith("hirundo-io/halueval-free-text")
-            or "halueval" in dataset_id_str
-            or dataset_id_str.startswith("hirundo-io/medhallu")
-            or "medhallu" in dataset_id_str
-        ):
+        if dataset_id == "hirundo-io/halueval" or dataset_id == "hirundo-io/medhallu":
             from .free_text_hallu_evaluator import FreeTextHaluEvaluator
 
             return FreeTextHaluEvaluator(eval_config, dataset_config)
-        return FreeTextBiasEvaluator(eval_config, dataset_config)
+        elif dataset_id == "hirundo-io/prompt-injection-purple-llama":
+            from .free_text_injection_evaluator import FreeTextPromptInjectionEvaluator
+
+            return FreeTextPromptInjectionEvaluator(eval_config, dataset_config)
+        elif "bbq" in dataset_id or "unqover" in dataset_id:
+            from .free_text_bias_evaluator import FreeTextBiasEvaluator
+
+            return FreeTextBiasEvaluator(eval_config, dataset_config)
+        else:
+            raise ValueError(f"Unknown dataset: {dataset_id}")
