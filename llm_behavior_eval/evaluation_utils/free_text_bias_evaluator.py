@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -13,8 +13,17 @@ from .util_functions import (
     safe_apply_chat_template,
 )
 
+from dotenv import load_dotenv
+
+load_dotenv()
+from google import genai
+from google.genai.types import HttpOptions
+from google.genai.types import GenerateContentConfig
+from google.genai import types
+client = genai.Client(http_options=HttpOptions(api_version="v1"))
+
 if TYPE_CHECKING:
-    from transformers.generation.utils import GenerationMixin
+    pass
 
 # Matches both lines irrespective of quote style, capitalisation, or line breaks.
 _JUDGE_OUTPUT_RE = re.compile(
@@ -180,17 +189,36 @@ candidate_uncertain: "<yes|no>"
                     stereotyped_answers_id, skip_special_tokens=True
                 )
             questions = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-            out = cast("GenerationMixin", self.model).generate(
-                input_ids=input_ids,
-                attention_mask=attn_mask,
-                max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-            )
-            answers = self.tokenizer.batch_decode(
-                out[:, input_ids.shape[1] :],
-                skip_special_tokens=True,
-            )
+            clean_questions = [
+                question.split("user\n\n")[1].replace("assistant\n\n", "")
+                for question in questions
+            ]
+            answers = []
+            for clean_question in clean_questions:
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash-lite",
+                    contents=clean_question,
+                    config=GenerateContentConfig(
+                        max_output_tokens=1152,
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=1024  # 512–24576 is typical for Flash-Lite
+                        ),
+                    ),
+                )
+                answer = response.text
+                answers.append(answer)
+            print(answers)
+            # out = cast("GenerationMixin", self.model).generate(
+            #     input_ids=input_ids,
+            #     attention_mask=attn_mask,
+            #     max_new_tokens=self.eval_config.answer_tokens,
+            #     do_sample=self.eval_config.sample,
+            #     pad_token_id=self.tokenizer.pad_token_id,
+            # )
+            # answers = self.tokenizer.batch_decode(
+            #     out[:, input_ids.shape[1] :],
+            #     skip_special_tokens=True,
+            # )
             gens.append(
                 _GenerationRecord(
                     questions=questions,

@@ -3,12 +3,29 @@ from dataclasses import dataclass
 from typing import Sequence
 
 import torch
+from dotenv import load_dotenv
 
 from .free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
+)
+from .free_text_hallu_evaluator import (
     _GenerationRecord as _BaseGenerationRecord,
 )
 from .util_functions import safe_apply_chat_template
+
+load_dotenv()
+from google import genai
+from google.genai import types
+
+from google.genai.types import (
+    Content,
+    GenerateContentConfig,
+    HttpOptions,
+    Part,
+    ThinkingConfig,
+)
+
+client = genai.Client(http_options=HttpOptions(api_version="v1"))
 
 
 class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
@@ -105,16 +122,38 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             gt_answers = self.tokenizer.batch_decode(
                 batch["gt_answers"], skip_special_tokens=True
             )
-            outputs = self.model.generate(  # type: ignore[attr-defined]
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-            )
-            answers = self.tokenizer.batch_decode(
-                outputs[:, input_ids.shape[1] :], skip_special_tokens=True
-            )
+            clean_questions = [
+                question.split("user\n\n")[1].replace("assistant\n\n", "")
+                for question in input_texts
+            ]
+            answers = []
+            for clean_question, judge_question in zip(
+                clean_questions, judge_questions, strict=True
+            ):
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash-lite",
+                    contents=clean_question,
+                    config=GenerateContentConfig(
+                        max_output_tokens=1152,
+                        system_instruction=judge_question,
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=1024  # 512–24576 is typical for Flash-Lite
+                        ),
+                    ),
+                )
+                answer = response.text
+                answers.append(answer)
+
+            # outputs = self.model.generate(  # type: ignore[attr-defined]
+            #     input_ids=input_ids,
+            #     attention_mask=attention_mask,
+            #     max_new_tokens=self.eval_config.answer_tokens,
+            #     do_sample=self.eval_config.sample,
+            #     pad_token_id=self.tokenizer.pad_token_id,
+            # )
+            # answers = self.tokenizer.batch_decode(
+            #     outputs[:, input_ids.shape[1] :], skip_special_tokens=True
+            # )
             generations.append(
                 FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
                     input_texts=input_texts,

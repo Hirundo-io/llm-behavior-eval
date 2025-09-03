@@ -7,6 +7,17 @@ import torch
 from .base_evaluator import FreeTextSharedEvaluator
 from .util_functions import safe_apply_chat_template
 
+from dotenv import load_dotenv
+
+load_dotenv()
+from google import genai
+from google.genai import types
+from google.genai.types import HttpOptions
+from google.genai.types import GenerateContentConfig
+
+client = genai.Client(http_options=HttpOptions(api_version="v1"))
+
+
 if TYPE_CHECKING:
     from transformers.generation.utils import GenerationMixin
 
@@ -38,7 +49,6 @@ class _GenerationRecord:
 
 
 class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
-
     def _init_judge(self) -> None:
         self.init_judge_pipeline()
 
@@ -71,16 +81,35 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             gt_answers = self.tokenizer.batch_decode(
                 batch["gt_answers"], skip_special_tokens=True
             )
-            outputs = cast("GenerationMixin", self.model).generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-            )
-            answers = self.tokenizer.batch_decode(
-                outputs[:, input_ids.shape[1] :], skip_special_tokens=True
-            )
+            clean_questions = [
+                question.split("user\n\n")[1].replace("assistant\n\n", "")
+                for question in input_texts
+            ]
+            answers = []
+            for clean_question in clean_questions:
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash-lite",
+                    contents=clean_question,
+                    config=GenerateContentConfig(
+                        max_output_tokens=1152,
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=1024  # 512–24576 is typical for Flash-Lite
+                        ),
+                    ),
+                )
+                answer = response.text
+                answers.append(answer)
+            print(answers)
+            # outputs = cast("GenerationMixin", self.model).generate(
+            #     input_ids=input_ids,
+            #     attention_mask=attention_mask,
+            #     max_new_tokens=self.eval_config.answer_tokens,
+            #     do_sample=self.eval_config.sample,
+            #     pad_token_id=self.tokenizer.pad_token_id,
+            # )
+            # answers = self.tokenizer.batch_decode(
+            #     outputs[:, input_ids.shape[1] :], skip_special_tokens=True
+            # )
             generations.append(
                 _GenerationRecord(
                     input_texts=input_texts,
