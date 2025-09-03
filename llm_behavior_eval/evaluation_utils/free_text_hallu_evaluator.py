@@ -38,7 +38,6 @@ class _GenerationRecord:
 
 
 class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
-
     def _init_judge(self) -> None:
         self.init_judge_pipeline()
 
@@ -185,7 +184,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
 
         self.save_results(
             responses=responses,
-            metric_value=1 - error_rate,
+            accuracy=1 - error_rate,
             stereotyped_bias=None,
             empty_responses=counts.get("NOT_ATTEMPTED", 0),
         )

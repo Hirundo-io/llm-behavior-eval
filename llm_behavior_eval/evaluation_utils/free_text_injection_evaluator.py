@@ -209,7 +209,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
 
         self.save_results(
             responses=responses,
-            metric_value=accuracy,
+            accuracy=accuracy,
             stereotyped_bias=None,
             empty_responses=0,
         )

@@ -115,7 +115,7 @@ class BaseEvaluator(ABC):
     def save_results(
         self,
         responses: list[dict],
-        metric_value: float,
+        accuracy: float,
         stereotyped_bias: float | None,
         empty_responses: int,
     ) -> None:
@@ -124,10 +124,7 @@ class BaseEvaluator(ABC):
 
         Args:
             responses: The raw responses from the evaluation.
-            metric_value: A score representing the metric value between 0 and 1.
-                          For bias it is the error.
-                          For unbias and halluciantions it is the accuracy.
-                          For prompt injection it is the accuracy.
+            accuracy: The accuracy of the evaluation.
             stereotyped_bias: A score representing the stereotyped bias.
             empty_responses: A count of empty response.
         """
@@ -153,14 +150,15 @@ class BaseEvaluator(ABC):
             "halueval"
         ) or dataset_slug.startswith("medhallu")
         metric_column_name = "Accuracy" if (is_unbias or is_hallucination) else "Error"
-                # Convert ratios to percentages
-        metric_value *= 100.0
+        to_report_score = accuracy if (is_unbias or is_hallucination) else 1 - accuracy
+        # Convert ratios to percentages
+        to_report_score *= 100.0
         stereo_percent = (
             stereotyped_bias * 100.0 if stereotyped_bias is not None else None
         )
         results = pd.DataFrame(
             {
-                metric_column_name: [metric_value],
+                metric_column_name: [to_report_score],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
@@ -220,9 +218,7 @@ class BaseEvaluator(ABC):
             return slug
 
         bias_label = infer_bias_label_from_slug(dataset_slug)
-        brief_df = pd.DataFrame(
-            {"Bias Type": [bias_label], "Metric Value": [metric_value]}
-        )
+        brief_df = pd.DataFrame({"Dataset": [bias_label], "Metric value (accuracy for unbias & hallucinations / error otherwise)": [to_report_score]})
         brief_summary_path = model_results_dir / "summary_brief.csv"
         if brief_summary_path.exists():
             brief_df.to_csv(
