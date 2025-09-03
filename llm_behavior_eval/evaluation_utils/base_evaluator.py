@@ -149,7 +149,7 @@ class BaseEvaluator(ABC):
         is_hallucination = dataset_slug.startswith(
             "halueval"
         ) or dataset_slug.startswith("medhallu")
-        metric_column_name = "Accuracy" if (is_unbias or is_hallucination) else "Error"
+        metric_column_name = "Accuracy (%)" if (is_unbias or is_hallucination) else "Error (%)"
         to_report_score = accuracy if (is_unbias or is_hallucination) else 1 - accuracy
         # Convert ratios to percentages
         to_report_score *= 100.0
