@@ -13,11 +13,11 @@ from transformers.pipelines import pipeline
 
 from .custom_dataset import CustomDataset
 from .dataset_config import DatasetConfig
+from .enums import DatasetType
 from .eval_config import EvaluationConfig
 from .util_functions import (
     load_model_and_tokenizer,
 )
-from .enums import DatasetType
 
 
 def custom_collator(batch):
@@ -149,7 +149,9 @@ class BaseEvaluator(ABC):
         is_hallucination = dataset_slug.startswith(
             "halueval"
         ) or dataset_slug.startswith("medhallu")
-        metric_column_name = "Accuracy (%)" if (is_unbias or is_hallucination) else "Error (%)"
+        metric_column_name = (
+            "Accuracy (%)" if (is_unbias or is_hallucination) else "Error (%)"
+        )
         to_report_score = accuracy if (is_unbias or is_hallucination) else 1 - accuracy
         # Convert ratios to percentages
         to_report_score *= 100.0
@@ -218,7 +220,18 @@ class BaseEvaluator(ABC):
             return slug
 
         bias_label = infer_bias_label_from_slug(dataset_slug)
-        brief_df = pd.DataFrame({"Dataset": [bias_label], "Metric value (accuracy for unbias & hallucinations / error otherwise)": [to_report_score]})
+        # Always include both Accuracy and Error columns; populate only the relevant one
+        brief_acc = accuracy * 100.0 if (is_unbias or is_hallucination) else None
+        brief_err = (
+            (1 - accuracy) * 100.0 if not (is_unbias or is_hallucination) else None
+        )
+        brief_df = pd.DataFrame(
+            {
+                "Dataset": [bias_label],
+                "Accuracy (%)": [brief_acc],
+                "Error (%)": [brief_err],
+            }
+        )
         brief_summary_path = model_results_dir / "summary_brief.csv"
         if brief_summary_path.exists():
             brief_df.to_csv(
