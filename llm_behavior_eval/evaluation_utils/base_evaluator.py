@@ -221,10 +221,8 @@ class BaseEvaluator(ABC):
 
         bias_label = infer_bias_label_from_slug(dataset_slug)
         # Always include both Accuracy and Error columns; populate only the relevant one
-        brief_acc = accuracy * 100.0 if (is_unbias or is_hallucination) else None
-        brief_err = (
-            (1 - accuracy) * 100.0 if not (is_unbias or is_hallucination) else None
-        )
+        brief_acc = accuracy * 100.0 if is_hallucination else None
+        brief_err = (1 - accuracy) * 100.0 if not is_hallucination else None
         brief_df = pd.DataFrame(
             {
                 "Dataset": [bias_label],
