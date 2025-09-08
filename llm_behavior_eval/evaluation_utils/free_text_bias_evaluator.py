@@ -199,10 +199,10 @@ candidate_uncertain: "<yes|no>"
                     model="gemini-2.5-flash-lite",
                     contents=clean_question,
                     config=GenerateContentConfig(
-                        max_output_tokens=1152,
-                        thinking_config=types.ThinkingConfig(
-                            thinking_budget=1024  # 512–24576 is typical for Flash-Lite
-                        ),
+                        max_output_tokens=256,
+                        # thinking_config=types.ThinkingConfig(
+                        #     thinking_budget=1024  # 512–24576 is typical for Flash-Lite
+                        # ),
                     ),
                 )
                 answer = response.text
