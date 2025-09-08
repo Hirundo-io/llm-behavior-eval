@@ -177,11 +177,23 @@ class BaseEvaluator(ABC):
 
         # full summary (per model)
         full_summary_path = model_results_dir / "summary_full.csv"
-        summary_row = results.copy()
-        summary_row.insert(0, "Dataset", dataset_slug)
-        summary_row.insert(0, "Model", model_slug)
-        summary_row.insert(2, "Dataset Type", self.dataset_config.dataset_type)
-        summary_row.insert(3, "Text Format", "free_text")
+        # Ensure both Accuracy and Error columns exist; populate only the relevant one
+        full_acc = accuracy * 100.0 if (is_unbias or is_hallucination) else None
+        full_err = (
+            (1 - accuracy) * 100.0 if not (is_unbias or is_hallucination) else None
+        )
+        summary_row = pd.DataFrame(
+            {
+                "Model": [model_slug],
+                "Dataset": [dataset_slug],
+                "Dataset Type": [self.dataset_config.dataset_type],
+                "Text Format": ["free_text"],
+                "Accuracy (%)": [full_acc],
+                "Error (%)": [full_err],
+                "Stereotype Bias (%)": [stereo_percent],
+                "Empty Responses": [empty_responses],
+            }
+        )
         if full_summary_path.exists():
             summary_row.to_csv(
                 full_summary_path,
