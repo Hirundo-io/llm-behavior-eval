@@ -173,7 +173,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-results/*
+*/results/*
 *.json
 
 # ACT Secrets

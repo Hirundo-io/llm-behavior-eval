@@ -2,6 +2,9 @@
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[project.scripts]
+llm-behavior-eval = "llm_behavior_eval.evaluate:app"
+
 [project]
 name = "llm-behavior-eval"
 version = "0.1.1"
@@ -27,15 +30,18 @@ keywords = [
 requires-python = ">=3.10"
 
 dependencies = [
-  "datasets>=3.5.1,<4.0.0",
-  "numpy>=2.2.5,<3.0.0",
-  "pandas>=2.2.3,<3.0.0",
-  "pydantic>=2.11.4,<3.0.0",
-  "pydantic_settings>=2.9.1,<3.0.0",
-  "torch>=2.7.0,<3.0.0",
-  "transformers>=4.51.3,<5.0.0",
-  "pytest",
-  "accelerate"
+  "datasets<4.0.0",
+  "numpy<3.0.0",
+  "pandas<3.0.0",
+  "pydantic<3.0.0",
+  "pydantic_settings<3.0.0",
+  "torch<3.0.0",
+  "transformers<5.0.0",
+  "networkx<4.0.0",
+  "pytest<9.0.0",
+  "typer<1.0.0",
+  "accelerate<2.0.0",
+  "bitsandbytes<1.0.0",
 ]
 
 [project.optional-dependencies]

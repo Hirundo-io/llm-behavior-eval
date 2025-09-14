@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .enums import DatasetType, TextFormat
+from .enums import DatasetType
 
 
 class PreprocessConfig(BaseSettings):
@@ -15,8 +15,8 @@ class PreprocessConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="bias_preprocess_")
 
-    max_length: int = 512
-    gt_max_length: int = 64
+    max_length: int = 1024
+    gt_max_length: int = 256
     preprocess_batch_size: int = 128
 
 
@@ -27,7 +27,6 @@ class DatasetConfig(BaseSettings):
     Attributes:
         file_path: The HuggingFace repo id of the dataset file.
         dataset_type: The type of the dataset, represented as an enum.
-        text_format: The format of the text in the dataset.
         preprocess_config: Configuration for preprocessing the dataset.
         seed: The random seed for reproducibility.
     """
@@ -36,6 +35,5 @@ class DatasetConfig(BaseSettings):
 
     file_path: str
     dataset_type: DatasetType
-    text_format: TextFormat
     preprocess_config: PreprocessConfig = PreprocessConfig()
     seed: int = 42

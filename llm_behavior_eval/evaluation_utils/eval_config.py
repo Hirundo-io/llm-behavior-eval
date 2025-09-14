@@ -1,11 +1,6 @@
-from enum import Enum
 from pathlib import Path
 
 from pydantic import BaseModel
-
-
-class JudgeType(str, Enum):
-    BIAS = "bias"
 
 
 class EvaluationConfig(BaseModel):
@@ -29,15 +24,14 @@ class EvaluationConfig(BaseModel):
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
     """
 
-    max_samples: None | int
+    max_samples: None | int = 500
     batch_size: int = 64
     sample: bool = False
     use_4bit: bool = False
-    judge_type: JudgeType = JudgeType.BIAS
     answer_tokens: int = 128
     model_path_or_repo_id: str
-    judge_batch_size: int = 16
+    judge_batch_size: int = 32
     judge_output_tokens: int = 32
-    judge_path_or_repo_id: str
+    judge_path_or_repo_id: str = "google/gemma-3-12b-it"
     use_4bit_judge: bool = False
     results_dir: Path
