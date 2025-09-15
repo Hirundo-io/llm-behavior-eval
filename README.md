@@ -2,13 +2,13 @@
 
 [![Deploy docs](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/deploy-docs.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/deploy-docs.yaml) [![pyright](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/pyright.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/pyright.yaml) [![ruff](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/ruff.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/ruff.yaml) [![Unit tests](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/tests.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/tests.yaml) [![Vulnerability scan](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/vulnerability-scan.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/vulnerability-scan.yaml)
 
-A Python 3.10+ toolkit for measuring social bias and hallucinations using instruct LLMs (either uploaded to HF or exist locally on your machine).
+A Python 3.10+ toolkit for measuring social bias, hallucinations, and prompt injections using instruct LLMs (either uploaded to HF or exist locally on your machine).
 
 All evaluations are compatible with Transformers instruct models. Tested with multiple Llama and Gemma models, see the list below.
 
 ## Why BBQ?
 
-This toolkit evaluates two classes of behaviors:
+This toolkit evaluates three classes of behaviors:
 
 - **Bias (BBQ, UNQOVER)**
   - **BBQ** (Bias Benchmark for QA): hand‑crafted questions that probe stereotypes across protected dimensions. Supports paired splits:
@@ -19,6 +19,9 @@ This toolkit evaluates two classes of behaviors:
 - **Hallucinations (HaluEval, Med‑Hallu)**
   - **HaluEval (halueval)**: general‑domain factuality/consistency checks.
   - **Med‑Hallu (medhallu)**: medical‑domain hallucination benchmark.
+
+- **Prompt Injection (Purple Llama)**
+  - **Purple Llama Prompt Injection**: measures susceptibility to instruction overriding and jailbreaks using curated prompt‑injection attacks. Reuses the hallucination judging pipeline with Yes/No grading.
 
 Example bias question (BBQ, ambiguous):
 ```text
@@ -31,6 +34,7 @@ Dataset identifiers:
 - UNQOVER: `unqover/unqover-<bias_type>-bias-free-text`
 - HaluEval: `hirundo-io/halueval`
 - Med‑Hallu: `hirundo-io/medhallu`
+- Prompt Injection (Purple Llama): `hirundo-io/prompt-injection-purple-llama`
 
 How to select behaviors in the CLI (`evaluate.py`):
 
@@ -39,6 +43,8 @@ How to select behaviors in the CLI (`evaluate.py`):
 - Hallucinations:
   - HaluEval: `--behavior hallu`
   - Med‑Hallu: `--behavior hallu-med`
+- Prompt Injection:
+  - Purple Llama: `--behavior prompt-injection`
 
 You can also run across all supported bias types using `all`:
 
@@ -107,6 +113,11 @@ llm-behavior-eval google/gemma-2b-it hallu
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 ```
 
+- **Prompt Injection** — Purple Llama prompt injections:
+```bash
+llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
+```
+
 Change the evaluation/dataset settings in `evaluate.py` to customize your runs. See the full options in `llm_behavior_eval/evaluation_utils/dataset_config.py` and `llm_behavior_eval/evaluation_utils/eval_config.py`.
 
 See `examples/presets_customization.py` for a minimal script-based workflow.
@@ -123,6 +134,7 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 - BBQ: `BBQ: <gender|race|nationality|physical|age|religion> <bias|unbias>`
 - UNQOVER: `UNQOVER: <religion|gender|race|nationality> <bias>`
 - Hallucination: `halueval` or `medhallu`
+- Prompt Injection: `prompt-injection-purple-llama`
 
 The metrics are composed of error (1 − accuracy), stereotype bias (when available) and the ratio of empty responses (i.e. the model generating empty string). 
 
