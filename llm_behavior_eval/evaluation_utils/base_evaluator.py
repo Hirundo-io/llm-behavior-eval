@@ -7,6 +7,7 @@ from typing import cast
 
 import pandas as pd
 import torch
+from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
 from transformers.generation.utils import GenerationMixin
@@ -19,6 +20,8 @@ from .eval_config import EvaluationConfig
 from .util_functions import (
     load_model_and_tokenizer,
 )
+
+MAX_BATCH_SIZE = 1024
 
 
 def custom_collator(batch):
@@ -99,39 +102,27 @@ class BaseEvaluator(ABC):
         # If batch_size is None, auto-detect the largest batch size to fit on current hardware.
         batch_size = self.eval_config.batch_size
         if batch_size is None:
+            starting_bs = max(1, min(len(self.eval_dataset), MAX_BATCH_SIZE))
+            current_bs = starting_bs
 
-            def _probe_batch_size(candidate: int) -> bool:
-                def _empty_device_cache() -> None:
-                    try:
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                        # Support Apple Silicon / MPS where available
-                        if hasattr(torch, "backends") and hasattr(
-                            torch.backends, "mps"
-                        ):
-                            if getattr(
-                                torch.backends.mps, "is_available", lambda: False
-                            )():
-                                # torch.mps.empty_cache exists on recent torch versions
-                                if hasattr(torch, "mps") and hasattr(
-                                    torch.mps, "empty_cache"
-                                ):
-                                    torch.mps.empty_cache()  # type: ignore[attr-defined]
-                    except Exception:
-                        # Best-effort cache clear; ignore any backend-specific errors
-                        pass
+            def halve_reducer():
+                nonlocal current_bs
+                current_bs = max(1, current_bs // 2)
+                return current_bs
 
-                try:
-                    dl = DataLoader(
-                        cast("Dataset", self.eval_dataset),
-                        batch_size=candidate,
-                        shuffle=False,
-                        collate_fn=self.data_collator,
-                    )
-                    iterator = iter(dl)
-                    batch = next(iterator)
-                    input_ids = batch["test_input_ids"].to(self.model.device)
-                    attention_mask = batch["test_attention_mask"].to(self.model.device)
+            def _get_first_non_oom_batch_size(candidate_bs: int) -> int:
+                print(f"Trying batch size: {candidate_bs}")
+                dl = DataLoader(
+                    cast("Dataset", self.eval_dataset),
+                    batch_size=candidate_bs,
+                    shuffle=False,
+                    collate_fn=self.data_collator,
+                )
+                it = iter(dl)
+                batch = next(it)
+                input_ids = batch["test_input_ids"].to(self.model.device)
+                attention_mask = batch["test_attention_mask"].to(self.model.device)
+                with torch.inference_mode():
                     cast("GenerationMixin", self.model).generate(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
@@ -139,47 +130,15 @@ class BaseEvaluator(ABC):
                         do_sample=self.eval_config.sample,
                         pad_token_id=self.tokenizer.pad_token_id,
                     )
-                    _empty_device_cache()
-                    return True
-                except StopIteration:
-                    # Dataset empty; treat as success to avoid blocking
-                    return True
-                except Exception as e:  # Broad handling to gracefully fallback
-                    message = str(e).lower()
-                    is_memory_error = (
-                        isinstance(e, (MemoryError,))
-                        or getattr(torch, "OutOfMemoryError", None) is not None
-                        and isinstance(e, getattr(torch, "OutOfMemoryError"))
-                        or getattr(torch.cuda, "OutOfMemoryError", None) is not None
-                        and isinstance(e, getattr(torch.cuda, "OutOfMemoryError"))
-                        or "out of memory" in message
-                        or "oom" in message
-                    )
-                    if not is_memory_error:
-                        logging.warning(
-                            "Auto batch-size detection: error probing batch size %d: %r. Will try smaller batch.",
-                            candidate,
-                            e,
-                        )
-                    _empty_device_cache()
-                    return False
+                return candidate_bs
 
-            max_candidate = max(1, min(len(self.eval_dataset), 1024))
-            candidate = 1
-            last_success = 0
-            while candidate <= max_candidate and _probe_batch_size(candidate):
-                last_success = candidate
-                candidate *= 2
-            if last_success == 0:
-                # Even batch size 1 failed; fallback to 1 and warn
-                logging.warning(
-                    "Auto batch-size detection: OOM even at 1. Falling back to 1; consider increasing hardware or enabling 4-bit."
-                )
-                batch_size = 1
-            else:
-                batch_size = last_success
+            wrapper = find_executable_batch_size(
+                _get_first_non_oom_batch_size,
+                starting_batch_size=starting_bs,
+                reduce_batch_size_fn=halve_reducer,
+            )
+            batch_size = cast(int, wrapper())
             logging.info("Selected batch size: %s", batch_size)
-
         self.eval_loader = DataLoader(
             cast("Dataset", self.eval_dataset),
             batch_size=batch_size,
