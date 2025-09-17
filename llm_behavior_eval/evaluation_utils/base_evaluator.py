@@ -137,7 +137,7 @@ class BaseEvaluator(ABC):
             if last_success == 0:
                 # Even batch size 1 failed; fallback to 1 and warn
                 logging.warning(
-                    "Auto batch-size detection: OOM even at 1. Falling back to 1; consider lowering tokens or enabling 4-bit."
+                    "Auto batch-size detection: OOM even at 1. Falling back to 1; consider increasing hardware or enabling 4-bit."
                 )
                 batch_size = 1
             else:
