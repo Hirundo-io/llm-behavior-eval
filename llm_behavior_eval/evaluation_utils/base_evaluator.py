@@ -110,30 +110,8 @@ class BaseEvaluator(ABC):
                 current_bs = max(1, current_bs // 2)
                 return current_bs
 
-            def _get_first_non_oom_batch_size(candidate_bs: int) -> int:
-                logging.info(f"Trying batch size: {candidate_bs}")
-                dl = DataLoader(
-                    cast("Dataset", self.eval_dataset),
-                    batch_size=candidate_bs,
-                    shuffle=False,
-                    collate_fn=self.data_collator,
-                )
-                it = iter(dl)
-                batch = next(it)
-                input_ids = batch["test_input_ids"].to(self.model.device)
-                attention_mask = batch["test_attention_mask"].to(self.model.device)
-                with torch.inference_mode():
-                    cast("GenerationMixin", self.model).generate(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
-                        max_new_tokens=self.eval_config.answer_tokens,
-                        do_sample=self.eval_config.sample,
-                        pad_token_id=self.tokenizer.pad_token_id,
-                    )
-                return candidate_bs
-
             wrapper = find_executable_batch_size(
-                _get_first_non_oom_batch_size,
+                self._get_first_non_oom_batch_size,
                 starting_batch_size=starting_bs,
                 reduce_batch_size_fn=halve_reducer,
             )
@@ -147,6 +125,28 @@ class BaseEvaluator(ABC):
         )
         # propagate flag
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
+    
+    def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
+        logging.info(f"Trying batch size: {candidate_bs}")
+        dl = DataLoader(
+            cast("Dataset", self.eval_dataset),
+            batch_size=candidate_bs,
+            shuffle=False,
+            collate_fn=self.data_collator,
+        )
+        it = iter(dl)
+        batch = next(it)
+        input_ids = batch["test_input_ids"].to(self.model.device)
+        attention_mask = batch["test_attention_mask"].to(self.model.device)
+        with torch.inference_mode():
+            cast("GenerationMixin", self.model).generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=self.eval_config.answer_tokens,
+                do_sample=self.eval_config.sample,
+                pad_token_id=self.tokenizer.pad_token_id,
+            )
+        return candidate_bs
 
     @abstractmethod
     def evaluate(self) -> None:
