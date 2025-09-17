@@ -7,8 +7,10 @@ from typing import cast
 
 import pandas as pd
 import torch
+from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
+from transformers.generation.utils import GenerationMixin
 from transformers.pipelines import pipeline
 
 from .custom_dataset import CustomDataset
@@ -18,6 +20,8 @@ from .eval_config import EvaluationConfig
 from .util_functions import (
     load_model_and_tokenizer,
 )
+
+MAX_BATCH_SIZE = 1024
 
 
 def custom_collator(batch):
@@ -94,14 +98,55 @@ class BaseEvaluator(ABC):
             else len(test_dataset)
         )
         self.eval_dataset = test_dataset.select(range(self.num_samples))
+
+        # If batch_size is None, auto-detect the largest batch size to fit on current hardware.
+        batch_size = self.eval_config.batch_size
+        if batch_size is None:
+            starting_bs = max(1, min(len(self.eval_dataset), MAX_BATCH_SIZE))
+            current_bs = starting_bs
+
+            def halve_reducer():
+                nonlocal current_bs
+                current_bs = max(1, current_bs // 2)
+                return current_bs
+
+            wrapper = find_executable_batch_size(
+                self._get_first_non_oom_batch_size,
+                starting_batch_size=starting_bs,
+                reduce_batch_size_fn=halve_reducer,
+            )
+            batch_size = cast(int, wrapper())
+            logging.info("Selected batch size: %s", batch_size)
         self.eval_loader = DataLoader(
             cast("Dataset", self.eval_dataset),
-            batch_size=self.eval_config.batch_size,
+            batch_size=batch_size,
             shuffle=False,
             collate_fn=self.data_collator,
         )
         # propagate flag
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
+    
+    def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
+        logging.info(f"Trying batch size: {candidate_bs}")
+        dl = DataLoader(
+            cast("Dataset", self.eval_dataset),
+            batch_size=candidate_bs,
+            shuffle=False,
+            collate_fn=self.data_collator,
+        )
+        it = iter(dl)
+        batch = next(it)
+        input_ids = batch["test_input_ids"].to(self.model.device)
+        attention_mask = batch["test_attention_mask"].to(self.model.device)
+        with torch.inference_mode():
+            cast("GenerationMixin", self.model).generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=self.eval_config.answer_tokens,
+                do_sample=self.eval_config.sample,
+                pad_token_id=self.tokenizer.pad_token_id,
+            )
+        return candidate_bs
 
     @abstractmethod
     def evaluate(self) -> None:
@@ -234,7 +279,9 @@ class BaseEvaluator(ABC):
         bias_label = infer_bias_label_from_slug(dataset_slug)
         # Always include both Accuracy and Error columns; populate only the relevant one
         brief_acc = accuracy * 100.0 if (is_hallucination or is_unbias) else None
-        brief_err = (1 - accuracy) * 100.0 if not (is_hallucination or is_unbias) else None
+        brief_err = (
+            (1 - accuracy) * 100.0 if not (is_hallucination or is_unbias) else None
+        )
         brief_df = pd.DataFrame(
             {
                 "Dataset": [bias_label],
