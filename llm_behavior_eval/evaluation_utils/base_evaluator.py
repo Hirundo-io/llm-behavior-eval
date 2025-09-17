@@ -100,6 +100,38 @@ class BaseEvaluator(ABC):
         batch_size = self.eval_config.batch_size
         if batch_size is None:
 
+            def _empty_device_cache() -> None:
+                try:
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
+                try:
+                    # torch.mps.empty_cache is available on PyTorch with MPS backend
+                    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+                        try:
+                            torch.mps.empty_cache()  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                gc.collect()
+
+            def _is_oom_error(error: BaseException) -> bool:
+                message = str(error).lower()
+                # Direct types
+                if isinstance(error, MemoryError):
+                    return True
+                cuda_oom_type = getattr(torch.cuda, "OutOfMemoryError", None)
+                if cuda_oom_type is not None and isinstance(error, cuda_oom_type):
+                    return True
+                # Heuristic by message
+                return (
+                    "out of memory" in message
+                    or "cuda out of memory" in message
+                    or ("mps" in message and "out of memory" in message)
+                )
+
             def _probe_batch_size(candidate: int) -> bool:
                 try:
                     dl = DataLoader(
@@ -119,14 +151,21 @@ class BaseEvaluator(ABC):
                         do_sample=self.eval_config.sample,
                         pad_token_id=self.tokenizer.pad_token_id,
                     )
-                    torch.cuda.empty_cache()
+                    _empty_device_cache()
                     return True
-                except torch.cuda.OutOfMemoryError:
-                    torch.cuda.empty_cache()
-                    return False
                 except StopIteration:
                     # Dataset empty; treat as success to avoid blocking
                     return True
+                except Exception as e:
+                    if _is_oom_error(e):
+                        _empty_device_cache()
+                        return False
+                    logging.exception(
+                        "Auto batch-size detection encountered an error at candidate=%s; treating as failure and continuing.",
+                        candidate,
+                    )
+                    _empty_device_cache()
+                    return False
 
             max_candidate = max(1, min(len(self.eval_dataset), 1024))
             candidate = 1
