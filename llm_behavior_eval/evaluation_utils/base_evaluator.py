@@ -111,7 +111,7 @@ class BaseEvaluator(ABC):
                 return current_bs
 
             def _get_first_non_oom_batch_size(candidate_bs: int) -> int:
-                print(f"Trying batch size: {candidate_bs}")
+                logging.info(f"Trying batch size: {candidate_bs}")
                 dl = DataLoader(
                     cast("Dataset", self.eval_dataset),
                     batch_size=candidate_bs,
