@@ -101,6 +101,26 @@ class BaseEvaluator(ABC):
         if batch_size is None:
 
             def _probe_batch_size(candidate: int) -> bool:
+                def _empty_device_cache() -> None:
+                    try:
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        # Support Apple Silicon / MPS where available
+                        if hasattr(torch, "backends") and hasattr(
+                            torch.backends, "mps"
+                        ):
+                            if getattr(
+                                torch.backends.mps, "is_available", lambda: False
+                            )():
+                                # torch.mps.empty_cache exists on recent torch versions
+                                if hasattr(torch, "mps") and hasattr(
+                                    torch.mps, "empty_cache"
+                                ):
+                                    torch.mps.empty_cache()  # type: ignore[attr-defined]
+                    except Exception:
+                        # Best-effort cache clear; ignore any backend-specific errors
+                        pass
+
                 try:
                     dl = DataLoader(
                         cast("Dataset", self.eval_dataset),
@@ -119,14 +139,30 @@ class BaseEvaluator(ABC):
                         do_sample=self.eval_config.sample,
                         pad_token_id=self.tokenizer.pad_token_id,
                     )
-                    torch.cuda.empty_cache()
+                    _empty_device_cache()
                     return True
-                except torch.cuda.OutOfMemoryError:
-                    torch.cuda.empty_cache()
-                    return False
                 except StopIteration:
                     # Dataset empty; treat as success to avoid blocking
                     return True
+                except Exception as e:  # Broad handling to gracefully fallback
+                    message = str(e).lower()
+                    is_memory_error = (
+                        isinstance(e, (MemoryError,))
+                        or getattr(torch, "OutOfMemoryError", None) is not None
+                        and isinstance(e, getattr(torch, "OutOfMemoryError"))
+                        or getattr(torch.cuda, "OutOfMemoryError", None) is not None
+                        and isinstance(e, getattr(torch.cuda, "OutOfMemoryError"))
+                        or "out of memory" in message
+                        or "oom" in message
+                    )
+                    if not is_memory_error:
+                        logging.warning(
+                            "Auto batch-size detection: error probing batch size %d: %r. Will try smaller batch.",
+                            candidate,
+                            e,
+                        )
+                    _empty_device_cache()
+                    return False
 
             max_candidate = max(1, min(len(self.eval_dataset), 1024))
             candidate = 1
