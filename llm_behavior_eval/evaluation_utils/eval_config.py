@@ -25,7 +25,7 @@ class EvaluationConfig(BaseModel):
     """
 
     max_samples: None | int = 500
-    batch_size: int = 64
+    batch_size: None | int = None
     sample: bool = False
     use_4bit: bool = False
     answer_tokens: int = 128

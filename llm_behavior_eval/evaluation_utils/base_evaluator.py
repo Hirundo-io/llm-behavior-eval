@@ -9,6 +9,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
+from transformers.generation.utils import GenerationMixin
 from transformers.pipelines import pipeline
 
 from .custom_dataset import CustomDataset
@@ -94,9 +95,58 @@ class BaseEvaluator(ABC):
             else len(test_dataset)
         )
         self.eval_dataset = test_dataset.select(range(self.num_samples))
+
+        # If batch_size is None, auto-detect the largest batch size to fit on current hardware.
+        batch_size = self.eval_config.batch_size
+        if batch_size is None:
+
+            def _probe_batch_size(candidate: int) -> bool:
+                try:
+                    dl = DataLoader(
+                        cast("Dataset", self.eval_dataset),
+                        batch_size=candidate,
+                        shuffle=False,
+                        collate_fn=self.data_collator,
+                    )
+                    iterator = iter(dl)
+                    batch = next(iterator)
+                    input_ids = batch["test_input_ids"].to(self.model.device)
+                    attention_mask = batch["test_attention_mask"].to(self.model.device)
+                    cast("GenerationMixin", self.model).generate(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        max_new_tokens=self.eval_config.answer_tokens,
+                        do_sample=self.eval_config.sample,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                    )
+                    torch.cuda.empty_cache()
+                    return True
+                except torch.cuda.OutOfMemoryError:
+                    torch.cuda.empty_cache()
+                    return False
+                except StopIteration:
+                    # Dataset empty; treat as success to avoid blocking
+                    return True
+
+            max_candidate = max(1, min(len(self.eval_dataset), 1024))
+            candidate = 1
+            last_success = 0
+            while candidate <= max_candidate and _probe_batch_size(candidate):
+                last_success = candidate
+                candidate *= 2
+            if last_success == 0:
+                # Even batch size 1 failed; fallback to 1 and warn
+                logging.warning(
+                    "Auto batch-size detection: OOM even at 1. Falling back to 1; consider lowering tokens or enabling 4-bit."
+                )
+                batch_size = 1
+            else:
+                batch_size = last_success
+            logging.info("Selected batch size: %s", batch_size)
+
         self.eval_loader = DataLoader(
             cast("Dataset", self.eval_dataset),
-            batch_size=self.eval_config.batch_size,
+            batch_size=batch_size,
             shuffle=False,
             collate_fn=self.data_collator,
         )
@@ -234,7 +284,9 @@ class BaseEvaluator(ABC):
         bias_label = infer_bias_label_from_slug(dataset_slug)
         # Always include both Accuracy and Error columns; populate only the relevant one
         brief_acc = accuracy * 100.0 if (is_hallucination or is_unbias) else None
-        brief_err = (1 - accuracy) * 100.0 if not (is_hallucination or is_unbias) else None
+        brief_err = (
+            (1 - accuracy) * 100.0 if not (is_hallucination or is_unbias) else None
+        )
         brief_df = pd.DataFrame(
             {
                 "Dataset": [bias_label],
