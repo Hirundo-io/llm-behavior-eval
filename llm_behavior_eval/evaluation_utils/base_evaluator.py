@@ -24,10 +24,8 @@ from .util_functions import (
 # Optional MLflow import
 try:
     import mlflow
-
-    MLFLOW_AVAILABLE = True
 except ImportError:
-    MLFLOW_AVAILABLE = False
+    mlflow = None
 
 MAX_BATCH_SIZE = 1024
 
@@ -334,7 +332,7 @@ class BaseEvaluator(ABC):
             self._log_mlflow_artifacts()
 
     def cleanup(self, error: Exception | None = None) -> None:
-        if MLFLOW_AVAILABLE and self.mlflow_run:
+        if mlflow and self.mlflow_run:
             from mlflow.entities import RunStatus
 
             mlflow.end_run(
@@ -352,7 +350,7 @@ class BaseEvaluator(ABC):
 
     def _init_mlflow(self) -> None:
         """Initialize MLflow tracking if enabled and available."""
-        if not MLFLOW_AVAILABLE:
+        if not mlflow:
             logging.warning(
                 "MLflow is not installed. Install it with: pip install mlflow"
             )
@@ -382,7 +380,7 @@ class BaseEvaluator(ABC):
 
     def _log_mlflow_params(self) -> None:
         """Log evaluation and dataset configuration parameters to MLflow."""
-        if not self.eval_config.mlflow_config or not MLFLOW_AVAILABLE:
+        if not self.eval_config.mlflow_config or not mlflow:
             return
 
         params = {
@@ -405,13 +403,13 @@ class BaseEvaluator(ABC):
 
     def _log_mlflow_metrics(self, metrics: dict[str, Any]) -> None:
         """Log evaluation metrics to MLflow."""
-        if not self.eval_config.mlflow_config or not MLFLOW_AVAILABLE:
+        if not self.eval_config.mlflow_config or not mlflow:
             return
         mlflow.log_metrics(metrics)
 
     def _log_mlflow_artifacts(self) -> None:
         """Log evaluation artifacts (responses, metrics files) to MLflow."""
-        if not self.eval_config.mlflow_config or not MLFLOW_AVAILABLE:
+        if not self.eval_config.mlflow_config or not mlflow:
             return
 
         output_dir = self.get_output_dir()

@@ -78,3 +78,6 @@ version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
 
 [project.urls]
 Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
+
+[tool.pyright]
+typeCheckingMode = "standard"
