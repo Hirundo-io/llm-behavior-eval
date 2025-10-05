@@ -28,6 +28,7 @@ class EvaluationConfig(BaseModel):
     batch_size: None | int = None
     sample: bool = False
     use_4bit: bool = False
+    device_map: str | dict[str, int] | None = "auto"
     answer_tokens: int = 128
     model_path_or_repo_id: str
     judge_batch_size: int = 32
