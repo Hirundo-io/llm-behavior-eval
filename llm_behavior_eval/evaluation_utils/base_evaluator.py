@@ -340,7 +340,7 @@ class BaseEvaluator(ABC):
             mlflow.end_run(
                 status=RunStatus.to_string(RunStatus.FAILED)
                 if error
-                else RunStatus.to_string(RunStatus.SUCCESS)
+                else RunStatus.to_string(RunStatus.FINISHED)
             )
             logging.info("Ended MLflow run")
         if error:
@@ -357,6 +357,8 @@ class BaseEvaluator(ABC):
                 "MLflow is not installed. Install it with: pip install mlflow"
             )
             self.mlflow_config = None
+            return
+        if not self.mlflow_config:
             return
 
         if self.mlflow_config.mlflow_tracking_uri:
