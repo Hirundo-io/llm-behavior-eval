@@ -27,7 +27,7 @@ jobs:
           python-version-file: "pyproject.toml"
 
       - name: Install the project
-        run: uv sync --locked --extra pyright --extra mlflow
+        run: uv sync --locked --extra mlflow
 
       - run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
 
