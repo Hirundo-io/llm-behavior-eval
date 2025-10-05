@@ -27,8 +27,8 @@ keywords = [
   "bias evaluation",
   "bias in LLMs",
 ]
-requires-python = ">=3.9.17,>=3.10.12,>=3.11.4"
-
+requires-python = ">=3.9.17"
+# Please only install Python >= 3.9.17 or >=3.10.12 or >=3.11.4 or >=3.12 to avoid GHSA-4xh5-x5gv-qwph vulnerability
 dependencies = [
   "datasets<4.0.0",
   "numpy<3.0.0",
@@ -45,6 +45,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mlflow = [
+  "mlflow>=2.0.0",
+]
+
+[dependency-groups]
 dev = [
   "ruff>=0.11.11,<1.0.0",
   "bumpver>=2024.1130",
@@ -54,9 +59,10 @@ dev = [
 docs = [
   "sphinx>=8.0.0",
 ]
-mlflow = [
-  "mlflow>=2.0.0",
-]
+
+[tool.uv.dependency-groups]
+docs = {requires-python = ">=3.11.4"}
+
 
 [tool.setuptools.packages.find]
 include = ["llm_behavior_eval*"]
