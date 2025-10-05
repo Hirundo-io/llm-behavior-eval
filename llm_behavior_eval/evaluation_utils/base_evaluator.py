@@ -75,7 +75,7 @@ class BaseEvaluator(ABC):
             else None
         )
         self.mlflow_run = None
-        if self.mlflow_config and self.mlflow_config.use_mlflow:
+        if self.mlflow_config:
             self._init_mlflow()
 
     def get_output_dir(self) -> Path:
@@ -321,7 +321,7 @@ class BaseEvaluator(ABC):
             brief_df.to_csv(brief_summary_path, index=False, float_format="%.3f")
 
         # Log metrics and artifacts to MLflow (if enabled)
-        if self.mlflow_config and self.mlflow_config.use_mlflow:
+        if self.mlflow_config:
             mlflow_metrics = {
                 "accuracy": accuracy,
                 "error": 1 - accuracy,
@@ -356,7 +356,7 @@ class BaseEvaluator(ABC):
             logging.warning(
                 "MLflow is not installed. Install it with: pip install mlflow"
             )
-            self.mlflow_config.use_mlflow = False
+            self.mlflow_config = None
             return
 
         if self.mlflow_config.mlflow_tracking_uri:
@@ -380,7 +380,7 @@ class BaseEvaluator(ABC):
 
     def _log_mlflow_params(self) -> None:
         """Log evaluation and dataset configuration parameters to MLflow."""
-        if not self.eval_config.use_mlflow or not MLFLOW_AVAILABLE:
+        if not self.eval_config.mlflow_config or not MLFLOW_AVAILABLE:
             return
 
         params = {
@@ -403,13 +403,13 @@ class BaseEvaluator(ABC):
 
     def _log_mlflow_metrics(self, metrics: dict[str, Any]) -> None:
         """Log evaluation metrics to MLflow."""
-        if not self.eval_config.use_mlflow or not MLFLOW_AVAILABLE:
+        if not self.eval_config.mlflow_config or not MLFLOW_AVAILABLE:
             return
         mlflow.log_metrics(metrics)
 
     def _log_mlflow_artifacts(self) -> None:
         """Log evaluation artifacts (responses, metrics files) to MLflow."""
-        if not self.eval_config.use_mlflow or not MLFLOW_AVAILABLE:
+        if not self.eval_config.mlflow_config or not MLFLOW_AVAILABLE:
             return
 
         output_dir = self.get_output_dir()

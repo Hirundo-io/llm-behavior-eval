@@ -25,7 +25,7 @@ Example (programmatic):
 from pathlib import Path
 from llm_behavior_eval import EvaluationConfig, MlflowConfig
 
-mlflow_cfg = MlflowConfig(use_mlflow=True)
+mlflow_cfg = MlflowConfig()
 eval_config = EvaluationConfig(
     model_path_or_repo_id="meta-llama/Llama-3.1-8B-Instruct",
     results_dir=Path("./results"),

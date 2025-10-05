@@ -23,7 +23,7 @@ def main():
         preprocess_config=PreprocessConfig(),
     )
 
-    mlflow_config = MlflowConfig(use_mlflow=True)
+    mlflow_config = MlflowConfig()
 
     eval_config = EvaluationConfig(
         model_path_or_repo_id="meta-llama/Llama-3.1-8B-Instruct",
