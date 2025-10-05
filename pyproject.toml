@@ -54,6 +54,9 @@ dev = [
 docs = [
   "sphinx>=8.0.0",
 ]
+mlflow = [
+  "mlflow>=2.0.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["llm_behavior_eval*"]
