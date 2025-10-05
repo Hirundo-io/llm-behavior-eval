@@ -37,7 +37,7 @@ class EvaluationConfig(BaseModel):
     use_4bit_judge: bool = False
     results_dir: Path
 
-    mlflow_config: "MlflowConfig" | None = None
+    mlflow_config: "MlflowConfig | None" = None
 
 
 class MlflowConfig(BaseModel):
