@@ -41,7 +41,7 @@ dependencies = [
   "pytest<9.0.0",
   "typer<1.0.0",
   "accelerate<2.0.0",
-  "bitsandbytes<1.0.0",
+  "bitsandbytes<1.0.0; platform_system != \"Darwin\"",
 ]
 
 [project.optional-dependencies]
