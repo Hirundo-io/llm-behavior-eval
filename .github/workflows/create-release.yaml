@@ -46,7 +46,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          uv sync --extra dev
+          uv sync --group dev
           source .venv/bin/activate
           git config user.name "GitHub Actions [release-bot]"
           git config user.email "github-actions@hirundo.io"
