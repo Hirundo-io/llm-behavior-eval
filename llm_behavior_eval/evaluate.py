@@ -117,7 +117,7 @@ def main(
         typer.Option(
             "--mlflow-experiment-name", help="MLflow experiment name (optional)"
         ),
-    ] = "llm-behavior-eval",
+    ] = None,
     mlflow_run_name: Annotated[
         str | None,
         typer.Option(
