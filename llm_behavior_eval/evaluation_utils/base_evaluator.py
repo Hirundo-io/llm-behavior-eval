@@ -24,7 +24,7 @@ from .util_functions import (
 
 # Optional MLflow import
 try:
-    import mlflow
+    import mlflow  # type: ignore[reportMissingImports]
 except ImportError:
     mlflow = None
 
@@ -334,7 +334,7 @@ class BaseEvaluator(ABC):
 
     def cleanup(self, error: Exception | None = None) -> None:
         if mlflow and self.mlflow_run:
-            from mlflow.entities import RunStatus
+            from mlflow.entities import RunStatus  # type: ignore[reportMissingImports]
 
             mlflow.end_run(
                 status=RunStatus.to_string(RunStatus.FAILED)
@@ -466,18 +466,21 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         gc.collect()
 
     def init_judge_pipeline(self, probe_prompts: list[str] | None = None) -> None:
-        self.judge_tokenizer, judge_model = load_model_and_tokenizer(
-            self.eval_config.judge_path_or_repo_id, self.eval_config.use_4bit_judge
-        )
-        self.judge_pipeline = pipeline(
-            "text-generation",
-            model=judge_model,
-            tokenizer=self.judge_tokenizer,
-            max_new_tokens=self.eval_config.judge_output_tokens,
-            return_full_text=False,
-            pad_token_id=self.judge_tokenizer.pad_token_id,
-            eos_token_id=self.judge_tokenizer.eos_token_id,
-        )
+        # Reuse existing judge pipeline if already initialized. This prevents
+        # reloading the judge model/tokenizer on subsequent calls (which can OOM).
+        if getattr(self, "judge_pipeline", None) is None:
+            self.judge_tokenizer, judge_model = load_model_and_tokenizer(
+                self.eval_config.judge_path_or_repo_id, self.eval_config.use_4bit_judge
+            )
+            self.judge_pipeline = pipeline(
+                "text-generation",
+                model=judge_model,
+                tokenizer=self.judge_tokenizer,  # type: ignore
+                max_new_tokens=self.eval_config.judge_output_tokens,
+                return_full_text=False,
+                pad_token_id=self.judge_tokenizer.pad_token_id,
+                eos_token_id=self.judge_tokenizer.eos_token_id,
+            )
 
         # Auto-select judge batch size only when probe prompts are provided here.
         if self.eval_config.judge_batch_size is None and probe_prompts is not None:
