@@ -27,8 +27,8 @@ keywords = [
   "bias evaluation",
   "bias in LLMs",
 ]
-requires-python = ">=3.10"
-
+requires-python = ">=3.10.12"
+# Please only install Python >=3.10.12 or >=3.11.4 or >=3.12 to avoid GHSA-4xh5-x5gv-qwph vulnerability
 dependencies = [
   "datasets<4.0.0",
   "numpy<3.0.0",
@@ -41,19 +41,28 @@ dependencies = [
   "pytest<9.0.0",
   "typer<1.0.0",
   "accelerate<2.0.0",
-  "bitsandbytes<1.0.0",
+  "bitsandbytes<1.0.0; platform_system != \"Darwin\"",
 ]
 
 [project.optional-dependencies]
+mlflow = [
+  "mlflow>=2.0.0",
+]
+
+[dependency-groups]
 dev = [
   "ruff>=0.11.11,<1.0.0",
   "bumpver>=2024.1130",
-  "pyright>=1.1.399",
+  "basedpyright>=1.31.6",
   "pytest>=8.3.5",
 ]
 docs = [
   "sphinx>=8.0.0",
 ]
+
+[tool.uv.dependency-groups]
+docs = {requires-python = ">=3.11.4"}
+
 
 [tool.setuptools.packages.find]
 include = ["llm_behavior_eval*"]
@@ -69,3 +78,6 @@ version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
 
 [project.urls]
 Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
+
+[tool.pyright]
+typeCheckingMode = "standard"

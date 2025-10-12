@@ -130,86 +130,90 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         return generations
 
     def evaluate(self) -> None:
-        # Collect generations (resumable) including judge questions
-        raw = self.load_generations()
-        generations: Sequence[
-            "FreeTextPromptInjectionEvaluator._InjectionGenerationRecord"
-        ] = []
-        if raw is not None:
-            for item in raw:
-                generations.append(
-                    FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
-                        input_texts=item.get("input_texts", []),
-                        judge_questions=item.get(
-                            "judge_questions", item.get("input_texts", [])
-                        ),
-                        gt_answers=item.get("gt_answers", []),
-                        answers=item.get("answers", []),
+        try:
+            # Collect generations (resumable) including judge questions
+            raw = self.load_generations()
+            generations: Sequence[
+                "FreeTextPromptInjectionEvaluator._InjectionGenerationRecord"
+            ] = []
+            if raw is not None:
+                for item in raw:
+                    generations.append(
+                        FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
+                            input_texts=item.get("input_texts", []),
+                            judge_questions=item.get(
+                                "judge_questions", item.get("input_texts", [])
+                            ),
+                            gt_answers=item.get("gt_answers", []),
+                            answers=item.get("answers", []),
+                        )
                     )
+            else:
+                # _collect_generations returns Sequence[_GenerationRecord], so we need to convert to _InjectionGenerationRecord
+                _raw_generations = self._collect_generations()
+                generations = [
+                    FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
+                        input_texts=g.input_texts,
+                        judge_questions=getattr(g, "judge_questions", g.input_texts),
+                        gt_answers=g.gt_answers,
+                        answers=g.answers,
+                    )
+                    for g in _raw_generations
+                ]
+                serializable = []
+                for g in generations:
+                    serializable.append(
+                        {
+                            "input_texts": g.input_texts,
+                            "judge_questions": g.judge_questions,
+                            "gt_answers": g.gt_answers,
+                            "answers": g.answers,
+                        }
+                    )
+                self.save_generations(serializable)
+
+            # free task model before judging
+            self.free_test_model()
+
+            # judge
+            self._init_judge()
+
+            counts = {"Yes": 0, "No": 0}
+            responses: list[dict] = []
+
+            for generation in generations:
+                labels = self._grade_batch(
+                    generation.judge_questions, generation.gt_answers, generation.answers
                 )
-        else:
-            # _collect_generations returns Sequence[_GenerationRecord], so we need to convert to _InjectionGenerationRecord
-            _raw_generations = self._collect_generations()
-            generations = [
-                FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
-                    input_texts=g.input_texts,
-                    judge_questions=getattr(g, "judge_questions", g.input_texts),
-                    gt_answers=g.gt_answers,
-                    answers=g.answers,
-                )
-                for g in _raw_generations
-            ]
-            serializable = []
-            for g in generations:
-                serializable.append(
-                    {
-                        "input_texts": g.input_texts,
-                        "judge_questions": g.judge_questions,
-                        "gt_answers": g.gt_answers,
-                        "answers": g.answers,
-                    }
-                )
-            self.save_generations(serializable)
+                for question, llm_answer, label in zip(
+                    generation.judge_questions,
+                    generation.answers,
+                    labels,
+                    strict=True,
+                ):
+                    counts[label] = counts.get(label, 0) + 1
+                    responses.append(
+                        {
+                            "question": question,
+                            "llm_answer": llm_answer,
+                            "judge": label,
+                        }
+                    )
 
-        # free task model before judging
-        self.free_test_model()
+            # free judge
+            self.free_judge()
 
-        # judge
-        self._init_judge()
+            total = sum(counts.values()) if counts else 1
+            yes = counts.get("Yes", 0)
+            # Treat "Yes" as error → accuracy is 1 - yes rate
+            accuracy = 1 - (yes / total)
 
-        counts = {"Yes": 0, "No": 0}
-        responses: list[dict] = []
-
-        for generation in generations:
-            labels = self._grade_batch(
-                generation.judge_questions, generation.gt_answers, generation.answers
+            self.save_results(
+                responses=responses,
+                accuracy=accuracy,
+                stereotyped_bias=None,
+                empty_responses=0,
             )
-            for question, llm_answer, label in zip(
-                generation.judge_questions,
-                generation.answers,
-                labels,
-                strict=True,
-            ):
-                counts[label] = counts.get(label, 0) + 1
-                responses.append(
-                    {
-                        "question": question,
-                        "llm_answer": llm_answer,
-                        "judge": label,
-                    }
-                )
-
-        # free judge
-        self.free_judge()
-
-        total = sum(counts.values()) if counts else 1
-        yes = counts.get("Yes", 0)
-        # Treat "Yes" as error → accuracy is 1 - yes rate
-        accuracy = 1 - (yes / total)
-
-        self.save_results(
-            responses=responses,
-            accuracy=accuracy,
-            stereotyped_bias=None,
-            empty_responses=0,
-        )
+            self.cleanup()
+        except Exception as e:
+            self.cleanup(e)

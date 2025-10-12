@@ -27,12 +27,6 @@ jobs:
           python-version-file: "pyproject.toml"
 
       - name: Install the project
-        run: uv sync --locked
-
-      - run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
-
-      - uses: jakebailey/pyright-action@v2
-        with:
-          pylance-version: latest-release
-        env:
-          PYRIGHT_PYTHON_PYLANCE_VERSION: latest-release
+        run: uv sync --locked --extra mlflow
+      - run:
+         uvx basedpyright

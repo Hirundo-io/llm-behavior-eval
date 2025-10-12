@@ -102,6 +102,29 @@ def main(
             help="Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'"
         ),
     ],
+    use_mlflow: Annotated[
+        bool,
+        typer.Option(
+            "--use-mlflow", help="Enable MLflow tracking for this evaluation run"
+        ),
+    ] = False,
+    mlflow_tracking_uri: Annotated[
+        str | None,
+        typer.Option("--mlflow-tracking-uri", help="MLflow tracking URI (optional)"),
+    ] = None,
+    mlflow_experiment_name: Annotated[
+        str | None,
+        typer.Option(
+            "--mlflow-experiment-name", help="MLflow experiment name (optional)"
+        ),
+    ] = None,
+    mlflow_run_name: Annotated[
+        str | None,
+        typer.Option(
+            "--mlflow-run-name",
+            help="MLflow run name (optional, auto-generates if not specified)",
+        ),
+    ] = None,
 ) -> None:
     model_path_or_repo_id = model
     result_dir = Path(__file__).parent / "results"
@@ -122,16 +145,37 @@ def main(
             else DatasetType.BIAS,
             preprocess_config=PreprocessConfig(),
         )
+
+        # Compose MLflow config separately
+        if (
+            use_mlflow
+            or mlflow_tracking_uri
+            or mlflow_experiment_name
+            or mlflow_run_name
+        ):
+            from llm_behavior_eval.evaluation_utils.eval_config import MlflowConfig
+
+            mlflow_config = MlflowConfig(
+                mlflow_tracking_uri=mlflow_tracking_uri,
+                mlflow_experiment_name=mlflow_experiment_name,
+                mlflow_run_name=mlflow_run_name,
+            )
+        else:
+            mlflow_config = None
+
         eval_config = EvaluationConfig(
             model_path_or_repo_id=model_path_or_repo_id,
             results_dir=result_dir,
+            mlflow_config=mlflow_config,
         )
         set_seed(dataset_config.seed)
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
-        evaluator.evaluate()
-        del evaluator
-        gc.collect()
-        torch.cuda.empty_cache()
+        try:
+            evaluator.evaluate()
+        finally:
+            del evaluator
+            gc.collect()
+            torch.cuda.empty_cache()
 
 
 app = typer.Typer()
