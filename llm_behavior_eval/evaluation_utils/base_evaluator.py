@@ -9,10 +9,10 @@ import pandas as pd
 import torch
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
+from transformers import PreTrainedTokenizer
 from transformers.data.data_collator import default_data_collator
 from transformers.generation.utils import GenerationMixin
 from transformers.pipelines import pipeline
-from transformers.tokenization_utils_base import PreTrainedTokenizer
 
 from .custom_dataset import CustomDataset
 from .dataset_config import DatasetConfig
@@ -488,7 +488,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Execute the judge pipeline by probing an executable batch size that can
         complete a full pass over all prompts without OOM. The probing runs the
         entire evaluation pass; upon success, results are returned directly.
-        
+
         Args:
             prompts: List of prompts to judge.
 
