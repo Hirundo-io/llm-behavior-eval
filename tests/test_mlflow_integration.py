@@ -124,8 +124,8 @@ def test_init_mlflow_starts_run_and_logs_params(
 
     assert mlflow_mock.log_params.call_count == 1
     logged_params = mlflow_mock.log_params.call_args.args[0]
-    assert logged_params["model"] == "meta/model"
-    assert logged_params["dataset"] == "hirundo-io/bbq-gender-bias-free-text"
+    assert logged_params["model_path_or_repo_id"] == "meta/model"
+    assert logged_params["file_path"] == "hirundo-io/bbq-gender-bias-free-text"
     assert logged_params["num_samples_evaluated"] == 3
 
 
