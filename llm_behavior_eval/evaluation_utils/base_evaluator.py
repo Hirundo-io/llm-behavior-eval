@@ -143,7 +143,6 @@ class BaseEvaluator(ABC):
         )
         # propagate flag
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
-
     def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
         logging.info(f"Trying batch size: {candidate_bs}")
         dl = DataLoader(
