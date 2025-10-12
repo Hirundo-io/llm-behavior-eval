@@ -465,56 +465,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         torch.cuda.empty_cache()
         gc.collect()
 
-    def init_judge_pipeline(self, probe_prompts: list[str] | None = None) -> None:
-        # Reuse existing judge pipeline if already initialized. This prevents
-        # reloading the judge model/tokenizer on subsequent calls (which can OOM).
-        if getattr(self, "judge_pipeline", None) is None:
-            self.judge_tokenizer, judge_model = load_model_and_tokenizer(
-                self.eval_config.judge_path_or_repo_id, self.eval_config.use_4bit_judge
-            )
-            self.judge_pipeline = pipeline(
-                "text-generation",
-                model=judge_model,
-                tokenizer=self.judge_tokenizer,  # type: ignore
-                max_new_tokens=self.eval_config.judge_output_tokens,
-                return_full_text=False,
-                pad_token_id=self.judge_tokenizer.pad_token_id,
-                eos_token_id=self.judge_tokenizer.eos_token_id,
-            )
-
-        # Auto-select judge batch size only when probe prompts are provided here.
-        if self.eval_config.judge_batch_size is None and probe_prompts is not None:
-            # Use the number of prompts per forward pass to probe OOM, starting from a safe upper bound.
-            # We cap by MAX_BATCH_SIZE for symmetry with task model probing.
-            starting_bs = MAX_BATCH_SIZE
-            current_bs = starting_bs
-
-            def halve_reducer():
-                nonlocal current_bs
-                current_bs = max(1, current_bs // 2)
-                return current_bs
-
-            def try_generate(candidate_bs: int) -> int:
-                prompts = probe_prompts[:candidate_bs]
-                while len(prompts) < candidate_bs:
-                    prompts.extend(probe_prompts)
-                _ = self.judge_pipeline(
-                    prompts, batch_size=candidate_bs, do_sample=False
-                )
-                return candidate_bs
-
-            wrapper = find_executable_batch_size(
-                try_generate,
-                starting_batch_size=starting_bs,
-                reduce_batch_size_fn=halve_reducer,
-            )
-            # Apply a 2x safety margin: halve the passing batch to leave headroom for
-            # longer or more heterogeneous prompts that may appear later in the run.
-            self.eval_config.judge_batch_size = max(cast(int, wrapper()) // 2, 1)
-            logging.info(
-                f"Selected judge batch size: {self.eval_config.judge_batch_size}"
-            )
-
     def prepare_judge_tokenizer(self) -> None:
         """
         Load only the judge tokenizer so we can format probe prompts before
@@ -534,12 +484,29 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     @torch.no_grad()
     def run_judge_with_backoff(self, prompts: list[str]) -> list[list[dict[str, str]]]:
         """
-        Execute the judge pipeline with either a fixed batch size (if configured)
-        or a dynamic backoff strategy when judge_batch_size is None.
-        Accumulates results across chunks and continues on recoverable failures.
+        Execute the judge pipeline by probing an executable batch size that can
+        complete a full pass over all prompts without OOM. The probing runs the
+        entire evaluation pass; upon success, results are returned directly.
         """
-        # Ensure judge pipeline is initialized (and batch size probed if needed)
-        self.init_judge_pipeline(prompts)
+        # Return empty list when there is nothing to judge
+        if not prompts:
+            return []
+        
+        # Reuse existing judge pipeline if already initialized. This prevents
+        # reloading the judge model/tokenizer on subsequent calls (which can OOM).
+        if getattr(self, "judge_pipeline", None) is None:
+            self.judge_tokenizer, judge_model = load_model_and_tokenizer(
+                self.eval_config.judge_path_or_repo_id, self.eval_config.use_4bit_judge
+            )
+            self.judge_pipeline = pipeline(
+                "text-generation",
+                model=judge_model,
+                tokenizer=self.judge_tokenizer,  # type: ignore
+                max_new_tokens=self.eval_config.judge_output_tokens,
+                return_full_text=False,
+                pad_token_id=self.judge_tokenizer.pad_token_id,
+                eos_token_id=self.judge_tokenizer.eos_token_id,
+            )
 
         # If a fixed judge batch size is provided, run regularly with that size (no backoff)
         if self.eval_config.judge_batch_size is not None:
@@ -551,29 +518,45 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 outputs_fixed.extend(res)
             return outputs_fixed
 
-        # Dynamic backoff path: start from the largest plausible batch size
-        max_bs = min(len(prompts), MAX_BATCH_SIZE)
+        # Start from configured batch size if provided, otherwise from an upper bound
+        starting_bs = min(len(prompts), MAX_BATCH_SIZE)
+        current_bs = starting_bs
+
         outputs: list[list[dict[str, str]]] = []
-        idx = 0
-        bs = max(1, min(max_bs, len(prompts)))
 
-        while idx < len(prompts):
-            bs = min(bs, len(prompts) - idx)
+        def halve_reducer():
+            nonlocal current_bs
+            current_bs = max(1, current_bs // 2)
+            return current_bs
+
+        def try_full_run(candidate_bs: int) -> int:
+            """Attempt a full evaluation pass using candidate_bs.
+
+            On success, populate `outputs` and return the candidate batch size.
+            On failure (e.g., OOM), clear partial outputs, free cache, and re-raise
+            to let the wrapper reduce the batch size.
+            """
+            nonlocal outputs
+            outputs = []
             try:
-                chunk = prompts[idx : idx + bs]
-                res = self.judge_pipeline(chunk, batch_size=bs, do_sample=False)
-                outputs.extend(res)
-                idx += bs
-            except Exception as e:  # noqa: BLE001 - catch OOM and transient errors
-                if bs > 1:
-                    bs = max(1, bs // 2)
-                    logging.info(f"Reducing judge batch size to {bs} due to error: {e}")
-                    torch.cuda.empty_cache()
-                    continue
-                logging.warning(
-                    f"Judge failed for single prompt at index {idx}; emitting placeholder. Error: {e}"
-                )
-                outputs.append([{"generated_text": ""}])
-                idx += 1
+                for start in range(0, len(prompts), candidate_bs):
+                    chunk = prompts[start : start + candidate_bs]
+                    res = self.judge_pipeline(
+                        chunk, batch_size=candidate_bs, do_sample=False
+                    )
+                    outputs.extend(res)
+                return candidate_bs
+            except Exception:
+                # Drop partial results and free memory before retrying with a smaller batch
+                outputs = []
+                torch.cuda.empty_cache()
+                raise
 
+        # Probe for an executable batch size; the successful call leaves `outputs` filled
+        wrapper = find_executable_batch_size(
+            try_full_run,
+            starting_batch_size=starting_bs,
+            reduce_batch_size_fn=halve_reducer,
+        )
+        _ = wrapper()
         return outputs

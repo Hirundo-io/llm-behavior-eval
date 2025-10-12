@@ -40,11 +40,6 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
     class _InjectionGenerationRecord(_BaseGenerationRecord):
         judge_questions: list[str]
 
-    def _init_judge(
-        self, probe_prompts: list[str] | None = None
-    ) -> None:  # override to keep same generation config
-        self.init_judge_pipeline(probe_prompts)
-
     @staticmethod
     def _map_judge_outputs_yes_no(judge_raw: list[list[dict[str, str]]]) -> list[str]:
         labels: list[str] = []
@@ -78,7 +73,6 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                     ],
                 )
             )
-        self._init_judge(prompts)
         raw = self.run_judge_with_backoff(prompts)
         return self._map_judge_outputs_yes_no(raw)
 
@@ -178,10 +172,6 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
 
             # free task model before judging
             self.free_test_model()
-
-            # judge
-            self._init_judge()
-
             counts = {"Yes": 0, "No": 0}
             responses: list[dict] = []
 
