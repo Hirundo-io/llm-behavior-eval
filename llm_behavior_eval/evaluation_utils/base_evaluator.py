@@ -518,7 +518,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 outputs_fixed.extend(res)
             return outputs_fixed
 
-        # Start from configured batch size if provided, otherwise from an upper bound
         starting_bs = min(len(prompts), MAX_BATCH_SIZE)
         current_bs = starting_bs
 
