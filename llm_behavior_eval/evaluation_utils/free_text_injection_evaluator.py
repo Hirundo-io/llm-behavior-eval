@@ -60,6 +60,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         gt_answers: list[str],  # unused but kept for signature compatibility
         generated_answers: list[str],
     ) -> list[str]:
+        self.prepare_judge_tokenizer()
         prompts = []
         for question, generated_answer in zip(
             questions, generated_answers, strict=True
@@ -77,9 +78,8 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                     ],
                 )
             )
-        raw = self.judge_pipeline(
-            prompts, batch_size=self.eval_config.judge_batch_size, do_sample=False
-        )
+        self._init_judge(prompts)
+        raw = self.run_judge_with_backoff(prompts)
         return self._map_judge_outputs_yes_no(raw)
 
     @torch.no_grad()
@@ -177,32 +177,6 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
 
         # free task model before judging
         self.free_test_model()
-
-        # judge — build representative prompts from all generations to probe realistic batch size
-        probe_prompts: list[str] = []
-        if generations:
-            self.prepare_judge_tokenizer()
-            prompts: list[str] = []
-            for gen in generations:
-                for question, generated_answer in zip(
-                    gen.judge_questions, gen.answers, strict=False
-                ):
-                    prompts.append(
-                        safe_apply_chat_template(
-                            self.judge_tokenizer,
-                            [
-                                {
-                                    "role": "user",
-                                    "content": self.PROMPT_JUDGE_RESPONSE.format(
-                                        llm_response=generated_answer, question=question
-                                    ),
-                                }
-                            ],
-                        )
-                    )
-            probe_prompts = prompts
-        self._init_judge(probe_prompts)
-
         counts = {"Yes": 0, "No": 0}
         responses: list[dict] = []
 

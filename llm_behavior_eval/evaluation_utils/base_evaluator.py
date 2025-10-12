@@ -23,7 +23,6 @@ from .util_functions import (
 )
 
 MAX_BATCH_SIZE = 1024
-JUDGE_PROBE_PROMPTS_N = 8
 
 
 def custom_collator(batch):
@@ -346,7 +345,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         self.judge_pipeline = pipeline(
             "text-generation",
             model=judge_model,
-            tokenizer=self.judge_tokenizer,  # type: ignore
+            tokenizer=self.judge_tokenizer,
             max_new_tokens=self.eval_config.judge_output_tokens,
             return_full_text=False,
             pad_token_id=self.judge_tokenizer.pad_token_id,
@@ -367,10 +366,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
             def try_generate(candidate_bs: int) -> int:
                 prompts = probe_prompts[:candidate_bs]
-                if len(prompts) < candidate_bs:
-                    prompts = (
-                        prompts * ((candidate_bs + len(prompts) - 1) // len(prompts))
-                    )[:candidate_bs]
+                while len(prompts) < candidate_bs:
+                    prompts.extend(probe_prompts)
                 _ = self.judge_pipeline(
                     prompts, batch_size=candidate_bs, do_sample=False
                 )
@@ -381,7 +378,12 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 starting_batch_size=starting_bs,
                 reduce_batch_size_fn=halve_reducer,
             )
-            self.eval_config.judge_batch_size = cast(int, wrapper())
+            # Apply a 2x safety margin: halve the passing batch to leave headroom for
+            # longer or more heterogeneous prompts that may appear later in the run.
+            self.eval_config.judge_batch_size = max(cast(int, wrapper()) // 2, 1)
+            logging.info(
+                f"Selected judge batch size: {self.eval_config.judge_batch_size}"
+            )
 
     def prepare_judge_tokenizer(self) -> None:
         """
@@ -398,3 +400,50 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         del self.judge_pipeline
         torch.cuda.empty_cache()
         gc.collect()
+
+    @torch.no_grad()
+    def run_judge_with_backoff(self, prompts: list[str]) -> list[list[dict[str, str]]]:
+        """
+        Execute the judge pipeline with either a fixed batch size (if configured)
+        or a dynamic backoff strategy when judge_batch_size is None.
+        Accumulates results across chunks and continues on recoverable failures.
+        """
+        # Ensure judge pipeline is initialized (and batch size probed if needed)
+        self.init_judge_pipeline(prompts)
+
+        # If a fixed judge batch size is provided, run regularly with that size (no backoff)
+        if self.eval_config.judge_batch_size is not None:
+            fixed_bs = max(1, int(self.eval_config.judge_batch_size))
+            outputs_fixed: list[list[dict[str, str]]] = []
+            for start in range(0, len(prompts), fixed_bs):
+                chunk = prompts[start : start + fixed_bs]
+                res = self.judge_pipeline(chunk, batch_size=fixed_bs, do_sample=False)
+                outputs_fixed.extend(res)
+            return outputs_fixed
+
+        # Dynamic backoff path: start from the largest plausible batch size
+        max_bs = min(len(prompts), MAX_BATCH_SIZE)
+        outputs: list[list[dict[str, str]]] = []
+        idx = 0
+        bs = max(1, min(max_bs, len(prompts)))
+
+        while idx < len(prompts):
+            bs = min(bs, len(prompts) - idx)
+            try:
+                chunk = prompts[idx : idx + bs]
+                res = self.judge_pipeline(chunk, batch_size=bs, do_sample=False)
+                outputs.extend(res)
+                idx += bs
+            except Exception as e:  # noqa: BLE001 - catch OOM and transient errors
+                if bs > 1:
+                    bs = max(1, bs // 2)
+                    logging.info(f"Reducing judge batch size to {bs} due to error: {e}")
+                    torch.cuda.empty_cache()
+                    continue
+                logging.warning(
+                    f"Judge failed for single prompt at index {idx}; emitting placeholder. Error: {e}"
+                )
+                outputs.append([{"generated_text": ""}])
+                idx += 1
+
+        return outputs
