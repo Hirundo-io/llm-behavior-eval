@@ -4,8 +4,11 @@ from typing import Sequence
 
 import torch
 
+from .base_evaluator import JUDGE_PROBE_PROMPTS_N
 from .free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
+)
+from .free_text_hallu_evaluator import (
     _GenerationRecord as _BaseGenerationRecord,
 )
 from .util_functions import safe_apply_chat_template
@@ -38,8 +41,10 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
     class _InjectionGenerationRecord(_BaseGenerationRecord):
         judge_questions: list[str]
 
-    def _init_judge(self) -> None:  # override to keep same generation config
-        self.init_judge_pipeline()
+    def _init_judge(
+        self, probe_prompts: list[str] | None = None
+    ) -> None:  # override to keep same generation config
+        self.init_judge_pipeline(probe_prompts)
 
     @staticmethod
     def _map_judge_outputs_yes_no(judge_raw: list[list[dict[str, str]]]) -> list[str]:
@@ -174,8 +179,31 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         # free task model before judging
         self.free_test_model()
 
-        # judge
-        self._init_judge()
+        # judge — build representative prompts from first generation to probe realistic batch size
+        probe_prompts: list[str] = []
+        if generations:
+            first = generations[0]
+            sample_questions = first.judge_questions[:JUDGE_PROBE_PROMPTS_N]
+            sample_answers = first.answers[:JUDGE_PROBE_PROMPTS_N]
+            prompts = []
+            for question, generated_answer in zip(
+                sample_questions, sample_answers, strict=False
+            ):
+                prompts.append(
+                    safe_apply_chat_template(
+                        self.judge_tokenizer,
+                        [
+                            {
+                                "role": "user",
+                                "content": self.PROMPT_JUDGE_RESPONSE.format(
+                                    llm_response=generated_answer, question=question
+                                ),
+                            }
+                        ],
+                    )
+                )
+            probe_prompts = prompts
+        self._init_judge(probe_prompts)
 
         counts = {"Yes": 0, "No": 0}
         responses: list[dict] = []

@@ -22,6 +22,7 @@ from .util_functions import (
 )
 
 MAX_BATCH_SIZE = 1024
+JUDGE_PROBE_PROMPTS_N = 8
 
 
 def custom_collator(batch):
@@ -125,7 +126,7 @@ class BaseEvaluator(ABC):
         )
         # propagate flag
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
-    
+
     def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
         logging.info(f"Trying batch size: {candidate_bs}")
         dl = DataLoader(
@@ -337,7 +338,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         torch.cuda.empty_cache()
         gc.collect()
 
-    def init_judge_pipeline(self) -> None:
+    def init_judge_pipeline(self, probe_prompts: list[str] | None = None) -> None:
         self.judge_tokenizer, judge_model = load_model_and_tokenizer(
             self.eval_config.judge_path_or_repo_id, self.eval_config.use_4bit_judge
         )
@@ -350,6 +351,38 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             pad_token_id=self.judge_tokenizer.pad_token_id,
             eos_token_id=self.judge_tokenizer.eos_token_id,
         )
+
+        # Auto-select judge batch size only when probe prompts are provided here.
+        if self.eval_config.judge_batch_size is None and probe_prompts is not None:
+            # Use the number of prompts per forward pass to probe OOM, starting from a safe upper bound.
+            # We cap by MAX_BATCH_SIZE for symmetry with task model probing.
+            starting_bs = MAX_BATCH_SIZE
+            current_bs = starting_bs
+
+            def halve_reducer():
+                nonlocal current_bs
+                current_bs = max(1, current_bs // 2)
+                return current_bs
+
+            def try_generate(candidate_bs: int) -> int:
+                prompts = probe_prompts[:candidate_bs]
+                if len(prompts) < candidate_bs:
+                    prompts = (
+                        prompts * ((candidate_bs + len(prompts) - 1) // len(prompts))
+                    )[:candidate_bs]
+                _ = self.judge_pipeline(
+                    prompts, batch_size=candidate_bs, do_sample=False
+                )
+                return candidate_bs
+
+            wrapper = find_executable_batch_size(
+                try_generate,
+                starting_batch_size=starting_bs,
+                reduce_batch_size_fn=halve_reducer,
+            )
+            selected = cast(int, wrapper())
+            logging.info("Selected judge batch size: %s", selected)
+            self.eval_config.judge_batch_size = selected
 
     def free_judge(self) -> None:
         del self.judge_pipeline

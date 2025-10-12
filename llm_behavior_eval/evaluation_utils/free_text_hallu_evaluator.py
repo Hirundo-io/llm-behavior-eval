@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Sequence, cast
 
 import torch
 
-from .base_evaluator import FreeTextSharedEvaluator
+from .base_evaluator import JUDGE_PROBE_PROMPTS_N, FreeTextSharedEvaluator
 from .util_functions import safe_apply_chat_template
 
 if TYPE_CHECKING:
@@ -38,8 +38,8 @@ class _GenerationRecord:
 
 
 class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
-    def _init_judge(self) -> None:
-        self.init_judge_pipeline()
+    def _init_judge(self, probe_prompts: list[str] | None = None) -> None:
+        self.init_judge_pipeline(probe_prompts)
 
     @staticmethod
     def _map_judge_outputs(judge_raw: list[list[dict[str, str]]]) -> list[str]:
@@ -149,8 +149,34 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         # free task model
         self.free_test_model()
 
-        # judge
-        self._init_judge()
+        # judge — build representative prompts from first generation to probe realistic batch size
+        probe_prompts: list[str] = []
+        if generations:
+            first = generations[0]
+            sample_questions = first.input_texts[:JUDGE_PROBE_PROMPTS_N]
+            sample_gt = first.gt_answers[:JUDGE_PROBE_PROMPTS_N]
+            sample_answers = first.answers[:JUDGE_PROBE_PROMPTS_N]
+            prompts = []
+            for question, gt_answer, generated_answer in zip(
+                sample_questions, sample_gt, sample_answers, strict=False
+            ):
+                prompts.append(
+                    safe_apply_chat_template(
+                        self.judge_tokenizer,
+                        [
+                            {
+                                "role": "user",
+                                "content": GRADER_TEMPLATE.format(
+                                    question=question,
+                                    target=gt_answer,
+                                    predicted_answer=generated_answer,
+                                ),
+                            }
+                        ],
+                    )
+                )
+            probe_prompts = prompts
+        self._init_judge(probe_prompts)
 
         counts = {k: 0 for k in CHOICE_STRINGS}
         responses: list[dict] = []
