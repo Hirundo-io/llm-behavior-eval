@@ -24,7 +24,7 @@ from .util_functions import (
 
 # Optional MLflow import
 try:
-    import mlflow  # type: ignore[reportMissingImports]
+    import mlflow
 except ImportError:
     mlflow = None
 
@@ -334,7 +334,7 @@ class BaseEvaluator(ABC):
 
     def cleanup(self, error: Exception | None = None) -> None:
         if mlflow and self.mlflow_run:
-            from mlflow.entities import RunStatus  # type: ignore[reportMissingImports]
+            from mlflow.entities import RunStatus
 
             mlflow.end_run(
                 status=RunStatus.to_string(RunStatus.FAILED)
