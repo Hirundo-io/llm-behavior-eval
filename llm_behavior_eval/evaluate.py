@@ -171,7 +171,8 @@ def main(
         set_seed(dataset_config.seed)
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
         try:
-            evaluator.evaluate()
+            with torch.inference_mode():
+                evaluator.evaluate()
         finally:
             del evaluator
             gc.collect()
