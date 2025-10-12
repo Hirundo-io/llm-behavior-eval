@@ -6,9 +6,9 @@ import torch
 from transformers.trainer_utils import set_seed
 
 from llm_behavior_eval import (
-    EvaluateFactory,
     DatasetConfig,
     DatasetType,
+    EvaluateFactory,
     EvaluationConfig,
     PreprocessConfig,
 )
@@ -51,7 +51,8 @@ def main() -> None:
 
     set_seed(dataset_config.seed)
     evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
-    evaluator.evaluate()
+    with torch.inference_mode():
+        evaluator.evaluate()
     del evaluator
     gc.collect()
     torch.cuda.empty_cache()

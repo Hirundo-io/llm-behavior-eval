@@ -128,7 +128,8 @@ def main(
         )
         set_seed(dataset_config.seed)
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
-        evaluator.evaluate()
+        with torch.inference_mode():
+            evaluator.evaluate()
         del evaluator
         gc.collect()
         torch.cuda.empty_cache()
