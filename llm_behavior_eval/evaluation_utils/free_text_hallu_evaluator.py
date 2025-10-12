@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Sequence, cast
 
 import torch
 
-from .base_evaluator import JUDGE_PROBE_PROMPTS_N, FreeTextSharedEvaluator
+from .base_evaluator import FreeTextSharedEvaluator
 from .util_functions import safe_apply_chat_template
 
 if TYPE_CHECKING:
@@ -149,32 +149,30 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         # free task model
         self.free_test_model()
 
-        # judge — build representative prompts from first generation to probe realistic batch size
+        # judge — build representative prompts from all generations to probe realistic batch size
         probe_prompts: list[str] = []
         if generations:
-            first = generations[0]
-            sample_questions = first.input_texts[:JUDGE_PROBE_PROMPTS_N]
-            sample_gt = first.gt_answers[:JUDGE_PROBE_PROMPTS_N]
-            sample_answers = first.answers[:JUDGE_PROBE_PROMPTS_N]
-            prompts = []
-            for question, gt_answer, generated_answer in zip(
-                sample_questions, sample_gt, sample_answers, strict=False
-            ):
-                prompts.append(
-                    safe_apply_chat_template(
-                        self.judge_tokenizer,
-                        [
-                            {
-                                "role": "user",
-                                "content": GRADER_TEMPLATE.format(
-                                    question=question,
-                                    target=gt_answer,
-                                    predicted_answer=generated_answer,
-                                ),
-                            }
-                        ],
+            self.prepare_judge_tokenizer()
+            prompts: list[str] = []
+            for gen in generations:
+                for question, gt_answer, generated_answer in zip(
+                    gen.input_texts, gen.gt_answers, gen.answers, strict=False
+                ):
+                    prompts.append(
+                        safe_apply_chat_template(
+                            self.judge_tokenizer,
+                            [
+                                {
+                                    "role": "user",
+                                    "content": GRADER_TEMPLATE.format(
+                                        question=question,
+                                        target=gt_answer,
+                                        predicted_answer=generated_answer,
+                                    ),
+                                }
+                            ],
+                        )
                     )
-                )
             probe_prompts = prompts
         self._init_judge(probe_prompts)
 

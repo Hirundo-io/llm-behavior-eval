@@ -19,6 +19,7 @@ from .enums import DatasetType
 from .eval_config import EvaluationConfig
 from .util_functions import (
     load_model_and_tokenizer,
+    load_tokenizer,
 )
 
 MAX_BATCH_SIZE = 1024
@@ -370,6 +371,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                     prompts = (
                         prompts * ((candidate_bs + len(prompts) - 1) // len(prompts))
                     )[:candidate_bs]
+                print(f"Probing judge batch size: {candidate_bs}")
+                print(f"Prompts: {len(prompts)}")
                 _ = self.judge_pipeline(
                     prompts, batch_size=candidate_bs, do_sample=False
                 )
@@ -381,8 +384,26 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 reduce_batch_size_fn=halve_reducer,
             )
             selected = cast(int, wrapper())
-            logging.info("Selected judge batch size: %s", selected)
-            self.eval_config.judge_batch_size = selected
+            # Apply a 2x safety margin: halve the passing batch to leave headroom for
+            # longer or more heterogeneous prompts that may appear later in the run.
+            safe_selected = max(1, selected // 2)
+            logging.info(
+                "Selected judge batch size (with 2x safety margin): %s (raw pass: %s)",
+                safe_selected,
+                selected,
+            )
+            self.eval_config.judge_batch_size = safe_selected
+
+    def prepare_judge_tokenizer(self) -> None:
+        """
+        Load only the judge tokenizer so we can format probe prompts before
+        initializing the full judge pipeline. This keeps memory lower while
+        constructing representative prompts used for batch-size probing.
+        """
+        if getattr(self, "judge_tokenizer", None) is None:
+            self.judge_tokenizer = load_tokenizer(
+                self.eval_config.judge_path_or_repo_id
+            )
 
     def free_judge(self) -> None:
         del self.judge_pipeline

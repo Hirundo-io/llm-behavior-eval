@@ -4,7 +4,6 @@ from typing import Sequence
 
 import torch
 
-from .base_evaluator import JUDGE_PROBE_PROMPTS_N
 from .free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
 )
@@ -179,29 +178,28 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         # free task model before judging
         self.free_test_model()
 
-        # judge — build representative prompts from first generation to probe realistic batch size
+        # judge — build representative prompts from all generations to probe realistic batch size
         probe_prompts: list[str] = []
         if generations:
-            first = generations[0]
-            sample_questions = first.judge_questions[:JUDGE_PROBE_PROMPTS_N]
-            sample_answers = first.answers[:JUDGE_PROBE_PROMPTS_N]
-            prompts = []
-            for question, generated_answer in zip(
-                sample_questions, sample_answers, strict=False
-            ):
-                prompts.append(
-                    safe_apply_chat_template(
-                        self.judge_tokenizer,
-                        [
-                            {
-                                "role": "user",
-                                "content": self.PROMPT_JUDGE_RESPONSE.format(
-                                    llm_response=generated_answer, question=question
-                                ),
-                            }
-                        ],
+            self.prepare_judge_tokenizer()
+            prompts: list[str] = []
+            for gen in generations:
+                for question, generated_answer in zip(
+                    gen.judge_questions, gen.answers, strict=False
+                ):
+                    prompts.append(
+                        safe_apply_chat_template(
+                            self.judge_tokenizer,
+                            [
+                                {
+                                    "role": "user",
+                                    "content": self.PROMPT_JUDGE_RESPONSE.format(
+                                        llm_response=generated_answer, question=question
+                                    ),
+                                }
+                            ],
+                        )
                     )
-                )
             probe_prompts = prompts
         self._init_judge(probe_prompts)
 
