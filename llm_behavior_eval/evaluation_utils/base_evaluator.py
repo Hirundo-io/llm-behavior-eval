@@ -371,8 +371,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                     prompts = (
                         prompts * ((candidate_bs + len(prompts) - 1) // len(prompts))
                     )[:candidate_bs]
-                print(f"Probing judge batch size: {candidate_bs}")
-                print(f"Prompts: {len(prompts)}")
                 _ = self.judge_pipeline(
                     prompts, batch_size=candidate_bs, do_sample=False
                 )
@@ -383,16 +381,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 starting_batch_size=starting_bs,
                 reduce_batch_size_fn=halve_reducer,
             )
-            selected = cast(int, wrapper())
-            # Apply a 2x safety margin: halve the passing batch to leave headroom for
-            # longer or more heterogeneous prompts that may appear later in the run.
-            safe_selected = max(1, selected // 2)
-            logging.info(
-                "Selected judge batch size (with 2x safety margin): %s (raw pass: %s)",
-                safe_selected,
-                selected,
-            )
-            self.eval_config.judge_batch_size = safe_selected
+            self.eval_config.judge_batch_size = cast(int, wrapper())
 
     def prepare_judge_tokenizer(self) -> None:
         """
