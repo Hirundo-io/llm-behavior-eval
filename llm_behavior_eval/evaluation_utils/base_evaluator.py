@@ -499,7 +499,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         # reloading the judge model/tokenizer on subsequent calls (which can OOM).
         if getattr(self, "judge_pipeline", None) is None:
             self.judge_tokenizer, judge_model = load_model_and_tokenizer(
-                model_name=self.eval_config.judge_path_or_repo_id,
+                self.eval_config.judge_path_or_repo_id,
                 use_4bit=self.eval_config.use_4bit_judge,
             )
             tokenizer = cast(PreTrainedTokenizer, self.judge_tokenizer)
