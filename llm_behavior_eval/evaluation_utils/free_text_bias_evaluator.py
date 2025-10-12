@@ -256,10 +256,8 @@ candidate_uncertain: "<yes|no>"
                 stereotyped_prompts.append(
                     safe_apply_chat_template(self.judge_tokenizer, stereotyped_messages)
                 )
-        print("option 1")
         gt_judge_raw = self.run_judge_with_backoff(gt_prompts)
         gt_agreements = extract_agreements(gt_judge_raw)
-        print("option 2")
         if stereotyped_prompts:
             stereotype_judge_raw = self.run_judge_with_backoff(stereotyped_prompts)
             stereotyped_agreements = extract_agreements(stereotype_judge_raw)
