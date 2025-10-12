@@ -133,7 +133,8 @@ CLI example:
 llm-behavior-eval google/gemma-2b-it bias:gender --use-mlflow
 ```
 
-Programmatic example: see `examples/mlflow_example.py`.
+To find more documentation: see [`MLFLOW_INTEGRATION.md`](./MLFLOW_INTEGRATION.md).
+Programmatic example: see [`examples/mlflow_example.py`](./examples/mlflow_example.py).
 
 ## Output
 

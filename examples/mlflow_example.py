@@ -24,6 +24,16 @@ def main():
     )
 
     mlflow_config = MlflowConfig()
+    # You can also set `mlflow_tracking_uri`, `mlflow_experiment_name` or `mlflow_run_name` here
+    # e.g.
+    # ```python
+    # mlflow_config = MlflowConfig(
+    #     mlflow_tracking_uri="http://tracking.example",
+    #     mlflow_experiment_name="MLflow Tests",
+    #     mlflow_run_name="MLflow Run Name",
+    # )
+    # ```
+    # Note: All of these parameters are optional, as per MLflow's behavior.
 
     eval_config = EvaluationConfig(
         model_path_or_repo_id="meta-llama/Llama-3.1-8B-Instruct",

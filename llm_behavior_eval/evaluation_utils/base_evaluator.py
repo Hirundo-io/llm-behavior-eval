@@ -383,20 +383,26 @@ class BaseEvaluator(ABC):
         if not self.eval_config.mlflow_config or not mlflow:
             return
 
+        def to_dict(obj_to_convert: object, keys: list[str]) -> dict[str, Any]:
+            return {k: getattr(obj_to_convert, k) for k in keys}
+
         params = {
-            "model": self.eval_config.model_path_or_repo_id,
-            "dataset": self.dataset_config.file_path,
-            "dataset_type": str(self.dataset_config.dataset_type),
-            "max_samples": self.eval_config.max_samples,
-            "batch_size": self.eval_config.batch_size,
-            "sample": self.eval_config.sample,
-            "use_4bit": self.eval_config.use_4bit,
-            "answer_tokens": self.eval_config.answer_tokens,
-            "judge_model": self.eval_config.judge_path_or_repo_id,
-            "judge_batch_size": self.eval_config.judge_batch_size,
-            "judge_output_tokens": self.eval_config.judge_output_tokens,
-            "use_4bit_judge": self.eval_config.use_4bit_judge,
-            "seed": self.dataset_config.seed,
+            **to_dict(
+                self.eval_config,
+                [
+                    "model_path_or_repo_id",
+                    "max_samples",
+                    "batch_size",
+                    "sample",
+                    "use_4bit",
+                    "answer_tokens",
+                    "judge_path_or_repo_id",
+                    "judge_batch_size",
+                    "judge_output_tokens",
+                    "use_4bit_judge",
+                ],
+            ),
+            **to_dict(self.dataset_config, ["file_path", "dataset_type", "seed"]),
             "num_samples_evaluated": self.num_samples,
         }
         mlflow.log_params(params)
