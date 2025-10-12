@@ -28,6 +28,7 @@ class EvaluationConfig(BaseModel):
     batch_size: None | int = None
     sample: bool = False
     use_4bit: bool = False
+    device_map: str | dict[str, int] | None = "auto"
     answer_tokens: int = 128
     model_path_or_repo_id: str
     judge_batch_size: None | int = None
@@ -35,3 +36,18 @@ class EvaluationConfig(BaseModel):
     judge_path_or_repo_id: str = "google/gemma-3-12b-it"
     use_4bit_judge: bool = False
     results_dir: Path
+
+    mlflow_config: "MlflowConfig | None" = None
+
+
+class MlflowConfig(BaseModel):
+    """
+    Configuration for MLflow tracking (optional).
+
+    Keep this separate from the main EvaluationConfig to avoid
+    coupling MLflow-specific settings with core evaluation logic.
+    """
+
+    mlflow_tracking_uri: str | None = None
+    mlflow_experiment_name: str | None = None
+    mlflow_run_name: str | None = None

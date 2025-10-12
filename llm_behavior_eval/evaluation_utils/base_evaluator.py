@@ -3,7 +3,7 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pandas as pd
 import torch
@@ -16,11 +16,17 @@ from transformers.pipelines import pipeline
 from .custom_dataset import CustomDataset
 from .dataset_config import DatasetConfig
 from .enums import DatasetType
-from .eval_config import EvaluationConfig
+from .eval_config import EvaluationConfig, MlflowConfig
 from .util_functions import (
     load_model_and_tokenizer,
     load_tokenizer,
 )
+
+# Optional MLflow import
+try:
+    import mlflow
+except ImportError:
+    mlflow = None
 
 MAX_BATCH_SIZE = 1024
 
@@ -52,13 +58,24 @@ class BaseEvaluator(ABC):
         self.dataset_config = dataset_config
         self.models_tokenizers_pairs = {}
         self.tokenizer, self.model = load_model_and_tokenizer(
-            eval_config.model_path_or_repo_id, eval_config.use_4bit
+            eval_config.model_path_or_repo_id,
+            eval_config.use_4bit,
+            eval_config.device_map,
         )
         self.tokenizer.padding_side = "left"
         self.data_collator = default_data_collator
         self.prepare_dataloader()
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
+        # MLflow config (optional)
+        self.mlflow_config: MlflowConfig | None = (
+            self.eval_config.mlflow_config
+            if hasattr(self.eval_config, "mlflow_config")
+            else None
+        )
+        self.mlflow_run = None
+        if self.mlflow_config:
+            self._init_mlflow()
 
     def get_output_dir(self) -> Path:
         """
@@ -302,9 +319,119 @@ class BaseEvaluator(ABC):
         else:
             brief_df.to_csv(brief_summary_path, index=False, float_format="%.3f")
 
+        # Log metrics and artifacts to MLflow (if enabled)
+        if self.mlflow_config:
+            mlflow_metrics = {
+                "accuracy": accuracy,
+                "error": 1 - accuracy,
+                "empty_responses": float(empty_responses),
+                "num_samples": float(self.num_samples),
+            }
+            if stereotyped_bias is not None:
+                mlflow_metrics["stereotyped_bias"] = stereotyped_bias
+            self._log_mlflow_metrics(mlflow_metrics)
+            self._log_mlflow_artifacts()
+
+    def cleanup(self, error: Exception | None = None) -> None:
+        if mlflow and self.mlflow_run:
+            from mlflow.entities import RunStatus
+
+            mlflow.end_run(
+                status=RunStatus.to_string(RunStatus.FAILED)
+                if error
+                else RunStatus.to_string(RunStatus.FINISHED)
+            )
+            logging.info("Ended MLflow run")
+        if error:
+            raise error
+
     # Hook: override in subclasses that want the dataset type in the output dir name
     def should_include_dataset_type_in_output_dir(self) -> bool:
         return False
+
+    def _init_mlflow(self) -> None:
+        """Initialize MLflow tracking if enabled and available."""
+        if not mlflow:
+            logging.warning(
+                "MLflow is not installed. Install it with: pip install mlflow"
+            )
+            self.mlflow_config = None
+            return
+        if not self.mlflow_config:
+            return
+
+        if self.mlflow_config.mlflow_tracking_uri:
+            mlflow.set_tracking_uri(self.mlflow_config.mlflow_tracking_uri)
+
+        # Set experiment
+        if self.mlflow_config.mlflow_experiment_name:
+            mlflow.set_experiment(self.mlflow_config.mlflow_experiment_name)
+
+        # Generate run name if not specified
+        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
+        dataset_slug = self.dataset_config.file_path.split("/")[-1]
+        run_name = self.mlflow_config.mlflow_run_name or f"{model_slug}_{dataset_slug}"
+
+        # Start MLflow run
+        self.mlflow_run = mlflow.start_run(run_name=run_name)
+        logging.info(f"Started MLflow run: {run_name}")
+
+        # Log configuration parameters
+        self._log_mlflow_params()
+
+    def _log_mlflow_params(self) -> None:
+        """Log evaluation and dataset configuration parameters to MLflow."""
+        if not self.eval_config.mlflow_config or not mlflow:
+            return
+
+        def to_dict(obj_to_convert: object, keys: list[str]) -> dict[str, Any]:
+            return {k: getattr(obj_to_convert, k) for k in keys}
+
+        params = {
+            **to_dict(
+                self.eval_config,
+                [
+                    "model_path_or_repo_id",
+                    "max_samples",
+                    "batch_size",
+                    "sample",
+                    "use_4bit",
+                    "answer_tokens",
+                    "judge_path_or_repo_id",
+                    "judge_batch_size",
+                    "judge_output_tokens",
+                    "use_4bit_judge",
+                ],
+            ),
+            **to_dict(self.dataset_config, ["file_path", "dataset_type", "seed"]),
+            "num_samples_evaluated": self.num_samples,
+        }
+        mlflow.log_params(params)
+
+    def _log_mlflow_metrics(self, metrics: dict[str, Any]) -> None:
+        """Log evaluation metrics to MLflow."""
+        if not self.eval_config.mlflow_config or not mlflow:
+            return
+        mlflow.log_metrics(metrics)
+
+    def _log_mlflow_artifacts(self) -> None:
+        """Log evaluation artifacts (responses, metrics files) to MLflow."""
+        if not self.eval_config.mlflow_config or not mlflow:
+            return
+
+        output_dir = self.get_output_dir()
+
+        # Log individual files
+        responses_file = output_dir / "responses.json"
+        metrics_file = output_dir / "metrics.csv"
+        generations_file = output_dir / "generations.json"
+
+        if responses_file.exists():
+            mlflow.log_artifact(str(responses_file))
+        if metrics_file.exists():
+            mlflow.log_artifact(str(metrics_file))
+        if generations_file.exists():
+            mlflow.log_artifact(str(generations_file))
 
 
 class FreeTextSharedEvaluator(BaseEvaluator):

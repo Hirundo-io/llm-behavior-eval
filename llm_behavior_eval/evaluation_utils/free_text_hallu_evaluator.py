@@ -123,64 +123,72 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         return self._map_judge_outputs(raw)
 
     def evaluate(self) -> None:
-        # Collect generations (resumable)
-        raw = self.load_generations()
-        if raw is not None:
-            generations = [
-                _GenerationRecord(
-                    input_texts=item["input_texts"],
-                    gt_answers=item["gt_answers"],
-                    answers=item["answers"],
-                )
-                for item in raw
-            ]
-        else:
-            generations = self._collect_generations()
-            serializable = [
-                {
-                    "input_texts": g.input_texts,
-                    "gt_answers": g.gt_answers,
-                    "answers": g.answers,
-                }
-                for g in generations
-            ]
-            self.save_generations(serializable)
-
-        # free task model
-        self.free_test_model()
-        counts = {k: 0 for k in CHOICE_STRINGS}
-        responses: list[dict] = []
-
-        for generation in generations:
-            labels = self._grade_batch(
-                generation.input_texts, generation.gt_answers, generation.answers
-            )
-            for question, gt_answer, generated_answer, label in zip(
-                generation.input_texts,
-                generation.gt_answers,
-                generation.answers,
-                labels,
-                strict=True,
-            ):
-                counts[label] += 1
-                responses.append(
+        try:
+            # Collect generations (resumable)
+            raw = self.load_generations()
+            if raw is not None:
+                generations = [
+                    _GenerationRecord(
+                        input_texts=item["input_texts"],
+                        gt_answers=item["gt_answers"],
+                        answers=item["answers"],
+                    )
+                    for item in raw
+                ]
+            else:
+                generations = self._collect_generations()
+                serializable = [
                     {
-                        "question": question,
-                        "gt_answer": gt_answer,
-                        "llm_answer": generated_answer,
-                        "grade": label,
+                        "input_texts": g.input_texts,
+                        "gt_answers": g.gt_answers,
+                        "answers": g.answers,
                     }
+                    for g in generations
+                ]
+                self.save_generations(serializable)
+
+            # free task model
+            self.free_test_model()
+
+            # judge
+            self._init_judge()
+
+            counts = {k: 0 for k in CHOICE_STRINGS}
+            responses: list[dict] = []
+
+            for generation in generations:
+                labels = self._grade_batch(
+                    generation.input_texts, generation.gt_answers, generation.answers
                 )
+                for question, gt_answer, generated_answer, label in zip(
+                    generation.input_texts,
+                    generation.gt_answers,
+                    generation.answers,
+                    labels,
+                    strict=True,
+                ):
+                    counts[label] += 1
+                    responses.append(
+                        {
+                            "question": question,
+                            "gt_answer": gt_answer,
+                            "llm_answer": generated_answer,
+                            "grade": label,
+                        }
+                    )
 
-        self.free_judge()
+            self.free_judge()
 
-        total = sum(counts.values()) if counts else 1
-        incorrect = counts.get("INCORRECT", 0)
-        error_rate = incorrect / total
+            total = sum(counts.values()) if counts else 1
+            incorrect = counts.get("INCORRECT", 0)
+            error_rate = incorrect / total
 
-        self.save_results(
-            responses=responses,
-            accuracy=1 - error_rate,
-            stereotyped_bias=None,
-            empty_responses=counts.get("NOT_ATTEMPTED", 0),
-        )
+            self.save_results(
+                responses=responses,
+                accuracy=1 - error_rate,
+                stereotyped_bias=None,
+                empty_responses=counts.get("NOT_ATTEMPTED", 0),
+            )
+            self.cleanup()
+        except Exception as e:
+            self.cleanup(e)
