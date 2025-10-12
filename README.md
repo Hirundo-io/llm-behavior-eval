@@ -122,6 +122,20 @@ Change the evaluation/dataset settings in `evaluate.py` to customize your runs. 
 
 See `examples/presets_customization.py` for a minimal script-based workflow.
 
+### MLflow Integration (Optional)
+
+Enable MLflow tracking with `--use-mlflow` to log simple parameters, metrics and artifacts.
+
+Install: `pip install llm-behavior-eval[mlflow]` or `pip install mlflow`.
+
+CLI example:
+```bash
+llm-behavior-eval google/gemma-2b-it bias:gender --use-mlflow
+```
+
+To find more documentation: see [`MLFLOW_INTEGRATION.md`](./MLFLOW_INTEGRATION.md).
+Programmatic example: see [`examples/mlflow_example.py`](./examples/mlflow_example.py).
+
 ## Output
 
 Evaluation reports will be saved as metrics CSV and full responses JSON formats in the desired results directory.

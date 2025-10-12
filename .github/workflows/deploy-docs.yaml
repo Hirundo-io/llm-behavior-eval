@@ -42,7 +42,7 @@ jobs:
         env:
           SLEEP: 15
         run: |
-          uv sync --extra docs
+          uv sync --group docs
           export VERSION_TAG=${{ (github.event_name == 'pull_request' && github.event.pull_request.title) }}
           export VERSION=$(sed -e 's/^v//' <<< $VERSION_TAG)
 

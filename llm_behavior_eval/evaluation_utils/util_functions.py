@@ -84,6 +84,7 @@ def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
 def load_model_and_tokenizer(
     model_name: str,
     use_4bit: bool = False,
+    device_map: str | dict[str, int] | None = "auto",
 ) -> tuple[PreTrainedTokenizerBase, PreTrainedModel]:
     """
     Load a tokenizer and a causal language model based on the model name/path,
@@ -95,6 +96,7 @@ def load_model_and_tokenizer(
     Args:
         model_name: The repo-id or local path of the model to load.
         use_4bit: If True, load the model in 4-bit mode using bitsandbytes.
+        device_map: The device map to use for the model.
 
     Returns:
         A tuple containing the loaded tokenizer and model.
@@ -124,14 +126,14 @@ def load_model_and_tokenizer(
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=dtype,
-            device_map="auto",
+            device_map=device_map,
             quantization_config=quantization_config,
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=dtype,
-            device_map="auto",
+            device_map=device_map,
             low_cpu_mem_usage=True,
         )
 
