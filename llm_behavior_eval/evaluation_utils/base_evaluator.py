@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
 from transformers.generation.utils import GenerationMixin
 from transformers.pipelines import pipeline
+from transformers.tokenization_utils_base import PreTrainedTokenizer
 
 from .custom_dataset import CustomDataset
 from .dataset_config import DatasetConfig
@@ -487,21 +488,25 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Execute the judge pipeline by probing an executable batch size that can
         complete a full pass over all prompts without OOM. The probing runs the
         entire evaluation pass; upon success, results are returned directly.
-        """
-        # Return empty list when there is nothing to judge
-        if not prompts:
-            return []
         
+        Args:
+            prompts: List of prompts to judge.
+
+        Returns:
+            List of judge outputs.
+        """
         # Reuse existing judge pipeline if already initialized. This prevents
         # reloading the judge model/tokenizer on subsequent calls (which can OOM).
         if getattr(self, "judge_pipeline", None) is None:
             self.judge_tokenizer, judge_model = load_model_and_tokenizer(
-                self.eval_config.judge_path_or_repo_id, self.eval_config.use_4bit_judge
+                model_name=self.eval_config.judge_path_or_repo_id,
+                use_4bit=self.eval_config.use_4bit_judge,
             )
+            tokenizer = cast(PreTrainedTokenizer, self.judge_tokenizer)
             self.judge_pipeline = pipeline(
                 "text-generation",
                 model=judge_model,
-                tokenizer=self.judge_tokenizer,  # type: ignore
+                tokenizer=tokenizer,
                 max_new_tokens=self.eval_config.judge_output_tokens,
                 return_full_text=False,
                 pad_token_id=self.judge_tokenizer.pad_token_id,
@@ -510,16 +515,18 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
         # If a fixed judge batch size is provided, run regularly with that size (no backoff)
         if self.eval_config.judge_batch_size is not None:
-            fixed_bs = max(1, int(self.eval_config.judge_batch_size))
+            fixed_batch_size = max(1, int(self.eval_config.judge_batch_size))
             outputs_fixed: list[list[dict[str, str]]] = []
-            for start in range(0, len(prompts), fixed_bs):
-                chunk = prompts[start : start + fixed_bs]
-                res = self.judge_pipeline(chunk, batch_size=fixed_bs, do_sample=False)
-                outputs_fixed.extend(res)
+            for start in range(0, len(prompts), fixed_batch_size):
+                chunk = prompts[start : start + fixed_batch_size]
+                result = self.judge_pipeline(
+                    chunk, batch_size=fixed_batch_size, do_sample=False
+                )
+                outputs_fixed.extend(result)
             return outputs_fixed
 
-        starting_bs = min(len(prompts), MAX_BATCH_SIZE)
-        current_bs = starting_bs
+        starting_batch_size = min(len(prompts), MAX_BATCH_SIZE)
+        current_bs = starting_batch_size
 
         outputs: list[list[dict[str, str]]] = []
 
@@ -528,7 +535,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             current_bs = max(1, current_bs // 2)
             return current_bs
 
-        def try_full_run(candidate_bs: int) -> int:
+        def try_full_run(candidate_batch_size: int) -> int:
             """Attempt a full evaluation pass using candidate_bs.
 
             On success, populate `outputs` and return the candidate batch size.
@@ -538,13 +545,13 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             nonlocal outputs
             outputs = []
             try:
-                for start in range(0, len(prompts), candidate_bs):
-                    chunk = prompts[start : start + candidate_bs]
+                for start in range(0, len(prompts), candidate_batch_size):
+                    chunk = prompts[start : start + candidate_batch_size]
                     res = self.judge_pipeline(
-                        chunk, batch_size=candidate_bs, do_sample=False
+                        chunk, batch_size=candidate_batch_size, do_sample=False
                     )
                     outputs.extend(res)
-                return candidate_bs
+                return candidate_batch_size
             except Exception:
                 # Drop partial results and free memory before retrying with a smaller batch
                 outputs = []
@@ -554,8 +561,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         # Probe for an executable batch size; the successful call leaves `outputs` filled
         wrapper = find_executable_batch_size(
             try_full_run,
-            starting_batch_size=starting_bs,
+            starting_batch_size=starting_batch_size,
             reduce_batch_size_fn=halve_reducer,
         )
-        _ = wrapper()
+        wrapper()
         return outputs
