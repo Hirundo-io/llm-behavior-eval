@@ -1,11 +1,12 @@
 import logging
+from typing import Any
 
 import torch
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.auto.configuration_auto import AutoConfig
 from transformers.models.auto.modeling_auto import (
     AutoModelForCausalLM,
-    AutoModelForVision2Seq,
+    AutoModelForImageTextToText,
 )
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -33,6 +34,7 @@ def safe_apply_chat_template(
         tokenizer.name_or_path.startswith("google/gemma-")
         and "System role not supported" in tokenizer.chat_template
     )
+
     if is_gemma_v1 and messages and messages[0]["role"] == "system":
         # merge system into next user turn or retag
         # Gemma v1 models do not support system messages in their chat templates.
@@ -42,9 +44,21 @@ def safe_apply_chat_template(
             messages[0]["content"] = f"{sys_msg}\n\n{messages[0]['content']}"
         else:
             messages.insert(0, {"role": "user", "content": sys_msg})
+
+    # Build chat_messages with correct structure for multimodal tokenizers
+    chat_messages: list[dict[str, Any]] = []
+    for message in messages:
+        current_content = message["content"]
+        chat_messages.append(
+            {
+                "role": message["role"],
+                "content": [{"type": "text", "text": str(current_content)}],
+            }
+        )
+    print(chat_messages)
     return str(
         tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+            chat_messages, tokenize=False, add_generation_prompt=True
         )
     )
 
@@ -147,7 +161,7 @@ def load_model_and_tokenizer(
         )
 
     if use_vision_architecture(model_name):
-        model = AutoModelForVision2Seq.from_pretrained(
+        model = AutoModelForImageTextToText.from_pretrained(
             model_name,
             torch_dtype=dtype,
             device_map="auto",
