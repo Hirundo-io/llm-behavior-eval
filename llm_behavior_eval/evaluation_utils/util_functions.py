@@ -55,7 +55,6 @@ def safe_apply_chat_template(
                 "content": [{"type": "text", "text": str(current_content)}],
             }
         )
-    print(chat_messages)
     return str(
         tokenizer.apply_chat_template(
             chat_messages, tokenize=False, add_generation_prompt=True
