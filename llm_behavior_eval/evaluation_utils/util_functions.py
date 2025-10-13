@@ -2,7 +2,11 @@ import logging
 
 import torch
 from transformers.modeling_utils import PreTrainedModel
-from transformers.models.auto.modeling_auto import AutoModelForCausalLM
+from transformers.models.auto.configuration_auto import AutoConfig
+from transformers.models.auto.modeling_auto import (
+    AutoModelForCausalLM,
+    AutoModelForVision2Seq,
+)
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
@@ -81,6 +85,23 @@ def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
     return torch.float32
 
 
+def use_vision_architecture(repo_id: str) -> bool:
+    """
+    Decide whether the model should be loaded with a vision-capable architecture.
+
+    This checks the model configuration for multimodal/vision hints and explicitly
+    enables the vision architecture when the config's model_type is "qwen2_5_vl".
+    """
+    cfg = AutoConfig.from_pretrained(repo_id, trust_remote_code=True)
+    cfg_dict = cfg.to_dict()
+
+    # Explicit rule: Qwen2.5-VL family
+    if cfg_dict.get("model_type") == "qwen2_5_vl":
+        return True
+
+    return False
+
+
 def load_model_and_tokenizer(
     model_name: str,
     use_4bit: bool = False,
@@ -115,6 +136,7 @@ def load_model_and_tokenizer(
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
 
+    quantization_config = None
     if use_4bit:
         # Prepare the quantization configuration for 4-bit loading.
         quantization_config = BitsAndBytesConfig(
@@ -123,18 +145,22 @@ def load_model_and_tokenizer(
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
         )
-        model = AutoModelForCausalLM.from_pretrained(
+
+    if use_vision_architecture(model_name):
+        model = AutoModelForVision2Seq.from_pretrained(
             model_name,
             torch_dtype=dtype,
-            device_map=device_map,
+            device_map="auto",
+            low_cpu_mem_usage=True,
             quantization_config=quantization_config,
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=dtype,
-            device_map=device_map,
+            device_map="auto",
             low_cpu_mem_usage=True,
+            quantization_config=quantization_config,
         )
 
     return tokenizer, model
