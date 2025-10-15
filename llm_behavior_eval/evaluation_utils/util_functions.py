@@ -63,7 +63,10 @@ def safe_apply_chat_template(
             )
         return str(
             tokenizer.apply_chat_template(
-                chat_messages_mm, tokenize=False, add_generation_prompt=True
+                chat_messages_mm,
+                tokenize=False,
+                add_generation_prompt=True,
+                reasoning=False,
             )
         )
 
@@ -75,7 +78,10 @@ def safe_apply_chat_template(
         )
     return str(
         tokenizer.apply_chat_template(
-            chat_messages_text, tokenize=False, add_generation_prompt=True
+            chat_messages_text,
+            tokenize=False,
+            add_generation_prompt=True,
+            reasoning=False,
         )
     )
 
