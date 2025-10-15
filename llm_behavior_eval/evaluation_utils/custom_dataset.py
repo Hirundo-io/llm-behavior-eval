@@ -171,10 +171,11 @@ class CustomDataset:
             batched=True,
             remove_columns=old_columns,
             batch_size=preprocess_config.preprocess_batch_size,
-            num_proc=1,
+            num_proc=max(1, int(preprocess_config.num_proc)),
         )
-        text = tokenizer.batch_decode(
-            processed_dataset["test_input_ids"], skip_special_tokens=True
-        )
-        logging.info("Validation text: %s", text[0])
+        if not preprocess_config.skip_decode_validation and len(processed_dataset) > 0:
+            text = tokenizer.batch_decode(
+                processed_dataset["test_input_ids"], skip_special_tokens=True
+            )
+            logging.info("Validation text: %s", text[0])
         return processed_dataset
