@@ -164,6 +164,7 @@ class BaseEvaluator(ABC):
                 max_new_tokens=self.eval_config.answer_tokens,
                 do_sample=self.eval_config.sample,
                 pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
             )
         return candidate_bs
 
@@ -476,6 +477,12 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             self.judge_tokenizer = load_tokenizer(
                 self.eval_config.judge_path_or_repo_id
             )
+            self.judge_tokenizer = load_tokenizer(
+                self.eval_config.judge_path_or_repo_id
+            )
+            self.judge_tokenizer.padding_side = "left"
+            if not self.judge_tokenizer.pad_token:
+                self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
 
     def free_judge(self) -> None:
         del self.judge_pipeline

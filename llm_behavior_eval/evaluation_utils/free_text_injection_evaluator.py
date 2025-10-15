@@ -109,6 +109,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 max_new_tokens=self.eval_config.answer_tokens,
                 do_sample=self.eval_config.sample,
                 pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
             )
             answers = self.tokenizer.batch_decode(
                 outputs[:, input_ids.shape[1] :], skip_special_tokens=True

@@ -12,6 +12,8 @@ from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
 
+SUPPORTED_MULTIMODAL_MODELS = ["qwen2_5_vl"]
+
 
 def safe_apply_chat_template(
     tokenizer: PreTrainedTokenizerBase, messages: list[dict[str, str]]
@@ -45,19 +47,35 @@ def safe_apply_chat_template(
         else:
             messages.insert(0, {"role": "user", "content": sys_msg})
 
-    # Build chat_messages with correct structure for multimodal tokenizers
-    chat_messages: list[dict[str, Any]] = []
+    # Choose formatting based on whether the model is multimodal
+    is_multimodal = is_model_multimodal(tokenizer.name_or_path)
+
+    if is_multimodal:
+        # Multimodal: list-of-parts with type "text"
+        chat_messages_mm: list[dict[str, Any]] = []
+        for message in messages:
+            current_content = message["content"]
+            chat_messages_mm.append(
+                {
+                    "role": message["role"],
+                    "content": [{"type": "text", "text": str(current_content)}],
+                }
+            )
+        return str(
+            tokenizer.apply_chat_template(
+                chat_messages_mm, tokenize=False, add_generation_prompt=True
+            )
+        )
+
+    # Unimodal: plain string content
+    chat_messages_text: list[dict[str, str]] = []
     for message in messages:
-        current_content = message["content"]
-        chat_messages.append(
-            {
-                "role": message["role"],
-                "content": [{"type": "text", "text": str(current_content)}],
-            }
+        chat_messages_text.append(
+            {"role": message["role"], "content": str(message["content"])}
         )
     return str(
         tokenizer.apply_chat_template(
-            chat_messages, tokenize=False, add_generation_prompt=True
+            chat_messages_text, tokenize=False, add_generation_prompt=True
         )
     )
 
@@ -98,7 +116,7 @@ def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
     return torch.float32
 
 
-def use_vision_architecture(repo_id: str) -> bool:
+def is_model_multimodal(repo_id: str) -> bool:
     """
     Decide whether the model should be loaded with a vision-capable architecture.
 
@@ -109,7 +127,7 @@ def use_vision_architecture(repo_id: str) -> bool:
     cfg_dict = cfg.to_dict()
 
     # Explicit rule: Qwen2.5-VL family
-    if cfg_dict.get("model_type") == "qwen2_5_vl":
+    if cfg_dict.get("model_type") in SUPPORTED_MULTIMODAL_MODELS:
         return True
 
     return False
@@ -159,7 +177,7 @@ def load_model_and_tokenizer(
             bnb_4bit_quant_type="nf4",
         )
 
-    if use_vision_architecture(model_name):
+    if is_model_multimodal(model_name):
         model = AutoModelForImageTextToText.from_pretrained(
             model_name,
             torch_dtype=dtype,
