@@ -9,6 +9,7 @@ import pandas as pd
 import torch
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
+from transformers import PreTrainedTokenizer
 from transformers.data.data_collator import default_data_collator
 from transformers.generation.utils import GenerationMixin
 from transformers.pipelines import pipeline
@@ -19,6 +20,7 @@ from .enums import DatasetType
 from .eval_config import EvaluationConfig, MlflowConfig
 from .util_functions import (
     load_model_and_tokenizer,
+    load_tokenizer,
 )
 
 # Optional MLflow import
@@ -142,7 +144,7 @@ class BaseEvaluator(ABC):
         )
         # propagate flag
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
-    
+
     def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
         logging.info(f"Trying batch size: {candidate_bs}")
         dl = DataLoader(
@@ -464,21 +466,103 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         torch.cuda.empty_cache()
         gc.collect()
 
-    def init_judge_pipeline(self) -> None:
-        self.judge_tokenizer, judge_model = load_model_and_tokenizer(
-            self.eval_config.judge_path_or_repo_id, self.eval_config.use_4bit_judge
-        )
-        self.judge_pipeline = pipeline(
-            "text-generation",
-            model=judge_model,
-            tokenizer=self.judge_tokenizer,  # type: ignore
-            max_new_tokens=self.eval_config.judge_output_tokens,
-            return_full_text=False,
-            pad_token_id=self.judge_tokenizer.pad_token_id,
-            eos_token_id=self.judge_tokenizer.eos_token_id,
-        )
+    def prepare_judge_tokenizer(self) -> None:
+        """
+        Load only the judge tokenizer so we can format probe prompts before
+        initializing the full judge pipeline. This keeps memory lower while
+        constructing representative prompts used for batch-size probing.
+        """
+        if getattr(self, "judge_tokenizer", None) is None:
+            self.judge_tokenizer = load_tokenizer(
+                self.eval_config.judge_path_or_repo_id
+            )
 
     def free_judge(self) -> None:
         del self.judge_pipeline
         torch.cuda.empty_cache()
         gc.collect()
+
+    @torch.no_grad()
+    def run_judge_with_backoff(self, prompts: list[str]) -> list[list[dict[str, str]]]:
+        """
+        Execute the judge pipeline by probing an executable batch size that can
+        complete a full pass over all prompts without OOM. The probing runs the
+        entire evaluation pass; upon success, results are returned directly.
+
+        Args:
+            prompts: List of prompts to judge.
+
+        Returns:
+            List of judge outputs.
+        """
+        # Reuse existing judge pipeline if already initialized. This prevents
+        # reloading the judge model/tokenizer on subsequent calls (which can OOM).
+        if getattr(self, "judge_pipeline", None) is None:
+            self.judge_tokenizer, judge_model = load_model_and_tokenizer(
+                self.eval_config.judge_path_or_repo_id,
+                use_4bit=self.eval_config.use_4bit_judge,
+            )
+            tokenizer = cast(PreTrainedTokenizer, self.judge_tokenizer)
+            self.judge_pipeline = pipeline(
+                "text-generation",
+                model=judge_model,
+                tokenizer=tokenizer,
+                max_new_tokens=self.eval_config.judge_output_tokens,
+                return_full_text=False,
+                pad_token_id=self.judge_tokenizer.pad_token_id,
+                eos_token_id=self.judge_tokenizer.eos_token_id,
+            )
+
+        # If a fixed judge batch size is provided, run regularly with that size (no backoff)
+        if self.eval_config.judge_batch_size is not None:
+            fixed_batch_size = max(1, int(self.eval_config.judge_batch_size))
+            outputs_fixed: list[list[dict[str, str]]] = []
+            for start in range(0, len(prompts), fixed_batch_size):
+                chunk = prompts[start : start + fixed_batch_size]
+                result = self.judge_pipeline(
+                    chunk, batch_size=fixed_batch_size, do_sample=False
+                )
+                outputs_fixed.extend(result)
+            return outputs_fixed
+
+        starting_batch_size = min(len(prompts), MAX_BATCH_SIZE)
+        current_bs = starting_batch_size
+
+        outputs: list[list[dict[str, str]]] = []
+
+        def halve_reducer():
+            nonlocal current_bs
+            current_bs = max(1, current_bs // 2)
+            return current_bs
+
+        def try_full_run(candidate_batch_size: int) -> int:
+            """Attempt a full evaluation pass using candidate_bs.
+
+            On success, populate `outputs` and return the candidate batch size.
+            On failure (e.g., OOM), clear partial outputs, free cache, and re-raise
+            to let the wrapper reduce the batch size.
+            """
+            nonlocal outputs
+            outputs = []
+            try:
+                for start in range(0, len(prompts), candidate_batch_size):
+                    chunk = prompts[start : start + candidate_batch_size]
+                    res = self.judge_pipeline(
+                        chunk, batch_size=candidate_batch_size, do_sample=False
+                    )
+                    outputs.extend(res)
+                return candidate_batch_size
+            except Exception:
+                # Drop partial results and free memory before retrying with a smaller batch
+                outputs = []
+                torch.cuda.empty_cache()
+                raise
+
+        # Probe for an executable batch size; the successful call leaves `outputs` filled
+        wrapper = find_executable_batch_size(
+            try_full_run,
+            starting_batch_size=starting_batch_size,
+            reduce_batch_size_fn=halve_reducer,
+        )
+        wrapper()
+        return outputs

@@ -38,9 +38,6 @@ class _GenerationRecord:
 
 
 class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
-    def _init_judge(self) -> None:
-        self.init_judge_pipeline()
-
     @staticmethod
     def _map_judge_outputs(judge_raw: list[list[dict[str, str]]]) -> list[str]:
         labels = []
@@ -98,6 +95,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         gt_answers: list[str],
         generated_answers: list[str],
     ) -> list[str]:
+        self.prepare_judge_tokenizer()
         prompts = []
         for question, gt_answer, generated_answer in zip(
             questions, gt_answers, generated_answers, strict=True
@@ -117,9 +115,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                     ],
                 )
             )
-        raw = self.judge_pipeline(
-            prompts, batch_size=self.eval_config.judge_batch_size, do_sample=False
-        )
+        raw = self.run_judge_with_backoff(prompts)
         return self._map_judge_outputs(raw)
 
     def evaluate(self) -> None:
@@ -149,10 +145,6 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
 
             # free task model
             self.free_test_model()
-
-            # judge
-            self._init_judge()
-
             counts = {k: 0 for k in CHOICE_STRINGS}
             responses: list[dict] = []
 

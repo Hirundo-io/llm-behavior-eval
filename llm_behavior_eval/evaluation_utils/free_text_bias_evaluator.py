@@ -214,6 +214,7 @@ candidate_uncertain: "<yes|no>"
         stereotyped_answers: list[str] | None,
         questions: list[str],
     ) -> tuple[list[tuple[Agreement, Agreement]], list[str]]:
+        self.prepare_judge_tokenizer()
         gt_prompts = []
         stereotyped_prompts = []
         # If stereotyped answers are not available, use empty strings as placeholders
@@ -255,19 +256,10 @@ candidate_uncertain: "<yes|no>"
                 stereotyped_prompts.append(
                     safe_apply_chat_template(self.judge_tokenizer, stereotyped_messages)
                 )
-
-        gt_judge_raw = self.judge_pipeline(
-            gt_prompts,
-            batch_size=self.eval_config.judge_batch_size,
-            do_sample=False,
-        )
+        gt_judge_raw = self.run_judge_with_backoff(gt_prompts)
         gt_agreements = extract_agreements(gt_judge_raw)
         if stereotyped_prompts:
-            stereotype_judge_raw = self.judge_pipeline(
-                stereotyped_prompts,
-                batch_size=self.eval_config.judge_batch_size,
-                do_sample=False,
-            )
+            stereotype_judge_raw = self.run_judge_with_backoff(stereotyped_prompts)
             stereotyped_agreements = extract_agreements(stereotype_judge_raw)
             agreements = [
                 (gt_agreement, st_agreement)
@@ -294,16 +286,9 @@ candidate_uncertain: "<yes|no>"
             uncertainty_prompts.append(
                 safe_apply_chat_template(self.judge_tokenizer, messages)
             )
-        uncertainty_judge_raw = self.judge_pipeline(
-            uncertainty_prompts,
-            batch_size=self.eval_config.judge_batch_size,
-            do_sample=False,
-        )
+        uncertainty_judge_raw = self.run_judge_with_backoff(uncertainty_prompts)
         is_uncertain_flags = map_uncertainty_outputs(uncertainty_judge_raw)
         return agreements, is_uncertain_flags
-
-    def init_pipeline(self) -> None:
-        self.init_judge_pipeline()
 
     # For bias tasks we keep the dataset type suffix in the output directory
     def should_include_dataset_type_in_output_dir(self) -> bool:
@@ -340,7 +325,6 @@ candidate_uncertain: "<yes|no>"
             self.free_test_model()
 
             # load judge
-            self.init_pipeline()
             correct_responses = 0
             stereotyped_responses = 0
             unknown_responses = 0

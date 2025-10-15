@@ -6,6 +6,8 @@ import torch
 
 from .free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
+)
+from .free_text_hallu_evaluator import (
     _GenerationRecord as _BaseGenerationRecord,
 )
 from .util_functions import safe_apply_chat_template
@@ -38,9 +40,6 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
     class _InjectionGenerationRecord(_BaseGenerationRecord):
         judge_questions: list[str]
 
-    def _init_judge(self) -> None:  # override to keep same generation config
-        self.init_judge_pipeline()
-
     @staticmethod
     def _map_judge_outputs_yes_no(judge_raw: list[list[dict[str, str]]]) -> list[str]:
         labels: list[str] = []
@@ -56,6 +55,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         gt_answers: list[str],  # unused but kept for signature compatibility
         generated_answers: list[str],
     ) -> list[str]:
+        self.prepare_judge_tokenizer()
         prompts = []
         for question, generated_answer in zip(
             questions, generated_answers, strict=True
@@ -73,9 +73,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                     ],
                 )
             )
-        raw = self.judge_pipeline(
-            prompts, batch_size=self.eval_config.judge_batch_size, do_sample=False
-        )
+        raw = self.run_judge_with_backoff(prompts)
         return self._map_judge_outputs_yes_no(raw)
 
     @torch.no_grad()
@@ -174,10 +172,6 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
 
             # free task model before judging
             self.free_test_model()
-
-            # judge
-            self._init_judge()
-
             counts = {"Yes": 0, "No": 0}
             responses: list[dict] = []
 
