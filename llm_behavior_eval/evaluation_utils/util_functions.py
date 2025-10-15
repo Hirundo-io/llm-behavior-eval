@@ -50,9 +50,6 @@ def safe_apply_chat_template(
             messages.insert(0, {"role": "user", "content": sys_msg})
 
     # Choose formatting based on whether the model is multimodal
-    if not is_multimodal:
-        is_multimodal = is_model_multimodal(tokenizer.name_or_path)
-
     if is_multimodal:
         # Multimodal: list-of-parts with type "text"
         chat_messages_mm: list[dict[str, Any]] = []
@@ -142,7 +139,6 @@ def is_model_multimodal(repo_id: str) -> bool:
         cfg = AutoConfig.from_pretrained(repo_id, trust_remote_code=True)
     cfg_dict = cfg.to_dict()
 
-    # Explicit rule: Qwen2.5-VL family
     if cfg_dict.get("model_type") in SUPPORTED_MULTIMODAL_MODELS:
         return True
 
