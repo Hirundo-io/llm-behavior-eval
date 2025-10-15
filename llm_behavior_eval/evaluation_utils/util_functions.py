@@ -197,7 +197,7 @@ def load_model_and_tokenizer(
         model = AutoModelForImageTextToText.from_pretrained(
             model_name,
             torch_dtype=dtype,
-            device_map="auto",
+            device_map=device_map,
             low_cpu_mem_usage=True,
             quantization_config=quantization_config,
         )
@@ -205,7 +205,7 @@ def load_model_and_tokenizer(
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=dtype,
-            device_map="auto",
+            device_map=device_map,
             low_cpu_mem_usage=True,
             quantization_config=quantization_config,
         )
