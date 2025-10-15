@@ -477,9 +477,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             self.judge_tokenizer = load_tokenizer(
                 self.eval_config.judge_path_or_repo_id
             )
-            self.judge_tokenizer = load_tokenizer(
-                self.eval_config.judge_path_or_repo_id
-            )
             self.judge_tokenizer.padding_side = "left"
             if not self.judge_tokenizer.pad_token:
                 self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
