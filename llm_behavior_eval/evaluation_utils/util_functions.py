@@ -50,6 +50,28 @@ def safe_apply_chat_template(
             messages.insert(0, {"role": "user", "content": sys_msg})
 
     # Choose formatting based on whether the model is multimodal
+    def _apply_chat_template(
+        messages_like: list[dict[str, Any]] | list[dict[str, str]],
+    ):
+        """
+        Call tokenizer.apply_chat_template while remaining compatible with
+        tokenizers that don't support the `reasoning` kwarg.
+        """
+        try:
+            return tokenizer.apply_chat_template(
+                messages_like,
+                tokenize=False,
+                add_generation_prompt=True,
+                reasoning=False,
+            )
+        except TypeError:
+            # Older or stub tokenizers may not accept `reasoning`
+            return tokenizer.apply_chat_template(
+                messages_like,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+
     if is_multimodal:
         # Multimodal: list-of-parts with type "text"
         chat_messages_mm: list[dict[str, Any]] = []
@@ -61,14 +83,7 @@ def safe_apply_chat_template(
                     "content": [{"type": "text", "text": str(current_content)}],
                 }
             )
-        return str(
-            tokenizer.apply_chat_template(
-                chat_messages_mm,
-                tokenize=False,
-                add_generation_prompt=True,
-                reasoning=False,
-            )
-        )
+        return str(_apply_chat_template(chat_messages_mm))
 
     # Unimodal: plain string content
     chat_messages_text: list[dict[str, str]] = []
@@ -76,14 +91,7 @@ def safe_apply_chat_template(
         chat_messages_text.append(
             {"role": message["role"], "content": str(message["content"])}
         )
-    return str(
-        tokenizer.apply_chat_template(
-            chat_messages_text,
-            tokenize=False,
-            add_generation_prompt=True,
-            reasoning=False,
-        )
-    )
+    return str(_apply_chat_template(chat_messages_text))
 
 
 def load_tokenizer(model_name: str) -> PreTrainedTokenizerBase:
