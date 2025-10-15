@@ -135,7 +135,7 @@ def is_model_multimodal(repo_id: str) -> bool:
     Decide whether the model should be loaded with a vision-capable architecture.
 
     This checks the model configuration for multimodal/vision hints and explicitly
-    enables the vision architecture when the config's model_type is "qwen2_5_vl".
+    enables the vision architecture when the config's model_type is in the SUPPORTED_MULTIMODAL_MODELS list.
     """
     try:
         # Prefer local cache to avoid network calls during preprocessing
