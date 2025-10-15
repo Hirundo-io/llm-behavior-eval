@@ -43,6 +43,7 @@ dependencies = [
   "accelerate<2.0.0",
   "bitsandbytes<1.0.0; platform_system != \"Darwin\"",
   "protobuf<7.0.0",
+  "sentencepiece<1.0.0",
 ]
 
 [project.optional-dependencies]
