@@ -502,7 +502,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 self.eval_config.judge_path_or_repo_id,
                 use_4bit=self.eval_config.use_4bit_judge,
             )
-            tokenizer = self.judge_tokenizer
+            tokenizer = cast(PreTrainedTokenizer, self.judge_tokenizer)
             self.judge_pipeline = pipeline(
                 "text-generation",
                 model=judge_model,
