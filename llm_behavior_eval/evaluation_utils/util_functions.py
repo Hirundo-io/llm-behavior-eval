@@ -16,7 +16,9 @@ SUPPORTED_MULTIMODAL_MODELS = ["qwen2_5_vl"]
 
 
 def safe_apply_chat_template(
-    tokenizer: PreTrainedTokenizerBase, messages: list[dict[str, str]]
+    tokenizer: PreTrainedTokenizerBase,
+    messages: list[dict[str, str]],
+    is_multimodal: bool = False,
 ) -> str:
     """
     Applies the chat template to the messages, ensuring that the system message is handled correctly.
@@ -48,7 +50,8 @@ def safe_apply_chat_template(
             messages.insert(0, {"role": "user", "content": sys_msg})
 
     # Choose formatting based on whether the model is multimodal
-    is_multimodal = is_model_multimodal(tokenizer.name_or_path)
+    if not is_multimodal:
+        is_multimodal = is_model_multimodal(tokenizer.name_or_path)
 
     if is_multimodal:
         # Multimodal: list-of-parts with type "text"
@@ -129,7 +132,14 @@ def is_model_multimodal(repo_id: str) -> bool:
     This checks the model configuration for multimodal/vision hints and explicitly
     enables the vision architecture when the config's model_type is "qwen2_5_vl".
     """
-    cfg = AutoConfig.from_pretrained(repo_id, trust_remote_code=True)
+    try:
+        # Prefer local cache to avoid network calls during preprocessing
+        cfg = AutoConfig.from_pretrained(
+            repo_id, trust_remote_code=True, local_files_only=True
+        )
+    except Exception:
+        # Fallback to remote if not cached locally
+        cfg = AutoConfig.from_pretrained(repo_id, trust_remote_code=True)
     cfg_dict = cfg.to_dict()
 
     # Explicit rule: Qwen2.5-VL family

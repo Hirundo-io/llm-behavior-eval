@@ -10,7 +10,7 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from .dataset_config import PreprocessConfig
 from .enums import DatasetType
 from .prompts import SYSTEM_PROMPT_DICT
-from .util_functions import safe_apply_chat_template
+from .util_functions import is_model_multimodal, safe_apply_chat_template
 
 
 def validate_dataset_columns(hf_dataset: Dataset) -> None:
@@ -34,6 +34,7 @@ def free_text_preprocess_function(
     max_length: int,
     gt_max_length: int,
     has_stereotype: bool,
+    is_multimodal: bool = False,
 ) -> dict[str, torch.Tensor]:
     # 1) Column check
     rows = [
@@ -63,7 +64,11 @@ def free_text_preprocess_function(
             if system_override
             else SYSTEM_PROMPT_DICT
         )
-        eval_strings.append(safe_apply_chat_template(tokenizer, [system_msg, user_msg]))
+        eval_strings.append(
+            safe_apply_chat_template(
+                tokenizer, [system_msg, user_msg], is_multimodal=is_multimodal
+            )
+        )
         answer_strings.append(answer_text)
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
@@ -160,6 +165,8 @@ class CustomDataset:
         preprocess_function = free_text_preprocess_function
         validate_dataset_columns(self.ds)
         old_columns = self.ds.column_names
+        # Compute once to avoid per-batch remote config lookups
+        is_mm = is_model_multimodal(tokenizer.name_or_path)
         processed_dataset = self.ds.map(
             lambda examples: preprocess_function(
                 examples,
@@ -167,6 +174,7 @@ class CustomDataset:
                 max_length=preprocess_config.max_length,
                 gt_max_length=preprocess_config.gt_max_length,
                 has_stereotype=self.has_stereotype,
+                is_multimodal=is_mm,
             ),
             batched=True,
             remove_columns=old_columns,
