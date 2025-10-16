@@ -35,6 +35,7 @@ def free_text_preprocess_function(
     gt_max_length: int,
     has_stereotype: bool,
     is_multimodal: bool = False,
+    reasoning: bool = False,
 ) -> dict[str, torch.Tensor]:
     # 1) Column check
     rows = [
@@ -66,7 +67,10 @@ def free_text_preprocess_function(
         )
         eval_strings.append(
             safe_apply_chat_template(
-                tokenizer, [system_msg, user_msg], is_multimodal=is_multimodal
+                tokenizer,
+                [system_msg, user_msg],
+                is_multimodal=is_multimodal,
+                reasoning=reasoning,
             )
         )
         answer_strings.append(answer_text)
@@ -147,6 +151,7 @@ class CustomDataset:
         self,
         tokenizer: PreTrainedTokenizerBase,
         preprocess_config: PreprocessConfig,
+        reasoning: bool = False,
     ) -> Dataset:
         """
         Preprocess custom datasets by tokenizing texts based on the given text format.
@@ -166,7 +171,7 @@ class CustomDataset:
         validate_dataset_columns(self.ds)
         old_columns = self.ds.column_names
         # Compute once to avoid per-batch remote config lookups
-        is_mm = is_model_multimodal(tokenizer.name_or_path)
+        is_multimodal = is_model_multimodal(tokenizer.name_or_path)
         processed_dataset = self.ds.map(
             lambda examples: preprocess_function(
                 examples,
@@ -174,7 +179,8 @@ class CustomDataset:
                 max_length=preprocess_config.max_length,
                 gt_max_length=preprocess_config.gt_max_length,
                 has_stereotype=self.has_stereotype,
-                is_multimodal=is_mm,
+                is_multimodal=is_multimodal,
+                reasoning=reasoning,
             ),
             batched=True,
             remove_columns=old_columns,

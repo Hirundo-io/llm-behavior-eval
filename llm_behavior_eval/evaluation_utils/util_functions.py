@@ -5,6 +5,7 @@ import torch
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.auto.configuration_auto import AutoConfig
 from transformers.models.auto.modeling_auto import (
+    MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES,
     AutoModelForCausalLM,
     AutoModelForImageTextToText,
 )
@@ -12,13 +13,12 @@ from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
 
-SUPPORTED_MULTIMODAL_MODELS = ["qwen2_5_vl"]
-
 
 def safe_apply_chat_template(
     tokenizer: PreTrainedTokenizerBase,
     messages: list[dict[str, str]],
     is_multimodal: bool = False,
+    reasoning: bool = False,
 ) -> str:
     """
     Applies the chat template to the messages, ensuring that the system message is handled correctly.
@@ -30,6 +30,8 @@ def safe_apply_chat_template(
     Args:
         tokenizer: The tokenizer to use for applying the chat template.
         messages: The list of messages to format.
+        is_multimodal: Whether to format messages for a multimodal model.
+        reasoning: Whether to enable tokenizer chat-template reasoning (if supported).
 
     Returns:
         The formatted string after applying the chat template.
@@ -62,7 +64,7 @@ def safe_apply_chat_template(
                 messages_like,
                 tokenize=False,
                 add_generation_prompt=True,
-                reasoning=False,
+                reasoning=reasoning,
             )
         except TypeError:
             # Older or stub tokenizers may not accept `reasoning`
@@ -74,16 +76,16 @@ def safe_apply_chat_template(
 
     if is_multimodal:
         # Multimodal: list-of-parts with type "text"
-        chat_messages_mm: list[dict[str, Any]] = []
+        multimodal_chat_messages: list[dict[str, Any]] = []
         for message in messages:
             current_content = message["content"]
-            chat_messages_mm.append(
+            multimodal_chat_messages.append(
                 {
                     "role": message["role"],
                     "content": [{"type": "text", "text": str(current_content)}],
                 }
             )
-        return str(_apply_chat_template(chat_messages_mm))
+        return str(_apply_chat_template(multimodal_chat_messages))
 
     # Unimodal: plain string content
     chat_messages_text: list[dict[str, str]] = []
@@ -147,7 +149,7 @@ def is_model_multimodal(repo_id: str) -> bool:
         cfg = AutoConfig.from_pretrained(repo_id, trust_remote_code=True)
     cfg_dict = cfg.to_dict()
 
-    if cfg_dict.get("model_type") in SUPPORTED_MULTIMODAL_MODELS:
+    if cfg_dict.get("model_type") in list(MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES.keys()):
         return True
 
     return False

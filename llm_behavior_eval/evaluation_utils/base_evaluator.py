@@ -108,6 +108,7 @@ class BaseEvaluator(ABC):
         test_dataset = custom_dataset.preprocess(
             self.tokenizer,
             self.dataset_config.preprocess_config,
+            reasoning=self.eval_config.reasoning,
         )
         # Deterministic shuffle before sampling
         test_dataset = test_dataset.shuffle(seed=self.dataset_config.seed)
@@ -403,6 +404,7 @@ class BaseEvaluator(ABC):
                     "judge_batch_size",
                     "judge_output_tokens",
                     "use_4bit_judge",
+                    "reasoning",
                 ],
             ),
             **to_dict(self.dataset_config, ["file_path", "dataset_type", "seed"]),

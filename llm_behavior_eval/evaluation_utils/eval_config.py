@@ -22,6 +22,7 @@ class EvaluationConfig(BaseModel):
         use_4bit_judge: Whether to load the judge model in 4-bit mode (using bitsandbytes).
                         This is only relevant for the judge model.
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
+        reasoning: Whether to enable chat-template reasoning (if supported by tokenizer/model).
     """
 
     max_samples: None | int = 500
@@ -36,6 +37,7 @@ class EvaluationConfig(BaseModel):
     judge_path_or_repo_id: str = "google/gemma-3-12b-it"
     use_4bit_judge: bool = False
     results_dir: Path
+    reasoning: bool = False
 
     mlflow_config: "MlflowConfig | None" = None
 
