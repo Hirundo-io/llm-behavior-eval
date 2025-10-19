@@ -1,5 +1,6 @@
 import logging
 from typing import Any
+from inspect import Parameter, signature
 
 import torch
 from transformers.modeling_utils import PreTrainedModel
@@ -36,6 +37,40 @@ def safe_apply_chat_template(
     Returns:
         The formatted string after applying the chat template.
     """
+    # Cache for checking whether a given tokenizer's apply_chat_template supports
+    # the `reasoning` kwarg. Keyed by id(tokenizer) to avoid holding strong refs.
+    # This avoids repeated try/except in hot paths.
+    _CHAT_TEMPLATE_SUPPORTS_REASONING: dict[int, bool] = getattr(
+        safe_apply_chat_template, "_CHAT_TEMPLATE_SUPPORTS_REASONING", {}
+    )
+    setattr(
+        safe_apply_chat_template,
+        "_CHAT_TEMPLATE_SUPPORTS_REASONING",
+        _CHAT_TEMPLATE_SUPPORTS_REASONING,
+    )
+
+    def _supports_reasoning_kwarg(tok: PreTrainedTokenizerBase) -> bool:
+        cache_key = id(tok)
+        cached = _CHAT_TEMPLATE_SUPPORTS_REASONING.get(cache_key)
+        if cached is not None:
+            return cached
+
+        apply_fn = getattr(tok, "apply_chat_template", None)
+        supports = False
+        if apply_fn is not None:
+            try:
+                sig = signature(apply_fn)
+                has_kwargs = any(
+                    p.kind == Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                )
+                supports = has_kwargs or ("reasoning" in sig.parameters)
+            except (TypeError, ValueError):
+                # Some callables may not expose a Python signature; fall back to False
+                supports = False
+
+        _CHAT_TEMPLATE_SUPPORTS_REASONING[cache_key] = supports
+        return supports
+
     is_gemma_v1 = (
         tokenizer.name_or_path.startswith("google/gemma-")
         and "System role not supported" in tokenizer.chat_template
@@ -59,20 +94,18 @@ def safe_apply_chat_template(
         Call tokenizer.apply_chat_template while remaining compatible with
         tokenizers that don't support the `reasoning` kwarg.
         """
-        try:
+        if _supports_reasoning_kwarg(tokenizer):
             return tokenizer.apply_chat_template(
                 messages_like,
                 tokenize=False,
                 add_generation_prompt=True,
                 reasoning=reasoning,
             )
-        except TypeError:
-            # Older or stub tokenizers may not accept `reasoning`
-            return tokenizer.apply_chat_template(
-                messages_like,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
+        return tokenizer.apply_chat_template(
+            messages_like,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
 
     if is_multimodal:
         # Multimodal: list-of-parts with type "text"
@@ -141,15 +174,15 @@ def is_model_multimodal(repo_id: str) -> bool:
     """
     try:
         # Prefer local cache to avoid network calls during preprocessing
-        config = AutoConfig.from_pretrained(
-            repo_id, local_files_only=True
-        )
+        config = AutoConfig.from_pretrained(repo_id, local_files_only=True)
     except Exception:
         # Fallback to remote if not cached locally
         config = AutoConfig.from_pretrained(repo_id)
     config_dict = config.to_dict()
 
-    if config_dict.get("model_type") in list(MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES.keys()):
+    if config_dict.get("model_type") in list(
+        MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES.keys()
+    ):
         return True
 
     return False

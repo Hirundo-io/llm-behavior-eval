@@ -479,7 +479,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             self.judge_tokenizer = load_tokenizer(
                 self.eval_config.judge_path_or_repo_id
             )
+            # left padding is useful when batch-generating variable-length prompts
             self.judge_tokenizer.padding_side = "left"
+            # ensure we have a pad token for the judge model as not all models have it
             if not self.judge_tokenizer.pad_token:
                 self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
 
