@@ -115,6 +115,9 @@ def load_model_and_tokenizer(
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
 
+    model_by_nvidia = model_name.startswith("nvidia/")
+    trust_remote_code = True if model_by_nvidia else False
+
     if use_4bit:
         # Prepare the quantization configuration for 4-bit loading.
         quantization_config = BitsAndBytesConfig(
@@ -128,6 +131,7 @@ def load_model_and_tokenizer(
             torch_dtype=dtype,
             device_map=device_map,
             quantization_config=quantization_config,
+            trust_remote_code=trust_remote_code,
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
@@ -135,6 +139,7 @@ def load_model_and_tokenizer(
             torch_dtype=dtype,
             device_map=device_map,
             low_cpu_mem_usage=True,
+            trust_remote_code=trust_remote_code,
         )
 
     return tokenizer, model
