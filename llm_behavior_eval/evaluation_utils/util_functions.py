@@ -1,6 +1,6 @@
 import logging
-from typing import Any
 from inspect import Parameter, signature
+from typing import Any
 
 import torch
 from transformers.modeling_utils import PreTrainedModel
@@ -49,13 +49,13 @@ def safe_apply_chat_template(
         _CHAT_TEMPLATE_SUPPORTS_REASONING,
     )
 
-    def _supports_reasoning_kwarg(tok: PreTrainedTokenizerBase) -> bool:
-        cache_key = id(tok)
+    def _supports_reasoning_kwarg(tokenizer: PreTrainedTokenizerBase) -> bool:
+        cache_key = id(tokenizer)
         cached = _CHAT_TEMPLATE_SUPPORTS_REASONING.get(cache_key)
         if cached is not None:
             return cached
 
-        apply_fn = getattr(tok, "apply_chat_template", None)
+        apply_fn = getattr(tokenizer, "apply_chat_template", None)
         supports = False
         if apply_fn is not None:
             try:
@@ -165,19 +165,30 @@ def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
     return torch.float32
 
 
-def is_model_multimodal(repo_id: str) -> bool:
+def is_model_multimodal(repo_id: str, trust_remote_code: bool = False) -> bool:
     """
     Decide whether the model should be loaded with a vision-capable architecture.
 
     This checks the model configuration for multimodal/vision hints and explicitly
     enables the vision architecture when the config's model_type is in the SUPPORTED_MULTIMODAL_MODELS list.
+
+    Args:
+        repo_id: The repo-id or local path of the model to load.
+        trust_remote_code: Whether to trust remote code.
+
+    Returns:
+        True if the model should be loaded with a vision-capable architecture, False otherwise.
     """
     try:
         # Prefer local cache to avoid network calls during preprocessing
-        config = AutoConfig.from_pretrained(repo_id, local_files_only=True)
+        config = AutoConfig.from_pretrained(
+            repo_id, local_files_only=True, trust_remote_code=trust_remote_code
+        )
     except Exception:
         # Fallback to remote if not cached locally
-        config = AutoConfig.from_pretrained(repo_id)
+        config = AutoConfig.from_pretrained(
+            repo_id, trust_remote_code=trust_remote_code
+        )
     config_dict = config.to_dict()
 
     if config_dict.get("model_type") in list(
@@ -235,7 +246,7 @@ def load_model_and_tokenizer(
             bnb_4bit_quant_type="nf4",
         )
 
-    if is_model_multimodal(model_name):
+    if is_model_multimodal(model_name, trust_remote_code):
         model = AutoModelForImageTextToText.from_pretrained(
             model_name,
             torch_dtype=dtype,

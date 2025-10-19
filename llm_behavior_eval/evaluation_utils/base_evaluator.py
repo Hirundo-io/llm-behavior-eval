@@ -63,6 +63,7 @@ class BaseEvaluator(ABC):
             eval_config.use_4bit,
             eval_config.device_map,
         )
+        self.trust_remote_code = eval_config.model_path_or_repo_id.startswith("nvidia/")
         self.tokenizer.padding_side = "left"
         self.data_collator = default_data_collator
         self.prepare_dataloader()
@@ -108,6 +109,7 @@ class BaseEvaluator(ABC):
         test_dataset = custom_dataset.preprocess(
             self.tokenizer,
             self.dataset_config.preprocess_config,
+            trust_remote_code=self.trust_remote_code,
             reasoning=self.eval_config.reasoning,
         )
         # Deterministic shuffle before sampling
