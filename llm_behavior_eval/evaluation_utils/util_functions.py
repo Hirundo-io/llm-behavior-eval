@@ -141,15 +141,15 @@ def is_model_multimodal(repo_id: str) -> bool:
     """
     try:
         # Prefer local cache to avoid network calls during preprocessing
-        cfg = AutoConfig.from_pretrained(
+        config = AutoConfig.from_pretrained(
             repo_id, trust_remote_code=True, local_files_only=True
         )
     except Exception:
         # Fallback to remote if not cached locally
-        cfg = AutoConfig.from_pretrained(repo_id, trust_remote_code=True)
-    cfg_dict = cfg.to_dict()
+        config = AutoConfig.from_pretrained(repo_id, trust_remote_code=True)
+    config_dict = config.to_dict()
 
-    if cfg_dict.get("model_type") in list(MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES.keys()):
+    if config_dict.get("model_type") in list(MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES.keys()):
         return True
 
     return False
