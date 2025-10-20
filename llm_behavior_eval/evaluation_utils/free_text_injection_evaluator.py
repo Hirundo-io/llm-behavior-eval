@@ -1,6 +1,9 @@
 import re
 from dataclasses import dataclass
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence, cast
+
+if TYPE_CHECKING:
+    from transformers.generation.utils import GenerationMixin
 
 import torch
 
@@ -103,12 +106,13 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             gt_answers = self.tokenizer.batch_decode(
                 batch["gt_answers"], skip_special_tokens=True
             )
-            outputs = self.model.generate(  # type: ignore[attr-defined]
+            outputs = cast("GenerationMixin", self.model).generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=self.eval_config.answer_tokens,
                 do_sample=self.eval_config.sample,
                 pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
             )
             answers = self.tokenizer.batch_decode(
                 outputs[:, input_ids.shape[1] :], skip_special_tokens=True
@@ -177,7 +181,9 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
 
             for generation in generations:
                 labels = self._grade_batch(
-                    generation.judge_questions, generation.gt_answers, generation.answers
+                    generation.judge_questions,
+                    generation.gt_answers,
+                    generation.answers,
                 )
                 for question, llm_answer, label in zip(
                     generation.judge_questions,

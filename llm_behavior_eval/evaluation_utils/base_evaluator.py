@@ -63,6 +63,7 @@ class BaseEvaluator(ABC):
             eval_config.use_4bit,
             eval_config.device_map,
         )
+        self.trust_remote_code = eval_config.model_path_or_repo_id.startswith("nvidia/")
         self.tokenizer.padding_side = "left"
         self.data_collator = default_data_collator
         self.prepare_dataloader()
@@ -108,6 +109,8 @@ class BaseEvaluator(ABC):
         test_dataset = custom_dataset.preprocess(
             self.tokenizer,
             self.dataset_config.preprocess_config,
+            trust_remote_code=self.trust_remote_code,
+            reasoning=self.eval_config.reasoning,
         )
         # Deterministic shuffle before sampling
         test_dataset = test_dataset.shuffle(seed=self.dataset_config.seed)
@@ -164,6 +167,7 @@ class BaseEvaluator(ABC):
                 max_new_tokens=self.eval_config.answer_tokens,
                 do_sample=self.eval_config.sample,
                 pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
             )
         return candidate_bs
 
@@ -402,6 +406,7 @@ class BaseEvaluator(ABC):
                     "judge_batch_size",
                     "judge_output_tokens",
                     "use_4bit_judge",
+                    "reasoning",
                 ],
             ),
             **to_dict(self.dataset_config, ["file_path", "dataset_type", "seed"]),
@@ -476,6 +481,11 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             self.judge_tokenizer = load_tokenizer(
                 self.eval_config.judge_path_or_repo_id
             )
+            # left padding is useful when batch-generating variable-length prompts
+            self.judge_tokenizer.padding_side = "left"
+            # ensure we have a pad token for the judge model as not all models have it
+            if not self.judge_tokenizer.pad_token:
+                self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
 
     def free_judge(self) -> None:
         del self.judge_pipeline

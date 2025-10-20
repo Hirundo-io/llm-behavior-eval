@@ -59,7 +59,8 @@ def _behavior_presets(behavior: str) -> list[str]:
 
         if bias_type == "all":
             return [
-                f"hirundo-io/bbq-{bias_type}-{kind}-free-text" for bias_type in sorted(BBQ_BIAS_TYPES)
+                f"hirundo-io/bbq-{bias_type}-{kind}-free-text"
+                for bias_type in sorted(BBQ_BIAS_TYPES)
             ]
         if bias_type not in BBQ_BIAS_TYPES:
             allowed = ", ".join(sorted(list(BBQ_BIAS_TYPES)) + ["all"])
@@ -125,6 +126,13 @@ def main(
             help="MLflow run name (optional, auto-generates if not specified)",
         ),
     ] = None,
+    reasoning: Annotated[
+        bool,
+        typer.Option(
+            "--reasoning/--no-reasoning",
+            help="Enable chat-template reasoning if supported",
+        ),
+    ] = False,
 ) -> None:
     model_path_or_repo_id = model
     result_dir = Path(__file__).parent / "results"
@@ -167,6 +175,7 @@ def main(
             model_path_or_repo_id=model_path_or_repo_id,
             results_dir=result_dir,
             mlflow_config=mlflow_config,
+            reasoning=reasoning,
         )
         set_seed(dataset_config.seed)
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)

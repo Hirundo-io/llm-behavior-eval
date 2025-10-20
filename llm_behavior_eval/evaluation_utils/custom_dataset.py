@@ -10,7 +10,7 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from .dataset_config import PreprocessConfig
 from .enums import DatasetType
 from .prompts import SYSTEM_PROMPT_DICT
-from .util_functions import safe_apply_chat_template
+from .util_functions import is_model_multimodal, safe_apply_chat_template
 
 
 def validate_dataset_columns(hf_dataset: Dataset) -> None:
@@ -34,6 +34,8 @@ def free_text_preprocess_function(
     max_length: int,
     gt_max_length: int,
     has_stereotype: bool,
+    is_multimodal: bool = False,
+    reasoning: bool = False,
 ) -> dict[str, torch.Tensor]:
     # 1) Column check
     rows = [
@@ -63,7 +65,14 @@ def free_text_preprocess_function(
             if system_override
             else SYSTEM_PROMPT_DICT
         )
-        eval_strings.append(safe_apply_chat_template(tokenizer, [system_msg, user_msg]))
+        eval_strings.append(
+            safe_apply_chat_template(
+                tokenizer,
+                [system_msg, user_msg],
+                is_multimodal=is_multimodal,
+                reasoning=reasoning,
+            )
+        )
         answer_strings.append(answer_text)
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
@@ -142,6 +151,8 @@ class CustomDataset:
         self,
         tokenizer: PreTrainedTokenizerBase,
         preprocess_config: PreprocessConfig,
+        trust_remote_code: bool = False,
+        reasoning: bool = False,
     ) -> Dataset:
         """
         Preprocess custom datasets by tokenizing texts based on the given text format.
@@ -153,6 +164,8 @@ class CustomDataset:
             datasets_dict: Dictionary mapping dataset split names to HuggingFace Datasets.
             tokenizer: Tokenizer used for text processing.
             preprocess_config: Configuration for preprocessing the dataset.
+            trust_remote_code: Whether to trust remote code.
+            reasoning: Whether to use reasoning.
 
         Returns:
             A test dataset with tokenized fields
@@ -160,6 +173,8 @@ class CustomDataset:
         preprocess_function = free_text_preprocess_function
         validate_dataset_columns(self.ds)
         old_columns = self.ds.column_names
+        # Compute once to avoid per-batch remote config lookups
+        is_multimodal = is_model_multimodal(tokenizer.name_or_path, trust_remote_code)
         processed_dataset = self.ds.map(
             lambda examples: preprocess_function(
                 examples,
@@ -167,6 +182,8 @@ class CustomDataset:
                 max_length=preprocess_config.max_length,
                 gt_max_length=preprocess_config.gt_max_length,
                 has_stereotype=self.has_stereotype,
+                is_multimodal=is_multimodal,
+                reasoning=reasoning,
             ),
             batched=True,
             remove_columns=old_columns,

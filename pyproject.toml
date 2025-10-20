@@ -42,6 +42,8 @@ dependencies = [
   "typer<1.0.0",
   "accelerate<2.0.0",
   "bitsandbytes<1.0.0; platform_system != \"Darwin\"",
+  "protobuf<7.0.0", # needed for Mistral models
+  "sentencepiece<1.0.0", # needed for Mistral models
 ]
 
 [project.optional-dependencies]
