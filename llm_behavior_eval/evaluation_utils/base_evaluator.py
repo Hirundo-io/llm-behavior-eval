@@ -570,9 +570,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
     def free_test_model(self) -> None:
         if self.use_vllm:
-            shutdown_fn = getattr(self.model, "shutdown", None)
-            if callable(shutdown_fn):
-                shutdown_fn()
+            del self.model.llm_engine
         else:
             self.model.cpu()
         del self.model
