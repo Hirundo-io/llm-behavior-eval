@@ -50,6 +50,9 @@ dependencies = [
 mlflow = [
   "mlflow>=2.0.0",
 ]
+vllm = [
+  "vllm>=0.6.3,<0.6.5",
+]
 
 [dependency-groups]
 dev = [

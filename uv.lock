@@ -1681,6 +1681,9 @@ dependencies = [
 mlflow = [
     { name = "mlflow" },
 ]
+vllm = [
+    { name = "vllm" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1692,6 +1695,9 @@ dev = [
 docs = [
     { name = "sphinx", marker = "python_full_version >= '3.11.4'" },
 ]
+vllm = [
+    { name = "vllm" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1699,6 +1705,7 @@ requires-dist = [
     { name = "bitsandbytes", marker = "sys_platform != 'darwin'", specifier = "<1.0.0" },
     { name = "datasets", specifier = "<4.0.0" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.0.0" },
+    { name = "vllm", marker = "extra == 'vllm'", specifier = ">=0.6.3,<0.6.5" },
     { name = "networkx", specifier = "<4.0.0" },
     { name = "numpy", specifier = "<3.0.0" },
     { name = "pandas", specifier = "<3.0.0" },
@@ -1711,7 +1718,7 @@ requires-dist = [
     { name = "transformers", specifier = "<5.0.0" },
     { name = "typer", specifier = "<1.0.0" },
 ]
-provides-extras = ["mlflow"]
+provides-extras = ["mlflow", "vllm"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1721,6 +1728,7 @@ dev = [
     { name = "ruff", specifier = ">=0.11.11,<1.0.0" },
 ]
 docs = [{ name = "sphinx", marker = "python_full_version >= '3.11.4'", specifier = ">=8.0.0" }]
+vllm = [{ name = "vllm", specifier = ">=0.6.3,<0.6.5" }]
 
 [[package]]
 name = "mako"

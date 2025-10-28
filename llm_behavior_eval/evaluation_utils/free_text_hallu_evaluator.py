@@ -1,14 +1,9 @@
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Sequence, cast
-
-import torch
+from typing import Sequence
 
 from .base_evaluator import FreeTextSharedEvaluator
 from .util_functions import safe_apply_chat_template
-
-if TYPE_CHECKING:
-    from transformers.generation.utils import GenerationMixin
 
 CHOICE_LETTERS: list[str] = ["A", "B", "C"]
 CHOICE_STRINGS: list[str] = ["CORRECT", "INCORRECT", "NOT_ATTEMPTED"]
@@ -51,15 +46,14 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             )
         return labels
 
-    @torch.no_grad()
     def _collect_generations(self) -> Sequence[_GenerationRecord]:
-        self.model.eval()
+        self.ensure_test_model_ready()
 
         generations: list[_GenerationRecord] = []
         remaining = self.num_samples
         for batch in self.eval_loader:
-            input_ids = batch["test_input_ids"].to(self.model.device)
-            attention_mask = batch["test_attention_mask"].to(self.model.device)
+            input_ids = batch["test_input_ids"]
+            attention_mask = batch["test_attention_mask"]
 
             input_texts = self.tokenizer.batch_decode(
                 input_ids, skip_special_tokens=True
@@ -67,17 +61,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             gt_answers = self.tokenizer.batch_decode(
                 batch["gt_answers"], skip_special_tokens=True
             )
-            outputs = cast("GenerationMixin", self.model).generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-            )
-            answers = self.tokenizer.batch_decode(
-                outputs[:, input_ids.shape[1] :], skip_special_tokens=True
-            )
+            answers = self.generate_answers(input_ids, attention_mask)
             generations.append(
                 _GenerationRecord(
                     input_texts=input_texts,

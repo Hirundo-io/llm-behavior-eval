@@ -23,6 +23,7 @@ class EvaluationConfig(BaseModel):
                         This is only relevant for the judge model.
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
         reasoning: Whether to enable chat-template reasoning (if supported by tokenizer/model).
+        use_vllm: Whether to run model inference with vLLM instead of transformers.
     """
 
     max_samples: None | int = 500
@@ -38,6 +39,7 @@ class EvaluationConfig(BaseModel):
     use_4bit_judge: bool = False
     results_dir: Path
     reasoning: bool = False
+    use_vllm: bool = False
 
     mlflow_config: "MlflowConfig | None" = None
 

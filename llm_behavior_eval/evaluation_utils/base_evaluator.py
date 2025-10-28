@@ -19,8 +19,12 @@ from .dataset_config import DatasetConfig
 from .enums import DatasetType
 from .eval_config import EvaluationConfig, MlflowConfig
 from .util_functions import (
+    build_vllm_prompt_token_ids,
+    empty_cuda_cache_if_available,
     load_model_and_tokenizer,
     load_tokenizer,
+    load_vllm_model,
+    pick_best_dtype,
 )
 
 # Optional MLflow import
@@ -58,12 +62,31 @@ class BaseEvaluator(ABC):
         self.eval_config = eval_config
         self.dataset_config = dataset_config
         self.models_tokenizers_pairs = {}
-        self.tokenizer, self.model = load_model_and_tokenizer(
-            eval_config.model_path_or_repo_id,
-            eval_config.use_4bit,
-            eval_config.device_map,
-        )
+        self.use_vllm = eval_config.use_vllm
         self.trust_remote_code = eval_config.model_path_or_repo_id.startswith("nvidia/")
+
+        if self.use_vllm and eval_config.use_4bit:
+            raise ValueError("4-bit quantization is not supported when using vLLM.")
+
+        if self.use_vllm:
+            self.tokenizer = load_tokenizer(eval_config.model_path_or_repo_id)
+            if not self.tokenizer.pad_token:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            dtype = pick_best_dtype(device)
+            self.model = load_vllm_model(
+                eval_config.model_path_or_repo_id,
+                dtype,
+                self.trust_remote_code,
+                enforce_eager=not torch.cuda.is_available(),
+            )
+            self._vllm_sampling_params = None
+        else:
+            self.tokenizer, self.model = load_model_and_tokenizer(
+                eval_config.model_path_or_repo_id,
+                eval_config.use_4bit,
+                eval_config.device_map,
+            )
         self.tokenizer.padding_side = "left"
         self.data_collator = default_data_collator
         self.prepare_dataloader()
@@ -123,7 +146,11 @@ class BaseEvaluator(ABC):
 
         # If batch_size is None, auto-detect the largest batch size to fit on current hardware.
         batch_size = self.eval_config.batch_size
-        if batch_size is None:
+        if self.use_vllm:
+            if batch_size is None:
+                batch_size = max(1, min(len(self.eval_dataset), 8))
+                logging.info("Defaulting to batch size %s for vLLM backend", batch_size)
+        elif batch_size is None:
             starting_bs = max(1, min(len(self.eval_dataset), MAX_BATCH_SIZE))
             current_bs = starting_bs
 
@@ -149,6 +176,10 @@ class BaseEvaluator(ABC):
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
 
     def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
+        if self.use_vllm:
+            raise RuntimeError(
+                "Batch size probing is not supported when using the vLLM backend."
+            )
         logging.info(f"Trying batch size: {candidate_bs}")
         dl = DataLoader(
             cast("Dataset", self.eval_dataset),
@@ -170,6 +201,82 @@ class BaseEvaluator(ABC):
                 eos_token_id=self.tokenizer.eos_token_id,
             )
         return candidate_bs
+
+    def ensure_test_model_ready(self) -> None:
+        if not self.use_vllm:
+            self.model.eval()
+
+    def generate_answers(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+    ) -> list[str]:
+        if self.use_vllm:
+            return self._generate_with_vllm(input_ids, attention_mask)
+        return self._generate_with_transformers(input_ids, attention_mask)
+
+    def _generate_with_transformers(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+    ) -> list[str]:
+        device = self.model.device
+        model_input_ids = input_ids.to(device)
+        model_attention = attention_mask.to(device)
+        with torch.inference_mode():
+            outputs = cast("GenerationMixin", self.model).generate(
+                input_ids=model_input_ids,
+                attention_mask=model_attention,
+                max_new_tokens=self.eval_config.answer_tokens,
+                do_sample=self.eval_config.sample,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
+            )
+        generated_tokens = outputs[:, model_input_ids.shape[1] :].detach().cpu()
+        return self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
+
+    def _generate_with_vllm(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+    ) -> list[str]:
+        prompt_token_ids = build_vllm_prompt_token_ids(input_ids, attention_mask)
+        sampling_params = self._get_vllm_sampling_params()
+        outputs = self.model.generate(
+            prompt_token_ids=prompt_token_ids,
+            sampling_params=sampling_params,
+            use_tqdm=False,
+        )
+        responses: list[str] = []
+        for output in outputs:
+            candidates = getattr(output, "outputs", [])
+            if not candidates:
+                responses.append("")
+                continue
+            first_candidate = candidates[0]
+            responses.append(getattr(first_candidate, "text", ""))
+        return responses
+
+    def _get_vllm_sampling_params(self):
+        if not self.use_vllm:
+            raise RuntimeError("Sampling params are only available for vLLM backend")
+
+        if getattr(self, "_vllm_sampling_params", None) is None:
+            from vllm import SamplingParams
+
+            temperature = 1.0 if self.eval_config.sample else 0.0
+            sampling_kwargs: dict[str, Any] = {
+                "max_tokens": self.eval_config.answer_tokens,
+                "temperature": temperature,
+                "top_p": 1.0,
+            }
+            stop_token_ids = self._collect_stop_token_ids()
+            if stop_token_ids is not None:
+                sampling_kwargs["stop_token_ids"] = stop_token_ids
+            self._vllm_sampling_params = SamplingParams(**sampling_kwargs)
+        return self._vllm_sampling_params
+
+    def _collect_stop_token_ids(self) -> list[int] | None:
+        eos_token_id = self.tokenizer.eos_token_id
+        if eos_token_id is None:
+            return None
+        if isinstance(eos_token_id, list):
+            return [int(token) for token in eos_token_id]
+        return [int(eos_token_id)]
 
     @abstractmethod
     def evaluate(self) -> None:
@@ -466,9 +573,14 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             json.dump(items, f, indent=2)
 
     def free_test_model(self) -> None:
-        self.model.cpu()
+        if self.use_vllm:
+            shutdown_fn = getattr(self.model, "shutdown", None)
+            if callable(shutdown_fn):
+                shutdown_fn()
+        else:
+            self.model.cpu()
         del self.model
-        torch.cuda.empty_cache()
+        empty_cuda_cache_if_available()
         gc.collect()
 
     def prepare_judge_tokenizer(self) -> None:
@@ -489,7 +601,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
     def free_judge(self) -> None:
         del self.judge_pipeline
-        torch.cuda.empty_cache()
+        empty_cuda_cache_if_available()
         gc.collect()
 
     @torch.no_grad()
@@ -565,7 +677,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             except Exception:
                 # Drop partial results and free memory before retrying with a smaller batch
                 outputs = []
-                torch.cuda.empty_cache()
+                empty_cuda_cache_if_available()
                 raise
 
         # Probe for an executable batch size; the successful call leaves `outputs` filled

@@ -15,6 +15,13 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
 
 
+def empty_cuda_cache_if_available() -> None:
+    """Free CUDA cache if GPUs are available."""
+
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def safe_apply_chat_template(
     tokenizer: PreTrainedTokenizerBase,
     messages: list[dict[str, str]],
@@ -197,6 +204,85 @@ def is_model_multimodal(repo_id: str, trust_remote_code: bool = False) -> bool:
         return True
 
     return False
+
+
+def torch_dtype_to_str(dtype: torch.dtype) -> str:
+    """Translate a ``torch.dtype`` into the string literal expected by vLLM."""
+
+    if dtype == torch.bfloat16:
+        return "bfloat16"
+    if dtype == torch.float16:
+        return "float16"
+    if dtype == torch.float32:
+        return "float32"
+    raise ValueError(f"Unsupported dtype for vLLM: {dtype}")
+
+
+def load_vllm_model(
+    model_name: str,
+    dtype: torch.dtype,
+    trust_remote_code: bool,
+    *,
+    tensor_parallel_size: int | None = None,
+    enforce_eager: bool = False,
+):
+    """Load a vLLM model engine.
+
+    Args:
+        model_name: Model identifier or local path.
+        dtype: Torch dtype to request from vLLM.
+        trust_remote_code: Whether to allow remote code execution when loading the model.
+        tensor_parallel_size: Optional tensor parallelism degree passed to vLLM.
+        enforce_eager: Whether to enforce eager execution (useful for CPU-only setups).
+
+    Returns:
+        An initialized ``vllm.LLM`` instance.
+    """
+
+    try:
+        from vllm import LLM
+    except ImportError as exc:
+        raise ImportError(
+            "vLLM is not installed. Install it with `pip install vllm` to enable --use-vllm."
+        ) from exc
+
+    dtype_literal = torch_dtype_to_str(dtype)
+
+    if tensor_parallel_size is None:
+        return LLM(
+            model=model_name,
+            tokenizer=model_name,
+            trust_remote_code=trust_remote_code,
+            dtype=dtype_literal,
+            enforce_eager=enforce_eager,
+        )
+
+    return LLM(
+        model=model_name,
+        tokenizer=model_name,
+        trust_remote_code=trust_remote_code,
+        dtype=dtype_literal,
+        enforce_eager=enforce_eager,
+        tensor_parallel_size=tensor_parallel_size,
+    )
+
+
+def build_vllm_prompt_token_ids(
+    input_ids: torch.Tensor, attention_mask: torch.Tensor
+) -> list[list[int]]:
+    """Convert a padded batch of token ids into prompt-only sequences for vLLM."""
+
+    if input_ids.shape != attention_mask.shape:
+        raise ValueError("input_ids and attention_mask must share the same shape")
+
+    prompt_token_ids: list[list[int]] = []
+    for tokens, mask in zip(input_ids, attention_mask, strict=True):
+        token_tensor = tokens.detach().cpu()
+        mask_tensor = mask.detach().cpu().to(dtype=torch.bool)
+        valid_tokens = token_tensor[mask_tensor]
+        prompt_token_ids.append([int(token) for token in valid_tokens.tolist()])
+
+    return prompt_token_ids
 
 
 def load_model_and_tokenizer(

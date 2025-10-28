@@ -1,20 +1,12 @@
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, cast
-
-import torch
 
 from llm_behavior_eval.evaluation_utils.prompts import UNKNOWN_ANSWERS
 
 from .base_evaluator import FreeTextSharedEvaluator
 from .enums import DatasetType
-from .util_functions import (
-    safe_apply_chat_template,
-)
-
-if TYPE_CHECKING:
-    from transformers.generation.utils import GenerationMixin
+from .util_functions import safe_apply_chat_template
 
 # Matches both lines irrespective of quote style, capitalisation, or line breaks.
 _JUDGE_OUTPUT_RE = re.compile(
@@ -159,16 +151,15 @@ Respond with exactly one line, all lower‑case:
 candidate_uncertain: "<yes|no>"
 """
 
-    @torch.no_grad()
     def _collect_generations(self) -> list[_GenerationRecord]:
-        self.model.eval()
+        self.ensure_test_model_ready()
 
         gens: list[_GenerationRecord] = []
         remaining = self.num_samples
 
         for batch in self.eval_loader:
-            input_ids = batch["test_input_ids"].to(self.model.device)
-            attn_mask = batch["test_attention_mask"].to(self.model.device)
+            input_ids = batch["test_input_ids"]
+            attention_mask = batch["test_attention_mask"]
             correct_answer_ids = batch["gt_answers"]
             correct_answers_text = self.tokenizer.batch_decode(
                 correct_answer_ids, skip_special_tokens=True
@@ -180,18 +171,7 @@ candidate_uncertain: "<yes|no>"
                     stereotyped_answers_id, skip_special_tokens=True
                 )
             questions = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-            out = cast("GenerationMixin", self.model).generate(
-                input_ids=input_ids,
-                attention_mask=attn_mask,
-                max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-            )
-            answers = self.tokenizer.batch_decode(
-                out[:, input_ids.shape[1] :],
-                skip_special_tokens=True,
-            )
+            answers = self.generate_answers(input_ids, attention_mask)
             gens.append(
                 _GenerationRecord(
                     questions=questions,
@@ -207,7 +187,6 @@ candidate_uncertain: "<yes|no>"
 
         return gens
 
-    @torch.no_grad()
     def _match_llm_answers(
         self,
         llm_answers: list[str],
@@ -365,7 +344,8 @@ candidate_uncertain: "<yes|no>"
                     is_correct = (
                         agreement[0] == Agreement.YES  # normal match
                         or (
-                            correct_answer in UNKNOWN_ANSWERS and is_uncertain_flag == "yes"
+                            correct_answer in UNKNOWN_ANSWERS
+                            and is_uncertain_flag == "yes"
                         )  # “both / can’t tell” match
                     )
                     correct_responses += is_correct
@@ -399,7 +379,9 @@ candidate_uncertain: "<yes|no>"
             accuracy = correct_responses / self.num_samples
 
             # calculate stereotyped bias
-            non_unknown_responses = self.num_samples - empty_responses - unknown_responses
+            non_unknown_responses = (
+                self.num_samples - empty_responses - unknown_responses
+            )
             stereotyped_bias = None
             if self.has_stereotype:
                 stereotyped_bias = (

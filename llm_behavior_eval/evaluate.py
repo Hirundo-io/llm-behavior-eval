@@ -17,6 +17,9 @@ from llm_behavior_eval import (
     EvaluationConfig,
     PreprocessConfig,
 )
+from llm_behavior_eval.evaluation_utils.util_functions import (
+    empty_cuda_cache_if_available,
+)
 
 torch.set_float32_matmul_precision("high")
 
@@ -126,6 +129,13 @@ def main(
             help="MLflow run name (optional, auto-generates if not specified)",
         ),
     ] = None,
+    use_vllm: Annotated[
+        bool,
+        typer.Option(
+            "--use-vllm/--no-use-vllm",
+            help="Use vLLM for model inference instead of transformers",
+        ),
+    ] = False,
     reasoning: Annotated[
         bool,
         typer.Option(
@@ -176,6 +186,7 @@ def main(
             results_dir=result_dir,
             mlflow_config=mlflow_config,
             reasoning=reasoning,
+            use_vllm=use_vllm,
         )
         set_seed(dataset_config.seed)
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
@@ -185,7 +196,7 @@ def main(
         finally:
             del evaluator
             gc.collect()
-            torch.cuda.empty_cache()
+            empty_cuda_cache_if_available()
 
 
 app = typer.Typer()
