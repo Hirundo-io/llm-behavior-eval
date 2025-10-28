@@ -250,20 +250,15 @@ def load_vllm_model(
     dtype_literal = torch_dtype_to_str(dtype)
 
     if tensor_parallel_size is None:
-        return LLM(
-            model=model_name,
-            tokenizer=model_name,
-            trust_remote_code=trust_remote_code,
-            dtype=dtype_literal,
-            enforce_eager=enforce_eager,
-        )
+        gpu_count = torch.cuda.device_count()
+        tensor_parallel_size = gpu_count if gpu_count > 0 else None
 
     return LLM(
         model=model_name,
-        tokenizer=model_name,
         trust_remote_code=trust_remote_code,
         dtype=dtype_literal,
         enforce_eager=enforce_eager,
+        quantization=quantization,
         tensor_parallel_size=tensor_parallel_size,
     )
 
