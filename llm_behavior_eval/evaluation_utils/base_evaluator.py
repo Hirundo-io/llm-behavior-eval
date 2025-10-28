@@ -251,9 +251,6 @@ class BaseEvaluator(ABC):
         return responses
 
     def _get_vllm_sampling_params(self):
-        if not self.use_vllm:
-            raise RuntimeError("Sampling params are only available for vLLM backend")
-
         if getattr(self, "_vllm_sampling_params", None) is None:
             from vllm import SamplingParams
 
