@@ -286,7 +286,7 @@ def build_vllm_prompt_token_ids(
     return prompt_token_ids
 
 
-def load_model_and_tokenizer(
+def load_transformers_model_and_tokenizer(
     model_name: str,
     use_4bit: bool = False,
     device_map: str | dict[str, int] | None = "auto",

@@ -21,8 +21,8 @@ from .eval_config import EvaluationConfig, MlflowConfig
 from .util_functions import (
     build_vllm_prompt_token_ids,
     empty_cuda_cache_if_available,
-    load_model_and_tokenizer,
     load_tokenizer,
+    load_transformers_model_and_tokenizer,
     load_vllm_model,
     pick_best_dtype,
 )
@@ -81,7 +81,7 @@ class BaseEvaluator(ABC):
             )
             self._vllm_sampling_params = None
         else:
-            self.tokenizer, self.model = load_model_and_tokenizer(
+            self.tokenizer, self.model = load_transformers_model_and_tokenizer(
                 eval_config.model_path_or_repo_id,
                 eval_config.use_4bit,
                 eval_config.device_map,
@@ -619,7 +619,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         # Reuse existing judge pipeline if already initialized. This prevents
         # reloading the judge model/tokenizer on subsequent calls (which can OOM).
         if getattr(self, "judge_pipeline", None) is None:
-            self.judge_tokenizer, judge_model = load_model_and_tokenizer(
+            self.judge_tokenizer, judge_model = load_transformers_model_and_tokenizer(
                 self.eval_config.judge_path_or_repo_id,
                 use_4bit=self.eval_config.use_4bit_judge,
             )

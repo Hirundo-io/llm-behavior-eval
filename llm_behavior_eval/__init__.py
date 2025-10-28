@@ -5,7 +5,7 @@ from .evaluation_utils.eval_config import EvaluationConfig, MlflowConfig
 from .evaluation_utils.free_text_bias_evaluator import FreeTextBiasEvaluator
 from .evaluation_utils.prompts import SYSTEM_PROMPT_DICT
 from .evaluation_utils.util_functions import (
-    load_model_and_tokenizer,
+    load_transformers_model_and_tokenizer,
     load_tokenizer,
     pick_best_dtype,
     safe_apply_chat_template,
@@ -20,7 +20,7 @@ __all__ = [
     "MlflowConfig",
     "FreeTextBiasEvaluator",
     "SYSTEM_PROMPT_DICT",
-    "load_model_and_tokenizer",
+    "load_transformers_model_and_tokenizer",
     "load_tokenizer",
     "pick_best_dtype",
     "safe_apply_chat_template",

@@ -53,7 +53,7 @@ def _mock_model_loading(monkeypatch):
         return dummy_tokenizer, dummy_model
 
     monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.base_evaluator.load_model_and_tokenizer",
+        "llm_behavior_eval.evaluation_utils.base_evaluator.load_transformers_model_and_tokenizer",
         _stub_loader,
     )
 
