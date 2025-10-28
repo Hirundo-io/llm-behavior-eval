@@ -76,6 +76,7 @@ class BaseEvaluator(ABC):
                 eval_config.model_path_or_repo_id,
                 dtype,
                 self.trust_remote_code,
+                eval_config.batch_size or 256,
                 enforce_eager=not torch.cuda.is_available(),
                 quantization=quantization,
             )

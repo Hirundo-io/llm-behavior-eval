@@ -222,6 +222,7 @@ def load_vllm_model(
     model_name: str,
     dtype: torch.dtype,
     trust_remote_code: bool,
+    batch_size: int,
     tensor_parallel_size: int | None = None,
     enforce_eager: bool = False,
     quantization: str | None = None,
@@ -232,6 +233,7 @@ def load_vllm_model(
         model_name: Model identifier or local path.
         dtype: Torch dtype to request from vLLM.
         trust_remote_code: Whether to allow remote code execution when loading the model.
+        batch_size: The batch size to use for the model.
         tensor_parallel_size: Optional tensor parallelism degree passed to vLLM.
         enforce_eager: Whether to enforce eager execution (useful for CPU-only setups).
         quantization: Optional quantization backend (for example ``"bitsandbytes"`` for 4-bit inference).
@@ -260,6 +262,7 @@ def load_vllm_model(
         enforce_eager=enforce_eager,
         quantization=quantization,
         tensor_parallel_size=tensor_parallel_size,
+        max_num_seqs=batch_size,
     )
 
 
