@@ -65,20 +65,19 @@ class BaseEvaluator(ABC):
         self.use_vllm = eval_config.use_vllm
         self.trust_remote_code = eval_config.model_path_or_repo_id.startswith("nvidia/")
 
-        if self.use_vllm and eval_config.use_4bit:
-            raise ValueError("4-bit quantization is not supported when using vLLM.")
-
         if self.use_vllm:
             self.tokenizer = load_tokenizer(eval_config.model_path_or_repo_id)
             if not self.tokenizer.pad_token:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
             device = "cuda" if torch.cuda.is_available() else "cpu"
             dtype = pick_best_dtype(device)
+            quantization = "bitsandbytes" if eval_config.use_4bit else None
             self.model = load_vllm_model(
                 eval_config.model_path_or_repo_id,
                 dtype,
                 self.trust_remote_code,
                 enforce_eager=not torch.cuda.is_available(),
+                quantization=quantization,
             )
             self._vllm_sampling_params = None
         else:
