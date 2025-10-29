@@ -30,7 +30,7 @@ VLLMQuantization = Literal[
 
 if TYPE_CHECKING:
     from vllm.engine.llm_engine import LLMEngine
-else:  # pragma: no cover - runtime fallback when vLLM is unavailable
+else:
     class LLMEngine:
         ...
 
