@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import gc
 import json
 import logging
@@ -11,7 +13,6 @@ from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
 from transformers.modeling_utils import PreTrainedModel
 from transformers.data.data_collator import default_data_collator
-from transformers.generation.utils import GenerationMixin
 from transformers.pipelines import pipeline
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
@@ -29,10 +30,8 @@ from .util_functions import (
     VLLMModelProtocol,
 )
 
-if TYPE_CHECKING:  # pragma: no cover - only for static analysis
+if TYPE_CHECKING:
     from vllm import SamplingParams as VLLMSamplingParams
-else:  # pragma: no cover - runtime fallback when vLLM isn't installed
-    VLLMSamplingParams = Any  # type: ignore[assignment]
 
 # Optional MLflow import
 try:
@@ -74,6 +73,7 @@ class BaseEvaluator(ABC):
         self.model: PreTrainedModel | VLLMModelProtocol
         self.tokenizer: PreTrainedTokenizerBase
         self._vllm_sampling_params: VLLMSamplingParams | None = None
+        self.judge_tokenizer: PreTrainedTokenizerBase | None = None
 
         if self.use_vllm:
             self.tokenizer = load_tokenizer(eval_config.model_path_or_repo_id)
@@ -114,12 +114,16 @@ class BaseEvaluator(ABC):
     def _get_transformers_model(self) -> PreTrainedModel:
         if self.use_vllm:
             raise RuntimeError("Transformers model requested when vLLM backend is active.")
-        return cast(PreTrainedModel, self.model)
+        model = self.model
+        assert isinstance(model, PreTrainedModel)
+        return model
 
     def _get_vllm_model(self) -> VLLMModelProtocol:
         if not self.use_vllm:
             raise RuntimeError("vLLM model requested when transformers backend is active.")
-        return cast(VLLMModelProtocol, self.model)
+        model = self.model
+        assert isinstance(model, VLLMModelProtocol)
+        return model
 
     def get_output_dir(self) -> Path:
         """
@@ -212,7 +216,7 @@ class BaseEvaluator(ABC):
         input_ids = batch["test_input_ids"].to(model.device)
         attention_mask = batch["test_attention_mask"].to(model.device)
         with torch.inference_mode():
-            cast("GenerationMixin", model).generate(
+            model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=self.eval_config.answer_tokens,
@@ -241,7 +245,7 @@ class BaseEvaluator(ABC):
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
         with torch.inference_mode():
-            outputs = cast("GenerationMixin", model).generate(
+            outputs = model.generate(
                 input_ids=model_input_ids,
                 attention_mask=model_attention,
                 max_new_tokens=self.eval_config.answer_tokens,
@@ -286,10 +290,8 @@ class BaseEvaluator(ABC):
             stop_token_ids = self._collect_stop_token_ids()
             if stop_token_ids is not None:
                 sampling_kwargs["stop_token_ids"] = stop_token_ids
-            self._vllm_sampling_params = cast(
-                VLLMSamplingParams, SamplingParams(**sampling_kwargs)
-            )
-        return cast(VLLMSamplingParams, self._vllm_sampling_params)
+            self._vllm_sampling_params = SamplingParams(**sampling_kwargs)
+        return self._vllm_sampling_params
 
     def _collect_stop_token_ids(self) -> list[int] | None:
         eos_token_id = self.tokenizer.eos_token_id
@@ -644,7 +646,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 self.eval_config.judge_path_or_repo_id,
                 use_4bit=self.eval_config.use_4bit_judge,
             )
-            tokenizer = cast(PreTrainedTokenizerBase, self.judge_tokenizer)
+            tokenizer = self.judge_tokenizer
+            assert tokenizer is not None
             self.judge_pipeline = pipeline(
                 "text-generation",
                 model=judge_model,

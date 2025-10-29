@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import logging
 from collections.abc import Sequence
 from inspect import Parameter, signature
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast, runtime_checkable
 
 import torch
 from transformers.modeling_utils import PreTrainedModel
@@ -15,14 +17,18 @@ from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
 
-if TYPE_CHECKING:  # pragma: no cover - type-only imports
-    from vllm.model_executor.model_loader import QuantizationMethods
-    from vllm.utils import ModelDType
-else:  # pragma: no cover - fallback for runtime environments without vLLM
-    QuantizationMethods = Any  # type: ignore[assignment]
-    ModelDType = Any  # type: ignore[assignment]
+VLLMDType = Literal["bfloat16", "float16", "float32"]
+VLLMQuantization = Literal[
+    "awq",
+    "deepspeedfp",
+    "tpu_int8",
+    "fp8",
+    "ptpc_fp8",
+    "bitsandbytes",
+]
 
 
+@runtime_checkable
 class VLLMModelProtocol(Protocol):
     """Structural typing interface for the subset of vLLM APIs we exercise."""
 
@@ -229,15 +235,15 @@ def is_model_multimodal(repo_id: str, trust_remote_code: bool = False) -> bool:
     return False
 
 
-def torch_dtype_to_str(dtype: torch.dtype) -> ModelDType:
+def torch_dtype_to_str(dtype: torch.dtype) -> VLLMDType:
     """Translate a ``torch.dtype`` into the string literal expected by vLLM."""
 
     if dtype == torch.bfloat16:
-        return cast("ModelDType", "bfloat16")
+        return "bfloat16"
     if dtype == torch.float16:
-        return cast("ModelDType", "float16")
+        return "float16"
     if dtype == torch.float32:
-        return cast("ModelDType", "float32")
+        return "float32"
     raise ValueError(f"Unsupported dtype for vLLM: {dtype}")
 
 
@@ -248,7 +254,7 @@ def load_vllm_model(
     batch_size: int,
     tensor_parallel_size: int | None = None,
     enforce_eager: bool = False,
-    quantization: str | None = None,
+    quantization: VLLMQuantization | None = None,
 ) -> VLLMModelProtocol:
     """Load a vLLM model engine.
 
@@ -278,15 +284,18 @@ def load_vllm_model(
         gpu_count = torch.cuda.device_count()
         tensor_parallel_size = gpu_count if gpu_count > 0 else None
 
-    llm_instance = LLM(
-        model=model_name,
-        trust_remote_code=trust_remote_code,
-        dtype=dtype_literal,
-        enforce_eager=enforce_eager,
-        quantization=cast("QuantizationMethods | None", quantization),
-        tensor_parallel_size=tensor_parallel_size,
-        max_num_seqs=batch_size,
-    )
+    llm_kwargs: dict[str, Any] = {
+        "model": model_name,
+        "trust_remote_code": trust_remote_code,
+        "dtype": dtype_literal,
+        "enforce_eager": enforce_eager,
+        "tensor_parallel_size": tensor_parallel_size,
+        "max_num_seqs": batch_size,
+    }
+    if quantization is not None:
+        llm_kwargs["quantization"] = quantization
+
+    llm_instance = LLM(**llm_kwargs)
     return cast(VLLMModelProtocol, llm_instance)
 
 
