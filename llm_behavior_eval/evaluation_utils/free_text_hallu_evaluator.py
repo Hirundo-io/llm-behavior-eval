@@ -81,13 +81,14 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         generated_answers: list[str],
     ) -> list[str]:
         self.prepare_judge_tokenizer()
+        judge_tokenizer = self._get_judge_tokenizer()
         prompts = []
         for question, gt_answer, generated_answer in zip(
             questions, gt_answers, generated_answers, strict=True
         ):
             prompts.append(
                 safe_apply_chat_template(
-                    self.judge_tokenizer,
+                    judge_tokenizer,
                     [
                         {
                             "role": "user",

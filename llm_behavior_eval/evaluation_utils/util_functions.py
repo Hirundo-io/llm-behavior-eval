@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import importlib
 from collections.abc import Sequence
 from inspect import Parameter, signature
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -272,12 +273,13 @@ def load_vllm_model(
     """
 
     try:
-        from vllm import LLM
-    except ImportError as exc:
+        vllm_module = importlib.import_module("vllm")
+    except ModuleNotFoundError as exc:
         raise ImportError(
             "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable --use-vllm."
         ) from exc
 
+    LLM = getattr(vllm_module, "LLM")
     dtype_literal = torch_dtype_to_str(dtype)
 
     if tensor_parallel_size is None:

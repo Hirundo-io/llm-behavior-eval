@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import gc
+import importlib
 import json
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 import pandas as pd
 import torch
@@ -32,15 +34,22 @@ from .util_functions import (
     VLLMModelProtocol,
 )
 
-try:
-    from vllm import SamplingParams as VLLMSamplingParams
-except ImportError:
-    from typing import Any as VLLMSamplingParams
+
+class SamplingParamsProtocol(Protocol):
+    def __init__(
+        self,
+        *,
+        max_tokens: int,
+        temperature: float,
+        top_p: float,
+        stop_token_ids: Sequence[int] | None = ...,
+    ) -> None:
+        ...
 
 # Optional MLflow import
 try:
-    import mlflow
-except ImportError:
+    mlflow = importlib.import_module("mlflow")
+except ModuleNotFoundError:
     mlflow = None
 
 MAX_BATCH_SIZE = 1024
@@ -76,7 +85,7 @@ class BaseEvaluator(ABC):
         self.trust_remote_code = eval_config.model_path_or_repo_id.startswith("nvidia/")
         self.model: PreTrainedModel | VLLMModelProtocol
         self.tokenizer: PreTrainedTokenizerBase
-        self._vllm_sampling_params: VLLMSamplingParams | None = None
+        self._vllm_sampling_params: SamplingParamsProtocol | None = None
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
 
         if self.use_vllm:
@@ -135,6 +144,12 @@ class BaseEvaluator(ABC):
         if not isinstance(model, GenerationMixin):
             raise TypeError("Transformers model must support generation APIs.")
         return model
+
+    def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
+        tokenizer = self.judge_tokenizer
+        if tokenizer is None:
+            raise RuntimeError("Judge tokenizer is not initialized.")
+        return tokenizer
 
     def get_output_dir(self) -> Path:
         """
@@ -290,9 +305,16 @@ class BaseEvaluator(ABC):
             responses.append(getattr(first_candidate, "text", ""))
         return responses
 
-    def _get_vllm_sampling_params(self) -> VLLMSamplingParams:
+    def _get_vllm_sampling_params(self) -> SamplingParamsProtocol:
         if self._vllm_sampling_params is None:
-            from vllm import SamplingParams
+            try:
+                vllm_module = importlib.import_module("vllm")
+            except ModuleNotFoundError as exc:
+                raise ImportError(
+                    "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable --use-vllm."
+                ) from exc
+
+            SamplingParams = getattr(vllm_module, "SamplingParams")
 
             temperature = 1.0 if self.eval_config.sample else 0.0
             sampling_kwargs: dict[str, Any] = {
@@ -304,6 +326,8 @@ class BaseEvaluator(ABC):
             if stop_token_ids is not None:
                 sampling_kwargs["stop_token_ids"] = stop_token_ids
             self._vllm_sampling_params = SamplingParams(**sampling_kwargs)
+        if self._vllm_sampling_params is None:
+            raise RuntimeError("Failed to initialize vLLM sampling parameters.")
         return self._vllm_sampling_params
 
     def _collect_stop_token_ids(self) -> list[int] | None:
@@ -482,13 +506,15 @@ class BaseEvaluator(ABC):
 
     def cleanup(self, error: Exception | None = None) -> None:
         if mlflow and self.mlflow_run:
-            from mlflow.entities import RunStatus
-
-            mlflow.end_run(
-                status=RunStatus.to_string(RunStatus.FAILED)
-                if error
-                else RunStatus.to_string(RunStatus.FINISHED)
-            )
+            try:
+                mlflow_entities = importlib.import_module("mlflow.entities")
+                RunStatus = getattr(mlflow_entities, "RunStatus")
+                status = RunStatus.to_string(RunStatus.FAILED) if error else RunStatus.to_string(
+                    RunStatus.FINISHED
+                )
+            except (ModuleNotFoundError, AttributeError):
+                status = "FAILED" if error else "FINISHED"
+            mlflow.end_run(status=status)
             logging.info("Ended MLflow run")
         if error:
             raise error

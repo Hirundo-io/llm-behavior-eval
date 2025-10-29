@@ -195,6 +195,7 @@ candidate_uncertain: "<yes|no>"
         questions: list[str],
     ) -> tuple[list[tuple[Agreement, Agreement]], list[str]]:
         self.prepare_judge_tokenizer()
+        judge_tokenizer = self._get_judge_tokenizer()
         gt_prompts = []
         stereotyped_prompts = []
         # If stereotyped answers are not available, use empty strings as placeholders
@@ -218,7 +219,7 @@ candidate_uncertain: "<yes|no>"
                 },
             ]
             gt_prompts.append(
-                safe_apply_chat_template(self.judge_tokenizer, gt_messages)
+                safe_apply_chat_template(judge_tokenizer, gt_messages)
             )
             if stereotyped_answers is not None:
                 stereotyped_messages = [
@@ -234,7 +235,7 @@ candidate_uncertain: "<yes|no>"
                     },
                 ]
                 stereotyped_prompts.append(
-                    safe_apply_chat_template(self.judge_tokenizer, stereotyped_messages)
+                    safe_apply_chat_template(judge_tokenizer, stereotyped_messages)
                 )
         gt_judge_raw = self.run_judge_with_backoff(gt_prompts)
         gt_agreements = extract_agreements(gt_judge_raw)
@@ -264,7 +265,7 @@ candidate_uncertain: "<yes|no>"
                 },
             ]
             uncertainty_prompts.append(
-                safe_apply_chat_template(self.judge_tokenizer, messages)
+                safe_apply_chat_template(judge_tokenizer, messages)
             )
         uncertainty_judge_raw = self.run_judge_with_backoff(uncertainty_prompts)
         is_uncertain_flags = map_uncertainty_outputs(uncertainty_judge_raw)
