@@ -4,7 +4,6 @@ import gc
 import json
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -35,29 +34,22 @@ from .util_functions import (
 
 
 class SamplingParamsProtocol(Protocol):
-    def __init__(
-        self,
-        *,
-        max_tokens: int,
-        temperature: float,
-        top_p: float,
-        stop_token_ids: Sequence[int] | None = ...,
-    ) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         ...
 
 # Optional vLLM / MLflow imports
 try:
-    from vllm import SamplingParams as VLLMSamplingParams  # pyright: ignore[reportMissingImports]
+    from vllm import SamplingParams as VLLMSamplingParams
 except ImportError:
     VLLMSamplingParams = None
 
 try:
-    import mlflow  # pyright: ignore[reportMissingImports]
+    import mlflow
 except ImportError:
     mlflow = None
 
 try:
-    from mlflow.entities import RunStatus  # pyright: ignore[reportMissingImports]
+    from mlflow.entities import RunStatus
 except ImportError:
     RunStatus = None
 

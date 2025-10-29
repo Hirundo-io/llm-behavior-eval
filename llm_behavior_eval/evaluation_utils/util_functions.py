@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from inspect import Parameter, signature
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import torch
 from transformers.modeling_utils import PreTrainedModel
@@ -28,24 +28,20 @@ VLLMQuantization = Literal[
 ]
 
 
-@runtime_checkable
-class VLLMEngineProtocol(Protocol):
-    ...
+if TYPE_CHECKING:
+    from vllm.engine.llm_engine import LLMEngine
+else:  # pragma: no cover - runtime fallback when vLLM is unavailable
+    class LLMEngine:
+        ...
 
 
 @runtime_checkable
 class VLLMModelProtocol(Protocol):
     """Structural typing interface for the subset of vLLM APIs we exercise."""
 
-    llm_engine: VLLMEngineProtocol
+    llm_engine: LLMEngine
 
-    def generate(
-        self,
-        *,
-        prompt_token_ids: Sequence[Sequence[int]],
-        sampling_params: Any,
-        use_tqdm: bool = False,
-    ) -> Sequence[Any]:
+    def generate(self, *args: Any, **kwargs: Any) -> Sequence[Any]:
         ...
 
 
@@ -289,17 +285,25 @@ def load_vllm_model(
         gpu_count = torch.cuda.device_count()
         tensor_parallel_size = gpu_count if gpu_count > 0 else None
 
-    llm_instance = LLM(
-        model=model_name,
-        trust_remote_code=trust_remote_code,
-        dtype=dtype_literal,
-        enforce_eager=enforce_eager,
-        quantization=quantization,
-        tensor_parallel_size=tensor_parallel_size,
-        max_num_seqs=batch_size,
-    )
-    if not isinstance(llm_instance, VLLMModelProtocol):
-        raise TypeError("vLLM did not return an engine matching VLLMModelProtocol.")
+    if tensor_parallel_size is None:
+        llm_instance = LLM(
+            model=model_name,
+            trust_remote_code=trust_remote_code,
+            dtype=dtype_literal,
+            enforce_eager=enforce_eager,
+            quantization=quantization,
+            max_num_seqs=batch_size,
+        )
+    else:
+        llm_instance = LLM(
+            model=model_name,
+            trust_remote_code=trust_remote_code,
+            dtype=dtype_literal,
+            enforce_eager=enforce_eager,
+            quantization=quantization,
+            tensor_parallel_size=tensor_parallel_size,
+            max_num_seqs=batch_size,
+        )
     return llm_instance
 
 
