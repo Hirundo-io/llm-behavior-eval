@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import gc
-import importlib
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -27,7 +26,7 @@ from .eval_config import EvaluationConfig, MlflowConfig
 from .util_functions import (
     build_vllm_prompt_token_ids,
     empty_cuda_cache_if_available,
-    load_tokenizer,
+    load_tokenizer_with_transformers,
     load_transformers_model_and_tokenizer,
     load_vllm_model,
     pick_best_dtype,
@@ -46,11 +45,21 @@ class SamplingParamsProtocol(Protocol):
     ) -> None:
         ...
 
-# Optional MLflow import
+# Optional vLLM / MLflow imports
 try:
-    mlflow = importlib.import_module("mlflow")
-except ModuleNotFoundError:
+    from vllm import SamplingParams as VLLMSamplingParams  # pyright: ignore[reportMissingImports]
+except ImportError:
+    VLLMSamplingParams = None
+
+try:
+    import mlflow  # pyright: ignore[reportMissingImports]
+except ImportError:
     mlflow = None
+
+try:
+    from mlflow.entities import RunStatus  # pyright: ignore[reportMissingImports]
+except ImportError:
+    RunStatus = None
 
 MAX_BATCH_SIZE = 1024
 
@@ -89,7 +98,9 @@ class BaseEvaluator(ABC):
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
 
         if self.use_vllm:
-            self.tokenizer = load_tokenizer(eval_config.model_path_or_repo_id)
+            self.tokenizer = load_tokenizer_with_transformers(
+                eval_config.model_path_or_repo_id
+            )
             if not self.tokenizer.pad_token:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -307,25 +318,25 @@ class BaseEvaluator(ABC):
 
     def _get_vllm_sampling_params(self) -> SamplingParamsProtocol:
         if self._vllm_sampling_params is None:
-            try:
-                vllm_module = importlib.import_module("vllm")
-            except ModuleNotFoundError as exc:
+            if VLLMSamplingParams is None:
                 raise ImportError(
                     "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable --use-vllm."
-                ) from exc
-
-            SamplingParams = getattr(vllm_module, "SamplingParams")
-
+                )
             temperature = 1.0 if self.eval_config.sample else 0.0
-            sampling_kwargs: dict[str, Any] = {
-                "max_tokens": self.eval_config.answer_tokens,
-                "temperature": temperature,
-                "top_p": 1.0,
-            }
             stop_token_ids = self._collect_stop_token_ids()
             if stop_token_ids is not None:
-                sampling_kwargs["stop_token_ids"] = stop_token_ids
-            self._vllm_sampling_params = SamplingParams(**sampling_kwargs)
+                self._vllm_sampling_params = VLLMSamplingParams(
+                    max_tokens=self.eval_config.answer_tokens,
+                    temperature=temperature,
+                    top_p=1.0,
+                    stop_token_ids=stop_token_ids,
+                )
+            else:
+                self._vllm_sampling_params = VLLMSamplingParams(
+                    max_tokens=self.eval_config.answer_tokens,
+                    temperature=temperature,
+                    top_p=1.0,
+                )
         if self._vllm_sampling_params is None:
             raise RuntimeError("Failed to initialize vLLM sampling parameters.")
         return self._vllm_sampling_params
@@ -506,13 +517,13 @@ class BaseEvaluator(ABC):
 
     def cleanup(self, error: Exception | None = None) -> None:
         if mlflow and self.mlflow_run:
-            try:
-                mlflow_entities = importlib.import_module("mlflow.entities")
-                RunStatus = getattr(mlflow_entities, "RunStatus")
-                status = RunStatus.to_string(RunStatus.FAILED) if error else RunStatus.to_string(
-                    RunStatus.FINISHED
+            if RunStatus is not None:
+                status = (
+                    RunStatus.to_string(RunStatus.FAILED)
+                    if error
+                    else RunStatus.to_string(RunStatus.FINISHED)
                 )
-            except (ModuleNotFoundError, AttributeError):
+            else:
                 status = "FAILED" if error else "FINISHED"
             mlflow.end_run(status=status)
             logging.info("Ended MLflow run")
@@ -651,7 +662,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         constructing representative prompts used for batch-size probing.
         """
         if getattr(self, "judge_tokenizer", None) is None:
-            self.judge_tokenizer = load_tokenizer(
+            self.judge_tokenizer = load_tokenizer_with_transformers(
                 self.eval_config.judge_path_or_repo_id
             )
             # left padding is useful when batch-generating variable-length prompts

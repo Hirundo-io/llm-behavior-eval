@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import importlib
 from collections.abc import Sequence
 from inspect import Parameter, signature
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -30,10 +29,15 @@ VLLMQuantization = Literal[
 
 
 @runtime_checkable
+class VLLMEngineProtocol(Protocol):
+    ...
+
+
+@runtime_checkable
 class VLLMModelProtocol(Protocol):
     """Structural typing interface for the subset of vLLM APIs we exercise."""
 
-    llm_engine: Any
+    llm_engine: VLLMEngineProtocol
 
     def generate(
         self,
@@ -166,7 +170,7 @@ def safe_apply_chat_template(
     return str(_apply_chat_template(chat_messages_text))
 
 
-def load_tokenizer(model_name: str) -> PreTrainedTokenizerBase:
+def load_tokenizer_with_transformers(model_name: str) -> PreTrainedTokenizerBase:
     """
     Load a tokenizer by first trying the standard method and, if a ValueError
     is encountered, retry loading from a local path.
@@ -273,13 +277,12 @@ def load_vllm_model(
     """
 
     try:
-        vllm_module = importlib.import_module("vllm")
-    except ModuleNotFoundError as exc:
+        from vllm import LLM  # pyright: ignore[reportMissingImports]
+    except ImportError as exc:
         raise ImportError(
             "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable --use-vllm."
         ) from exc
 
-    LLM = getattr(vllm_module, "LLM")
     dtype_literal = torch_dtype_to_str(dtype)
 
     if tensor_parallel_size is None:
@@ -344,7 +347,7 @@ def load_transformers_model_and_tokenizer(
     logging.info("Using dtype: %s", dtype)
 
     # Load tokenizer
-    tokenizer = load_tokenizer(model_name)
+    tokenizer = load_tokenizer_with_transformers(model_name)
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
         raise ValueError("Tokenizer is not supported!")
 
