@@ -86,3 +86,5 @@ Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
 
 [tool.pyright]
 typeCheckingMode = "standard"
+stubPath = "typings"
+reportMissingModuleSource = "none"

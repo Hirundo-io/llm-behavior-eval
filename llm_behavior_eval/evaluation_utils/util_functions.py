@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from inspect import Parameter, signature
-from typing import Any, Literal, Protocol, cast, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 import torch
 from transformers.modeling_utils import PreTrainedModel
@@ -284,19 +284,18 @@ def load_vllm_model(
         gpu_count = torch.cuda.device_count()
         tensor_parallel_size = gpu_count if gpu_count > 0 else None
 
-    llm_kwargs: dict[str, Any] = {
-        "model": model_name,
-        "trust_remote_code": trust_remote_code,
-        "dtype": dtype_literal,
-        "enforce_eager": enforce_eager,
-        "tensor_parallel_size": tensor_parallel_size,
-        "max_num_seqs": batch_size,
-    }
-    if quantization is not None:
-        llm_kwargs["quantization"] = quantization
-
-    llm_instance = LLM(**llm_kwargs)
-    return cast(VLLMModelProtocol, llm_instance)
+    llm_instance = LLM(
+        model=model_name,
+        trust_remote_code=trust_remote_code,
+        dtype=dtype_literal,
+        enforce_eager=enforce_eager,
+        quantization=quantization,
+        tensor_parallel_size=tensor_parallel_size,
+        max_num_seqs=batch_size,
+    )
+    if not isinstance(llm_instance, VLLMModelProtocol):
+        raise TypeError("vLLM did not return an engine matching VLLMModelProtocol.")
+    return llm_instance
 
 
 def build_vllm_prompt_token_ids(

@@ -5,14 +5,16 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import pandas as pd
 import torch
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
-from transformers.modeling_utils import PreTrainedModel
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from transformers.data.data_collator import default_data_collator
+from transformers.generation.utils import GenerationMixin
+from transformers.modeling_utils import PreTrainedModel
 from transformers.pipelines import pipeline
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
@@ -30,8 +32,10 @@ from .util_functions import (
     VLLMModelProtocol,
 )
 
-if TYPE_CHECKING:
+try:
     from vllm import SamplingParams as VLLMSamplingParams
+except ImportError:
+    from typing import Any as VLLMSamplingParams
 
 # Optional MLflow import
 try:
@@ -115,14 +119,21 @@ class BaseEvaluator(ABC):
         if self.use_vllm:
             raise RuntimeError("Transformers model requested when vLLM backend is active.")
         model = self.model
-        assert isinstance(model, PreTrainedModel)
+        if not isinstance(model, PreTrainedModel):
+            raise TypeError("Transformers backend expected a PreTrainedModel instance.")
         return model
 
     def _get_vllm_model(self) -> VLLMModelProtocol:
         if not self.use_vllm:
             raise RuntimeError("vLLM model requested when transformers backend is active.")
         model = self.model
-        assert isinstance(model, VLLMModelProtocol)
+        if not isinstance(model, VLLMModelProtocol):
+            raise TypeError("vLLM backend expected an object implementing VLLMModelProtocol.")
+        return model
+
+    def _ensure_generation_model(self, model: PreTrainedModel) -> GenerationMixin:
+        if not isinstance(model, GenerationMixin):
+            raise TypeError("Transformers model must support generation APIs.")
         return model
 
     def get_output_dir(self) -> Path:
@@ -213,10 +224,11 @@ class BaseEvaluator(ABC):
         it = iter(dl)
         batch = next(it)
         model = self._get_transformers_model()
+        generation_model = self._ensure_generation_model(model)
         input_ids = batch["test_input_ids"].to(model.device)
         attention_mask = batch["test_attention_mask"].to(model.device)
         with torch.inference_mode():
-            model.generate(
+            generation_model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=self.eval_config.answer_tokens,
@@ -241,11 +253,12 @@ class BaseEvaluator(ABC):
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
     ) -> list[str]:
         model = self._get_transformers_model()
+        generation_model = self._ensure_generation_model(model)
         device = model.device
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
         with torch.inference_mode():
-            outputs = model.generate(
+            outputs = generation_model.generate(
                 input_ids=model_input_ids,
                 attention_mask=model_attention,
                 max_new_tokens=self.eval_config.answer_tokens,
@@ -647,7 +660,12 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 use_4bit=self.eval_config.use_4bit_judge,
             )
             tokenizer = self.judge_tokenizer
-            assert tokenizer is not None
+            if tokenizer is None:
+                raise RuntimeError("Judge tokenizer failed to load.")
+            if not isinstance(tokenizer, (PreTrainedTokenizer, PreTrainedTokenizerFast)):
+                raise TypeError(
+                    "Judge tokenizer must be a PreTrainedTokenizer or PreTrainedTokenizerFast."
+                )
             self.judge_pipeline = pipeline(
                 "text-generation",
                 model=judge_model,
