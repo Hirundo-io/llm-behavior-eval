@@ -3,16 +3,17 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 import torch
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
-from transformers import PreTrainedTokenizer
+from transformers.modeling_utils import PreTrainedModel
 from transformers.data.data_collator import default_data_collator
 from transformers.generation.utils import GenerationMixin
 from transformers.pipelines import pipeline
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from .custom_dataset import CustomDataset
 from .dataset_config import DatasetConfig
@@ -25,7 +26,13 @@ from .util_functions import (
     load_transformers_model_and_tokenizer,
     load_vllm_model,
     pick_best_dtype,
+    VLLMModelProtocol,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - only for static analysis
+    from vllm import SamplingParams as VLLMSamplingParams
+else:  # pragma: no cover - runtime fallback when vLLM isn't installed
+    VLLMSamplingParams = Any  # type: ignore[assignment]
 
 # Optional MLflow import
 try:
@@ -64,6 +71,9 @@ class BaseEvaluator(ABC):
         self.models_tokenizers_pairs = {}
         self.use_vllm = eval_config.use_vllm
         self.trust_remote_code = eval_config.model_path_or_repo_id.startswith("nvidia/")
+        self.model: PreTrainedModel | VLLMModelProtocol
+        self.tokenizer: PreTrainedTokenizerBase
+        self._vllm_sampling_params: VLLMSamplingParams | None = None
 
         if self.use_vllm:
             self.tokenizer = load_tokenizer(eval_config.model_path_or_repo_id)
@@ -80,7 +90,6 @@ class BaseEvaluator(ABC):
                 enforce_eager=not torch.cuda.is_available(),
                 quantization=quantization,
             )
-            self._vllm_sampling_params = None
         else:
             self.tokenizer, self.model = load_transformers_model_and_tokenizer(
                 eval_config.model_path_or_repo_id,
@@ -101,6 +110,16 @@ class BaseEvaluator(ABC):
         self.mlflow_run = None
         if self.mlflow_config:
             self._init_mlflow()
+
+    def _get_transformers_model(self) -> PreTrainedModel:
+        if self.use_vllm:
+            raise RuntimeError("Transformers model requested when vLLM backend is active.")
+        return cast(PreTrainedModel, self.model)
+
+    def _get_vllm_model(self) -> VLLMModelProtocol:
+        if not self.use_vllm:
+            raise RuntimeError("vLLM model requested when transformers backend is active.")
+        return cast(VLLMModelProtocol, self.model)
 
     def get_output_dir(self) -> Path:
         """
@@ -189,10 +208,11 @@ class BaseEvaluator(ABC):
         )
         it = iter(dl)
         batch = next(it)
-        input_ids = batch["test_input_ids"].to(self.model.device)
-        attention_mask = batch["test_attention_mask"].to(self.model.device)
+        model = self._get_transformers_model()
+        input_ids = batch["test_input_ids"].to(model.device)
+        attention_mask = batch["test_attention_mask"].to(model.device)
         with torch.inference_mode():
-            cast("GenerationMixin", self.model).generate(
+            cast("GenerationMixin", model).generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=self.eval_config.answer_tokens,
@@ -204,7 +224,7 @@ class BaseEvaluator(ABC):
 
     def ensure_test_model_ready(self) -> None:
         if not self.use_vllm:
-            self.model.eval()
+            self._get_transformers_model().eval()
 
     def generate_answers(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
@@ -216,11 +236,12 @@ class BaseEvaluator(ABC):
     def _generate_with_transformers(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
     ) -> list[str]:
-        device = self.model.device
+        model = self._get_transformers_model()
+        device = model.device
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
         with torch.inference_mode():
-            outputs = cast("GenerationMixin", self.model).generate(
+            outputs = cast("GenerationMixin", model).generate(
                 input_ids=model_input_ids,
                 attention_mask=model_attention,
                 max_new_tokens=self.eval_config.answer_tokens,
@@ -236,7 +257,8 @@ class BaseEvaluator(ABC):
     ) -> list[str]:
         prompt_token_ids = build_vllm_prompt_token_ids(input_ids, attention_mask)
         sampling_params = self._get_vllm_sampling_params()
-        outputs = self.model.generate(
+        model = self._get_vllm_model()
+        outputs = model.generate(
             prompt_token_ids=prompt_token_ids,
             sampling_params=sampling_params,
             use_tqdm=False,
@@ -251,8 +273,8 @@ class BaseEvaluator(ABC):
             responses.append(getattr(first_candidate, "text", ""))
         return responses
 
-    def _get_vllm_sampling_params(self):
-        if getattr(self, "_vllm_sampling_params", None) is None:
+    def _get_vllm_sampling_params(self) -> VLLMSamplingParams:
+        if self._vllm_sampling_params is None:
             from vllm import SamplingParams
 
             temperature = 1.0 if self.eval_config.sample else 0.0
@@ -264,8 +286,10 @@ class BaseEvaluator(ABC):
             stop_token_ids = self._collect_stop_token_ids()
             if stop_token_ids is not None:
                 sampling_kwargs["stop_token_ids"] = stop_token_ids
-            self._vllm_sampling_params = SamplingParams(**sampling_kwargs)
-        return self._vllm_sampling_params
+            self._vllm_sampling_params = cast(
+                VLLMSamplingParams, SamplingParams(**sampling_kwargs)
+            )
+        return cast(VLLMSamplingParams, self._vllm_sampling_params)
 
     def _collect_stop_token_ids(self) -> list[int] | None:
         eos_token_id = self.tokenizer.eos_token_id
@@ -571,9 +595,10 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
     def free_test_model(self) -> None:
         if self.use_vllm:
-            del self.model.llm_engine
+            vllm_model = self._get_vllm_model()
+            del vllm_model.llm_engine
         else:
-            self.model.cpu()
+            self._get_transformers_model().cpu()
         del self.model
         empty_cuda_cache_if_available()
         gc.collect()
@@ -619,7 +644,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 self.eval_config.judge_path_or_repo_id,
                 use_4bit=self.eval_config.use_4bit_judge,
             )
-            tokenizer = cast(PreTrainedTokenizer, self.judge_tokenizer)
+            tokenizer = cast(PreTrainedTokenizerBase, self.judge_tokenizer)
             self.judge_pipeline = pipeline(
                 "text-generation",
                 model=judge_model,
