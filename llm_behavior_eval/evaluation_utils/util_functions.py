@@ -273,7 +273,7 @@ def load_vllm_model(
     """
 
     try:
-        from vllm import LLM  # pyright: ignore[reportMissingImports]
+        from vllm import LLM
     except ImportError as exc:
         raise ImportError(
             "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable --use-vllm."
