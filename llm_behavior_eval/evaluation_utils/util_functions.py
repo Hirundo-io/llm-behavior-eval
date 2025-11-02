@@ -48,6 +48,7 @@ def empty_cuda_cache_if_available() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+
 class SafeApplyChatTemplate:
     _CHAT_TEMPLATE_SUPPORTS_REASONING: dict[int, bool] = {}
 
@@ -156,6 +157,7 @@ class SafeApplyChatTemplate:
                 {"role": message["role"], "content": str(message["content"])}
             )
         return str(_apply_chat_template(chat_messages_text))
+
 
 safe_apply_chat_template = SafeApplyChatTemplate()
 
