@@ -30,9 +30,6 @@ VLLMQuantization = Literal[
 
 if TYPE_CHECKING:
     from vllm.engine.llm_engine import LLMEngine
-else:
-    class LLMEngine:
-        ...
 
 
 @runtime_checkable
