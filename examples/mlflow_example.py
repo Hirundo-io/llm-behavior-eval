@@ -11,8 +11,8 @@ from llm_behavior_eval import (
     DatasetType,
     EvaluateFactory,
     EvaluationConfig,
-    PreprocessConfig,
     MlflowConfig,
+    PreprocessConfig,
 )
 
 
@@ -50,4 +50,3 @@ if __name__ == "__main__":
     print("Run `mlflow ui` in another terminal to view results after this finishes.")
     main()
 
- 

@@ -1,6 +1,6 @@
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from .base_evaluator import FreeTextSharedEvaluator
 from .util_functions import safe_apply_chat_template

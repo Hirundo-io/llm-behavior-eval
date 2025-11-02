@@ -5,7 +5,7 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import pandas as pd
 import torch
@@ -14,7 +14,6 @@ from torch.utils.data import DataLoader, Dataset
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from transformers.data.data_collator import default_data_collator
 from transformers.pipelines import pipeline
-from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
@@ -22,15 +21,19 @@ from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
 from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
 
 from .custom_dataset import CustomDataset
-from .dataset_config import DatasetConfig
 from .enums import DatasetType
-from .eval_config import EvaluationConfig, MlflowConfig
+from .max_batch_size import MAX_BATCH_SIZE
 from .util_functions import (
     empty_cuda_cache_if_available,
     load_tokenizer_with_transformers,
     load_transformers_model_and_tokenizer,
 )
-from .max_batch_size import MAX_BATCH_SIZE
+
+if TYPE_CHECKING:
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+
+    from .dataset_config import DatasetConfig
+    from .eval_config import EvaluationConfig, MlflowConfig
 
 
 class SamplingParamsProtocol(Protocol):
@@ -455,7 +458,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     def load_generations(self, filename: str = "generations.json") -> list[dict] | None:
         path = self.generations_path(filename)
         if path.exists():
-            with open(path, "r") as f:
+            with open(path) as f:
                 return json.load(f)
         return None
 

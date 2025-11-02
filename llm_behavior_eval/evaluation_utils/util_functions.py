@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
 from inspect import Parameter, signature
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import torch
-from transformers.modeling_utils import PreTrainedModel
 from transformers.models.auto.configuration_auto import AutoConfig
 from transformers.models.auto.modeling_auto import (
     MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES,
@@ -29,6 +27,9 @@ VLLMQuantization = Literal[
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from transformers.modeling_utils import PreTrainedModel
     from vllm.engine.llm_engine import LLMEngine
 
 
@@ -77,10 +78,8 @@ def safe_apply_chat_template(
     _CHAT_TEMPLATE_SUPPORTS_REASONING: dict[int, bool] = getattr(
         safe_apply_chat_template, "_CHAT_TEMPLATE_SUPPORTS_REASONING", {}
     )
-    setattr(
-        safe_apply_chat_template,
-        "_CHAT_TEMPLATE_SUPPORTS_REASONING",
-        _CHAT_TEMPLATE_SUPPORTS_REASONING,
+    safe_apply_chat_template._CHAT_TEMPLATE_SUPPORTS_REASONING = (
+        _CHAT_TEMPLATE_SUPPORTS_REASONING
     )
 
     def _supports_reasoning_kwarg(tokenizer: PreTrainedTokenizerBase) -> bool:

@@ -39,7 +39,7 @@ def free_text_preprocess_function(
 ) -> dict[str, torch.Tensor]:
     # 1) Column check
     rows = [
-        dict(zip(examples_batch.keys(), vals))
+        dict(zip(examples_batch.keys(), vals, strict=True))
         for vals in zip(*examples_batch.values(), strict=True)
     ]
     # Validate minimally required fields only
@@ -144,7 +144,7 @@ class CustomDataset:
             ) from exc
         if not isinstance(raw, DatasetDict):
             raise ValueError(f"Expected DatasetDict, got {type(raw)}")
-        self.ds = cast(Dataset, raw["train"])
+        self.ds = cast("Dataset", raw["train"])
         self.has_stereotype: bool = "stereotyped_answer" in self.ds.column_names
 
     def preprocess(

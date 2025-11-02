@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+
 import torch
 
 
@@ -10,7 +11,7 @@ class EvalEngine(ABC):
         raise NotImplementedError("Subclasses must implement generate_answers().")
 
     def ensure_test_model_ready(self) -> None:
-        pass
+        return None
 
     @abstractmethod
     def get_batch_size(self) -> int:

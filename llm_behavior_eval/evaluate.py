@@ -2,11 +2,11 @@ import gc
 import logging
 import os
 from pathlib import Path
+from typing import Annotated
 
 import torch
 import typer
 from transformers.trainer_utils import set_seed
-from typing_extensions import Annotated
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 

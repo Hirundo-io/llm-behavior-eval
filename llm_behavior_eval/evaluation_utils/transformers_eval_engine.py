@@ -1,21 +1,20 @@
 import logging
 from typing import TYPE_CHECKING, cast
 
-from accelerate.utils.memory import find_executable_batch_size
-from torch.utils.data import DataLoader
-from datasets import Dataset
 import torch
+from accelerate.utils.memory import find_executable_batch_size
+from datasets import Dataset
+from torch.utils.data import DataLoader
+from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
+from .eval_engine import EvalEngine
+from .max_batch_size import MAX_BATCH_SIZE
 from .util_functions import (
     load_transformers_model_and_tokenizer,
 )
-from .eval_engine import EvalEngine
-from .max_batch_size import MAX_BATCH_SIZE
-
 
 if TYPE_CHECKING:
-    from transformers.data.data_collator import DataCollator
     from transformers.generation.utils import GenerationMixin
 
 
@@ -95,7 +94,7 @@ class TransformersEvalEngine(EvalEngine):
                 starting_batch_size=starting_bs,
                 reduce_batch_size_fn=halve_reducer,
             )
-            batch_size = cast(int, wrapper())
+            batch_size = cast("int", wrapper())
             logging.info("Selected batch size: %s", batch_size)
         return batch_size
 

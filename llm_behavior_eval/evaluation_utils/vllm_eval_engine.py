@@ -1,16 +1,17 @@
 import contextlib
-import torch
 import logging
 
+import torch
+from datasets import Dataset
+
 from .eval_config import EvaluationConfig
+from .eval_engine import EvalEngine
 from .util_functions import (
     build_vllm_prompt_token_ids,
     load_tokenizer_with_transformers,
     load_vllm_model,
     pick_best_dtype,
 )
-from .eval_engine import EvalEngine
-from datasets import Dataset
 
 
 class VllmEvalEngine(EvalEngine):
@@ -92,8 +93,8 @@ class VllmEvalEngine(EvalEngine):
 
     def free_model(self) -> None:
         from vllm.distributed import (
-            destroy_model_parallel,
             destroy_distributed_environment,
+            destroy_model_parallel,
         )
 
         destroy_model_parallel()
