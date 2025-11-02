@@ -48,117 +48,116 @@ def empty_cuda_cache_if_available() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+class SafeApplyChatTemplate:
+    _CHAT_TEMPLATE_SUPPORTS_REASONING: dict[int, bool] = {}
 
-def safe_apply_chat_template(
-    tokenizer: PreTrainedTokenizerBase,
-    messages: list[dict[str, str]],
-    is_multimodal: bool = False,
-    reasoning: bool = False,
-) -> str:
-    """
-    Applies the chat template to the messages, ensuring that the system message is handled correctly.
-    This is particularly important for models like Gemma v1, where the system message needs to be merged with the user message.
-    Old Gemma models are deliberately strict about the roles they accept in a chat prompt.
-    The official Jinja chat‑template that ships with the tokenizer throws an exception as soon as the first message is tagged "system".
-    This function checks if the tokenizer is an old Gemma model and handles the system message accordingly.
+    def __call__(
+        self,
+        tokenizer: PreTrainedTokenizerBase,
+        messages: list[dict[str, str]],
+        is_multimodal: bool = False,
+        reasoning: bool = False,
+    ) -> str:
+        """
+        Applies the chat template to the messages, ensuring that the system message is handled correctly.
+        This is particularly important for models like Gemma v1, where the system message needs to be merged with the user message.
+        Old Gemma models are deliberately strict about the roles they accept in a chat prompt.
+        The official Jinja chat-template that ships with the tokenizer throws an exception as soon as the first message is tagged "system".
+        This function checks if the tokenizer is an old Gemma model and handles the system message accordingly.
 
-    Args:
-        tokenizer: The tokenizer to use for applying the chat template.
-        messages: The list of messages to format.
-        is_multimodal: Whether to format messages for a multimodal model.
-        reasoning: Whether to enable tokenizer chat-template reasoning (if supported).
+        Args:
+            tokenizer: The tokenizer to use for applying the chat template.
+            messages: The list of messages to format.
+            is_multimodal: Whether to format messages for a multimodal model.
+            reasoning: Whether to enable tokenizer chat-template reasoning (if supported).
 
-    Returns:
-        The formatted string after applying the chat template.
-    """
-    # Cache for checking whether a given tokenizer's apply_chat_template supports
-    # the `reasoning` kwarg. Keyed by id(tokenizer) to avoid holding strong refs.
-    # This avoids repeated try/except in hot paths.
-    _CHAT_TEMPLATE_SUPPORTS_REASONING: dict[int, bool] = getattr(
-        safe_apply_chat_template, "_CHAT_TEMPLATE_SUPPORTS_REASONING", {}
-    )
-    safe_apply_chat_template._CHAT_TEMPLATE_SUPPORTS_REASONING = (
-        _CHAT_TEMPLATE_SUPPORTS_REASONING
-    )
+        Returns:
+            The formatted string after applying the chat template.
+        """
 
-    def _supports_reasoning_kwarg(tokenizer: PreTrainedTokenizerBase) -> bool:
-        cache_key = id(tokenizer)
-        cached = _CHAT_TEMPLATE_SUPPORTS_REASONING.get(cache_key)
-        if cached is not None:
-            return cached
+        # Cache for checking whether a given tokenizer's apply_chat_template supports
+        # the `reasoning` kwarg. Keyed by id(tokenizer) to avoid holding strong refs.
+        # This avoids repeated try/except in hot paths.
+        def _supports_reasoning_kwarg(tokenizer: PreTrainedTokenizerBase) -> bool:
+            cache_key = id(tokenizer)
+            cached = self._CHAT_TEMPLATE_SUPPORTS_REASONING.get(cache_key)
+            if cached is not None:
+                return cached
 
-        apply_fn = getattr(tokenizer, "apply_chat_template", None)
-        supports = False
-        if apply_fn is not None:
-            try:
-                sig = signature(apply_fn)
-                has_kwargs = any(
-                    p.kind == Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            apply_fn = getattr(tokenizer, "apply_chat_template", None)
+            supports = False
+            if apply_fn is not None:
+                try:
+                    sig = signature(apply_fn)
+                    has_kwargs = any(
+                        p.kind == Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                    )
+                    supports = has_kwargs or ("reasoning" in sig.parameters)
+                except (TypeError, ValueError):
+                    # Some callables may not expose a Python signature; fall back to False
+                    supports = False
+
+            self._CHAT_TEMPLATE_SUPPORTS_REASONING[cache_key] = supports
+            return supports
+
+        is_gemma_v1 = (
+            tokenizer.name_or_path.startswith("google/gemma-")
+            and "System role not supported" in tokenizer.chat_template
+        )
+
+        if is_gemma_v1 and messages and messages[0]["role"] == "system":
+            # merge system into next user turn or retag
+            # Gemma v1 models do not support system messages in their chat templates.
+            # To handle this, we merge the system message into the next user message or retag it as a user message.
+            sys_msg = messages.pop(0)["content"]
+            if messages and messages[0]["role"] == "user":
+                messages[0]["content"] = f"{sys_msg}\n\n{messages[0]['content']}"
+            else:
+                messages.insert(0, {"role": "user", "content": sys_msg})
+
+        # Choose formatting based on whether the model is multimodal
+        def _apply_chat_template(
+            messages_like: list[dict[str, Any]] | list[dict[str, str]],
+        ):
+            """
+            Call tokenizer.apply_chat_template while remaining compatible with
+            tokenizers that don't support the `reasoning` kwarg.
+            """
+            if _supports_reasoning_kwarg(tokenizer):
+                return tokenizer.apply_chat_template(
+                    messages_like,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    reasoning=reasoning,
                 )
-                supports = has_kwargs or ("reasoning" in sig.parameters)
-            except (TypeError, ValueError):
-                # Some callables may not expose a Python signature; fall back to False
-                supports = False
-
-        _CHAT_TEMPLATE_SUPPORTS_REASONING[cache_key] = supports
-        return supports
-
-    is_gemma_v1 = (
-        tokenizer.name_or_path.startswith("google/gemma-")
-        and "System role not supported" in tokenizer.chat_template
-    )
-
-    if is_gemma_v1 and messages and messages[0]["role"] == "system":
-        # merge system into next user turn or retag
-        # Gemma v1 models do not support system messages in their chat templates.
-        # To handle this, we merge the system message into the next user message or retag it as a user message.
-        sys_msg = messages.pop(0)["content"]
-        if messages and messages[0]["role"] == "user":
-            messages[0]["content"] = f"{sys_msg}\n\n{messages[0]['content']}"
-        else:
-            messages.insert(0, {"role": "user", "content": sys_msg})
-
-    # Choose formatting based on whether the model is multimodal
-    def _apply_chat_template(
-        messages_like: list[dict[str, Any]] | list[dict[str, str]],
-    ):
-        """
-        Call tokenizer.apply_chat_template while remaining compatible with
-        tokenizers that don't support the `reasoning` kwarg.
-        """
-        if _supports_reasoning_kwarg(tokenizer):
             return tokenizer.apply_chat_template(
                 messages_like,
                 tokenize=False,
                 add_generation_prompt=True,
-                reasoning=reasoning,
             )
-        return tokenizer.apply_chat_template(
-            messages_like,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
 
-    if is_multimodal:
-        # Multimodal: list-of-parts with type "text"
-        multimodal_chat_messages: list[dict[str, Any]] = []
+        if is_multimodal:
+            # Multimodal: list-of-parts with type "text"
+            multimodal_chat_messages: list[dict[str, Any]] = []
+            for message in messages:
+                current_content = message["content"]
+                multimodal_chat_messages.append(
+                    {
+                        "role": message["role"],
+                        "content": [{"type": "text", "text": str(current_content)}],
+                    }
+                )
+            return str(_apply_chat_template(multimodal_chat_messages))
+
+        # Unimodal: plain string content
+        chat_messages_text: list[dict[str, str]] = []
         for message in messages:
-            current_content = message["content"]
-            multimodal_chat_messages.append(
-                {
-                    "role": message["role"],
-                    "content": [{"type": "text", "text": str(current_content)}],
-                }
+            chat_messages_text.append(
+                {"role": message["role"], "content": str(message["content"])}
             )
-        return str(_apply_chat_template(multimodal_chat_messages))
+        return str(_apply_chat_template(chat_messages_text))
 
-    # Unimodal: plain string content
-    chat_messages_text: list[dict[str, str]] = []
-    for message in messages:
-        chat_messages_text.append(
-            {"role": message["role"], "content": str(message["content"])}
-        )
-    return str(_apply_chat_template(chat_messages_text))
+safe_apply_chat_template = SafeApplyChatTemplate()
 
 
 def load_tokenizer_with_transformers(model_name: str) -> PreTrainedTokenizerBase:
