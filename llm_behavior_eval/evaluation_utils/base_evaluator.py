@@ -13,36 +13,31 @@ from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from transformers.data.data_collator import default_data_collator
-from transformers.generation.utils import GenerationMixin
-from transformers.modeling_utils import PreTrainedModel
 from transformers.pipelines import pipeline
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+
+from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
+    TransformersEvalEngine,
+)
+from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
 
 from .custom_dataset import CustomDataset
 from .dataset_config import DatasetConfig
 from .enums import DatasetType
 from .eval_config import EvaluationConfig, MlflowConfig
 from .util_functions import (
-    build_vllm_prompt_token_ids,
     empty_cuda_cache_if_available,
     load_tokenizer_with_transformers,
     load_transformers_model_and_tokenizer,
-    load_vllm_model,
-    pick_best_dtype,
-    VLLMModelProtocol,
 )
+from .max_batch_size import MAX_BATCH_SIZE
 
 
 class SamplingParamsProtocol(Protocol):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         ...
 
-# Optional vLLM / MLflow imports
-try:
-    from vllm import SamplingParams as VLLMSamplingParams
-except ImportError:
-    VLLMSamplingParams = None
-
+# Optional MLflow imports
 try:
     import mlflow
 except ImportError:
@@ -52,8 +47,6 @@ try:
     from mlflow.entities import RunStatus
 except ImportError:
     RunStatus = None
-
-MAX_BATCH_SIZE = 1024
 
 
 def custom_collator(batch):
@@ -84,34 +77,22 @@ class BaseEvaluator(ABC):
         self.models_tokenizers_pairs = {}
         self.use_vllm = eval_config.use_vllm
         self.trust_remote_code = eval_config.model_path_or_repo_id.startswith("nvidia/")
-        self.model: PreTrainedModel | VLLMModelProtocol
-        self.tokenizer: PreTrainedTokenizerBase
-        self._vllm_sampling_params: SamplingParamsProtocol | None = None
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
 
         if self.use_vllm:
-            self.tokenizer = load_tokenizer_with_transformers(
-                eval_config.model_path_or_repo_id
-            )
-            if not self.tokenizer.pad_token:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            dtype = pick_best_dtype(device)
-            quantization = "bitsandbytes" if eval_config.use_4bit else None
-            self.model = load_vllm_model(
-                eval_config.model_path_or_repo_id,
-                dtype,
+            self.eval_engine = VllmEvalEngine(
+                self.eval_dataset,
+                self.eval_config,
                 self.trust_remote_code,
-                eval_config.batch_size or 256,
-                enforce_eager=not torch.cuda.is_available(),
-                quantization=quantization,
             )
         else:
-            self.tokenizer, self.model = load_transformers_model_and_tokenizer(
-                eval_config.model_path_or_repo_id,
-                eval_config.use_4bit,
-                eval_config.device_map,
+            self.eval_engine = TransformersEvalEngine(
+                self.eval_dataset,
+                self.data_collator,
+                self.eval_config,
             )
+        self.tokenizer = self.eval_engine.tokenizer
+        self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
         self.tokenizer.padding_side = "left"
         self.data_collator = default_data_collator
         self.prepare_dataloader()
@@ -126,27 +107,6 @@ class BaseEvaluator(ABC):
         self.mlflow_run = None
         if self.mlflow_config:
             self._init_mlflow()
-
-    def _get_transformers_model(self) -> PreTrainedModel:
-        if self.use_vllm:
-            raise RuntimeError("Transformers model requested when vLLM backend is active.")
-        model = self.model
-        if not isinstance(model, PreTrainedModel):
-            raise TypeError("Transformers backend expected a PreTrainedModel instance.")
-        return model
-
-    def _get_vllm_model(self) -> VLLMModelProtocol:
-        if not self.use_vllm:
-            raise RuntimeError("vLLM model requested when transformers backend is active.")
-        model = self.model
-        if not isinstance(model, VLLMModelProtocol):
-            raise TypeError("vLLM backend expected an object implementing VLLMModelProtocol.")
-        return model
-
-    def _ensure_generation_model(self, model: PreTrainedModel) -> GenerationMixin:
-        if not isinstance(model, GenerationMixin):
-            raise TypeError("Transformers model must support generation APIs.")
-        return model
 
     def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
         tokenizer = self.judge_tokenizer
@@ -196,150 +156,19 @@ class BaseEvaluator(ABC):
         )
         self.eval_dataset = test_dataset.select(range(self.num_samples))
 
-        # If batch_size is None, auto-detect the largest batch size to fit on current hardware.
-        batch_size = self.eval_config.batch_size
-        if self.use_vllm:
-            if batch_size is None:
-                batch_size = max(1, min(len(self.eval_dataset), 8))
-                logging.info("Defaulting to batch size %s for vLLM backend", batch_size)
-        elif batch_size is None:
-            starting_bs = max(1, min(len(self.eval_dataset), MAX_BATCH_SIZE))
-            current_bs = starting_bs
-
-            def halve_reducer():
-                nonlocal current_bs
-                current_bs = max(1, current_bs // 2)
-                return current_bs
-
-            wrapper = find_executable_batch_size(
-                self._get_first_non_oom_batch_size,
-                starting_batch_size=starting_bs,
-                reduce_batch_size_fn=halve_reducer,
-            )
-            batch_size = cast(int, wrapper())
-            logging.info("Selected batch size: %s", batch_size)
         self.eval_loader = DataLoader(
             cast("Dataset", self.eval_dataset),
-            batch_size=batch_size,
+            batch_size=self.eval_engine.get_batch_size(),
             shuffle=False,
             collate_fn=self.data_collator,
         )
         # propagate flag
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
 
-    def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
-        if self.use_vllm:
-            raise RuntimeError(
-                "Batch size probing is not supported when using the vLLM backend."
-            )
-        logging.info(f"Trying batch size: {candidate_bs}")
-        dl = DataLoader(
-            cast("Dataset", self.eval_dataset),
-            batch_size=candidate_bs,
-            shuffle=False,
-            collate_fn=self.data_collator,
-        )
-        it = iter(dl)
-        batch = next(it)
-        model = self._get_transformers_model()
-        generation_model = self._ensure_generation_model(model)
-        input_ids = batch["test_input_ids"].to(model.device)
-        attention_mask = batch["test_attention_mask"].to(model.device)
-        with torch.inference_mode():
-            generation_model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-            )
-        return candidate_bs
-
-    def ensure_test_model_ready(self) -> None:
-        if not self.use_vllm:
-            self._get_transformers_model().eval()
-
     def generate_answers(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
     ) -> list[str]:
-        if self.use_vllm:
-            return self._generate_with_vllm(input_ids, attention_mask)
-        return self._generate_with_transformers(input_ids, attention_mask)
-
-    def _generate_with_transformers(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
-    ) -> list[str]:
-        model = self._get_transformers_model()
-        generation_model = self._ensure_generation_model(model)
-        device = model.device
-        model_input_ids = input_ids.to(device)
-        model_attention = attention_mask.to(device)
-        with torch.inference_mode():
-            outputs = generation_model.generate(
-                input_ids=model_input_ids,
-                attention_mask=model_attention,
-                max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-            )
-        generated_tokens = outputs[:, model_input_ids.shape[1] :].detach().cpu()
-        return self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
-
-    def _generate_with_vllm(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
-    ) -> list[str]:
-        prompt_token_ids = build_vllm_prompt_token_ids(input_ids, attention_mask)
-        sampling_params = self._get_vllm_sampling_params()
-        model = self._get_vllm_model()
-        outputs = model.generate(
-            prompt_token_ids=prompt_token_ids,
-            sampling_params=sampling_params,
-            use_tqdm=False,
-        )
-        responses: list[str] = []
-        for output in outputs:
-            candidates = getattr(output, "outputs", [])
-            if not candidates:
-                responses.append("")
-                continue
-            first_candidate = candidates[0]
-            responses.append(getattr(first_candidate, "text", ""))
-        return responses
-
-    def _get_vllm_sampling_params(self) -> SamplingParamsProtocol:
-        if self._vllm_sampling_params is None:
-            if VLLMSamplingParams is None:
-                raise ImportError(
-                    "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable --use-vllm."
-                )
-            temperature = 1.0 if self.eval_config.sample else 0.0
-            stop_token_ids = self._collect_stop_token_ids()
-            if stop_token_ids is not None:
-                self._vllm_sampling_params = VLLMSamplingParams(
-                    max_tokens=self.eval_config.answer_tokens,
-                    temperature=temperature,
-                    top_p=1.0,
-                    stop_token_ids=stop_token_ids,
-                )
-            else:
-                self._vllm_sampling_params = VLLMSamplingParams(
-                    max_tokens=self.eval_config.answer_tokens,
-                    temperature=temperature,
-                    top_p=1.0,
-                )
-        if self._vllm_sampling_params is None:
-            raise RuntimeError("Failed to initialize vLLM sampling parameters.")
-        return self._vllm_sampling_params
-
-    def _collect_stop_token_ids(self) -> list[int] | None:
-        eos_token_id = self.tokenizer.eos_token_id
-        if eos_token_id is None:
-            return None
-        if isinstance(eos_token_id, list):
-            return [int(token) for token in eos_token_id]
-        return [int(eos_token_id)]
+        return self.eval_engine.generate_answers(input_ids, attention_mask)
 
     @abstractmethod
     def evaluate(self) -> None:
@@ -638,12 +467,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             json.dump(items, f, indent=2)
 
     def free_test_model(self) -> None:
-        if self.use_vllm:
-            vllm_model = self._get_vllm_model()
-            del vllm_model.llm_engine
-        else:
-            self._get_transformers_model().cpu()
-        del self.model
+        self.eval_engine.free_model()
+        del self.eval_engine
         empty_cuda_cache_if_available()
         gc.collect()
 
