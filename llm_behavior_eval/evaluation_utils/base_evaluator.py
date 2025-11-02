@@ -37,8 +37,8 @@ if TYPE_CHECKING:
 
 
 class SamplingParamsProtocol(Protocol):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        ...
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+
 
 # Optional MLflow imports
 try:
@@ -519,7 +519,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             tokenizer = self.judge_tokenizer
             if tokenizer is None:
                 raise RuntimeError("Judge tokenizer failed to load.")
-            if not isinstance(tokenizer, (PreTrainedTokenizer, PreTrainedTokenizerFast)):
+            if not isinstance(
+                tokenizer, (PreTrainedTokenizer, PreTrainedTokenizerFast)
+            ):
                 raise TypeError(
                     "Judge tokenizer must be a PreTrainedTokenizer or PreTrainedTokenizerFast."
                 )

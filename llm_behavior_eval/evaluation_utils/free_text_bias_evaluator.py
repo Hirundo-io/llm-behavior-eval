@@ -218,9 +218,7 @@ candidate_uncertain: "<yes|no>"
                     """,
                 },
             ]
-            gt_prompts.append(
-                safe_apply_chat_template(judge_tokenizer, gt_messages)
-            )
+            gt_prompts.append(safe_apply_chat_template(judge_tokenizer, gt_messages))
             if stereotyped_answers is not None:
                 stereotyped_messages = [
                     {"role": "system", "content": self.AGREEMENT_CHECK_SYSTEM_PROMPT},

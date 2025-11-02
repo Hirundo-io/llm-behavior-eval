@@ -49,4 +49,3 @@ def main():
 if __name__ == "__main__":
     print("Run `mlflow ui` in another terminal to view results after this finishes.")
     main()
-

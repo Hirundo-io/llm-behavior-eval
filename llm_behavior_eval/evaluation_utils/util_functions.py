@@ -39,8 +39,7 @@ class VLLMModelProtocol(Protocol):
 
     llm_engine: LLMEngine
 
-    def generate(self, *args: Any, **kwargs: Any) -> Sequence[Any]:
-        ...
+    def generate(self, *args: Any, **kwargs: Any) -> Sequence[Any]: ...
 
 
 def empty_cuda_cache_if_available() -> None:
