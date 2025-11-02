@@ -60,6 +60,7 @@ dev = [
   "bumpver>=2024.1130",
   "basedpyright>=1.31.6",
   "pytest>=8.3.5",
+  "pre-commit>=4.3.0",
 ]
 docs = [
   "sphinx>=8.0.0",
