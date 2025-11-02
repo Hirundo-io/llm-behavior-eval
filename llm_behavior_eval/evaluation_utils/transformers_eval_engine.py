@@ -27,6 +27,7 @@ class TransformersEvalEngine(EvalEngine):
     ) -> None:
         self.tokenizer, self.model = load_transformers_model_and_tokenizer(
             eval_config.model_path_or_repo_id,
+            eval_config.model_token,
             eval_config.use_4bit,
             eval_config.device_map,
         )

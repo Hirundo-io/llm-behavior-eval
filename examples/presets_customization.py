@@ -17,7 +17,9 @@ from llm_behavior_eval import (
 def main() -> None:
     # Customize here
     model = "meta-llama/Llama-3.1-8B-Instruct"
+    model_token = None  # Don't forget to set this to your HuggingFace token after accepting the terms of service for the gated model
     judge_model = "google/gemma-3-12b-it"
+    judge_token = None  # Don't forget to set this to your HuggingFace token after accepting the terms of service for the gated model
     result_dir = Path(__file__).resolve().parents[1] / "results"
     # Choose a specific dataset from hirundo-io datasets collections
     dataset_id = "hirundo-io/bbq-gender-bias-free-text"
@@ -42,9 +44,11 @@ def main() -> None:
         sample=False,
         answer_tokens=128,
         model_path_or_repo_id=model,
+        model_token=model_token,
         judge_batch_size=64,
         judge_output_tokens=32,
         judge_path_or_repo_id=judge_model,
+        judge_token=judge_token,
         use_4bit_judge=False,
         results_dir=result_dir,
     )

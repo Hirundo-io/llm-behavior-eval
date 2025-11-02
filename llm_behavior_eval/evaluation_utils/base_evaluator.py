@@ -483,7 +483,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         """
         if getattr(self, "judge_tokenizer", None) is None:
             self.judge_tokenizer = load_tokenizer_with_transformers(
-                self.eval_config.judge_path_or_repo_id
+                self.eval_config.judge_path_or_repo_id,
+                token=self.eval_config.judge_token,
             )
             # left padding is useful when batch-generating variable-length prompts
             self.judge_tokenizer.padding_side = "left"
@@ -514,20 +515,20 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         if getattr(self, "judge_pipeline", None) is None:
             self.judge_tokenizer, judge_model = load_transformers_model_and_tokenizer(
                 self.eval_config.judge_path_or_repo_id,
+                token=self.eval_config.judge_token,
                 use_4bit=self.eval_config.use_4bit_judge,
             )
             tokenizer = self.judge_tokenizer
             if tokenizer is None:
                 raise RuntimeError("Judge tokenizer failed to load.")
-            if not isinstance(
-                tokenizer, (PreTrainedTokenizer, PreTrainedTokenizerFast)
-            ):
+            if not isinstance(tokenizer, PreTrainedTokenizer | PreTrainedTokenizerFast):
                 raise TypeError(
                     "Judge tokenizer must be a PreTrainedTokenizer or PreTrainedTokenizerFast."
                 )
             self.judge_pipeline = pipeline(
                 "text-generation",
                 model=judge_model,
+                token=self.eval_config.judge_token,
                 tokenizer=tokenizer,
                 max_new_tokens=self.eval_config.judge_output_tokens,
                 return_full_text=False,

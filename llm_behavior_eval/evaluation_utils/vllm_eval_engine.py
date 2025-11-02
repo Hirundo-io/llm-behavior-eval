@@ -24,7 +24,8 @@ class VllmEvalEngine(EvalEngine):
         self.eval_dataset = eval_dataset
         self.eval_config = eval_config
         self.tokenizer = load_tokenizer_with_transformers(
-            eval_config.model_path_or_repo_id
+            eval_config.model_path_or_repo_id,
+            eval_config.model_token,
         )
         if not self.tokenizer.pad_token:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -36,6 +37,7 @@ class VllmEvalEngine(EvalEngine):
             dtype,
             trust_remote_code,
             eval_config.batch_size or 256,
+            eval_config.model_token,
             enforce_eager=not torch.cuda.is_available(),
             quantization=quantization,
         )

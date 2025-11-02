@@ -162,14 +162,24 @@ class SafeApplyChatTemplate:
 safe_apply_chat_template = SafeApplyChatTemplate()
 
 
-def load_tokenizer_with_transformers(model_name: str) -> PreTrainedTokenizerBase:
+def load_tokenizer_with_transformers(
+    model_name: str,
+    token: str | None = None,
+) -> PreTrainedTokenizerBase:
     """
     Load a tokenizer by first trying the standard method and, if a ValueError
     is encountered, retry loading from a local path.
+
+    Args:
+        model_name: The repo-id or local path of the model to load.
+        token: The HuggingFace token to use for the model.
     """
     try:
         # Attempt to load the tokenizer normally
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            token=token,
+        )
         logging.info("Tokenizer loaded successfully from the remote repository.")
     except ValueError as error:
         # Print or log the error details if desired
@@ -178,7 +188,11 @@ def load_tokenizer_with_transformers(model_name: str) -> PreTrainedTokenizerBase
             error,
         )
         # Retry loading with local_files_only flag
-        tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            local_files_only=True,
+            token=token,
+        )
         logging.info("Tokenizer loaded successfully from the local files.")
 
     return tokenizer
@@ -249,6 +263,7 @@ def load_vllm_model(
     dtype: torch.dtype,
     trust_remote_code: bool,
     batch_size: int,
+    token: str | None = None,
     tensor_parallel_size: int | None = None,
     enforce_eager: bool = False,
     quantization: VLLMQuantization | None = None,
@@ -260,6 +275,7 @@ def load_vllm_model(
         dtype: Torch dtype to request from vLLM.
         trust_remote_code: Whether to allow remote code execution when loading the model.
         batch_size: The batch size to use for the model.
+        token: The HuggingFace token to use for the model.
         tensor_parallel_size: Optional tensor parallelism degree passed to vLLM.
         enforce_eager: Whether to enforce eager execution (useful for CPU-only setups).
         quantization: Optional quantization backend (for example ``"bitsandbytes"`` for 4-bit inference).
@@ -289,6 +305,7 @@ def load_vllm_model(
             enforce_eager=enforce_eager,
             quantization=quantization,
             max_num_seqs=batch_size,
+            hf_token=token,
         )
     else:
         llm_instance = LLM(
@@ -299,6 +316,7 @@ def load_vllm_model(
             quantization=quantization,
             tensor_parallel_size=tensor_parallel_size,
             max_num_seqs=batch_size,
+            hf_token=token,
         )
     return llm_instance
 
@@ -323,6 +341,7 @@ def build_vllm_prompt_token_ids(
 
 def load_transformers_model_and_tokenizer(
     model_name: str,
+    token: str | None = None,
     use_4bit: bool = False,
     device_map: str | dict[str, int] | None = "auto",
 ) -> tuple[PreTrainedTokenizerBase, PreTrainedModel]:
@@ -335,6 +354,7 @@ def load_transformers_model_and_tokenizer(
 
     Args:
         model_name: The repo-id or local path of the model to load.
+        token: The HuggingFace token to use for the model.
         use_4bit: If True, load the model in 4-bit mode using bitsandbytes.
         device_map: The device map to use for the model.
 
@@ -347,7 +367,7 @@ def load_transformers_model_and_tokenizer(
     logging.info("Using dtype: %s", dtype)
 
     # Load tokenizer
-    tokenizer = load_tokenizer_with_transformers(model_name)
+    tokenizer = load_tokenizer_with_transformers(model_name, token=token)
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
         raise ValueError("Tokenizer is not supported!")
 

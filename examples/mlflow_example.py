@@ -37,6 +37,7 @@ def main():
 
     eval_config = EvaluationConfig(
         model_path_or_repo_id="meta-llama/Llama-3.1-8B-Instruct",
+        model_token=None,  # Don't forget to set this to your HuggingFace token after accepting the terms of service for the gated model
         results_dir=Path("./results"),
         max_samples=50,
         mlflow_config=mlflow_config,
