@@ -82,6 +82,8 @@ class BaseEvaluator(ABC):
         self.trust_remote_code = eval_config.model_path_or_repo_id.startswith("nvidia/")
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
 
+        self.data_collator = default_data_collator
+        self.prepare_dataloader()
         if self.use_vllm:
             self.eval_engine = VllmEvalEngine(
                 self.eval_dataset,
@@ -97,8 +99,6 @@ class BaseEvaluator(ABC):
         self.tokenizer = self.eval_engine.tokenizer
         self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
         self.tokenizer.padding_side = "left"
-        self.data_collator = default_data_collator
-        self.prepare_dataloader()
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
         # MLflow config (optional)
