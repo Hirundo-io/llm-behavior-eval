@@ -122,7 +122,7 @@ class TokenizerLoaderStub:
     def __init__(self, tokenizer) -> None:
         self.tokenizer = tokenizer
 
-    def __call__(self, _model_id):
+    def __call__(self, _model_id, _token: str | None = None):
         return self.tokenizer
 
 
