@@ -344,6 +344,7 @@ def load_transformers_model_and_tokenizer(
     token: str | None = None,
     use_4bit: bool = False,
     device_map: str | dict[str, int] | None = "auto",
+    trust_remote_code: bool = False,
 ) -> tuple[PreTrainedTokenizerBase, PreTrainedModel]:
     """
     Load a tokenizer and a causal language model based on the model name/path,
@@ -357,6 +358,7 @@ def load_transformers_model_and_tokenizer(
         token: The HuggingFace token to use for the model.
         use_4bit: If True, load the model in 4-bit mode using bitsandbytes.
         device_map: The device map to use for the model.
+        trust_remote_code: Whether to trust remote code.
 
     Returns:
         A tuple containing the loaded tokenizer and model.
@@ -376,8 +378,6 @@ def load_transformers_model_and_tokenizer(
         tokenizer.pad_token = tokenizer.eos_token
 
     quantization_config = None
-    model_by_nvidia = model_name.startswith("nvidia/")
-    trust_remote_code = True if model_by_nvidia else False
 
     if use_4bit:
         # Prepare the quantization configuration for 4-bit loading.

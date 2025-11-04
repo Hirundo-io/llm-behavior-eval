@@ -54,6 +54,10 @@ class EvaluationConfig(BaseModel):
             self.judge_token = self.model_token
         return self
 
+    @property
+    def trust_remote_code(self) -> bool:
+        return self.model_path_or_repo_id.startswith("nvidia/")
+
 
 class MlflowConfig(BaseModel):
     """

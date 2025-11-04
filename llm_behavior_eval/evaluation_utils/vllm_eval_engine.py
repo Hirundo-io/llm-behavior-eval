@@ -31,11 +31,10 @@ class VllmEvalEngine(EvalEngine):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = pick_best_dtype(device)
         quantization = "bitsandbytes" if eval_config.use_4bit else None
-        trust_remote_code = eval_config.model_path_or_repo_id.startswith("nvidia/")
         self.model = load_vllm_model(
             eval_config.model_path_or_repo_id,
             dtype,
-            trust_remote_code,
+            eval_config.trust_remote_code,
             eval_config.batch_size or 256,
             eval_config.model_token,
             enforce_eager=not torch.cuda.is_available(),

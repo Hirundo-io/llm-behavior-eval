@@ -83,6 +83,7 @@ class BaseEvaluator(ABC):
 
         self.data_collator = default_data_collator
         self.prepare_dataloader()
+        self.trust_remote_code = self.eval_config.trust_remote_code
         if self.use_vllm:
             self.eval_engine = VllmEvalEngine(
                 self.eval_dataset,
@@ -515,6 +516,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 self.eval_config.judge_path_or_repo_id,
                 token=self.eval_config.judge_token,
                 use_4bit=self.eval_config.use_4bit_judge,
+                trust_remote_code=self.trust_remote_code,
             )
             tokenizer = self.judge_tokenizer
             if tokenizer is None:

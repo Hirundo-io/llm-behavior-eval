@@ -30,6 +30,7 @@ class TransformersEvalEngine(EvalEngine):
             eval_config.model_token,
             eval_config.use_4bit,
             eval_config.device_map,
+            eval_config.trust_remote_code,
         )
         self.eval_dataset = eval_dataset
         self.data_collator = data_collator
