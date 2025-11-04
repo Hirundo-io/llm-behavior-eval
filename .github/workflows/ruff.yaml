@@ -29,4 +29,6 @@ jobs:
         with:
           python-version-file: "pyproject.toml"
 
-      - uses: chartboost/ruff-action@v1
+      - uses: astral-sh/ruff-action@v3
+      - run: ruff check
+      - run: ruff format --check --diff

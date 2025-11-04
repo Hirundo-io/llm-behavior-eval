@@ -2,11 +2,11 @@ import gc
 import logging
 import os
 from pathlib import Path
+from typing import Annotated
 
 import torch
 import typer
 from transformers.trainer_utils import set_seed
-from typing_extensions import Annotated
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
@@ -16,6 +16,9 @@ from llm_behavior_eval import (
     EvaluateFactory,
     EvaluationConfig,
     PreprocessConfig,
+)
+from llm_behavior_eval.evaluation_utils.util_functions import (
+    empty_cuda_cache_if_available,
 )
 
 torch.set_float32_matmul_precision("high")
@@ -103,6 +106,22 @@ def main(
             help="Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'"
         ),
     ],
+    model_token: Annotated[
+        str | None,
+        typer.Option(
+            "--model-token", help="HuggingFace token for the model (optional)"
+        ),
+    ] = None,
+    judge_token: Annotated[
+        str | None,
+        typer.Option(
+            "--judge-token", help="HuggingFace token for the judge model (optional)"
+        ),
+    ] = None,
+    judge_model: Annotated[
+        str,
+        typer.Option("--judge-model", help="Judge repo id or path (optional)"),
+    ] = "google/gemma-3-12b-it",
     use_mlflow: Annotated[
         bool,
         typer.Option(
@@ -126,6 +145,13 @@ def main(
             help="MLflow run name (optional, auto-generates if not specified)",
         ),
     ] = None,
+    use_vllm: Annotated[
+        bool,
+        typer.Option(
+            "--use-vllm/--no-use-vllm",
+            help="Use vLLM for model inference instead of transformers",
+        ),
+    ] = False,
     reasoning: Annotated[
         bool,
         typer.Option(
@@ -135,6 +161,7 @@ def main(
     ] = False,
 ) -> None:
     model_path_or_repo_id = model
+    judge_path_or_repo_id = judge_model
     result_dir = Path(__file__).parent / "results"
     file_paths = _behavior_presets(behavior)
 
@@ -173,9 +200,13 @@ def main(
 
         eval_config = EvaluationConfig(
             model_path_or_repo_id=model_path_or_repo_id,
+            model_token=model_token,
+            judge_path_or_repo_id=judge_path_or_repo_id,
+            judge_token=judge_token,
             results_dir=result_dir,
             mlflow_config=mlflow_config,
             reasoning=reasoning,
+            use_vllm=use_vllm,
         )
         set_seed(dataset_config.seed)
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
@@ -185,7 +216,7 @@ def main(
         finally:
             del evaluator
             gc.collect()
-            torch.cuda.empty_cache()
+            empty_cuda_cache_if_available()
 
 
 app = typer.Typer()

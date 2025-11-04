@@ -1,35 +1,55 @@
+from __future__ import annotations
+
 import gc
 import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import pandas as pd
 import torch
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
-from transformers import PreTrainedTokenizer
+from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from transformers.data.data_collator import default_data_collator
-from transformers.generation.utils import GenerationMixin
 from transformers.pipelines import pipeline
 
+from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
+    TransformersEvalEngine,
+)
+from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
+
 from .custom_dataset import CustomDataset
-from .dataset_config import DatasetConfig
 from .enums import DatasetType
-from .eval_config import EvaluationConfig, MlflowConfig
+from .max_batch_size import MAX_BATCH_SIZE
 from .util_functions import (
-    load_model_and_tokenizer,
-    load_tokenizer,
+    empty_cuda_cache_if_available,
+    load_tokenizer_with_transformers,
+    load_transformers_model_and_tokenizer,
 )
 
-# Optional MLflow import
+if TYPE_CHECKING:
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+
+    from .dataset_config import DatasetConfig
+    from .eval_config import EvaluationConfig, MlflowConfig
+
+
+class SamplingParamsProtocol(Protocol):
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+
+
+# Optional MLflow imports
 try:
     import mlflow
 except ImportError:
     mlflow = None
 
-MAX_BATCH_SIZE = 1024
+try:
+    from mlflow.entities import RunStatus
+except ImportError:
+    RunStatus = None
 
 
 def custom_collator(batch):
@@ -58,15 +78,26 @@ class BaseEvaluator(ABC):
         self.eval_config = eval_config
         self.dataset_config = dataset_config
         self.models_tokenizers_pairs = {}
-        self.tokenizer, self.model = load_model_and_tokenizer(
-            eval_config.model_path_or_repo_id,
-            eval_config.use_4bit,
-            eval_config.device_map,
-        )
-        self.trust_remote_code = eval_config.model_path_or_repo_id.startswith("nvidia/")
-        self.tokenizer.padding_side = "left"
+        self.use_vllm = eval_config.use_vllm
+        self.judge_tokenizer: PreTrainedTokenizerBase | None = None
+
         self.data_collator = default_data_collator
         self.prepare_dataloader()
+        self.trust_remote_code = self.eval_config.trust_remote_code
+        if self.use_vllm:
+            self.eval_engine = VllmEvalEngine(
+                self.eval_dataset,
+                self.eval_config,
+            )
+        else:
+            self.eval_engine = TransformersEvalEngine(
+                self.eval_dataset,
+                self.data_collator,
+                self.eval_config,
+            )
+        self.tokenizer = self.eval_engine.tokenizer
+        self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
+        self.tokenizer.padding_side = "left"
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
         # MLflow config (optional)
@@ -78,6 +109,12 @@ class BaseEvaluator(ABC):
         self.mlflow_run = None
         if self.mlflow_config:
             self._init_mlflow()
+
+    def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
+        tokenizer = self.judge_tokenizer
+        if tokenizer is None:
+            raise RuntimeError("Judge tokenizer is not initialized.")
+        return tokenizer
 
     def get_output_dir(self) -> Path:
         """
@@ -121,55 +158,19 @@ class BaseEvaluator(ABC):
         )
         self.eval_dataset = test_dataset.select(range(self.num_samples))
 
-        # If batch_size is None, auto-detect the largest batch size to fit on current hardware.
-        batch_size = self.eval_config.batch_size
-        if batch_size is None:
-            starting_bs = max(1, min(len(self.eval_dataset), MAX_BATCH_SIZE))
-            current_bs = starting_bs
-
-            def halve_reducer():
-                nonlocal current_bs
-                current_bs = max(1, current_bs // 2)
-                return current_bs
-
-            wrapper = find_executable_batch_size(
-                self._get_first_non_oom_batch_size,
-                starting_batch_size=starting_bs,
-                reduce_batch_size_fn=halve_reducer,
-            )
-            batch_size = cast(int, wrapper())
-            logging.info("Selected batch size: %s", batch_size)
         self.eval_loader = DataLoader(
             cast("Dataset", self.eval_dataset),
-            batch_size=batch_size,
+            batch_size=self.eval_engine.get_batch_size(),
             shuffle=False,
             collate_fn=self.data_collator,
         )
         # propagate flag
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
 
-    def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
-        logging.info(f"Trying batch size: {candidate_bs}")
-        dl = DataLoader(
-            cast("Dataset", self.eval_dataset),
-            batch_size=candidate_bs,
-            shuffle=False,
-            collate_fn=self.data_collator,
-        )
-        it = iter(dl)
-        batch = next(it)
-        input_ids = batch["test_input_ids"].to(self.model.device)
-        attention_mask = batch["test_attention_mask"].to(self.model.device)
-        with torch.inference_mode():
-            cast("GenerationMixin", self.model).generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-            )
-        return candidate_bs
+    def generate_answers(
+        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+    ) -> list[str]:
+        return self.eval_engine.generate_answers(input_ids, attention_mask)
 
     @abstractmethod
     def evaluate(self) -> None:
@@ -339,13 +340,15 @@ class BaseEvaluator(ABC):
 
     def cleanup(self, error: Exception | None = None) -> None:
         if mlflow and self.mlflow_run:
-            from mlflow.entities import RunStatus
-
-            mlflow.end_run(
-                status=RunStatus.to_string(RunStatus.FAILED)
-                if error
-                else RunStatus.to_string(RunStatus.FINISHED)
-            )
+            if RunStatus is not None:
+                status = (
+                    RunStatus.to_string(RunStatus.FAILED)
+                    if error
+                    else RunStatus.to_string(RunStatus.FINISHED)
+                )
+            else:
+                status = "FAILED" if error else "FINISHED"
+            mlflow.end_run(status=status)
             logging.info("Ended MLflow run")
         if error:
             raise error
@@ -454,7 +457,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     def load_generations(self, filename: str = "generations.json") -> list[dict] | None:
         path = self.generations_path(filename)
         if path.exists():
-            with open(path, "r") as f:
+            with open(path) as f:
                 return json.load(f)
         return None
 
@@ -466,9 +469,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             json.dump(items, f, indent=2)
 
     def free_test_model(self) -> None:
-        self.model.cpu()
-        del self.model
-        torch.cuda.empty_cache()
+        self.eval_engine.free_model()
+        del self.eval_engine
+        empty_cuda_cache_if_available()
         gc.collect()
 
     def prepare_judge_tokenizer(self) -> None:
@@ -478,8 +481,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         constructing representative prompts used for batch-size probing.
         """
         if getattr(self, "judge_tokenizer", None) is None:
-            self.judge_tokenizer = load_tokenizer(
-                self.eval_config.judge_path_or_repo_id
+            self.judge_tokenizer = load_tokenizer_with_transformers(
+                self.eval_config.judge_path_or_repo_id,
+                token=self.eval_config.judge_token,
             )
             # left padding is useful when batch-generating variable-length prompts
             self.judge_tokenizer.padding_side = "left"
@@ -489,7 +493,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
     def free_judge(self) -> None:
         del self.judge_pipeline
-        torch.cuda.empty_cache()
+        empty_cuda_cache_if_available()
         gc.collect()
 
     @torch.no_grad()
@@ -508,14 +512,23 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         # Reuse existing judge pipeline if already initialized. This prevents
         # reloading the judge model/tokenizer on subsequent calls (which can OOM).
         if getattr(self, "judge_pipeline", None) is None:
-            self.judge_tokenizer, judge_model = load_model_and_tokenizer(
+            self.judge_tokenizer, judge_model = load_transformers_model_and_tokenizer(
                 self.eval_config.judge_path_or_repo_id,
+                token=self.eval_config.judge_token,
                 use_4bit=self.eval_config.use_4bit_judge,
+                trust_remote_code=self.trust_remote_code,
             )
-            tokenizer = cast(PreTrainedTokenizer, self.judge_tokenizer)
+            tokenizer = self.judge_tokenizer
+            if tokenizer is None:
+                raise RuntimeError("Judge tokenizer failed to load.")
+            if not isinstance(tokenizer, PreTrainedTokenizer | PreTrainedTokenizerFast):
+                raise TypeError(
+                    "Judge tokenizer must be a PreTrainedTokenizer or PreTrainedTokenizerFast."
+                )
             self.judge_pipeline = pipeline(
                 "text-generation",
                 model=judge_model,
+                token=self.eval_config.judge_token,
                 tokenizer=tokenizer,
                 max_new_tokens=self.eval_config.judge_output_tokens,
                 return_full_text=False,
@@ -565,7 +578,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             except Exception:
                 # Drop partial results and free memory before retrying with a smaller batch
                 outputs = []
-                torch.cuda.empty_cache()
+                empty_cuda_cache_if_available()
                 raise
 
         # Probe for an executable batch size; the successful call leaves `outputs` filled
