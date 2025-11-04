@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 class TransformersEvalEngine(EvalEngine):
     def __init__(
         self,
-        eval_dataset: Dataset,
         data_collator: DataCollator,
         eval_config: EvaluationConfig,
     ) -> None:
@@ -32,9 +31,11 @@ class TransformersEvalEngine(EvalEngine):
             eval_config.device_map,
             eval_config.trust_remote_code,
         )
-        self.eval_dataset = eval_dataset
         self.data_collator = data_collator
         self.eval_config = eval_config
+
+    def set_dataset(self, eval_dataset: Dataset) -> None:
+        self.eval_dataset = eval_dataset
 
     def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
         logging.info(f"Trying batch size: {candidate_bs}")

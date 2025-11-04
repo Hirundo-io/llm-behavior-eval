@@ -84,17 +84,16 @@ class BaseEvaluator(ABC):
         self.data_collator = default_data_collator
         if self.use_vllm:
             self.eval_engine = VllmEvalEngine(
-                self.eval_dataset,
                 self.eval_config,
             )
         else:
             self.eval_engine = TransformersEvalEngine(
-                self.eval_dataset,
                 self.data_collator,
                 self.eval_config,
             )
         self.tokenizer = self.eval_engine.tokenizer
         self.prepare_dataloader()
+        self.eval_engine.set_dataset(self.eval_dataset)
         self.trust_remote_code = self.eval_config.trust_remote_code
         self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
         self.tokenizer.padding_side = "left"
