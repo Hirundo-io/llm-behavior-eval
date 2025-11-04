@@ -12,19 +12,17 @@ from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sized
     from pathlib import Path
 
 
 @dataclass
 class CaptureState:
     data_collator: Callable[..., object] | None = None
-    engine_dataset: object | None = None
+    engine_dataset: Sized | None = None
     shuffle_seed: int | None = None
     select_indices: list[int] | None = None
-    dataloader_args: tuple[object, int, bool, Callable[..., object] | None] | None = (
-        None
-    )
+    dataloader_args: tuple[Sized, int, bool, Callable[..., object] | None] | None = None
     tokenizer: object | None = None
     trust_remote_code: bool | None = None
     reasoning: bool | None = None
@@ -51,13 +49,6 @@ def stub_tokenizer() -> StubTokenizer:
 
 
 @pytest.fixture(autouse=True)
-def patch_trust_remote_code(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        base_evaluator_module.BaseEvaluator, "trust_remote_code", False, raising=False
-    )
-
-
-@pytest.fixture(autouse=True)
 def patch_eval_engine(
     monkeypatch: pytest.MonkeyPatch,
     stub_tokenizer: StubTokenizer,
@@ -72,12 +63,16 @@ def patch_eval_engine(
             **_kwargs: object,
         ) -> None:
             self.tokenizer = stub_tokenizer
-            self._batch_size = eval_config.batch_size or 1
-            self.dataset = None
+            self._explicit_batch_size = eval_config.batch_size
+            self.dataset: Sized | None = None
             capture_state.data_collator = data_collator
 
         def get_batch_size(self) -> int:
-            return self._batch_size
+            if self._explicit_batch_size is not None:
+                return self._explicit_batch_size
+            if self.dataset is None:
+                raise RuntimeError("Dataset must be set before computing batch size")
+            return len(self.dataset)
 
         def ensure_test_model_ready(self) -> None:
             return None
@@ -85,7 +80,7 @@ def patch_eval_engine(
         def free_model(self) -> None:
             return None
 
-        def set_dataset(self, dataset: object) -> None:
+        def set_dataset(self, dataset: Sized) -> None:
             capture_state.engine_dataset = dataset
             self.dataset = dataset
 
@@ -139,7 +134,7 @@ def patch_dataloader(
     capture_state: CaptureState,
 ) -> None:
     def fake_dataloader(
-        dataset: object,
+        dataset: Sized,
         batch_size: int,
         shuffle: bool,
         collate_fn: Callable[..., object] | None,
@@ -163,7 +158,7 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
     evaluation_config = EvaluationConfig(
         model_path_or_repo_id="meta/model",
         results_dir=tmp_path,
-        batch_size=2,
+        batch_size=None,
         max_samples=10,
     )
     dataset_config_instance = DatasetConfig(
@@ -175,9 +170,10 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
 
     assert capture_state.tokenizer is stub_tokenizer
     assert evaluator.tokenizer is stub_tokenizer
+    assert capture_state.trust_remote_code == evaluation_config.trust_remote_code
     assert capture_state.dataloader_args is not None
     _, batch_size, _, _ = capture_state.dataloader_args
-    assert batch_size == 2
+    assert batch_size == 3
     assert evaluator.eval_loader == "loader"
     assert evaluator.num_samples == 3
     assert capture_state.engine_dataset == evaluator.eval_dataset
