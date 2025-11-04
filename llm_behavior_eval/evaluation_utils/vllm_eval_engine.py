@@ -19,7 +19,6 @@ class VllmEvalEngine(EvalEngine):
         self,
         eval_dataset: Dataset,
         eval_config: EvaluationConfig,
-        trust_remote_code: bool,
     ) -> None:
         self.eval_dataset = eval_dataset
         self.eval_config = eval_config
@@ -32,6 +31,7 @@ class VllmEvalEngine(EvalEngine):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = pick_best_dtype(device)
         quantization = "bitsandbytes" if eval_config.use_4bit else None
+        trust_remote_code = eval_config.model_path_or_repo_id.startswith("nvidia/")
         self.model = load_vllm_model(
             eval_config.model_path_or_repo_id,
             dtype,

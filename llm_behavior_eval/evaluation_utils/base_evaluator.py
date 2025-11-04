@@ -79,7 +79,6 @@ class BaseEvaluator(ABC):
         self.dataset_config = dataset_config
         self.models_tokenizers_pairs = {}
         self.use_vllm = eval_config.use_vllm
-        self.trust_remote_code = eval_config.model_path_or_repo_id.startswith("nvidia/")
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
 
         self.data_collator = default_data_collator
@@ -88,7 +87,6 @@ class BaseEvaluator(ABC):
             self.eval_engine = VllmEvalEngine(
                 self.eval_dataset,
                 self.eval_config,
-                self.trust_remote_code,
             )
         else:
             self.eval_engine = TransformersEvalEngine(
