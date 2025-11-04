@@ -85,7 +85,6 @@ class VllmEvalEngine(EvalEngine):
         return [int(eos_token_id)]
 
     def get_batch_size(self) -> int:
-        # If batch_size is None, auto-detect the largest batch size to fit on current hardware.
         batch_size = self.eval_config.batch_size
         if batch_size is None:
             batch_size = max(1, min(len(self.eval_dataset), 8))
