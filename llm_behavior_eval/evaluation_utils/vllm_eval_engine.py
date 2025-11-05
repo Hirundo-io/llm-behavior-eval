@@ -1,11 +1,11 @@
+from __future__ import annotations
+
 import contextlib
 import logging
 from typing import TYPE_CHECKING
 
 import torch
-from datasets import Dataset
 
-from .eval_config import EvaluationConfig
 from .eval_engine import EvalEngine
 from .util_functions import (
     build_vllm_prompt_token_ids,
@@ -15,7 +15,10 @@ from .util_functions import (
 )
 
 if TYPE_CHECKING:
+    from datasets import Dataset
     from vllm.inputs.data import PromptType
+
+    from .eval_config import EvaluationConfig
 
 
 class VllmEvalEngine(EvalEngine):
