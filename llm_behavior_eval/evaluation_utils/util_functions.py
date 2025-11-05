@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from inspect import Parameter, signature
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal
 
 import torch
 from transformers.models.auto.configuration_auto import AutoConfig
@@ -27,19 +27,8 @@ VLLMQuantization = Literal[
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from transformers.modeling_utils import PreTrainedModel
-    from vllm.engine.llm_engine import LLMEngine
-
-
-@runtime_checkable
-class VLLMModelProtocol(Protocol):
-    """Structural typing interface for the subset of vLLM APIs we exercise."""
-
-    llm_engine: LLMEngine
-
-    def generate(self, *args: Any, **kwargs: Any) -> Sequence[Any]: ...
+    from vllm import LLM
 
 
 def empty_cuda_cache_if_available() -> None:
@@ -267,7 +256,7 @@ def load_vllm_model(
     tensor_parallel_size: int | None = None,
     enforce_eager: bool = False,
     quantization: VLLMQuantization | None = None,
-) -> VLLMModelProtocol:
+) -> LLM:
     """Load a vLLM model engine.
 
     Args:
