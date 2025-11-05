@@ -17,10 +17,8 @@ from .util_functions import (
 class VllmEvalEngine(EvalEngine):
     def __init__(
         self,
-        eval_dataset: Dataset,
         eval_config: EvaluationConfig,
     ) -> None:
-        self.eval_dataset = eval_dataset
         self.eval_config = eval_config
         self.tokenizer = load_tokenizer_with_transformers(
             eval_config.model_path_or_repo_id,
@@ -41,6 +39,9 @@ class VllmEvalEngine(EvalEngine):
             quantization=quantization,
         )
         self._vllm_sampling_params = None
+
+    def set_dataset(self, eval_dataset: Dataset) -> None:
+        self.eval_dataset = eval_dataset
 
     def generate_answers(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor

@@ -1,9 +1,14 @@
 from abc import ABC, abstractmethod
 
 import torch
+from datasets import Dataset
 
 
 class EvalEngine(ABC):
+    @abstractmethod
+    def set_dataset(self, eval_dataset: Dataset) -> None:
+        raise NotImplementedError("Subclasses must implement set_dataset().")
+
     @abstractmethod
     def generate_answers(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor

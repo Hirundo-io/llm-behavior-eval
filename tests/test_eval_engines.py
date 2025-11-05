@@ -279,7 +279,8 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
         batch_size=None,
     )
 
-    engine = VllmEvalEngine(dataset, config)
+    engine = VllmEvalEngine(config)
+    engine.set_dataset(dataset)
 
     input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
     attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]])
@@ -310,10 +311,10 @@ def test_transformers_eval_engine_generate_answers(
     )
 
     engine = TransformersEvalEngine(
-        dataset,
         transformers_bundle.data_collator,
         config,
     )
+    engine.set_dataset(dataset)
 
     input_ids = torch.tensor([[5, 6]])
     attention_mask = torch.tensor([[1, 1]])
@@ -354,10 +355,10 @@ def test_transformers_eval_engine_get_batch_size_autotune(
     )
 
     engine = TransformersEvalEngine(
-        dataset,
         transformers_bundle.data_collator,
         config,
     )
+    engine.set_dataset(dataset)
     batch_size = engine.get_batch_size()
 
     assert batch_size == len(dataset)
