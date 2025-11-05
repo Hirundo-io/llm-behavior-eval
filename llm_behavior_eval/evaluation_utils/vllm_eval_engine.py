@@ -1,5 +1,6 @@
 import contextlib
 import logging
+from typing import TYPE_CHECKING
 
 import torch
 from datasets import Dataset
@@ -12,6 +13,9 @@ from .util_functions import (
     load_vllm_model,
     pick_best_dtype,
 )
+
+if TYPE_CHECKING:
+    from vllm.inputs.data import PromptType
 
 
 class VllmEvalEngine(EvalEngine):
@@ -47,9 +51,12 @@ class VllmEvalEngine(EvalEngine):
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
     ) -> list[str]:
         prompt_token_ids = build_vllm_prompt_token_ids(input_ids, attention_mask)
+        prompts: list[PromptType] = [
+            {"prompt_token_ids": tokens} for tokens in prompt_token_ids
+        ]
         sampling_params = self._get_vllm_sampling_params()
         outputs = self.model.generate(
-            prompt_token_ids=prompt_token_ids,
+            prompts=prompts,
             sampling_params=sampling_params,
             use_tqdm=False,
         )
