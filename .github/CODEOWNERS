@@ -1,2 +1,6 @@
 ## code changes will send PR to following users
 * @mishana @benglewis @shmuelyo
+pyproject.toml
+hirundo/__init__.py
+docs/_templates/github-pages-redirect.html
+#  ⬆️ Allow changes to versions, but nothing else without CODEOWNERS
