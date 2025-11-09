@@ -146,6 +146,7 @@ class BaseEvaluator(ABC):
             self.dataset_config.preprocess_config,
             trust_remote_code=self.trust_remote_code,
             reasoning=self.eval_config.reasoning,
+            token=self.eval_config.model_token,
         )
         # Deterministic shuffle before sampling
         test_dataset = test_dataset.shuffle(seed=self.dataset_config.seed)
