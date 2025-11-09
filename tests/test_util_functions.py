@@ -1,10 +1,11 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 import torch
 
 from llm_behavior_eval.evaluation_utils.util_functions import (
     build_vllm_prompt_token_ids,
+    is_model_multimodal,
     pick_best_dtype,
     safe_apply_chat_template,
     torch_dtype_to_str,
@@ -12,6 +13,16 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
 
 if TYPE_CHECKING:
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+
+
+class MockConfig:
+    """A simple mock config object for testing."""
+
+    def __init__(self, model_type: str) -> None:
+        self.model_type = model_type
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"model_type": self.model_type}
 
 
 class StubTokenizer:
@@ -74,3 +85,82 @@ def test_build_vllm_prompt_token_ids_validates_shape() -> None:
 
     with pytest.raises(ValueError):
         build_vllm_prompt_token_ids(input_ids, attention_mask)
+
+
+@pytest.fixture
+def mock_auto_config_remote_fallback(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Fixture that mocks AutoConfig to simulate remote fallback behavior."""
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    def mock_from_pretrained(*args: Any, **kwargs: Any) -> MockConfig:
+        calls.append((args, kwargs))
+        if len(calls) == 1:
+            # First call raises exception to trigger remote fallback
+            raise Exception("local_files_only=True failed")
+        # Second call (remote fallback) returns config
+        return MockConfig("llama")
+
+    class MockAutoConfig:
+        from_pretrained = staticmethod(mock_from_pretrained)
+
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.util_functions.AutoConfig",
+        MockAutoConfig,
+    )
+    return {"calls": calls}
+
+
+@pytest.fixture
+def mock_auto_config_local_load(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Fixture that mocks AutoConfig to simulate local load behavior."""
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    def mock_from_pretrained(*args: Any, **kwargs: Any) -> MockConfig:
+        calls.append((args, kwargs))
+        return MockConfig("llama")
+
+    class MockAutoConfig:
+        from_pretrained = staticmethod(mock_from_pretrained)
+
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.util_functions.AutoConfig",
+        MockAutoConfig,
+    )
+    return {"calls": calls}
+
+
+def test_is_model_multimodal_passes_token_on_remote_fallback(
+    mock_auto_config_remote_fallback: dict[str, Any],
+) -> None:
+    """Test that is_model_multimodal passes the token parameter on remote fallback."""
+    # Test with token parameter
+    result = is_model_multimodal(
+        "test/model", trust_remote_code=False, token="test_token"
+    )
+
+    # Verify that both calls occurred (local then remote)
+    calls = mock_auto_config_remote_fallback["calls"]
+    assert len(calls) == 2
+
+    # Check the remote call (second call) includes the token
+    remote_call = calls[1]
+    assert remote_call[1].get("token") == "test_token"
+    assert result is False
+
+
+def test_is_model_multimodal_passes_token_on_local_load(
+    mock_auto_config_local_load: dict[str, Any],
+) -> None:
+    """Test that is_model_multimodal passes the token parameter when loading locally."""
+    # Test with token parameter
+    result = is_model_multimodal(
+        "test/model", trust_remote_code=False, token="test_token"
+    )
+
+    # Verify that only the local call occurred
+    calls = mock_auto_config_local_load["calls"]
+    assert len(calls) == 1
+
+    local_call = calls[0]
+    assert local_call[1].get("token") == "test_token"
+    assert result is False

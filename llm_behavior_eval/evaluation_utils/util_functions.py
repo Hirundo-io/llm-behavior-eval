@@ -201,7 +201,9 @@ def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
     return torch.float32
 
 
-def is_model_multimodal(repo_id: str, trust_remote_code: bool = False) -> bool:
+def is_model_multimodal(
+    repo_id: str, trust_remote_code: bool = False, token: str | None = None
+) -> bool:
     """
     Decide whether the model should be loaded with a vision-capable architecture.
 
@@ -211,6 +213,7 @@ def is_model_multimodal(repo_id: str, trust_remote_code: bool = False) -> bool:
     Args:
         repo_id: The repo-id or local path of the model to load.
         trust_remote_code: Whether to trust remote code.
+        token: The HuggingFace token to use for accessing gated models.
 
     Returns:
         True if the model should be loaded with a vision-capable architecture, False otherwise.
@@ -218,12 +221,15 @@ def is_model_multimodal(repo_id: str, trust_remote_code: bool = False) -> bool:
     try:
         # Prefer local cache to avoid network calls during preprocessing
         config = AutoConfig.from_pretrained(
-            repo_id, local_files_only=True, trust_remote_code=trust_remote_code
+            repo_id,
+            local_files_only=True,
+            trust_remote_code=trust_remote_code,
+            token=token,
         )
     except Exception:
         # Fallback to remote if not cached locally
         config = AutoConfig.from_pretrained(
-            repo_id, trust_remote_code=trust_remote_code
+            repo_id, trust_remote_code=trust_remote_code, token=token
         )
     config_dict = config.to_dict()
 
@@ -377,7 +383,7 @@ def load_transformers_model_and_tokenizer(
             bnb_4bit_quant_type="nf4",
         )
 
-    if is_model_multimodal(model_name, trust_remote_code):
+    if is_model_multimodal(model_name, trust_remote_code, token):
         model = AutoModelForImageTextToText.from_pretrained(
             model_name,
             torch_dtype=dtype,
@@ -385,6 +391,7 @@ def load_transformers_model_and_tokenizer(
             low_cpu_mem_usage=True,
             quantization_config=quantization_config,
             trust_remote_code=trust_remote_code,
+            token=token,
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
@@ -394,6 +401,7 @@ def load_transformers_model_and_tokenizer(
             low_cpu_mem_usage=True,
             quantization_config=quantization_config,
             trust_remote_code=trust_remote_code,
+            token=token,
         )
 
     return tokenizer, model

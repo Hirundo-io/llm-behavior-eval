@@ -26,6 +26,7 @@ class CaptureState:
     tokenizer: object | None = None
     trust_remote_code: bool | None = None
     reasoning: bool | None = None
+    token: str | None = None
     init_args: tuple[str, DatasetType] | None = None
 
 
@@ -119,10 +120,12 @@ def patch_custom_dataset(
             *,
             trust_remote_code: bool,
             reasoning: bool,
+            token: str | None = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
             capture_state.trust_remote_code = trust_remote_code
             capture_state.reasoning = reasoning
+            capture_state.token = token
             return StubDataset()
 
     monkeypatch.setattr(base_evaluator_module, "CustomDataset", StubCustomDataset)

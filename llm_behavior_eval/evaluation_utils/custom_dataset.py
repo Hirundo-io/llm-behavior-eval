@@ -153,6 +153,7 @@ class CustomDataset:
         preprocess_config: PreprocessConfig,
         trust_remote_code: bool = False,
         reasoning: bool = False,
+        token: str | None = None,
     ) -> Dataset:
         """
         Preprocess custom datasets by tokenizing texts based on the given text format.
@@ -166,6 +167,7 @@ class CustomDataset:
             preprocess_config: Configuration for preprocessing the dataset.
             trust_remote_code: Whether to trust remote code.
             reasoning: Whether to use reasoning.
+            token: The HuggingFace token to use for accessing gated models.
 
         Returns:
             A test dataset with tokenized fields
@@ -174,7 +176,9 @@ class CustomDataset:
         validate_dataset_columns(self.ds)
         old_columns = self.ds.column_names
         # Compute once to avoid per-batch remote config lookups
-        is_multimodal = is_model_multimodal(tokenizer.name_or_path, trust_remote_code)
+        is_multimodal = is_model_multimodal(
+            tokenizer.name_or_path, trust_remote_code, token
+        )
         processed_dataset = self.ds.map(
             lambda examples: preprocess_function(
                 examples,
