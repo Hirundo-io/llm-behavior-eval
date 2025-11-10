@@ -243,12 +243,9 @@ candidate_uncertain: "<yes|no>"
                     judge_pipeline, stereotyped_prompts
                 )
                 stereotyped_agreements = extract_agreements(stereotype_judge_raw)
-                agreements = [
-                    (gt_agreement, st_agreement)
-                    for gt_agreement, st_agreement in zip(
-                        gt_agreements, stereotyped_agreements, strict=True
-                    )
-                ]
+                agreements = list(
+                    zip(gt_agreements, stereotyped_agreements, strict=True)
+                )
             else:
                 agreements = [
                     (gt_agreement, Agreement.NO) for gt_agreement in gt_agreements
