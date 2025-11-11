@@ -4,6 +4,7 @@ import gc
 import json
 import logging
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
@@ -30,6 +31,9 @@ from .util_functions import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from transformers import TextGenerationPipeline
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
     from .dataset_config import DatasetConfig
@@ -491,58 +495,37 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             if not self.judge_tokenizer.pad_token:
                 self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
 
-    def free_judge(self) -> None:
-        del self.judge_pipeline
+    def free_judge(self, judge_pipeline: TextGenerationPipeline) -> None:
+        del judge_pipeline
+        del self.judge_tokenizer
         empty_cuda_cache_if_available()
         gc.collect()
 
     @torch.no_grad()
-    def run_judge_with_backoff(self, prompts: list[str]) -> list[list[dict[str, str]]]:
+    def run_judge_with_backoff(
+        self,
+        judge_pipeline: TextGenerationPipeline,
+        prompts: list[str],
+    ) -> list[list[dict[str, str]]]:
         """
         Execute the judge pipeline by probing an executable batch size that can
         complete a full pass over all prompts without OOM. The probing runs the
         entire evaluation pass; upon success, results are returned directly.
 
         Args:
+            judge_pipeline: The judge pipeline to use.
             prompts: List of prompts to judge.
 
         Returns:
             List of judge outputs.
         """
-        # Reuse existing judge pipeline if already initialized. This prevents
-        # reloading the judge model/tokenizer on subsequent calls (which can OOM).
-        if getattr(self, "judge_pipeline", None) is None:
-            self.judge_tokenizer, judge_model = load_transformers_model_and_tokenizer(
-                self.eval_config.judge_path_or_repo_id,
-                token=self.eval_config.judge_token,
-                use_4bit=self.eval_config.use_4bit_judge,
-                trust_remote_code=self.trust_remote_code,
-            )
-            tokenizer = self.judge_tokenizer
-            if tokenizer is None:
-                raise RuntimeError("Judge tokenizer failed to load.")
-            if not isinstance(tokenizer, PreTrainedTokenizer | PreTrainedTokenizerFast):
-                raise TypeError(
-                    "Judge tokenizer must be a PreTrainedTokenizer or PreTrainedTokenizerFast."
-                )
-            self.judge_pipeline = pipeline(
-                "text-generation",
-                model=judge_model,
-                token=self.eval_config.judge_token,
-                tokenizer=tokenizer,
-                max_new_tokens=self.eval_config.judge_output_tokens,
-                return_full_text=False,
-                pad_token_id=self.judge_tokenizer.pad_token_id,
-                eos_token_id=self.judge_tokenizer.eos_token_id,
-            )
-
         # If a fixed judge batch size is provided, run regularly with that size (no backoff)
         if self.eval_config.judge_batch_size is not None:
             fixed_batch_size = max(1, int(self.eval_config.judge_batch_size))
             outputs_fixed: list[list[dict[str, str]]] = []
             for start in range(0, len(prompts), fixed_batch_size):
                 chunk = prompts[start : start + fixed_batch_size]
-                result = self.judge_pipeline(
+                result = judge_pipeline(
                     chunk, batch_size=fixed_batch_size, do_sample=False
                 )
                 outputs_fixed.extend(result)
@@ -570,7 +553,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             try:
                 for start in range(0, len(prompts), candidate_batch_size):
                     chunk = prompts[start : start + candidate_batch_size]
-                    res = self.judge_pipeline(
+                    res = judge_pipeline(
                         chunk, batch_size=candidate_batch_size, do_sample=False
                     )
                     outputs.extend(res)
@@ -589,3 +572,35 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         )
         wrapper()
         return outputs
+
+    @contextmanager
+    def judge_pipeline_context(self) -> Generator[TextGenerationPipeline]:
+        judge_pipeline: TextGenerationPipeline | None = None
+        try:
+            self.judge_tokenizer, judge_model = load_transformers_model_and_tokenizer(
+                self.eval_config.judge_path_or_repo_id,
+                token=self.eval_config.judge_token,
+                use_4bit=self.eval_config.use_4bit_judge,
+                trust_remote_code=self.trust_remote_code,
+            )
+            tokenizer = self.judge_tokenizer
+            if tokenizer is None:
+                raise RuntimeError("Judge tokenizer failed to load.")
+            if not isinstance(tokenizer, PreTrainedTokenizer | PreTrainedTokenizerFast):
+                raise TypeError(
+                    "Judge tokenizer must be a PreTrainedTokenizer or PreTrainedTokenizerFast."
+                )
+            judge_pipeline = pipeline(
+                "text-generation",
+                model=judge_model,
+                token=self.eval_config.judge_token,
+                tokenizer=tokenizer,
+                max_new_tokens=self.eval_config.judge_output_tokens,
+                return_full_text=False,
+                pad_token_id=self.judge_tokenizer.pad_token_id,
+                eos_token_id=self.judge_tokenizer.eos_token_id,
+            )
+            yield judge_pipeline
+        finally:
+            if judge_pipeline is not None:
+                self.free_judge(judge_pipeline)

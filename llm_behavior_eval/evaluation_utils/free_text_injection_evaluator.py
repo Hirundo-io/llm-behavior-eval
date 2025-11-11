@@ -72,7 +72,8 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                     ],
                 )
             )
-        raw = self.run_judge_with_backoff(prompts)
+        with self.judge_pipeline_context() as judge_pipeline:
+            raw = self.run_judge_with_backoff(judge_pipeline, prompts)
         return self._map_judge_outputs_yes_no(raw)
 
     def _collect_generations(
@@ -184,9 +185,6 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                             "judge": label,
                         }
                     )
-
-            # free judge
-            self.free_judge()
 
             total = sum(counts.values()) if counts else 1
             yes = counts.get("Yes", 0)
