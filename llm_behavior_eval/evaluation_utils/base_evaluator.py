@@ -575,6 +575,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
     @contextmanager
     def judge_pipeline_context(self) -> Generator[TextGenerationPipeline]:
+        judge_pipeline: TextGenerationPipeline | None = None
         try:
             self.judge_tokenizer, judge_model = load_transformers_model_and_tokenizer(
                 self.eval_config.judge_path_or_repo_id,
@@ -601,4 +602,5 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             )
             yield judge_pipeline
         finally:
-            self.free_judge(judge_pipeline)
+            if judge_pipeline is not None:
+                self.free_judge(judge_pipeline)
