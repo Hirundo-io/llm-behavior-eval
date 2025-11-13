@@ -499,7 +499,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
 
     def free_judge(
-        self, judge_pipeline: TextGenerationPipeline, judge_model: PreTrainedModel
+        self,
+        judge_pipeline: TextGenerationPipeline | None,
+        judge_model: PreTrainedModel | None,
     ) -> None:
         if hasattr(judge_pipeline, "model"):
             judge_pipeline.model.cpu()
@@ -507,8 +509,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         if hasattr(judge_pipeline, "tokenizer"):
             del judge_pipeline.tokenizer
         del judge_pipeline
-        judge_model.cpu()
-        del judge_model
+        if judge_model is not None:
+            judge_model.cpu()
+            del judge_model
         del self.judge_tokenizer
         empty_cuda_cache_if_available()
         gc.collect()
@@ -588,6 +591,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     @contextmanager
     def judge_pipeline_context(self) -> Generator[TextGenerationPipeline]:
         judge_pipeline: TextGenerationPipeline | None = None
+        judge_model: PreTrainedModel | None = None
         try:
             self.judge_tokenizer, judge_model = load_transformers_model_and_tokenizer(
                 self.eval_config.judge_path_or_repo_id,
@@ -614,5 +618,5 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             )
             yield judge_pipeline
         finally:
-            if judge_pipeline is not None:
+            if judge_pipeline is not None or judge_model is not None:
                 self.free_judge(judge_pipeline, judge_model)
