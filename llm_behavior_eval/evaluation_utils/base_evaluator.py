@@ -503,11 +503,12 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         judge_pipeline: TextGenerationPipeline | None,
         judge_model: PreTrainedModel | None,
     ) -> None:
-        if hasattr(judge_pipeline, "model"):
-            judge_pipeline.model.cpu()
-            del judge_pipeline.model
-        if hasattr(judge_pipeline, "tokenizer"):
-            del judge_pipeline.tokenizer
+        if judge_pipeline:
+            if hasattr(judge_pipeline, "model"):
+                judge_pipeline.model.cpu()
+                del judge_pipeline.model
+            if hasattr(judge_pipeline, "tokenizer"):
+                del judge_pipeline.tokenizer
         del judge_pipeline
         if judge_model is not None:
             judge_model.cpu()
