@@ -33,7 +33,7 @@ from .util_functions import (
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from transformers import TextGenerationPipeline
+    from transformers import PreTrainedModel, TextGenerationPipeline
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
     from .dataset_config import DatasetConfig
@@ -495,8 +495,17 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             if not self.judge_tokenizer.pad_token:
                 self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
 
-    def free_judge(self, judge_pipeline: TextGenerationPipeline) -> None:
+    def free_judge(
+        self, judge_pipeline: TextGenerationPipeline, judge_model: PreTrainedModel
+    ) -> None:
+        if hasattr(judge_pipeline, "model"):
+            judge_pipeline.model.cpu()
+            del judge_pipeline.model
+        if hasattr(judge_pipeline, "tokenizer"):
+            del judge_pipeline.tokenizer
         del judge_pipeline
+        judge_model.cpu()
+        del judge_model
         del self.judge_tokenizer
         empty_cuda_cache_if_available()
         gc.collect()
@@ -603,4 +612,4 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             yield judge_pipeline
         finally:
             if judge_pipeline is not None:
-                self.free_judge(judge_pipeline)
+                self.free_judge(judge_pipeline, judge_model)
