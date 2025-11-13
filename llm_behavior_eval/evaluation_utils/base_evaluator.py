@@ -240,6 +240,9 @@ class BaseEvaluator(ABC):
                 ],
             }
         )
+        logging.info(
+            "Results for dataset=%s dataset_type=%s", dataset_slug, dataset_type_value
+        )
         logging.info(results)
         results.to_csv(output_metrics, index=False, float_format="%.3f")
         with open(output_responses, "w") as f:
