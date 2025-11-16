@@ -32,9 +32,18 @@ fi
 
 VENV_PYTHON="${VENV_PATH}/bin/python"
 
-if ! uv pip install --python "${VENV_PYTHON}" -e ".[mlflow,vllm]"; then
-  echo "Warning: Failed to install mlflow and vllm extras; falling back to base install." >&2
+EXTRAS_REQUESTED="${LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS:-}" # e.g. "mlflow" or "mlflow,vllm"
+INSTALL_TARGET="."
+
+if [[ -n "${EXTRAS_REQUESTED}" ]]; then
+  INSTALL_TARGET=".[${EXTRAS_REQUESTED}]"
+  if ! uv pip install --python "${VENV_PYTHON}" -e "${INSTALL_TARGET}"; then
+    echo "Warning: Failed to install requested extras (${EXTRAS_REQUESTED}); falling back to base install." >&2
+    uv pip install --python "${VENV_PYTHON}" -e .
+  fi
+else
   uv pip install --python "${VENV_PYTHON}" -e .
 fi
+
 uv pip install --python "${VENV_PYTHON}" ruff basedpyright pytest pre-commit bumpver
 
