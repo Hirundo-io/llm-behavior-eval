@@ -1,0 +1,31 @@
+{
+  "name": "llm-behavior-eval",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.11"
+    },
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "remoteUser": "vscode",
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/workspaces/llm-behavior-eval/.venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": [
+          "tests"
+        ],
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "basedpyright.basedpyright"
+      ]
+    }
+  },
+  "forwardPorts": [],
+  "updateContentCommand": "bash .devcontainer/setup.sh"
+}
