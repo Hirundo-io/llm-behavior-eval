@@ -7,6 +7,10 @@
     },
     "ghcr.io/devcontainers/features/git:1": {}
   },
+  "hostRequirements": {
+    "storage": "64gb",
+    "gpu": "optional"
+  },
   "remoteUser": "vscode",
   "postCreateCommand": "bash .devcontainer/setup.sh",
   "customizations": {
