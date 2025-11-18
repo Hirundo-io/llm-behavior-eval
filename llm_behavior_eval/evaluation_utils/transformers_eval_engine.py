@@ -23,16 +23,21 @@ class TransformersEvalEngine(EvalEngine):
         self,
         data_collator: DataCollator,
         eval_config: EvaluationConfig,
+        is_judge: bool = False,
     ) -> None:
+        model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
+        model_token = self._get_model_token(eval_config, is_judge)
+        use_4bit = self._get_use_4bit(eval_config, is_judge)
         self.tokenizer, self.model = load_transformers_model_and_tokenizer(
-            eval_config.model_path_or_repo_id,
-            eval_config.model_token,
-            eval_config.use_4bit,
+            model_path_or_repo_id,
+            model_token,
+            use_4bit,
             eval_config.device_map,
             eval_config.trust_remote_code,
         )
         self.data_collator = data_collator
         self.eval_config = eval_config
+        self.is_judge = is_judge
 
     def set_dataset(self, eval_dataset: Dataset) -> None:
         self.eval_dataset = eval_dataset
@@ -61,8 +66,13 @@ class TransformersEvalEngine(EvalEngine):
         return candidate_bs
 
     def generate_answers(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        do_sample: bool | None = None,
     ) -> list[str]:
+        if do_sample is None:
+            do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
         device = self.model.device
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
@@ -71,7 +81,7 @@ class TransformersEvalEngine(EvalEngine):
                 input_ids=model_input_ids,
                 attention_mask=model_attention,
                 max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
+                do_sample=do_sample,
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
             )
@@ -82,7 +92,8 @@ class TransformersEvalEngine(EvalEngine):
         self.model.eval()
 
     def get_batch_size(self) -> int:
-        batch_size = self.eval_config.batch_size
+        batch_size = self._get_batch_size_from_config(self.eval_config, self.is_judge)
+
         if batch_size is None:
             starting_bs = max(1, min(len(self.eval_dataset), MAX_BATCH_SIZE))
             current_bs = starting_bs

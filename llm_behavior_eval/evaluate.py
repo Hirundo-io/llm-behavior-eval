@@ -152,6 +152,13 @@ def main(
             help="Use vLLM for model inference instead of transformers",
         ),
     ] = False,
+    use_vllm_for_judge: Annotated[
+        bool,
+        typer.Option(
+            "--use-vllm-for-judge/--no-use-vllm-for-judge",
+            help="Use vLLM for judge model inference instead of transformers. Defaults to same choice for model inference.",
+        ),
+    ] = False,
     reasoning: Annotated[
         bool,
         typer.Option(
@@ -207,6 +214,9 @@ def main(
             mlflow_config=mlflow_config,
             reasoning=reasoning,
             use_vllm=use_vllm,
+            use_vllm_for_judge=use_vllm_for_judge
+            if use_vllm_for_judge is not None
+            else use_vllm,
         )
         set_seed(dataset_config.seed)
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)

@@ -22,8 +22,10 @@ class EvaluationConfig(BaseModel):
         judge_output_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
         judge_path_or_repo_id: HF repo ID or path of the judge model (e.g. "meta-llama/Llama-3.3-70B-Instruct").
         judge_token: HuggingFace token for the judge model. Defaults to the value of `model_token` if not provided.
+        judge_sample: Whether to sample outputs from the judge model (True) or generate deterministically (False). Defaults to False.
         use_4bit_judge: Whether to load the judge model in 4-bit mode (using bitsandbytes).
                         This is only relevant for the judge model.
+        use_vllm_for_judge: Whether to run judge model inference with vLLM instead of transformers.
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
         reasoning: Whether to enable chat-template reasoning (if supported by tokenizer/model).
         use_vllm: Whether to run model inference with vLLM instead of transformers.
@@ -41,7 +43,9 @@ class EvaluationConfig(BaseModel):
     judge_output_tokens: int = 32
     judge_path_or_repo_id: str = "google/gemma-3-12b-it"
     judge_token: str | None = None
+    judge_sample: bool = False
     use_4bit_judge: bool = False
+    use_vllm_for_judge: bool = False
     results_dir: Path
     reasoning: bool = False
     use_vllm: bool = False

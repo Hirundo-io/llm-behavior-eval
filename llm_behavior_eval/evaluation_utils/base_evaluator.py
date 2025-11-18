@@ -12,9 +12,7 @@ import pandas as pd
 import torch
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 from transformers.data.data_collator import default_data_collator
-from transformers.pipelines import pipeline
 
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
@@ -27,14 +25,14 @@ from .max_batch_size import MAX_BATCH_SIZE
 from .util_functions import (
     empty_cuda_cache_if_available,
     load_tokenizer_with_transformers,
-    load_transformers_model_and_tokenizer,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from transformers import PreTrainedModel, TextGenerationPipeline
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+
+    from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 
     from .dataset_config import DatasetConfig
     from .eval_config import EvaluationConfig, MlflowConfig
@@ -498,42 +496,31 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             if not self.judge_tokenizer.pad_token:
                 self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
 
-    def free_judge(
-        self,
-        judge_pipeline: TextGenerationPipeline | None,
-        judge_model: PreTrainedModel | None,
-    ) -> None:
-        if judge_pipeline:
-            if hasattr(judge_pipeline, "model"):
-                judge_pipeline.model.cpu()
-                del judge_pipeline.model
-            if hasattr(judge_pipeline, "tokenizer"):
-                del judge_pipeline.tokenizer
-        del judge_pipeline
-        if judge_model is not None:
-            judge_model.cpu()
-            del judge_model
-        del self.judge_tokenizer
+    def free_judge(self, judge_engine: EvalEngine | None = None) -> None:
+        if judge_engine is not None:
+            judge_engine.free_model()
+        if hasattr(self, "judge_tokenizer") and self.judge_tokenizer is not None:
+            del self.judge_tokenizer
         empty_cuda_cache_if_available()
         gc.collect()
 
     @torch.no_grad()
     def run_judge_with_backoff(
         self,
-        judge_pipeline: TextGenerationPipeline,
+        judge_engine: EvalEngine,
         prompts: list[str],
     ) -> list[list[dict[str, str]]]:
         """
-        Execute the judge pipeline by probing an executable batch size that can
+        Execute the judge by probing an executable batch size that can
         complete a full pass over all prompts without OOM. The probing runs the
         entire evaluation pass; upon success, results are returned directly.
 
         Args:
-            judge_pipeline: The judge pipeline to use.
+            judge_engine: The judge eval engine to use.
             prompts: List of prompts to judge.
 
         Returns:
-            List of judge outputs.
+            List of judge outputs in format [{"generated_text": ...}, ...] per prompt.
         """
         # If a fixed judge batch size is provided, run regularly with that size (no backoff)
         if self.eval_config.judge_batch_size is not None:
@@ -541,9 +528,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             outputs_fixed: list[list[dict[str, str]]] = []
             for start in range(0, len(prompts), fixed_batch_size):
                 chunk = prompts[start : start + fixed_batch_size]
-                result = judge_pipeline(
-                    chunk, batch_size=fixed_batch_size, do_sample=False
-                )
+                result = self._judge_prompts_batch(judge_engine, chunk)
                 outputs_fixed.extend(result)
             return outputs_fixed
 
@@ -569,8 +554,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             try:
                 for start in range(0, len(prompts), candidate_batch_size):
                     chunk = prompts[start : start + candidate_batch_size]
-                    res = judge_pipeline(
-                        chunk, batch_size=candidate_batch_size, do_sample=False
+                    res = self._judge_prompts_batch(
+                        judge_engine, chunk, candidate_batch_size
                     )
                     outputs.extend(res)
                 return candidate_batch_size
@@ -589,35 +574,71 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         wrapper()
         return outputs
 
+    def _judge_prompts_batch(
+        self,
+        judge_engine: EvalEngine,
+        prompts: list[str],
+        batch_size: int | None = None,
+        do_sample: bool = False,
+    ) -> list[list[dict[str, str]]]:
+        """
+        Process a batch of prompts through the judge engine.
+
+        Args:
+            judge_engine: The judge eval engine to use.
+            prompts: List of prompt strings.
+            batch_size: Optional batch size override for the engine (used during backoff).
+            do_sample: Whether to sample from the model.
+
+        Returns:
+            List where each element is [{"generated_text": answer}, ...] for that prompt.
+        """
+        judge_tokenizer = self._get_judge_tokenizer()
+
+        # Tokenize prompts
+        tokenized = judge_tokenizer(
+            prompts,
+            return_tensors="pt",
+        )
+        input_ids = tokenized["input_ids"]
+        attention_mask = tokenized["attention_mask"]
+
+        # Generate answers using judge engine for deterministic judging
+        answers = judge_engine.generate_answers(
+            input_ids, attention_mask, do_sample=do_sample
+        )
+
+        # Format output to match pipeline format: [{"generated_text": answer}, ...] per prompt
+        result: list[list[dict[str, str]]] = []
+        for answer in answers:
+            result.append([{"generated_text": answer}])
+
+        return result
+
     @contextmanager
-    def judge_pipeline_context(self) -> Generator[TextGenerationPipeline]:
-        judge_pipeline: TextGenerationPipeline | None = None
-        judge_model: PreTrainedModel | None = None
+    def judge_engine_context(self) -> Generator[EvalEngine, None, None]:
+        """
+        Context manager for the judge engine. Creates an eval engine instance
+        (either VllmEvalEngine or TransformersEvalEngine) based on configuration.
+
+        Yields:
+            The judge eval engine instance.
+        """
+        judge_engine = None
         try:
-            self.judge_tokenizer, judge_model = load_transformers_model_and_tokenizer(
-                self.eval_config.judge_path_or_repo_id,
-                token=self.eval_config.judge_token,
-                use_4bit=self.eval_config.use_4bit_judge,
-                trust_remote_code=self.trust_remote_code,
-            )
-            tokenizer = self.judge_tokenizer
-            if tokenizer is None:
-                raise RuntimeError("Judge tokenizer failed to load.")
-            if not isinstance(tokenizer, PreTrainedTokenizer | PreTrainedTokenizerFast):
-                raise TypeError(
-                    "Judge tokenizer must be a PreTrainedTokenizer or PreTrainedTokenizerFast."
+            self.prepare_judge_tokenizer()
+
+            # Create appropriate judge engine based on config
+            if self.eval_config.use_vllm_for_judge:
+                judge_engine = VllmEvalEngine(self.eval_config, is_judge=True)
+            else:
+                judge_engine = TransformersEvalEngine(
+                    self.data_collator,
+                    self.eval_config,
+                    is_judge=True,
                 )
-            judge_pipeline = pipeline(
-                "text-generation",
-                model=judge_model,
-                token=self.eval_config.judge_token,
-                tokenizer=tokenizer,
-                max_new_tokens=self.eval_config.judge_output_tokens,
-                return_full_text=False,
-                pad_token_id=self.judge_tokenizer.pad_token_id,
-                eos_token_id=self.judge_tokenizer.eos_token_id,
-            )
-            yield judge_pipeline
+            judge_engine.set_dataset(self.eval_dataset)
+
+            yield judge_engine
         finally:
-            if judge_pipeline is not None or judge_model is not None:
-                self.free_judge(judge_pipeline, judge_model)
+            self.free_judge(judge_engine)

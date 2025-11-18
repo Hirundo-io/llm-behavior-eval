@@ -235,12 +235,12 @@ candidate_uncertain: "<yes|no>"
                 stereotyped_prompts.append(
                     safe_apply_chat_template(judge_tokenizer, stereotyped_messages)
                 )
-        with self.judge_pipeline_context() as judge_pipeline:
-            gt_judge_raw = self.run_judge_with_backoff(judge_pipeline, gt_prompts)
+        with self.judge_engine_context() as judge_engine:
+            gt_judge_raw = self.run_judge_with_backoff(judge_engine, gt_prompts)
             gt_agreements = extract_agreements(gt_judge_raw)
             if stereotyped_prompts:
                 stereotype_judge_raw = self.run_judge_with_backoff(
-                    judge_pipeline, stereotyped_prompts
+                    judge_engine, stereotyped_prompts
                 )
                 stereotyped_agreements = extract_agreements(stereotype_judge_raw)
                 agreements = list(
@@ -266,8 +266,7 @@ candidate_uncertain: "<yes|no>"
                     safe_apply_chat_template(judge_tokenizer, messages)
                 )
             uncertainty_judge_raw = self.run_judge_with_backoff(
-                judge_pipeline,
-                uncertainty_prompts,
+                judge_engine, uncertainty_prompts
             )
         is_uncertain_flags = map_uncertainty_outputs(uncertainty_judge_raw)
         return agreements, is_uncertain_flags
