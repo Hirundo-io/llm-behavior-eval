@@ -68,6 +68,22 @@ pip install llm-behavior-eval (or uv pip install llm-behavior-eval)
 
 uv is a fast Python package manager from Astral; it’s compatible with pip commands and typically installs dependencies significantly faster.
 
+## Development Container
+
+The repository ships a VS Code Dev Container definition (`.devcontainer/`). The setup script installs the base project dependencies to keep the image lean. If you need optional extras (for example MLflow or vLLM), set `LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS` before the container runs:
+
+```bash
+# Example: install MLflow extra inside the devcontainer
+export LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS="mlflow"
+bash .devcontainer/setup.sh
+
+# Example: install both MLflow and vLLM (requires more disk space)
+export LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS="mlflow,vllm"
+bash .devcontainer/setup.sh
+```
+
+If the requested extras exhaust the available disk, the script falls back to a base install so the container remains usable. Re-run the script with a smaller set of extras when needed.
+
 ## Run the Evaluator
 
 Use the CLI with the required `--model` and `--behavior` arguments. The `--behavior` preset selects datasets for you.

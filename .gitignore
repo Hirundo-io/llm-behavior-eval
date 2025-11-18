@@ -175,6 +175,7 @@ cython_debug/
 
 */results/*
 *.json
+!.devcontainer/devcontainer.json
 
 # ACT Secrets
 act-events/pr.secrets
