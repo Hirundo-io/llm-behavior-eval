@@ -600,6 +600,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         tokenized = judge_tokenizer(
             prompts,
             return_tensors="pt",
+            padding=True,
         )
         # transformers' tokenizer classes don't have the correct type hints for the return_tensors argument
         input_ids = cast("Tensor", tokenized["input_ids"])

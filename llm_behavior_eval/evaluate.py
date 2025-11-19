@@ -153,12 +153,12 @@ def main(
         ),
     ] = False,
     use_vllm_for_judge: Annotated[
-        bool,
+        bool | None,
         typer.Option(
             "--use-vllm-for-judge/--no-use-vllm-for-judge",
             help="Use vLLM for judge model inference instead of transformers. Defaults to same choice for model inference.",
         ),
-    ] = False,
+    ] = None,
     reasoning: Annotated[
         bool,
         typer.Option(

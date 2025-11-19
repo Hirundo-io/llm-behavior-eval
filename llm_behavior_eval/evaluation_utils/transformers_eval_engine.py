@@ -54,12 +54,14 @@ class TransformersEvalEngine(EvalEngine):
         batch = next(it)
         input_ids = batch["test_input_ids"].to(self.model.device)
         attention_mask = batch["test_attention_mask"].to(self.model.device)
+        do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
+        max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
         with torch.inference_mode():
             cast("GenerationMixin", self.model).generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
+                max_new_tokens=max_new_tokens,
+                do_sample=do_sample,
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
             )
@@ -73,6 +75,7 @@ class TransformersEvalEngine(EvalEngine):
     ) -> list[str]:
         if do_sample is None:
             do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
+        max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
         device = self.model.device
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
@@ -80,7 +83,7 @@ class TransformersEvalEngine(EvalEngine):
             outputs = cast("GenerationMixin", self.model).generate(
                 input_ids=model_input_ids,
                 attention_mask=model_attention,
-                max_new_tokens=self.eval_config.answer_tokens,
+                max_new_tokens=max_new_tokens,
                 do_sample=do_sample,
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
