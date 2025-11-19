@@ -30,6 +30,7 @@ from .util_functions import (
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from torch import Tensor
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
     from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
@@ -600,8 +601,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             prompts,
             return_tensors="pt",
         )
-        input_ids = tokenized["input_ids"]
-        attention_mask = tokenized["attention_mask"]
+        # transformers' tokenizer classes don't have the correct type hints for the return_tensors argument
+        input_ids = cast("Tensor", tokenized["input_ids"])
+        attention_mask = cast("Tensor", tokenized["attention_mask"])
 
         # Generate answers using judge engine for deterministic judging
         answers = judge_engine.generate_answers(
