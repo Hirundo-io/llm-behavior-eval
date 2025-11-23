@@ -134,13 +134,10 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
 
-### Helpful CLI options
+### CLI options
 
 - `--max-samples <N>` — cap how many rows to evaluate per dataset (defaults to 500). Use `0` or any negative value to run the entire split.
-- `--use-4bit-judge/--no-use-4bit-judge` — toggle 4-bit (bitsandbytes) loading for the judge model so you can keep the evaluator model in full precision while fitting the judge onto smaller GPUs.
-
-Other noteworthy flags:
-
+- `--use-4bit-judge/--no-use-4bit-judge` — toggle 4-bit (bitsandbytes) loading for the judge model so you can keep the evaluator in full precision while fitting the judge onto smaller GPUs.
 - `--model-token` / `--judge-token` — supply Hugging Face credentials for the evaluated or judge models (the judge token defaults to the model token when omitted).
 - `--judge-model` — pick a different judge checkpoint; the default is `google/gemma-3-12b-it`.
 - `--use-vllm/--no-use-vllm` — switch between vLLM and transformers backends for the evaluated model.
