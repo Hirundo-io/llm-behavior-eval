@@ -134,7 +134,12 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
 
-Change the evaluation/dataset settings in `evaluate.py` to customize your runs. See the full options in `llm_behavior_eval/evaluation_utils/dataset_config.py` and `llm_behavior_eval/evaluation_utils/eval_config.py`.
+### Helpful CLI options
+
+- `--max-samples <N>` — cap how many rows to evaluate per dataset (defaults to 500). Use `0` or any negative value to run the entire split.
+- `--use-4bit-judge/--no-use-4bit-judge` — toggle 4-bit (bitsandbytes) loading for the judge model so you can keep the evaluator model in full precision while fitting the judge onto smaller GPUs.
+
+Change the evaluation/dataset settings in `evaluate.py` to customize your runs further. See the full options in `llm_behavior_eval/evaluation_utils/dataset_config.py` and `llm_behavior_eval/evaluation_utils/eval_config.py`.
 
 See `examples/presets_customization.py` for a minimal script-based workflow.
 

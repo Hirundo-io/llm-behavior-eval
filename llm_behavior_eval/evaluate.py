@@ -27,6 +27,7 @@ BIAS_KINDS = {"bias", "unbias"}
 HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
+DEFAULT_MAX_SAMPLES = EvaluationConfig.model_fields["max_samples"].default
 
 
 def _behavior_presets(behavior: str) -> list[str]:
@@ -159,6 +160,24 @@ def main(
             help="Enable chat-template reasoning if supported",
         ),
     ] = False,
+    max_samples: Annotated[
+        int,
+        typer.Option(
+            "--max-samples",
+            help=(
+                "Maximum number of samples to evaluate per dataset. "
+                "Use a value <= 0 to run the full dataset."
+            ),
+            show_default=str(DEFAULT_MAX_SAMPLES),
+        ),
+    ] = DEFAULT_MAX_SAMPLES,
+    use_4bit_judge: Annotated[
+        bool,
+        typer.Option(
+            "--use-4bit-judge/--no-use-4bit-judge",
+            help="Load the judge model using 4-bit quantization (bitsandbytes).",
+        ),
+    ] = False,
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
@@ -207,6 +226,8 @@ def main(
             mlflow_config=mlflow_config,
             reasoning=reasoning,
             use_vllm=use_vllm,
+            max_samples=None if max_samples <= 0 else max_samples,
+            use_4bit_judge=use_4bit_judge,
         )
         set_seed(dataset_config.seed)
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
