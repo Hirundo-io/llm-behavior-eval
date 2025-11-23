@@ -46,9 +46,11 @@ class EvaluationConfig(BaseModel):
     judge_sample: bool = False
     use_4bit_judge: bool = False
     use_vllm_for_judge: bool = False
+    vllm_judge_max_model_len: int | None = None
     results_dir: Path
     reasoning: bool = False
     use_vllm: bool = False
+    vllm_max_model_len: int | None = None
 
     mlflow_config: "MlflowConfig | None" = None
 

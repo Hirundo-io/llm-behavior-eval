@@ -262,6 +262,7 @@ def load_vllm_model(
     tensor_parallel_size: int | None = None,
     enforce_eager: bool = False,
     quantization: VLLMQuantization | None = None,
+    max_model_len: int | None = None,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -274,6 +275,7 @@ def load_vllm_model(
         tensor_parallel_size: Optional tensor parallelism degree passed to vLLM.
         enforce_eager: Whether to enforce eager execution (useful for CPU-only setups).
         quantization: Optional quantization backend (for example ``"bitsandbytes"`` for 4-bit inference).
+        max_model_len: Optional maximum model length passed to vLLM.
 
     Returns:
         An initialized ``vllm.LLM`` instance.
@@ -301,6 +303,7 @@ def load_vllm_model(
             quantization=quantization,
             max_num_seqs=batch_size,
             hf_token=token,
+            max_model_len=max_model_len,
         )
     else:
         llm_instance = LLM(
@@ -312,6 +315,7 @@ def load_vllm_model(
             tensor_parallel_size=tensor_parallel_size,
             max_num_seqs=batch_size,
             hf_token=token,
+            max_model_len=max_model_len,
         )
     return llm_instance
 

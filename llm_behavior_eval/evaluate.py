@@ -152,11 +152,25 @@ def main(
             help="Use vLLM for model inference instead of transformers",
         ),
     ] = False,
+    vllm_max_model_len: Annotated[
+        int | None,
+        typer.Option(
+            "--vllm-max-model-len",
+            help="Maximum model length for vLLM (optional)",
+        ),
+    ] = None,
     use_vllm_for_judge: Annotated[
         bool | None,
         typer.Option(
             "--use-vllm-for-judge/--no-use-vllm-for-judge",
             help="Use vLLM for judge model inference instead of transformers. Defaults to same choice for model inference.",
+        ),
+    ] = None,
+    vllm_judge_max_model_len: Annotated[
+        int | None,
+        typer.Option(
+            "--vllm-judge-max-model-len",
+            help="Maximum model length for vLLM judge (optional). Defaults to the same value as model inference",
         ),
     ] = None,
     reasoning: Annotated[
@@ -217,6 +231,10 @@ def main(
             use_vllm_for_judge=use_vllm_for_judge
             if use_vllm_for_judge is not None
             else use_vllm,
+            vllm_max_model_len=vllm_max_model_len,
+            vllm_judge_max_model_len=vllm_judge_max_model_len
+            if vllm_judge_max_model_len is not None
+            else vllm_max_model_len,
         )
         set_seed(dataset_config.seed)
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)

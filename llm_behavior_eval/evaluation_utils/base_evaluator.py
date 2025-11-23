@@ -88,6 +88,7 @@ class BaseEvaluator(ABC):
         if self.use_vllm:
             self.eval_engine = VllmEvalEngine(
                 self.eval_config,
+                max_model_len=self.eval_config.vllm_max_model_len,
             )
         else:
             self.eval_engine = TransformersEvalEngine(
@@ -633,7 +634,11 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
             # Create appropriate judge engine based on config
             if self.eval_config.use_vllm_for_judge:
-                judge_engine = VllmEvalEngine(self.eval_config, is_judge=True)
+                judge_engine = VllmEvalEngine(
+                    self.eval_config,
+                    is_judge=True,
+                    max_model_len=self.eval_config.vllm_judge_max_model_len,
+                )
             else:
                 judge_engine = TransformersEvalEngine(
                     self.data_collator,

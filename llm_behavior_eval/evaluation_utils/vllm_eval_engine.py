@@ -26,9 +26,11 @@ class VllmEvalEngine(EvalEngine):
         self,
         eval_config: EvaluationConfig,
         is_judge: bool = False,
+        max_model_len: int | None = None,
     ) -> None:
         self.eval_config = eval_config
         self.is_judge = is_judge
+        self.max_model_len = max_model_len
 
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
         model_token = self._get_model_token(eval_config, is_judge)
@@ -53,6 +55,7 @@ class VllmEvalEngine(EvalEngine):
             model_token,
             enforce_eager=not torch.cuda.is_available(),
             quantization=quantization,
+            max_model_len=self.eval_config.vllm_max_model_len,
         )
         self._vllm_sampling_params = None
 
