@@ -101,7 +101,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                     ],
                 )
             )
-        with self.judge_engine_context() as judge_engine:
+        with self.get_judge_engine_context() as judge_engine:
             raw = self.run_judge_with_backoff(judge_engine, prompts)
         return self._map_judge_outputs(raw)
 

@@ -534,7 +534,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             outputs_fixed: list[list[dict[str, str]]] = []
             for start in range(0, len(prompts), fixed_batch_size):
                 chunk = prompts[start : start + fixed_batch_size]
-                result = self._judge_prompts_batch(judge_engine, chunk)
+                result = self._process_judge_prompts_batch(judge_engine, chunk)
                 outputs_fixed.extend(result)
             return outputs_fixed
 
@@ -560,7 +560,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             try:
                 for start in range(0, len(prompts), candidate_batch_size):
                     chunk = prompts[start : start + candidate_batch_size]
-                    res = self._judge_prompts_batch(
+                    res = self._process_judge_prompts_batch(
                         judge_engine, chunk, candidate_batch_size
                     )
                     outputs.extend(res)
@@ -580,7 +580,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         wrapper()
         return outputs
 
-    def _judge_prompts_batch(
+    def _process_judge_prompts_batch(
         self,
         judge_engine: EvalEngine,
         prompts: list[str],
@@ -624,7 +624,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         return result
 
     @contextmanager
-    def judge_engine_context(self) -> Generator[EvalEngine, None, None]:
+    def get_judge_engine_context(self) -> Generator[EvalEngine, None, None]:
         """
         Context manager for the judge engine. Creates an eval engine instance
         (either VllmEvalEngine or TransformersEvalEngine) based on configuration.
