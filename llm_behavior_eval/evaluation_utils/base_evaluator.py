@@ -481,8 +481,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         empty_cuda_cache_if_available()
         gc.collect()
         print(
-            "VRAM reserved after freeing test model is %sGB",
-            torch.cuda.memory_reserved() / 1e9,
+            f"VRAM reserved after freeing test model is {torch.cuda.memory_reserved() / 1e9}GB",
         )
 
     def prepare_judge_tokenizer(self) -> None:
