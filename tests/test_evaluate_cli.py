@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 import llm_behavior_eval.evaluate as evaluate
 
 
 class _StubEvaluator:
-    def evaluate(self) -> None:  # pragma: no cover - trivial stub
+    def evaluate(self) -> None:
         return None
 
 
@@ -14,9 +16,7 @@ class _StubEvaluator:
 def capture_eval_config(monkeypatch: pytest.MonkeyPatch) -> list:
     captured: list = []
 
-    def _fake_create(
-        eval_config, dataset_config  # type: ignore[unused-argument]
-    ) -> _StubEvaluator:
+    def _fake_create(eval_config: Any, dataset_config: Any) -> _StubEvaluator:
         captured.append(eval_config)
         return _StubEvaluator()
 
