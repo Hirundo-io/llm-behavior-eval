@@ -5,11 +5,18 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+pytest.importorskip("torch")
+import torch
+
 import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_module
-from llm_behavior_eval.evaluation_utils.base_evaluator import BaseEvaluator
+from llm_behavior_eval.evaluation_utils.base_evaluator import (
+    BaseEvaluator,
+    FreeTextSharedEvaluator,
+)
 from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sized
@@ -180,3 +187,74 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
     assert evaluator.eval_loader == "loader"
     assert evaluator.num_samples == 3
     assert capture_state.engine_dataset == evaluator.eval_dataset
+
+
+def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> None:
+    class StubJudgeTokenizer:
+        def __call__(self, prompts: list[str], return_tensors: str, padding: bool):
+            del prompts, return_tensors, padding
+            input_ids = torch.tensor([[10], [11]])
+            attention_mask = torch.ones_like(input_ids)
+            return {"input_ids": input_ids, "attention_mask": attention_mask}
+
+    class RecordingJudgeEngine:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def generate_answers(
+            self,
+            input_ids,
+            attention_mask,
+            sampling_config: SamplingConfig,
+        ):
+            self.calls.append(
+                {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "sampling_config": sampling_config,
+                }
+            )
+            return ["yes"] * input_ids.shape[0]
+
+        def free_model(self) -> None:
+            return None
+
+    class StubFreeTextEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+    evaluator = StubFreeTextEvaluator.__new__(StubFreeTextEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        sample_judge=True,
+        sampling_config=SamplingConfig(
+            temperature=0.5,
+            top_p=0.9,
+            top_k=4,
+            seed=111,
+        ),
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+        seed=777,
+    )
+    evaluator.judge_tokenizer = StubJudgeTokenizer()
+
+    judge_engine = RecordingJudgeEngine()
+    outputs = evaluator._process_judge_prompts_batch(
+        judge_engine,
+        ["prompt-a", "prompt-b"],
+        do_sample=None,
+    )
+
+    assert outputs == [[{"generated_text": "yes"}], [{"generated_text": "yes"}]]
+    assert len(judge_engine.calls) == 1
+    sampling_config = judge_engine.calls[0]["sampling_config"]
+    assert isinstance(sampling_config, SamplingConfig)
+    assert sampling_config.do_sample is True
+    assert sampling_config.temperature == 0.5
+    assert sampling_config.top_p == 0.9
+    assert sampling_config.top_k == 4
+    assert sampling_config.seed == evaluator.dataset_config.seed

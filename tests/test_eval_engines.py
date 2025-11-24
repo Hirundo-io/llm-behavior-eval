@@ -308,6 +308,42 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
     assert engine.get_batch_size() == len(dataset)
 
 
+@pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> None:
+    dataset = Dataset.from_dict({"question": ["q1", "q2"]})
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        answer_tokens=8,
+        sample=False,
+        batch_size=None,
+    )
+
+    engine = VllmEvalEngine(config)
+    engine.set_dataset(dataset)
+
+    input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
+    attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]])
+
+    responses = engine.generate_answers(
+        input_ids,
+        attention_mask,
+        sampling_config=SamplingConfig(
+            do_sample=True,
+            temperature=None,
+            top_p=0.9,
+            top_k=5,
+            seed=99,
+        ),
+    )
+    assert responses == ["first", ""]
+    call_kwargs = vllm_bundle.sampling_recorder.calls[-1]
+    assert call_kwargs["temperature"] == 1.0
+    assert call_kwargs["top_p"] == 0.9
+    assert call_kwargs["top_k"] == 5
+    assert call_kwargs["seed"] == 99
+
+
 @pytest.mark.transformers_engine_test
 def test_transformers_eval_engine_generate_answers(
     transformers_bundle, tmp_path
@@ -329,7 +365,18 @@ def test_transformers_eval_engine_generate_answers(
 
     input_ids = torch.tensor([[5, 6]])
     attention_mask = torch.tensor([[1, 1]])
-    answers = engine.generate_answers(input_ids, attention_mask)
+    sampling_config = SamplingConfig(
+        do_sample=config.sample,
+        temperature=0.7,
+        top_p=0.8,
+        top_k=5,
+        seed=123,
+    )
+    answers = engine.generate_answers(
+        input_ids,
+        attention_mask,
+        sampling_config=sampling_config,
+    )
 
     assert answers == ["decoded"]
     generate_call = transformers_bundle.model.generate_calls[0]
@@ -337,6 +384,10 @@ def test_transformers_eval_engine_generate_answers(
     assert generate_call["max_new_tokens"] == config.answer_tokens
     assert generate_call["pad_token_id"] == transformers_bundle.tokenizer.pad_token_id
     assert generate_call["eos_token_id"] == transformers_bundle.tokenizer.eos_token_id
+    assert generate_call["temperature"] == sampling_config.temperature
+    assert generate_call["top_p"] == sampling_config.top_p
+    assert generate_call["top_k"] == sampling_config.top_k
+    assert generate_call["seed"] == sampling_config.seed
     decode_call = transformers_bundle.tokenizer.batch_decode_calls[0]
     assert decode_call["skip_special_tokens"] is True
     assert torch.equal(
@@ -350,6 +401,47 @@ def test_transformers_eval_engine_generate_answers(
     engine.free_model()
     assert transformers_bundle.model.cpu_called
     assert not hasattr(engine, "model")
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_sampling_config_overrides_defaults(
+    transformers_bundle, tmp_path
+) -> None:
+    dataset = Dataset.from_dict({"prompt": ["hi"]})
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        answer_tokens=3,
+        sample=False,
+        batch_size=1,
+    )
+
+    engine = TransformersEvalEngine(
+        transformers_bundle.data_collator,
+        config,
+    )
+    engine.set_dataset(dataset)
+
+    input_ids = torch.tensor([[7, 8]])
+    attention_mask = torch.tensor([[1, 1]])
+    sampling_config = SamplingConfig(
+        do_sample=True,
+        temperature=None,
+        top_p=None,
+        top_k=None,
+        seed=321,
+    )
+    engine.generate_answers(
+        input_ids,
+        attention_mask,
+        sampling_config=sampling_config,
+    )
+    generate_call = transformers_bundle.model.generate_calls[-1]
+    assert generate_call["do_sample"] is True
+    assert generate_call["temperature"] == 1.0
+    assert generate_call["top_p"] == 1.0
+    assert generate_call["top_k"] == 0
+    assert generate_call["seed"] == sampling_config.seed
 
 
 @pytest.mark.transformers_engine_test
