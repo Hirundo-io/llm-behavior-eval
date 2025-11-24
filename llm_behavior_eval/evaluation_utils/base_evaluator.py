@@ -184,7 +184,13 @@ class BaseEvaluator(ABC):
             input_ids,
             attention_mask,
             sampling_config=SamplingConfig(
-                do_sample=self.eval_config.sample,
+                do_sample=(
+                    do_sample
+                    if do_sample is not None
+                    else self.eval_config.sampling_config.do_sample
+                    if self.eval_config.sampling_config.do_sample is not None
+                    else self.eval_config.sample
+                ),
                 temperature=self.eval_config.sampling_config.temperature,
                 top_p=self.eval_config.sampling_config.top_p,
                 top_k=self.eval_config.sampling_config.top_k,
@@ -600,7 +606,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         judge_engine: EvalEngine,
         prompts: list[str],
         batch_size: int | None = None,
-        do_sample: bool = False,
+        do_sample: bool | None = None,
     ) -> list[list[dict[str, str]]]:
         """
         Process a batch of prompts through the judge engine.
@@ -627,11 +633,14 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         attention_mask = cast("Tensor", tokenized["attention_mask"])
 
         # Generate answers using judge engine for deterministic judging
+        resolved_do_sample = (
+            self.eval_config.sample_judge if do_sample is None else do_sample
+        )
         answers = judge_engine.generate_answers(
             input_ids,
             attention_mask,
             sampling_config=SamplingConfig(
-                do_sample=do_sample,
+                do_sample=resolved_do_sample,
                 temperature=self.eval_config.sampling_config.temperature,
                 top_p=self.eval_config.sampling_config.top_p,
                 top_k=self.eval_config.sampling_config.top_k,

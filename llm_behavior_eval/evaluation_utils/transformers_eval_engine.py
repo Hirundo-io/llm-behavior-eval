@@ -80,13 +80,14 @@ class TransformersEvalEngine(EvalEngine):
             do_sample = sampling_config.do_sample
         max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
         temperature = sampling_config.temperature
-        top_p = sampling_config.top_p
-        top_k = sampling_config.top_k
+        if temperature is None:
+            temperature = 1.0 if do_sample else 0.0
+        top_p = sampling_config.top_p if sampling_config.top_p is not None else 1.0
+        top_k = sampling_config.top_k if sampling_config.top_k is not None else 0
         seed = sampling_config.seed
         device = self.model.device
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
-        temperature = temperature or (1.0 if do_sample else 0.0)
         with torch.inference_mode():
             outputs = cast("GenerationMixin", self.model).generate(
                 input_ids=model_input_ids,
