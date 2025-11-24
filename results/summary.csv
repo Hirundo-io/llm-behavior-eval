@@ -1,2 +1,0 @@
-Model,Dataset,Dataset Type,Text Format,Accuracy,Stereotype Bias,Empty Responses
-gemma-3-4b-it,bbq-age-bias-free-text,bias,free_text,0.6494565217391305,-0.08030803080308035,0
