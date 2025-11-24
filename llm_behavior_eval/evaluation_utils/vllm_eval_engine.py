@@ -110,6 +110,8 @@ class VllmEvalEngine(EvalEngine):
 
         if sampling_config.do_sample is None:
             do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
+        else:
+            do_sample = sampling_config.do_sample
         max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
         temperature = sampling_config.temperature or (1.0 if do_sample else 0.0)
         stop_token_ids = self._collect_stop_token_ids()

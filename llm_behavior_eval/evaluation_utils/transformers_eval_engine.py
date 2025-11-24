@@ -76,6 +76,8 @@ class TransformersEvalEngine(EvalEngine):
     ) -> list[str]:
         if sampling_config.do_sample is None:
             do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
+        else:
+            do_sample = sampling_config.do_sample
         max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
         temperature = sampling_config.temperature
         top_p = sampling_config.top_p

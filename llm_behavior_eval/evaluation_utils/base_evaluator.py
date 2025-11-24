@@ -185,9 +185,9 @@ class BaseEvaluator(ABC):
             attention_mask,
             sampling_config=SamplingConfig(
                 do_sample=self.eval_config.sample,
-                temperature=self.eval_config.temperature,
-                top_p=self.eval_config.top_p,
-                top_k=self.eval_config.top_k,
+                temperature=self.eval_config.sampling_config.temperature,
+                top_p=self.eval_config.sampling_config.top_p,
+                top_k=self.eval_config.sampling_config.top_k,
                 seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
             ),
         )
@@ -632,9 +632,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             attention_mask,
             sampling_config=SamplingConfig(
                 do_sample=do_sample,
-                temperature=self.eval_config.temperature,
-                top_p=self.eval_config.top_p,
-                top_k=self.eval_config.top_k,
+                temperature=self.eval_config.sampling_config.temperature,
+                top_p=self.eval_config.sampling_config.top_p,
+                top_k=self.eval_config.sampling_config.top_k,
                 seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
             ),
         )

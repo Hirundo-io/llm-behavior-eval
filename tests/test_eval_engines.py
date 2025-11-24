@@ -291,9 +291,9 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
         attention_mask,
         sampling_config=SamplingConfig(
             do_sample=config.sample,
-            temperature=config.temperature,
-            top_p=config.top_p,
-            top_k=config.top_k,
+            temperature=config.sampling_config.temperature,
+            top_p=config.sampling_config.top_p,
+            top_k=config.sampling_config.top_k,
             seed=None,
         ),
     )
