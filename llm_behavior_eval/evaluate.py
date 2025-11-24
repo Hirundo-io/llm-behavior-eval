@@ -29,9 +29,9 @@ HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
 DEFAULT_MAX_SAMPLES = EvaluationConfig.model_fields["max_samples"].default
-DEFAULT_SEED = EvaluationConfig.model_fields["seed"].default
-DEFAULT_TOP_P = EvaluationConfig.model_fields["top_p"].default
-DEFAULT_TOP_K = EvaluationConfig.model_fields["top_k"].default
+DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
+DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
+DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
 
 
 def _behavior_presets(behavior: str) -> list[str]:
