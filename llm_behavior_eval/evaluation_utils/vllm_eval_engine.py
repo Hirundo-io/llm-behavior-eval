@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from vllm.inputs.data import PromptType
 
     from .eval_config import EvaluationConfig
+    from .sampling_config import SamplingConfig
 
 
 class VllmEvalEngine(EvalEngine):
@@ -66,13 +67,13 @@ class VllmEvalEngine(EvalEngine):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        do_sample: bool | None = None,
+        sampling_config: SamplingConfig,
     ) -> list[str]:
         prompt_token_ids = build_vllm_prompt_token_ids(input_ids, attention_mask)
         prompts: list[PromptType] = [
             {"prompt_token_ids": tokens} for tokens in prompt_token_ids
         ]
-        sampling_params = self._get_vllm_sampling_params(do_sample)
+        sampling_params = self._get_vllm_sampling_params(sampling_config)
         outputs = self.model.generate(
             prompts=prompts,
             sampling_params=sampling_params,
@@ -88,19 +89,37 @@ class VllmEvalEngine(EvalEngine):
             responses.append(getattr(first_candidate, "text", ""))
         return responses
 
-    def _get_vllm_sampling_params(self, do_sample: bool | None = None):
+    def _get_vllm_sampling_params(
+        self,
+        sampling_config: SamplingConfig,
+    ):
+        """
+        Get the sampling parameters for vLLM.
+
+        Args:
+            do_sample: Whether to sample from the model.
+            temperature: The temperature for sampling. None means the default vLLM temperature is used. Overrides the do_sample argument.
+            top_p: The top-p value for sampling. Defaults to 1.0.
+            top_k: The top-k value for sampling. Defaults to 0.
+            seed: The seed for sampling. None means no seed is set.
+
+        Returns:
+            The sampling parameters for vLLM.
+        """
         from vllm import SamplingParams
 
-        if do_sample is None:
+        if sampling_config.do_sample is None:
             do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
         max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
-        temperature = 1.0 if do_sample else 0.0
+        temperature = sampling_config.temperature or (1.0 if do_sample else 0.0)
         stop_token_ids = self._collect_stop_token_ids()
         return SamplingParams(
             max_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=1.0,
+            temperature=temperature or 1.0,
+            top_p=sampling_config.top_p or 1.0,
+            top_k=sampling_config.top_k or 0,
             stop_token_ids=stop_token_ids,
+            seed=sampling_config.seed,
         )
 
     def _collect_stop_token_ids(self) -> list[int] | None:

@@ -10,6 +10,7 @@ from transformers.data.data_collator import DataCollator
 from .eval_config import EvaluationConfig
 from .eval_engine import EvalEngine
 from .max_batch_size import MAX_BATCH_SIZE
+from .sampling_config import SamplingConfig
 from .util_functions import (
     load_transformers_model_and_tokenizer,
 )
@@ -71,14 +72,19 @@ class TransformersEvalEngine(EvalEngine):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        do_sample: bool | None = None,
+        sampling_config: SamplingConfig,
     ) -> list[str]:
-        if do_sample is None:
+        if sampling_config.do_sample is None:
             do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
         max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
+        temperature = sampling_config.temperature
+        top_p = sampling_config.top_p
+        top_k = sampling_config.top_k
+        seed = sampling_config.seed
         device = self.model.device
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
+        temperature = temperature or (1.0 if do_sample else 0.0)
         with torch.inference_mode():
             outputs = cast("GenerationMixin", self.model).generate(
                 input_ids=model_input_ids,
@@ -87,6 +93,10 @@ class TransformersEvalEngine(EvalEngine):
                 do_sample=do_sample,
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                seed=seed,
             )
         generated_tokens = outputs[:, model_input_ids.shape[1] :].detach().cpu()
         return self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)

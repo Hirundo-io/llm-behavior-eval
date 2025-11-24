@@ -4,6 +4,8 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic.functional_validators import model_validator
 
+from .sampling_config import SamplingConfig
+
 
 class EvaluationConfig(BaseModel):
     """
@@ -54,6 +56,7 @@ class EvaluationConfig(BaseModel):
     results_dir: Path
     reasoning: bool = False
     vllm_max_model_len: int | None = None
+    sampling_config: SamplingConfig = SamplingConfig()
 
     mlflow_config: "MlflowConfig | None" = None
 

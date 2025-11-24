@@ -12,6 +12,7 @@ import torch
 from datasets import Dataset
 
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
 )
@@ -285,7 +286,17 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
     input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
     attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]])
 
-    responses = engine.generate_answers(input_ids, attention_mask)
+    responses = engine.generate_answers(
+        input_ids,
+        attention_mask,
+        sampling_config=SamplingConfig(
+            do_sample=config.sample,
+            temperature=config.temperature,
+            top_p=config.top_p,
+            top_k=config.top_k,
+            seed=None,
+        ),
+    )
     assert responses == ["first", ""]
     assert vllm_bundle.build_recorder.last_input_ids is input_ids
     assert vllm_bundle.build_recorder.last_attention_mask is attention_mask

@@ -22,6 +22,7 @@ from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
 from .custom_dataset import CustomDataset
 from .enums import DatasetType
 from .max_batch_size import MAX_BATCH_SIZE
+from .sampling_config import SamplingConfig
 from .util_functions import (
     empty_cuda_cache_if_available,
     load_tokenizer_with_transformers,
@@ -174,9 +175,22 @@ class BaseEvaluator(ABC):
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
 
     def generate_answers(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        do_sample: bool | None = None,
     ) -> list[str]:
-        return self.eval_engine.generate_answers(input_ids, attention_mask)
+        return self.eval_engine.generate_answers(
+            input_ids,
+            attention_mask,
+            sampling_config=SamplingConfig(
+                do_sample=self.eval_config.sample,
+                temperature=self.eval_config.temperature,
+                top_p=self.eval_config.top_p,
+                top_k=self.eval_config.top_k,
+                seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
+            ),
+        )
 
     @abstractmethod
     def evaluate(self) -> None:
@@ -614,7 +628,15 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
         # Generate answers using judge engine for deterministic judging
         answers = judge_engine.generate_answers(
-            input_ids, attention_mask, do_sample=do_sample
+            input_ids,
+            attention_mask,
+            sampling_config=SamplingConfig(
+                do_sample=do_sample,
+                temperature=self.eval_config.temperature,
+                top_p=self.eval_config.top_p,
+                top_k=self.eval_config.top_k,
+                seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
+            ),
         )
 
         # Format output to match pipeline format: [{"generated_text": answer}, ...] per prompt

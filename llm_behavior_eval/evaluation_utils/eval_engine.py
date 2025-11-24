@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from datasets import Dataset
 
     from .eval_config import EvaluationConfig
+    from .sampling_config import SamplingConfig
 
 
 class EvalEngine(ABC):
@@ -20,7 +21,7 @@ class EvalEngine(ABC):
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        do_sample: bool | None = None,
+        sampling_config: SamplingConfig,
     ) -> list[str]:
         raise NotImplementedError("Subclasses must implement generate_answers().")
 

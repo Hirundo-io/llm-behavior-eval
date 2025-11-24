@@ -16,6 +16,7 @@ from llm_behavior_eval import (
     EvaluateFactory,
     EvaluationConfig,
     PreprocessConfig,
+    SamplingConfig,
 )
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
@@ -28,6 +29,9 @@ HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
 DEFAULT_MAX_SAMPLES = EvaluationConfig.model_fields["max_samples"].default
+DEFAULT_SEED = EvaluationConfig.model_fields["seed"].default
+DEFAULT_TOP_P = EvaluationConfig.model_fields["top_p"].default
+DEFAULT_TOP_K = EvaluationConfig.model_fields["top_k"].default
 
 
 def _behavior_presets(behavior: str) -> list[str]:
@@ -206,6 +210,41 @@ def main(
             help="Load the judge model using 4-bit quantization (bitsandbytes).",
         ),
     ] = False,
+    sample: Annotated[
+        bool | None,
+        typer.Option(
+            "--sample/--no-sample",
+            help="Whether to sample from the model. DO NOT combine with the temperature parameter.",
+        ),
+    ] = None,
+    temperature: Annotated[
+        float | None,
+        typer.Option(
+            "--temperature/--no-temperature",
+            help="The temperature for sampling. DO NOT combine with the do_sample parameter.",
+        ),
+    ] = None,
+    top_p: Annotated[
+        float,
+        typer.Option(
+            "--top-p",
+            help="The top-p value for sampling.",
+        ),
+    ] = DEFAULT_TOP_P,
+    top_k: Annotated[
+        int,
+        typer.Option(
+            "--top-k",
+            help="The top-k value for sampling.",
+        ),
+    ] = DEFAULT_TOP_K,
+    seed: Annotated[
+        int | None,
+        typer.Option(
+            "--seed",
+            help="Random seed for the evaluation.",
+        ),
+    ] = DEFAULT_SEED,
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
@@ -226,6 +265,7 @@ def main(
             if "-unbias-" in file_path
             else DatasetType.BIAS,
             preprocess_config=PreprocessConfig(),
+            seed=seed,
         )
 
         # Compose MLflow config separately
@@ -262,8 +302,18 @@ def main(
             else vllm_max_model_len,
             max_samples=None if max_samples <= 0 else max_samples,
             use_4bit_judge=use_4bit_judge,
+            sampling_config=SamplingConfig(
+                do_sample=sample,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                seed=seed,
+            ),
         )
-        set_seed(dataset_config.seed)
+        if dataset_config.seed is not None:
+            set_seed(dataset_config.seed)
+        elif eval_config.sampling_config.seed is not None:
+            set_seed(eval_config.sampling_config.seed)
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
         try:
             with torch.inference_mode():
