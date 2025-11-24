@@ -140,7 +140,7 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 - `--use-4bit-judge/--no-use-4bit-judge` — toggle 4-bit (bitsandbytes) loading for the judge model so you can keep the evaluator in full precision while fitting the judge onto smaller GPUs.
 - `--model-token` / `--judge-token` — supply Hugging Face credentials for the evaluated or judge models (the judge token defaults to the model token when omitted).
 - `--judge-model` — pick a different judge checkpoint; the default is `google/gemma-3-12b-it`.
-- `--use-vllm/--no-use-vllm` — switch between vLLM and transformers backends for the evaluated model.
+- `--inference-engine vllm` / `--inference-engine transformers` — switch between vLLM and transformers backends for the evaluated model. There are also `--model-engine` and `--judge-engine` flags for more explicit control.
 - `--reasoning/--no-reasoning` — enable chat-template reasoning modes on tokenizers that support them.
 - `--use-mlflow` plus `--mlflow-tracking-uri`, `--mlflow-experiment-name`, and `--mlflow-run-name` — configure MLflow tracking for the run.
 
@@ -176,7 +176,7 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
 
-The metrics are composed of error (1 − accuracy), stereotype bias (when available) and the ratio of empty responses (i.e. the model generating empty string). 
+The metrics are composed of error (1 − accuracy), stereotype bias (when available) and the ratio of empty responses (i.e. the model generating empty string).
 
 See the original papers for the explanation on accuracy. See the BBQ paper for the explanation of the stereotype bias.
 

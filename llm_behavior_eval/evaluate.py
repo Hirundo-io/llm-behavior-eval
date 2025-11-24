@@ -2,7 +2,7 @@ import gc
 import logging
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import torch
 import typer
@@ -146,13 +146,20 @@ def main(
             help="MLflow run name (optional, auto-generates if not specified)",
         ),
     ] = None,
-    use_vllm: Annotated[
-        bool,
+    inference_engine: Annotated[
+        Literal["vllm", "transformers"] | None,
         typer.Option(
-            "--use-vllm/--no-use-vllm",
-            help="Use vLLM for model inference instead of transformers",
+            "--inference-engine",
+            help="""Inference engine to use for model and judge inference. "vllm" or "transformers". Overrides model_engine and judge_engine arguments.""",
         ),
-    ] = False,
+    ] = None,
+    model_engine: Annotated[
+        Literal["vllm", "transformers"],
+        typer.Option(
+            "--model-engine",
+            help="""Model engine to use for model inference. "vllm" or "transformers". DO NOT combine with the inference_engine argument.""",
+        ),
+    ] = "transformers",
     vllm_max_model_len: Annotated[
         int | None,
         typer.Option(
@@ -160,13 +167,13 @@ def main(
             help="Maximum model length for vLLM (optional)",
         ),
     ] = None,
-    use_vllm_for_judge: Annotated[
-        bool | None,
+    judge_engine: Annotated[
+        Literal["vllm", "transformers"],
         typer.Option(
-            "--use-vllm-for-judge/--no-use-vllm-for-judge",
-            help="Use vLLM for judge model inference instead of transformers. Defaults to same choice for model inference.",
+            "--judge-engine",
+            help="""Judge engine to use for judge model inference. "vllm" or "transformers". DO NOT combine with the inference_engine argument.""",
         ),
-    ] = None,
+    ] = "transformers",
     vllm_judge_max_model_len: Annotated[
         int | None,
         typer.Option(
@@ -246,10 +253,9 @@ def main(
             results_dir=result_dir,
             mlflow_config=mlflow_config,
             reasoning=reasoning,
-            use_vllm=use_vllm,
-            use_vllm_for_judge=use_vllm_for_judge
-            if use_vllm_for_judge is not None
-            else use_vllm,
+            inference_engine=inference_engine,
+            model_engine=model_engine,
+            judge_engine=judge_engine,
             vllm_max_model_len=vllm_max_model_len,
             vllm_judge_max_model_len=vllm_judge_max_model_len
             if vllm_judge_max_model_len is not None

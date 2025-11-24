@@ -81,11 +81,13 @@ class BaseEvaluator(ABC):
         self.eval_config = eval_config
         self.dataset_config = dataset_config
         self.models_tokenizers_pairs = {}
-        self.use_vllm = eval_config.use_vllm
+        self.inference_engine = eval_config.inference_engine
+        self.model_engine = eval_config.inference_engine or eval_config.model_engine
+        self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
 
         self.data_collator = default_data_collator
-        if self.use_vllm:
+        if self.model_engine == "vllm":
             self.eval_engine = VllmEvalEngine(
                 self.eval_config,
                 max_model_len=self.eval_config.vllm_max_model_len,
@@ -636,7 +638,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             self.prepare_judge_tokenizer()
 
             # Create appropriate judge engine based on config
-            if self.eval_config.use_vllm_for_judge:
+            if self.judge_engine == "vllm":
                 judge_engine = VllmEvalEngine(
                     self.eval_config,
                     is_judge=True,

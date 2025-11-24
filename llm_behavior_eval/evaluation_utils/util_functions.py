@@ -285,7 +285,7 @@ def load_vllm_model(
         from vllm import LLM
     except ImportError as exc:
         raise ImportError(
-            "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable --use-vllm."
+            "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable vllm for inference (e.g. when using the --inference-engine argument)."
         ) from exc
 
     dtype_literal = torch_dtype_to_str(dtype)
