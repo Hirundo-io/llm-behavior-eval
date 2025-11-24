@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
 
 import llm_behavior_eval.evaluate as evaluate
@@ -9,6 +11,12 @@ from llm_behavior_eval import DatasetConfig, EvaluationConfig
 class _StubEvaluator:
     def evaluate(self) -> None:
         return None
+
+
+@dataclass
+class CapturedConfigs:
+    eval_config: EvaluationConfig
+    dataset_config: DatasetConfig
 
 
 @pytest.fixture
@@ -30,13 +38,15 @@ def capture_eval_config(monkeypatch: pytest.MonkeyPatch) -> list[EvaluationConfi
 
 
 @pytest.fixture
-def capture_configs(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
-    captured: list[dict[str, object]] = []
+def capture_configs(monkeypatch: pytest.MonkeyPatch) -> list[CapturedConfigs]:
+    captured: list[CapturedConfigs] = []
 
     def _fake_create(
         eval_config: EvaluationConfig, dataset_config: DatasetConfig
     ) -> _StubEvaluator:
-        captured.append({"eval_config": eval_config, "dataset_config": dataset_config})
+        captured.append(
+            CapturedConfigs(eval_config=eval_config, dataset_config=dataset_config)
+        )
         return _StubEvaluator()
 
     monkeypatch.setattr(
@@ -69,7 +79,7 @@ def test_main_passes_judge_quantization_flag(
 
 
 def test_main_sets_inference_engine_and_sampling(
-    capture_configs: list[dict[str, object]],
+    capture_configs: list[CapturedConfigs],
 ) -> None:
     evaluate.main(
         "fake/model",
@@ -83,8 +93,9 @@ def test_main_sets_inference_engine_and_sampling(
         top_k=12,
         seed=123,
     )
-    eval_config = capture_configs[-1]["eval_config"]
-    dataset_config = capture_configs[-1]["dataset_config"]
+    captured = capture_configs[-1]
+    eval_config = captured.eval_config
+    dataset_config = captured.dataset_config
 
     assert isinstance(eval_config, EvaluationConfig)
     assert eval_config.inference_engine == "vllm"
