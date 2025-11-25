@@ -39,7 +39,7 @@ class VllmEvalEngine(EvalEngine):
         self.model = load_vllm_model(
             eval_config.model_path_or_repo_id,
             dtype,
-            eval_config.trust_remote_code,
+            bool(eval_config.trust_remote_code),
             eval_config.batch_size or 256,
             eval_config.model_token,
             enforce_eager=not torch.cuda.is_available(),

@@ -29,7 +29,7 @@ class TransformersEvalEngine(EvalEngine):
             eval_config.model_token,
             eval_config.use_4bit,
             eval_config.device_map,
-            eval_config.trust_remote_code,
+            bool(eval_config.trust_remote_code),
         )
         self.data_collator = data_collator
         self.eval_config = eval_config

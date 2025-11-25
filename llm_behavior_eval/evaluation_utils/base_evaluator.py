@@ -96,7 +96,7 @@ class BaseEvaluator(ABC):
                 self.eval_config,
             )
         self.tokenizer = self.eval_engine.tokenizer
-        self.trust_remote_code = self.eval_config.trust_remote_code
+        self.trust_remote_code = bool(self.eval_config.trust_remote_code)
         self.prepare_dataloader()
         self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
         self.tokenizer.padding_side = "left"
