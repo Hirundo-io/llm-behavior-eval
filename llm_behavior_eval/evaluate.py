@@ -171,7 +171,7 @@ def main(
                 "Trust remote code when loading models. "
                 "Automatically set to True for NVIDIA models on huggingface."
             ),
-        )
+        ),
     ] = None,
     model_engine: Annotated[
         Literal["vllm", "transformers"],
