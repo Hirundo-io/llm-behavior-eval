@@ -47,7 +47,7 @@ class EvaluationConfig(BaseModel):
     results_dir: Path
     reasoning: bool = False
     use_vllm: bool = False
-    trust_remote_code: bool = False
+    trust_remote_code: bool | None = None
 
     mlflow_config: "MlflowConfig | None" = None
 
@@ -59,7 +59,7 @@ class EvaluationConfig(BaseModel):
 
     @model_validator(mode="after")
     def set_trust_remote_code(self):
-        if not self.trust_remote_code:
+        if self.trust_remote_code is None:
             # Default logic: trust remote code for NVIDIA models
             self.trust_remote_code = self.model_path_or_repo_id.startswith("nvidia/")
         return self

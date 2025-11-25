@@ -154,12 +154,12 @@ def main(
         ),
     ] = False,
     trust_remote_code: Annotated[
-        bool,
+        bool | None,
         typer.Option(
             "--trust-remote-code/--no-trust-remote-code",
             help="Trust remote code when loading models",
         ),
-    ] = False,
+    ] = None,
     reasoning: Annotated[
         bool,
         typer.Option(
