@@ -19,6 +19,7 @@ from transformers import (
 from transformers.data.data_collator import default_data_collator
 from transformers.pipelines import pipeline
 
+from llm_behavior_eval.evaluation_utils.plugin_eval_engine import PluginEvalEngine
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
 )
@@ -95,7 +96,12 @@ class BaseEvaluator(ABC):
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
 
         self.data_collator = default_data_collator
-        if self.use_vllm:
+        if self.eval_config.use_plugin:
+            self.eval_engine = PluginEvalEngine(
+                self.data_collator,
+                self.eval_config,
+            )
+        elif self.use_vllm:
             self.eval_engine = VllmEvalEngine(
                 self.eval_config,
             )
