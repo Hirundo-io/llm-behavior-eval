@@ -141,7 +141,7 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 - `--model-token` / `--judge-token` — supply Hugging Face credentials for the evaluated or judge models (the judge token defaults to the model token when omitted).
 - `--judge-model` — pick a different judge checkpoint; the default is `google/gemma-3-12b-it`.
 - `--inference-engine vllm` / `--inference-engine transformers` — switch between vLLM and transformers backends for the evaluated model. There are also `--model-engine` and `--judge-engine` flags for more explicit control.
-- `--vllm-tokenizer-mode`, `--vllm-config-format`, `--vllm-load-format`, `--vllm-tool-call-parser`, `--vllm-enable-auto-tool-choice/--no-vllm-enable-auto-tool-choice` — forward advanced knobs directly to the underlying vLLM engine when you need to align tokenizer behavior, checkpoint formats, or tool-calling semantics with a particular deployment.
+- `--vllm-tokenizer-mode`, `--vllm-config-format`, `--vllm-load-format`, `--vllm-tool-call-parser`, `--vllm-enable-auto-tool-choice/--no-vllm-enable-auto-tool-choice` — forward advanced knobs directly to the underlying vLLM engine when you need to align tokenizer behavior, checkpoint formats, or tool-calling semantics with a particular deployment. Tokenizer mode accepts `auto`, `slow`, `mistral`, or `custom`.
 - `--reasoning/--no-reasoning` — enable chat-template reasoning modes on tokenizers that support them.
 - `--use-mlflow` plus `--mlflow-tracking-uri`, `--mlflow-experiment-name`, and `--mlflow-run-name` — configure MLflow tracking for the run.
 

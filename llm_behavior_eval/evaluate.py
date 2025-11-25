@@ -21,6 +21,7 @@ from llm_behavior_eval import (
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
 )
+from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 
 torch.set_float32_matmul_precision("high")
 
@@ -202,7 +203,7 @@ def main(
         ),
     ] = None,
     vllm_tokenizer_mode: Annotated[
-        str | None,
+        TokenizerModeOption | None,
         typer.Option(
             "--vllm-tokenizer-mode",
             help="Tokenizer mode forwarded to vLLM (e.g. 'auto', 'slow').",

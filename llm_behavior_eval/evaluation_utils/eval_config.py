@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from pydantic.functional_validators import model_validator
 
 from .sampling_config import SamplingConfig
+from .vllm_types import TokenizerModeOption
 
 
 class EvaluationConfig(BaseModel):
@@ -59,7 +60,7 @@ class EvaluationConfig(BaseModel):
     judge_engine: Literal["vllm", "transformers"] = "transformers"
     vllm_max_model_len: int | None = None
     vllm_judge_max_model_len: int | None = None
-    vllm_tokenizer_mode: str | None = None
+    vllm_tokenizer_mode: TokenizerModeOption | None = None
     vllm_config_format: str | None = None
     vllm_load_format: str | None = None
     vllm_tool_call_parser: str | None = None
