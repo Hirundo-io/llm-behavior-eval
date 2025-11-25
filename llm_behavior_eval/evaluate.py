@@ -2,7 +2,7 @@ import gc
 import logging
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import torch
 import typer
@@ -16,6 +16,7 @@ from llm_behavior_eval import (
     EvaluateFactory,
     EvaluationConfig,
     PreprocessConfig,
+    SamplingConfig,
 )
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
@@ -28,6 +29,9 @@ HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
 DEFAULT_MAX_SAMPLES = EvaluationConfig.model_fields["max_samples"].default
+DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
+DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
+DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
 
 
 def _behavior_presets(behavior: str) -> list[str]:
@@ -146,13 +150,13 @@ def main(
             help="MLflow run name (optional, auto-generates if not specified)",
         ),
     ] = None,
-    use_vllm: Annotated[
-        bool,
+    inference_engine: Annotated[
+        Literal["vllm", "transformers"] | None,
         typer.Option(
-            "--use-vllm/--no-use-vllm",
-            help="Use vLLM for model inference instead of transformers",
+            "--inference-engine",
+            help="""Inference engine to use for model and judge inference. "vllm" or "transformers". Overrides model_engine and judge_engine arguments.""",
         ),
-    ] = False,
+    ] = None,
     trust_remote_code: Annotated[
         bool | None,
         typer.Option(
@@ -161,6 +165,34 @@ def main(
                 "Trust remote code when loading models. "
                 "Automatically set to True for NVIDIA models on huggingface."
             ),
+        )
+    ] = None,
+    model_engine: Annotated[
+        Literal["vllm", "transformers"],
+        typer.Option(
+            "--model-engine",
+            help="""Model engine to use for model inference. "vllm" or "transformers". DO NOT combine with the inference_engine argument.""",
+        ),
+    ] = "transformers",
+    vllm_max_model_len: Annotated[
+        int | None,
+        typer.Option(
+            "--vllm-max-model-len",
+            help="Maximum model length for vLLM (optional)",
+        ),
+    ] = None,
+    judge_engine: Annotated[
+        Literal["vllm", "transformers"],
+        typer.Option(
+            "--judge-engine",
+            help="""Judge engine to use for judge model inference. "vllm" or "transformers". DO NOT combine with the inference_engine argument.""",
+        ),
+    ] = "transformers",
+    vllm_judge_max_model_len: Annotated[
+        int | None,
+        typer.Option(
+            "--vllm-judge-max-model-len",
+            help="Maximum model length for vLLM judge (optional). Defaults to the same value as model inference",
         ),
     ] = None,
     reasoning: Annotated[
@@ -188,6 +220,41 @@ def main(
             help="Load the judge model using 4-bit quantization (bitsandbytes).",
         ),
     ] = False,
+    sample: Annotated[
+        bool | None,
+        typer.Option(
+            "--sample/--no-sample",
+            help="Whether to sample from the model. DO NOT combine with the temperature parameter.",
+        ),
+    ] = None,
+    temperature: Annotated[
+        float | None,
+        typer.Option(
+            "--temperature",
+            help="The temperature for sampling. DO NOT combine with the do_sample parameter.",
+        ),
+    ] = None,
+    top_p: Annotated[
+        float,
+        typer.Option(
+            "--top-p",
+            help="The top-p value for sampling.",
+        ),
+    ] = DEFAULT_TOP_P,
+    top_k: Annotated[
+        int,
+        typer.Option(
+            "--top-k",
+            help="The top-k value for sampling.",
+        ),
+    ] = DEFAULT_TOP_K,
+    seed: Annotated[
+        int | None,
+        typer.Option(
+            "--seed",
+            help="Random seed for the evaluation.",
+        ),
+    ] = DEFAULT_SEED,
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
@@ -208,6 +275,7 @@ def main(
             if "-unbias-" in file_path
             else DatasetType.BIAS,
             preprocess_config=PreprocessConfig(),
+            seed=seed,
         )
 
         # Compose MLflow config separately
@@ -235,15 +303,31 @@ def main(
             results_dir=result_dir,
             mlflow_config=mlflow_config,
             reasoning=reasoning,
-            use_vllm=use_vllm,
             trust_remote_code=trust_remote_code
             if trust_remote_code is not None
             else model_path_or_repo_id.startswith("nvidia/"),
             # ⬆️ Default logic: trust remote code for NVIDIA models on huggingface
+            inference_engine=inference_engine,
+            model_engine=model_engine,
+            judge_engine=judge_engine,
+            vllm_max_model_len=vllm_max_model_len,
+            vllm_judge_max_model_len=vllm_judge_max_model_len
+            if vllm_judge_max_model_len is not None
+            else vllm_max_model_len,
             max_samples=None if max_samples <= 0 else max_samples,
             use_4bit_judge=use_4bit_judge,
+            sampling_config=SamplingConfig(
+                do_sample=sample,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                seed=seed,
+            ),
         )
-        set_seed(dataset_config.seed)
+        if dataset_config.seed is not None:
+            set_seed(dataset_config.seed)
+        elif eval_config.sampling_config.seed is not None:
+            set_seed(eval_config.sampling_config.seed)
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
         try:
             with torch.inference_mode():

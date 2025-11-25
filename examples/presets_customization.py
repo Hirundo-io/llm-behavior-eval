@@ -53,7 +53,10 @@ def main() -> None:
         results_dir=result_dir,
     )
 
-    set_seed(dataset_config.seed)
+    if dataset_config.seed is not None:
+        set_seed(dataset_config.seed)
+    elif eval_config.sampling_config.seed is not None:
+        set_seed(eval_config.sampling_config.seed)
     evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
     with torch.inference_mode():
         evaluator.evaluate()

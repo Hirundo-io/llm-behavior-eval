@@ -36,4 +36,4 @@ class DatasetConfig(BaseSettings):
     file_path: str
     dataset_type: DatasetType
     preprocess_config: PreprocessConfig = PreprocessConfig()
-    seed: int = 42
+    seed: int | None = 42

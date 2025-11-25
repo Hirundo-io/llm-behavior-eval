@@ -1,7 +1,10 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel
 from pydantic.functional_validators import model_validator
+
+from .sampling_config import SamplingConfig
 
 
 class EvaluationConfig(BaseModel):
@@ -13,8 +16,8 @@ class EvaluationConfig(BaseModel):
         batch_size: Batch size for model inference. Depends on GPU memory (commonly 16-64). If None, will be adjusted for GPU limits.
         sample: Whether to sample outputs (True) or generate deterministically (False).
         use_4bit: Whether to load the model in 4-bit mode (using bitsandbytes).
-                 This is only relevant for the model under test.
-        judge_type: Metric type to compute. Only JudgeType.BIAS is currently supported.
+            This is only relevant for the model under test.
+        device_map: Device map for model inference. If None, will be set to "auto".
         answer_tokens: Number of tokens to generate per answer. Typical range is 32-256.
         model_path_or_repo_id: HF repo ID or path of the model under test (e.g. "meta-llama/Llama-3.1-8B-Instruct").
         model_token: HuggingFace token for the model under test.
@@ -22,12 +25,19 @@ class EvaluationConfig(BaseModel):
         judge_output_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
         judge_path_or_repo_id: HF repo ID or path of the judge model (e.g. "meta-llama/Llama-3.3-70B-Instruct").
         judge_token: HuggingFace token for the judge model. Defaults to the value of `model_token` if not provided.
+        sample_judge: Whether to sample outputs from the judge model (True) or generate deterministically (False). Defaults to False.
         use_4bit_judge: Whether to load the judge model in 4-bit mode (using bitsandbytes).
-                        This is only relevant for the judge model.
+            This is only relevant for the judge model.
+        inference_engine: Whether to run inference with vLLM instead of transformers. Overrides model_engine and judge_engine arguments.
+        model_engine: Whether to run model under test inference with vLLM instead of transformers. DO NOT combine with the inference_engine argument.
+        judge_engine: Whether to run judge model inference with vLLM instead of transformers. DO NOT combine with the inference_engine argument.
+        vllm_max_model_len: Maximum model length for vLLM (optional).
+        vllm_judge_max_model_len: Maximum model length for vLLM judge (optional). Defaults to the same value as model inference
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
         reasoning: Whether to enable chat-template reasoning (if supported by tokenizer/model).
-        use_vllm: Whether to run model inference with vLLM instead of transformers.
         trust_remote_code: Whether to trust remote code when loading models.
+        sampling_config: Sampling configuration for model inference.
+        mlflow_config: MLflow configuration for tracking (optional).
     """
 
     max_samples: None | int = 500
@@ -42,12 +52,17 @@ class EvaluationConfig(BaseModel):
     judge_output_tokens: int = 32
     judge_path_or_repo_id: str = "google/gemma-3-12b-it"
     judge_token: str | None = None
+    sample_judge: bool = False
     use_4bit_judge: bool = False
+    inference_engine: Literal["vllm", "transformers"] | None = None
+    model_engine: Literal["vllm", "transformers"] = "transformers"
+    judge_engine: Literal["vllm", "transformers"] = "transformers"
+    vllm_max_model_len: int | None = None
+    vllm_judge_max_model_len: int | None = None
     results_dir: Path
     reasoning: bool = False
-    use_vllm: bool = False
     trust_remote_code: bool = False
-
+    sampling_config: SamplingConfig = SamplingConfig()
     mlflow_config: "MlflowConfig | None" = None
 
     @model_validator(mode="after")
