@@ -264,7 +264,11 @@ def main(
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
-    result_dir = Path(output_dir) if output_dir is not None else Path(__file__).parent / "results"
+    result_dir = (
+        Path(output_dir)
+        if output_dir is not None
+        else Path(__file__).parent / "results"
+    )
     file_paths = _behavior_presets(behavior)
 
     logging.basicConfig(
