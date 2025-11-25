@@ -263,6 +263,11 @@ def load_vllm_model(
     enforce_eager: bool = False,
     quantization: VLLMQuantization | None = None,
     max_model_len: int | None = None,
+    tokenizer_mode: str | None = None,
+    config_format: str | None = None,
+    load_format: str | None = None,
+    tool_call_parser: str | None = None,
+    enable_auto_tool_choice: bool | None = None,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -276,6 +281,11 @@ def load_vllm_model(
         enforce_eager: Whether to enforce eager execution (useful for CPU-only setups).
         quantization: Optional quantization backend (for example ``"bitsandbytes"`` for 4-bit inference).
         max_model_len: Optional maximum model length passed to vLLM.
+        tokenizer_mode: Optional tokenizer mode string forwarded to vLLM.
+        config_format: Optional config format string forwarded to vLLM.
+        load_format: Optional checkpoint load format string forwarded to vLLM.
+        tool_call_parser: Optional tool call parser identifier for vLLM tool calling.
+        enable_auto_tool_choice: Whether to enable automatic tool selection in vLLM tool calling.
 
     Returns:
         An initialized ``vllm.LLM`` instance.
@@ -294,29 +304,30 @@ def load_vllm_model(
         gpu_count = torch.cuda.device_count()
         tensor_parallel_size = gpu_count if gpu_count > 0 else None
 
-    if tensor_parallel_size is None:
-        llm_instance = LLM(
-            model=model_name,
-            trust_remote_code=trust_remote_code,
-            dtype=dtype_literal,
-            enforce_eager=enforce_eager,
-            quantization=quantization,
-            max_num_seqs=batch_size,
-            hf_token=token,
-            max_model_len=max_model_len,
-        )
-    else:
-        llm_instance = LLM(
-            model=model_name,
-            trust_remote_code=trust_remote_code,
-            dtype=dtype_literal,
-            enforce_eager=enforce_eager,
-            quantization=quantization,
-            tensor_parallel_size=tensor_parallel_size,
-            max_num_seqs=batch_size,
-            hf_token=token,
-            max_model_len=max_model_len,
-        )
+    llm_kwargs = {
+        "model": model_name,
+        "trust_remote_code": trust_remote_code,
+        "dtype": dtype_literal,
+        "enforce_eager": enforce_eager,
+        "quantization": quantization,
+        "max_num_seqs": batch_size,
+        "hf_token": token,
+        "max_model_len": max_model_len,
+    }
+    if tensor_parallel_size is not None:
+        llm_kwargs["tensor_parallel_size"] = tensor_parallel_size
+    if tokenizer_mode is not None:
+        llm_kwargs["tokenizer_mode"] = tokenizer_mode
+    if config_format is not None:
+        llm_kwargs["config_format"] = config_format
+    if load_format is not None:
+        llm_kwargs["load_format"] = load_format
+    if tool_call_parser is not None:
+        llm_kwargs["tool_call_parser"] = tool_call_parser
+    if enable_auto_tool_choice is not None:
+        llm_kwargs["enable_auto_tool_choice"] = enable_auto_tool_choice
+
+    llm_instance = LLM(**llm_kwargs)
     return llm_instance
 
 

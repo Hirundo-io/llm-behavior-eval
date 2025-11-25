@@ -84,8 +84,10 @@ class SamplingParamsRecorder:
 class ReturnValueStub:
     def __init__(self, value) -> None:
         self.value = value
+        self.calls: list[dict[str, object]] = []
 
     def __call__(self, *args, **kwargs):
+        self.calls.append({"args": args, "kwargs": kwargs})
         return self.value
 
 
@@ -342,6 +344,28 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
     assert call_kwargs["top_p"] == 0.9
     assert call_kwargs["top_k"] == 5
     assert call_kwargs["seed"] == 99
+
+
+@pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        vllm_tokenizer_mode="slow",
+        vllm_config_format="hf-torch",
+        vllm_load_format="dummy",
+        vllm_tool_call_parser="json",
+        vllm_enable_auto_tool_choice=True,
+    )
+
+    VllmEvalEngine(config)
+
+    last_call = vllm_bundle.model_loader.calls[-1]["kwargs"]
+    assert last_call["tokenizer_mode"] == "slow"
+    assert last_call["config_format"] == "hf-torch"
+    assert last_call["load_format"] == "dummy"
+    assert last_call["tool_call_parser"] == "json"
+    assert last_call["enable_auto_tool_choice"] is True
 
 
 @pytest.mark.transformers_engine_test

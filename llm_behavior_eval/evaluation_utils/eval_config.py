@@ -59,6 +59,11 @@ class EvaluationConfig(BaseModel):
     judge_engine: Literal["vllm", "transformers"] = "transformers"
     vllm_max_model_len: int | None = None
     vllm_judge_max_model_len: int | None = None
+    vllm_tokenizer_mode: str | None = None
+    vllm_config_format: str | None = None
+    vllm_load_format: str | None = None
+    vllm_tool_call_parser: str | None = None
+    vllm_enable_auto_tool_choice: bool | None = None
     results_dir: Path
     reasoning: bool = False
     trust_remote_code: bool = False

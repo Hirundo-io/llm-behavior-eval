@@ -57,6 +57,11 @@ class VllmEvalEngine(EvalEngine):
             enforce_eager=not torch.cuda.is_available(),
             quantization=quantization,
             max_model_len=max_model_len,
+            tokenizer_mode=eval_config.vllm_tokenizer_mode,
+            config_format=eval_config.vllm_config_format,
+            load_format=eval_config.vllm_load_format,
+            tool_call_parser=eval_config.vllm_tool_call_parser,
+            enable_auto_tool_choice=eval_config.vllm_enable_auto_tool_choice,
         )
         self._vllm_sampling_params = None
 

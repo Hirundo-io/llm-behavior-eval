@@ -106,3 +106,23 @@ def test_main_sets_inference_engine_and_sampling(
     assert eval_config.sampling_config.top_k == 12
     assert eval_config.sampling_config.seed == 123
     assert dataset_config.seed == 123
+
+
+def test_main_passes_vllm_optional_args(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        vllm_tokenizer_mode="slow",
+        vllm_config_format="hf",
+        vllm_load_format="safetensors",
+        vllm_tool_call_parser="json",
+        vllm_enable_auto_tool_choice=True,
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.vllm_tokenizer_mode == "slow"
+    assert eval_config.vllm_config_format == "hf"
+    assert eval_config.vllm_load_format == "safetensors"
+    assert eval_config.vllm_tool_call_parser == "json"
+    assert eval_config.vllm_enable_auto_tool_choice is True
