@@ -12,10 +12,14 @@ import pandas as pd
 import torch
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+from transformers import (
+    PreTrainedTokenizer,
+    PreTrainedTokenizerFast,
+)
 from transformers.data.data_collator import default_data_collator
 from transformers.pipelines import pipeline
 
+from llm_behavior_eval.evaluation_utils.plugin_eval_engine import PluginEvalEngine
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
 )
@@ -64,6 +68,12 @@ def custom_collator(batch):
         for key in batch[0]
     }
 
+def eval_collator(features):
+    batch = default_data_collator(features)
+    batch["input_ids"] = batch.pop("test_input_ids")
+    batch["attention_mask"] = batch.pop("test_attention_mask")
+    return batch
+
 
 class BaseEvaluator(ABC):
     def __init__(
@@ -86,7 +96,12 @@ class BaseEvaluator(ABC):
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
 
         self.data_collator = default_data_collator
-        if self.use_vllm:
+        if self.eval_config.use_plugin:
+            self.eval_engine = PluginEvalEngine(
+                self.data_collator,
+                self.eval_config,
+            )
+        elif self.use_vllm:
             self.eval_engine = VllmEvalEngine(
                 self.eval_config,
             )
