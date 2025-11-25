@@ -220,7 +220,7 @@ def main(
     temperature: Annotated[
         float | None,
         typer.Option(
-            "--temperature/--no-temperature",
+            "--temperature",
             help="The temperature for sampling. DO NOT combine with the do_sample parameter.",
         ),
     ] = None,
