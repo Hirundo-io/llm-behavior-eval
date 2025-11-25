@@ -157,7 +157,10 @@ def main(
         bool | None,
         typer.Option(
             "--trust-remote-code/--no-trust-remote-code",
-            help="Trust remote code when loading models",
+            help=(
+                "Trust remote code when loading models. "
+                "Automatically set to True for NVIDIA models on huggingface."
+            ),
         ),
     ] = None,
     reasoning: Annotated[
@@ -233,7 +236,10 @@ def main(
             mlflow_config=mlflow_config,
             reasoning=reasoning,
             use_vllm=use_vllm,
-            trust_remote_code=trust_remote_code,
+            trust_remote_code=trust_remote_code
+            if trust_remote_code is not None
+            else model_path_or_repo_id.startswith("nvidia/"),
+            # ⬆️ Default logic: trust remote code for NVIDIA models on huggingface
             max_samples=None if max_samples <= 0 else max_samples,
             use_4bit_judge=use_4bit_judge,
         )
