@@ -111,6 +111,12 @@ def main(
             help="Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'"
         ),
     ],
+    output_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--output-dir", help="Output directory for evaluation results (optional)"
+        ),
+    ] = None,
     model_token: Annotated[
         str | None,
         typer.Option(
@@ -258,7 +264,7 @@ def main(
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
-    result_dir = Path(__file__).parent / "results"
+    result_dir = Path(output_dir) if output_dir is not None else Path(__file__).parent / "results"
     file_paths = _behavior_presets(behavior)
 
     logging.basicConfig(
