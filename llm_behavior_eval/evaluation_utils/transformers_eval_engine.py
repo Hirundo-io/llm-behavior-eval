@@ -10,6 +10,7 @@ from transformers.data.data_collator import DataCollator
 from .eval_config import EvaluationConfig
 from .eval_engine import EvalEngine
 from .max_batch_size import MAX_BATCH_SIZE
+from .sampling_config import SamplingConfig
 from .util_functions import (
     load_transformers_model_and_tokenizer,
 )
@@ -23,16 +24,21 @@ class TransformersEvalEngine(EvalEngine):
         self,
         data_collator: DataCollator,
         eval_config: EvaluationConfig,
+        is_judge: bool = False,
     ) -> None:
+        model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
+        model_token = self._get_model_token(eval_config, is_judge)
+        use_4bit = self._get_use_4bit(eval_config, is_judge)
         self.tokenizer, self.model = load_transformers_model_and_tokenizer(
-            eval_config.model_path_or_repo_id,
-            eval_config.model_token,
-            eval_config.use_4bit,
+            model_path_or_repo_id,
+            model_token,
+            use_4bit,
             eval_config.device_map,
             eval_config.trust_remote_code,
         )
         self.data_collator = data_collator
         self.eval_config = eval_config
+        self.is_judge = is_judge
 
     def set_dataset(self, eval_dataset: Dataset) -> None:
         self.eval_dataset = eval_dataset
@@ -49,20 +55,36 @@ class TransformersEvalEngine(EvalEngine):
         batch = next(it)
         input_ids = batch["test_input_ids"].to(self.model.device)
         attention_mask = batch["test_attention_mask"].to(self.model.device)
+        do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
+        max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
         with torch.inference_mode():
             cast("GenerationMixin", self.model).generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
-                max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
+                max_new_tokens=max_new_tokens,
+                do_sample=do_sample,
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
             )
         return candidate_bs
 
     def generate_answers(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        sampling_config: SamplingConfig,
     ) -> list[str]:
+        if sampling_config.do_sample is None:
+            do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
+        else:
+            do_sample = sampling_config.do_sample
+        max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
+        temperature = sampling_config.temperature
+        if temperature is None:
+            temperature = 1.0 if do_sample else 0.0
+        top_p = sampling_config.top_p if sampling_config.top_p is not None else 1.0
+        top_k = sampling_config.top_k if sampling_config.top_k is not None else 0
+        seed = sampling_config.seed
         device = self.model.device
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
@@ -70,10 +92,14 @@ class TransformersEvalEngine(EvalEngine):
             outputs = cast("GenerationMixin", self.model).generate(
                 input_ids=model_input_ids,
                 attention_mask=model_attention,
-                max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
+                max_new_tokens=max_new_tokens,
+                do_sample=do_sample,
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                seed=seed,
             )
         generated_tokens = outputs[:, model_input_ids.shape[1] :].detach().cpu()
         return self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
@@ -82,7 +108,8 @@ class TransformersEvalEngine(EvalEngine):
         self.model.eval()
 
     def get_batch_size(self) -> int:
-        batch_size = self.eval_config.batch_size
+        batch_size = self._get_batch_size_from_config(self.eval_config, self.is_judge)
+
         if batch_size is None:
             starting_bs = max(1, min(len(self.eval_dataset), MAX_BATCH_SIZE))
             current_bs = starting_bs

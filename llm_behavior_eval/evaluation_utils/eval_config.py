@@ -1,7 +1,10 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel
 from pydantic.functional_validators import model_validator
+
+from .sampling_config import SamplingConfig
 
 
 class EvaluationConfig(BaseModel):
@@ -22,11 +25,14 @@ class EvaluationConfig(BaseModel):
         judge_output_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
         judge_path_or_repo_id: HF repo ID or path of the judge model (e.g. "meta-llama/Llama-3.3-70B-Instruct").
         judge_token: HuggingFace token for the judge model. Defaults to the value of `model_token` if not provided.
+        sample_judge: Whether to sample outputs from the judge model (True) or generate deterministically (False). Defaults to False.
         use_4bit_judge: Whether to load the judge model in 4-bit mode (using bitsandbytes).
                         This is only relevant for the judge model.
+        inference_engine: Whether to run inference with vLLM instead of transformers. Overrides model_engine and judge_engine arguments.
+        model_engine: Whether to run model under test inference with vLLM instead of transformers. DO NOT combine with the inference_engine argument.
+        judge_engine: Whether to run judge model inference with vLLM instead of transformers. DO NOT combine with the inference_engine argument.
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
         reasoning: Whether to enable chat-template reasoning (if supported by tokenizer/model).
-        use_vllm: Whether to run model inference with vLLM instead of transformers.
     """
 
     max_samples: None | int = 500
@@ -41,10 +47,16 @@ class EvaluationConfig(BaseModel):
     judge_output_tokens: int = 32
     judge_path_or_repo_id: str = "google/gemma-3-12b-it"
     judge_token: str | None = None
+    sample_judge: bool = False
     use_4bit_judge: bool = False
+    inference_engine: Literal["vllm", "transformers"] | None = None
+    model_engine: Literal["vllm", "transformers"] = "transformers"
+    judge_engine: Literal["vllm", "transformers"] = "transformers"
+    vllm_judge_max_model_len: int | None = None
     results_dir: Path
     reasoning: bool = False
-    use_vllm: bool = False
+    vllm_max_model_len: int | None = None
+    sampling_config: SamplingConfig = SamplingConfig()
 
     mlflow_config: "MlflowConfig | None" = None
 

@@ -101,8 +101,8 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                     ],
                 )
             )
-        with self.judge_pipeline_context() as judge_pipeline:
-            raw = self.run_judge_with_backoff(judge_pipeline, prompts)
+        with self.get_judge_engine_context() as judge_engine:
+            raw = self.run_judge_with_backoff(judge_engine, prompts)
         return self._map_judge_outputs(raw)
 
     def evaluate(self) -> None:

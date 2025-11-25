@@ -4,6 +4,7 @@ from .evaluation_utils.eval_config import EvaluationConfig, MlflowConfig
 from .evaluation_utils.evaluate_factory import EvaluateFactory
 from .evaluation_utils.free_text_bias_evaluator import FreeTextBiasEvaluator
 from .evaluation_utils.prompts import SYSTEM_PROMPT_DICT
+from .evaluation_utils.sampling_config import SamplingConfig
 from .evaluation_utils.util_functions import (
     load_tokenizer_with_transformers,
     load_transformers_model_and_tokenizer,
@@ -20,6 +21,7 @@ __all__ = [
     "MlflowConfig",
     "FreeTextBiasEvaluator",
     "SYSTEM_PROMPT_DICT",
+    "SamplingConfig",
     "load_transformers_model_and_tokenizer",
     "load_tokenizer_with_transformers",
     "pick_best_dtype",

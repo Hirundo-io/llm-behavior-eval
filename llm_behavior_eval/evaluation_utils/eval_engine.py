@@ -1,7 +1,14 @@
-from abc import ABC, abstractmethod
+from __future__ import annotations
 
-import torch
-from datasets import Dataset
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import torch
+    from datasets import Dataset
+
+    from .eval_config import EvaluationConfig
+    from .sampling_config import SamplingConfig
 
 
 class EvalEngine(ABC):
@@ -11,7 +18,10 @@ class EvalEngine(ABC):
 
     @abstractmethod
     def generate_answers(
-        self, input_ids: torch.Tensor, attention_mask: torch.Tensor
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        sampling_config: SamplingConfig,
     ) -> list[str]:
         raise NotImplementedError("Subclasses must implement generate_answers().")
 
@@ -25,3 +35,43 @@ class EvalEngine(ABC):
     @abstractmethod
     def free_model(self) -> None:
         raise NotImplementedError("Subclasses must implement free_model().")
+
+    @staticmethod
+    def _get_model_path_or_repo_id(
+        eval_config: EvaluationConfig, is_judge: bool
+    ) -> str:
+        """Get the model path based on whether this is a judge model."""
+        return (
+            eval_config.judge_path_or_repo_id
+            if is_judge
+            else eval_config.model_path_or_repo_id
+        )
+
+    @staticmethod
+    def _get_model_token(eval_config: EvaluationConfig, is_judge: bool) -> str | None:
+        """Get the model token based on whether this is a judge model."""
+        return eval_config.judge_token if is_judge else eval_config.model_token
+
+    @staticmethod
+    def _get_use_4bit(eval_config: EvaluationConfig, is_judge: bool) -> bool:
+        """Get the 4-bit setting based on whether this is a judge model."""
+        return eval_config.use_4bit_judge if is_judge else eval_config.use_4bit
+
+    @staticmethod
+    def _get_batch_size_from_config(
+        eval_config: EvaluationConfig, is_judge: bool
+    ) -> int | None:
+        """Get the estimated batch size from config based on whether this is a judge model."""
+        return eval_config.judge_batch_size if is_judge else eval_config.batch_size
+
+    @staticmethod
+    def _get_sample_from_config(eval_config: EvaluationConfig, is_judge: bool) -> bool:
+        """Get the sample setting from config based on whether this is a judge model."""
+        return eval_config.sample_judge if is_judge else eval_config.sample
+
+    @staticmethod
+    def _get_max_new_tokens(eval_config: EvaluationConfig, is_judge: bool) -> int:
+        """Get the max new tokens setting from config based on whether this is a judge model."""
+        return (
+            eval_config.judge_output_tokens if is_judge else eval_config.answer_tokens
+        )
