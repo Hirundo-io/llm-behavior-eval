@@ -12,7 +12,10 @@ import pandas as pd
 import torch
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+from transformers import (
+    PreTrainedTokenizer,
+    PreTrainedTokenizerFast,
+)
 from transformers.data.data_collator import default_data_collator
 from transformers.pipelines import pipeline
 
@@ -63,6 +66,12 @@ def custom_collator(batch):
         )
         for key in batch[0]
     }
+
+def eval_collator(features):
+    batch = default_data_collator(features)
+    batch["input_ids"] = batch.pop("test_input_ids")
+    batch["attention_mask"] = batch.pop("test_attention_mask")
+    return batch
 
 
 class BaseEvaluator(ABC):

@@ -145,6 +145,13 @@ def main(
             help="MLflow run name (optional, auto-generates if not specified)",
         ),
     ] = None,
+    use_plugin: Annotated[
+        bool,
+        typer.Option(
+            "--use-plugin/--no-use-plugin",
+            help="Use the custom PluginModelForCausalLM evaluation engine. Currently available with bias and transformer models only.",
+        ),
+    ] = False,
     use_vllm: Annotated[
         bool,
         typer.Option(
@@ -207,6 +214,7 @@ def main(
             mlflow_config=mlflow_config,
             reasoning=reasoning,
             use_vllm=use_vllm,
+            use_plugin=use_plugin,
         )
         set_seed(dataset_config.seed)
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
