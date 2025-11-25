@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 from inspect import Parameter, signature
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Any, Literal
 
 import torch
@@ -15,7 +17,8 @@ from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
 
-from .vllm_types import TokenizerModeOption
+if TYPE_CHECKING:
+    from .vllm_types import TokenizerModeOption
 
 VLLMDType = Literal["bfloat16", "float16", "float32"]
 VLLMQuantization = Literal[
@@ -307,7 +310,22 @@ def load_vllm_model(
         gpu_count = torch.cuda.device_count()
         tensor_parallel = gpu_count if gpu_count > 0 else None
 
-    if tensor_parallel is None:
+    if tensor_parallel is None and tokenizer_mode is None:
+        llm_instance = LLM(
+            model=model_name,
+            trust_remote_code=trust_remote_code,
+            dtype=dtype_literal,
+            enforce_eager=enforce_eager,
+            quantization=quantization,
+            max_num_seqs=batch_size,
+            hf_token=token,
+            max_model_len=max_model_len,
+            config_format=config_format,
+            load_format=load_format,
+            tool_call_parser=tool_call_parser,
+            enable_auto_tool_choice=enable_auto_tool_choice,
+        )
+    elif tensor_parallel is None:
         llm_instance = LLM(
             model=model_name,
             trust_remote_code=trust_remote_code,
@@ -318,6 +336,22 @@ def load_vllm_model(
             hf_token=token,
             max_model_len=max_model_len,
             tokenizer_mode=tokenizer_mode,
+            config_format=config_format,
+            load_format=load_format,
+            tool_call_parser=tool_call_parser,
+            enable_auto_tool_choice=enable_auto_tool_choice,
+        )
+    elif tokenizer_mode is None:
+        llm_instance = LLM(
+            model=model_name,
+            trust_remote_code=trust_remote_code,
+            dtype=dtype_literal,
+            enforce_eager=enforce_eager,
+            quantization=quantization,
+            tensor_parallel_size=tensor_parallel,
+            max_num_seqs=batch_size,
+            hf_token=token,
+            max_model_len=max_model_len,
             config_format=config_format,
             load_format=load_format,
             tool_call_parser=tool_call_parser,
