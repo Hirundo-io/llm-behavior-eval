@@ -111,6 +111,12 @@ def main(
             help="Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'"
         ),
     ],
+    output_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--output-dir", help="Output directory for evaluation results (optional)"
+        ),
+    ] = None,
     model_token: Annotated[
         str | None,
         typer.Option(
@@ -155,6 +161,16 @@ def main(
         typer.Option(
             "--inference-engine",
             help="""Inference engine to use for model and judge inference. "vllm" or "transformers". Overrides model_engine and judge_engine arguments.""",
+        ),
+    ] = None,
+    trust_remote_code: Annotated[
+        bool | None,
+        typer.Option(
+            "--trust-remote-code/--no-trust-remote-code",
+            help=(
+                "Trust remote code when loading models. "
+                "Automatically set to True for NVIDIA models on huggingface."
+            ),
         ),
     ] = None,
     model_engine: Annotated[
@@ -248,7 +264,11 @@ def main(
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
-    result_dir = Path(__file__).parent / "results"
+    result_dir = (
+        Path(output_dir)
+        if output_dir is not None
+        else Path(__file__).parent / "results"
+    )
     file_paths = _behavior_presets(behavior)
 
     logging.basicConfig(
@@ -293,6 +313,10 @@ def main(
             results_dir=result_dir,
             mlflow_config=mlflow_config,
             reasoning=reasoning,
+            trust_remote_code=trust_remote_code
+            if trust_remote_code is not None
+            else model_path_or_repo_id.startswith("nvidia/"),
+            # ⬆️ Default logic: trust remote code for NVIDIA models on huggingface
             inference_engine=inference_engine,
             model_engine=model_engine,
             judge_engine=judge_engine,
