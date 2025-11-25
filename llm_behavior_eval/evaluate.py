@@ -153,6 +153,13 @@ def main(
             help="Use vLLM for model inference instead of transformers",
         ),
     ] = False,
+    trust_remote_code: Annotated[
+        bool,
+        typer.Option(
+            "--trust-remote-code/--no-trust-remote-code",
+            help="Trust remote code when loading models",
+        ),
+    ] = False,
     reasoning: Annotated[
         bool,
         typer.Option(
@@ -226,6 +233,7 @@ def main(
             mlflow_config=mlflow_config,
             reasoning=reasoning,
             use_vllm=use_vllm,
+            trust_remote_code=trust_remote_code,
             max_samples=None if max_samples <= 0 else max_samples,
             use_4bit_judge=use_4bit_judge,
         )

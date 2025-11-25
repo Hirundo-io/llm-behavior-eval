@@ -27,6 +27,8 @@ class EvaluationConfig(BaseModel):
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
         reasoning: Whether to enable chat-template reasoning (if supported by tokenizer/model).
         use_vllm: Whether to run model inference with vLLM instead of transformers.
+        trust_remote_code: Whether to trust remote code when loading models.
+            NOTE: Automatically set to True for NVIDIA models from HuggingFace.
     """
 
     max_samples: None | int = 500
@@ -45,6 +47,7 @@ class EvaluationConfig(BaseModel):
     results_dir: Path
     reasoning: bool = False
     use_vllm: bool = False
+    trust_remote_code: bool = False
 
     mlflow_config: "MlflowConfig | None" = None
 
@@ -54,9 +57,12 @@ class EvaluationConfig(BaseModel):
             self.judge_token = self.model_token
         return self
 
-    @property
-    def trust_remote_code(self) -> bool:
-        return self.model_path_or_repo_id.startswith("nvidia/")
+    @model_validator(mode="after")
+    def set_trust_remote_code(self):
+        if not self.trust_remote_code:
+            # Default logic: trust remote code for NVIDIA models
+            self.trust_remote_code = self.model_path_or_repo_id.startswith("nvidia/")
+        return self
 
 
 class MlflowConfig(BaseModel):
