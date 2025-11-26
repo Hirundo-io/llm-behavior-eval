@@ -87,11 +87,26 @@ class BaseEvaluator(ABC):
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
 
+        # MLflow config (optional)
+        self.mlflow_config: MlflowConfig | None = (
+            self.eval_config.mlflow_config
+            if hasattr(self.eval_config, "mlflow_config")
+            else None
+        )
+        self.mlflow_run = None
+        if self.mlflow_config:
+            self._init_mlflow()
+
         self.data_collator = default_data_collator
         if self.model_engine == "vllm":
+            max_model_len = (
+                self.eval_config.vllm_config.max_model_len
+                if self.eval_config.vllm_config
+                else None
+            )
             self.eval_engine = VllmEvalEngine(
                 self.eval_config,
-                max_model_len=self.eval_config.vllm_max_model_len,
+                max_model_len=max_model_len,
             )
         else:
             self.eval_engine = TransformersEvalEngine(
@@ -105,15 +120,9 @@ class BaseEvaluator(ABC):
         self.tokenizer.padding_side = "left"
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
-        # MLflow config (optional)
-        self.mlflow_config: MlflowConfig | None = (
-            self.eval_config.mlflow_config
-            if hasattr(self.eval_config, "mlflow_config")
-            else None
-        )
-        self.mlflow_run = None
-        if self.mlflow_config:
-            self._init_mlflow()
+        if not self.eval_config.mlflow_config or not mlflow:
+            return
+        mlflow.log_param("num_samples_evaluated", self.num_samples)
 
     def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
         tokenizer = self.judge_tokenizer
@@ -442,7 +451,6 @@ class BaseEvaluator(ABC):
                 ],
             ),
             **to_dict(self.dataset_config, ["file_path", "dataset_type", "seed"]),
-            "num_samples_evaluated": self.num_samples,
         }
         mlflow.log_params(params)
 
@@ -670,10 +678,15 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
             # Create appropriate judge engine based on config
             if self.judge_engine == "vllm":
+                max_model_len = (
+                    self.eval_config.vllm_config.judge_max_model_len
+                    if self.eval_config.vllm_config
+                    else None
+                )
                 judge_engine = VllmEvalEngine(
                     self.eval_config,
                     is_judge=True,
-                    max_model_len=self.eval_config.vllm_judge_max_model_len,
+                    max_model_len=max_model_len,
                 )
             else:
                 judge_engine = TransformersEvalEngine(

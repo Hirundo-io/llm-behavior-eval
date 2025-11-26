@@ -99,10 +99,70 @@ def test_main_sets_inference_engine_and_sampling(
 
     assert isinstance(eval_config, EvaluationConfig)
     assert eval_config.inference_engine == "vllm"
-    assert eval_config.vllm_max_model_len == 8192
-    assert eval_config.vllm_judge_max_model_len == 4096
+    assert eval_config.vllm_config is not None
+    assert eval_config.vllm_config.max_model_len == 8192
+    assert eval_config.vllm_config.judge_max_model_len == 4096
     assert eval_config.sampling_config.temperature == 0.3
     assert eval_config.sampling_config.top_p == 0.7
     assert eval_config.sampling_config.top_k == 12
     assert eval_config.sampling_config.seed == 123
     assert dataset_config.seed == 123
+
+
+def test_main_passes_vllm_optional_args(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        inference_engine="vllm",
+        vllm_tokenizer_mode="slow",
+        vllm_config_format="hf",
+        vllm_load_format="safetensors",
+        vllm_tool_call_parser="json",
+        vllm_enable_auto_tool_choice=True,
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.vllm_config is not None
+    assert eval_config.vllm_config.tokenizer_mode == "slow"
+    assert eval_config.vllm_config.config_format == "hf"
+    assert eval_config.vllm_config.load_format == "safetensors"
+    assert eval_config.vllm_config.tool_call_parser == "json"
+    assert eval_config.vllm_config.enable_auto_tool_choice is True
+
+
+def test_main_does_not_create_vllm_config_when_not_using_vllm(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        model_engine="transformers",
+        vllm_tokenizer_mode="slow",
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.vllm_config is None
+
+
+def test_main_validates_vllm_config_only_with_vllm(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    """Test that vllm_config can only be used when vLLM is actually enabled."""
+    # This would raise an error when instantiating EvaluationConfig
+    # with vllm_config but no vLLM engine selected
+    from pathlib import Path
+
+    from llm_behavior_eval.evaluation_utils.eval_config import (
+        EvaluationConfig,
+    )
+    from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+
+    vllm_config = VllmConfig(max_model_len=8192)
+
+    with pytest.raises(ValueError, match="vllm_config can only be specified"):
+        EvaluationConfig(
+            model_path_or_repo_id="fake/model",
+            results_dir=Path("/tmp"),
+            vllm_config=vllm_config,
+            model_engine="transformers",  # Not using vLLM
+        )
