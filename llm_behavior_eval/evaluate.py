@@ -345,11 +345,8 @@ def main(
             mlflow_config = None
 
         # Compose vLLM config separately, only if using vLLM
-        using_vllm = (
-            inference_engine == "vllm"
-            or model_engine == "vllm"
-            or judge_engine == "vllm"
-        )
+        vllm_related_args = [inference_engine, model_engine, judge_engine]
+        using_vllm = any([arg == "vllm" for arg in vllm_related_args])
         if using_vllm:
             vllm_config = VllmConfig(
                 max_model_len=vllm_max_model_len,

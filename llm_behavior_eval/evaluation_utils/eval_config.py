@@ -74,11 +74,12 @@ class EvaluationConfig(BaseModel):
     def validate_vllm_config_usage(self):
         """Ensure vllm_config is only provided when using vLLM."""
         if self.vllm_config is not None:
-            using_vllm = (
-                self.inference_engine == "vllm"
-                or self.model_engine == "vllm"
-                or self.judge_engine == "vllm"
-            )
+            vllm_related_args = [
+                self.inference_engine,
+                self.model_engine,
+                self.judge_engine,
+            ]
+            using_vllm = any([arg == "vllm" for arg in vllm_related_args])
             if not using_vllm:
                 raise ValueError(
                     "vllm_config can only be specified when using vLLM "
