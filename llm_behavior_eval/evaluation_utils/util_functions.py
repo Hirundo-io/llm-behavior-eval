@@ -97,6 +97,7 @@ class SafeApplyChatTemplate:
             tokenizer.name_or_path.startswith("google/gemma-")
             and "System role not supported" in tokenizer.chat_template
         )
+        uses_nothink = "/no_think" in tokenizer.chat_template
 
         if is_gemma_v1 and messages and messages[0]["role"] == "system":
             # merge system into next user turn or retag
@@ -107,6 +108,13 @@ class SafeApplyChatTemplate:
                 messages[0]["content"] = f"{sys_msg}\n\n{messages[0]['content']}"
             else:
                 messages.insert(0, {"role": "user", "content": sys_msg})
+        elif (
+            uses_nothink
+            and not reasoning
+            and messages
+            and messages[0]["role"] == "system"
+        ):
+            messages[0]["content"] = f"/no_think {messages[0]['content']}"
 
         # Choose formatting based on whether the model is multimodal
         def _apply_chat_template(
