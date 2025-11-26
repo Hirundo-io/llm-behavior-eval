@@ -1,7 +1,11 @@
 from typing import cast
 
 import torch
-from hirundo_core.h_core.debias.methods.plugin_model import PluginModelForCausalLM
+
+try:
+    from hirundo_core.h_core.debias.methods.plugin_model import PluginModelForCausalLM
+except ImportError as err:
+    raise ImportError("Plugin model not found. `use_plugin` is not available.") from err
 from transformers import AutoConfig, AutoTokenizer
 from transformers.data.data_collator import DataCollator
 
