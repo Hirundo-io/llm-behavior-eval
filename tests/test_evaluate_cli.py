@@ -166,3 +166,60 @@ def test_main_validates_vllm_config_only_with_vllm(
             vllm_config=vllm_config,
             model_engine="transformers",  # Not using vLLM
         )
+
+
+def test_main_passes_answer_tokens_and_judge_tokens_via_cli(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    """Test that max_answer_tokens and max_judge_tokens CLI options are passed correctly."""
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        max_answer_tokens=256,
+        max_judge_tokens=64,
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.max_answer_tokens == 256
+    assert eval_config.max_judge_tokens == 64
+
+
+def test_main_uses_default_answer_and_judge_tokens(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    """Test that default values are applied when tokens are not specified."""
+    evaluate.main("fake/model", "hallu")
+    eval_config = capture_eval_config[-1]
+    assert eval_config.max_answer_tokens == 128  # Default from EvaluationConfig
+    assert eval_config.max_judge_tokens == 32  # Default from EvaluationConfig
+
+
+def test_main_passes_model_inference_config_options(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    """Test that model inference options are passed correctly."""
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        batch_size=64,
+        use_4bit=True,
+        device_map="/gpu:0",
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.batch_size == 64
+    assert eval_config.use_4bit is True
+    assert eval_config.device_map == "/gpu:0"
+
+
+def test_main_passes_judge_inference_config_options(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    """Test that judge inference options are passed correctly."""
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        judge_batch_size=32,
+        sample_judge=True,
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.judge_batch_size == 32
+    assert eval_config.sample_judge is True

@@ -277,7 +277,7 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
-        answer_tokens=16,
+        max_answer_tokens=16,
         sample=False,
         batch_size=None,
     )
@@ -303,7 +303,7 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
     assert vllm_bundle.build_recorder.last_input_ids is input_ids
     assert vllm_bundle.build_recorder.last_attention_mask is attention_mask
     call_kwargs = vllm_bundle.sampling_recorder.calls[0]
-    assert call_kwargs["max_tokens"] == config.answer_tokens
+    assert call_kwargs["max_tokens"] == config.max_answer_tokens
     assert call_kwargs["temperature"] == 0.0
     assert call_kwargs["stop_token_ids"] == [vllm_bundle.tokenizer.eos_token_id]
     assert vllm_bundle.tokenizer.pad_token == vllm_bundle.tokenizer.eos_token
@@ -316,7 +316,7 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
-        answer_tokens=8,
+        max_answer_tokens=8,
         sample=False,
         batch_size=None,
     )
@@ -382,7 +382,7 @@ def test_transformers_eval_engine_generate_answers(
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
-        answer_tokens=3,
+        max_answer_tokens=3,
         sample=True,
         batch_size=2,
     )
@@ -411,7 +411,7 @@ def test_transformers_eval_engine_generate_answers(
     assert answers == ["decoded"]
     generate_call = transformers_bundle.model.generate_calls[0]
     assert generate_call["do_sample"] == config.sample
-    assert generate_call["max_new_tokens"] == config.answer_tokens
+    assert generate_call["max_new_tokens"] == config.max_answer_tokens
     assert generate_call["pad_token_id"] == transformers_bundle.tokenizer.pad_token_id
     assert generate_call["eos_token_id"] == transformers_bundle.tokenizer.eos_token_id
     assert generate_call["temperature"] == sampling_config.temperature
@@ -441,7 +441,7 @@ def test_transformers_eval_engine_sampling_config_overrides_defaults(
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
-        answer_tokens=3,
+        max_answer_tokens=3,
         sample=False,
         batch_size=1,
     )
@@ -482,7 +482,7 @@ def test_transformers_eval_engine_get_batch_size_autotune(
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
-        answer_tokens=2,
+        max_answer_tokens=2,
         sample=False,
         batch_size=None,
     )

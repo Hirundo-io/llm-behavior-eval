@@ -31,6 +31,13 @@ HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
 DEFAULT_MAX_SAMPLES = EvaluationConfig.model_fields["max_samples"].default
+DEFAULT_BATCH_SIZE = EvaluationConfig.model_fields["batch_size"].default
+DEFAULT_USE_4BIT = EvaluationConfig.model_fields["use_4bit"].default
+DEFAULT_DEVICE_MAP = EvaluationConfig.model_fields["device_map"].default
+DEFAULT_MAX_ANSWER_TOKENS = EvaluationConfig.model_fields["max_answer_tokens"].default
+DEFAULT_JUDGE_BATCH_SIZE = EvaluationConfig.model_fields["judge_batch_size"].default
+DEFAULT_MAX_JUDGE_TOKENS = EvaluationConfig.model_fields["max_judge_tokens"].default
+DEFAULT_SAMPLE_JUDGE = EvaluationConfig.model_fields["sample_judge"].default
 DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
 DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
 DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
@@ -258,6 +265,41 @@ def main(
             show_default=str(DEFAULT_MAX_SAMPLES),
         ),
     ] = DEFAULT_MAX_SAMPLES,
+    batch_size: Annotated[
+        int | None,
+        typer.Option(
+            "--batch-size",
+            help="Batch size for model inference. If None, will be adjusted for GPU limits.",
+        ),
+    ] = DEFAULT_BATCH_SIZE,
+    use_4bit: Annotated[
+        bool,
+        typer.Option(
+            "--use-4bit/--no-use-4bit",
+            help="Load the model in 4-bit mode (using bitsandbytes).",
+        ),
+    ] = DEFAULT_USE_4BIT,
+    device_map: Annotated[
+        str | None,
+        typer.Option(
+            "--device-map",
+            help="Device map for model inference. If None, will be set to 'auto'.",
+        ),
+    ] = DEFAULT_DEVICE_MAP,
+    judge_batch_size: Annotated[
+        int | None,
+        typer.Option(
+            "--judge-batch-size",
+            help="Batch size for the judge model. If None, will be adjusted for GPU limits.",
+        ),
+    ] = DEFAULT_JUDGE_BATCH_SIZE,
+    sample_judge: Annotated[
+        bool,
+        typer.Option(
+            "--sample-judge/--no-sample-judge",
+            help="Whether to sample outputs from the judge model.",
+        ),
+    ] = DEFAULT_SAMPLE_JUDGE,
     use_4bit_judge: Annotated[
         bool,
         typer.Option(
@@ -300,6 +342,22 @@ def main(
             help="Random seed for the evaluation.",
         ),
     ] = DEFAULT_SEED,
+    max_answer_tokens: Annotated[
+        int,
+        typer.Option(
+            "--max-answer-tokens",
+            help="Maximum number of tokens to generate per answer.",
+            show_default=str(DEFAULT_MAX_ANSWER_TOKENS),
+        ),
+    ] = DEFAULT_MAX_ANSWER_TOKENS,
+    max_judge_tokens: Annotated[
+        int,
+        typer.Option(
+            "--max-judge-tokens",
+            help="Maximum number of tokens to generate with the judge model.",
+            show_default=str(DEFAULT_MAX_JUDGE_TOKENS),
+        ),
+    ] = DEFAULT_MAX_JUDGE_TOKENS,
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
@@ -379,6 +437,13 @@ def main(
             model_engine=model_engine,
             judge_engine=judge_engine,
             max_samples=None if max_samples <= 0 else max_samples,
+            batch_size=batch_size,
+            use_4bit=use_4bit,
+            device_map=device_map,
+            max_answer_tokens=max_answer_tokens,
+            judge_batch_size=judge_batch_size,
+            max_judge_tokens=max_judge_tokens,
+            sample_judge=sample_judge,
             use_4bit_judge=use_4bit_judge,
             sampling_config=SamplingConfig(
                 do_sample=sample,
