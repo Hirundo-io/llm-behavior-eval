@@ -21,6 +21,7 @@ from llm_behavior_eval import (
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
 )
+from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 
 torch.set_float32_matmul_precision("high")
@@ -343,6 +344,27 @@ def main(
         else:
             mlflow_config = None
 
+        # Compose vLLM config separately, only if using vLLM
+        using_vllm = (
+            inference_engine == "vllm"
+            or model_engine == "vllm"
+            or judge_engine == "vllm"
+        )
+        if using_vllm:
+            vllm_config = VllmConfig(
+                max_model_len=vllm_max_model_len,
+                judge_max_model_len=vllm_judge_max_model_len
+                if vllm_judge_max_model_len is not None
+                else vllm_max_model_len,
+                tokenizer_mode=vllm_tokenizer_mode,
+                config_format=vllm_config_format,
+                load_format=vllm_load_format,
+                tool_call_parser=vllm_tool_call_parser,
+                enable_auto_tool_choice=vllm_enable_auto_tool_choice,
+            )
+        else:
+            vllm_config = None
+
         eval_config = EvaluationConfig(
             model_path_or_repo_id=model_path_or_repo_id,
             model_token=model_token,
@@ -350,6 +372,7 @@ def main(
             judge_token=judge_token,
             results_dir=result_dir,
             mlflow_config=mlflow_config,
+            vllm_config=vllm_config,
             reasoning=reasoning,
             trust_remote_code=trust_remote_code
             if trust_remote_code is not None
@@ -358,15 +381,6 @@ def main(
             inference_engine=inference_engine,
             model_engine=model_engine,
             judge_engine=judge_engine,
-            vllm_max_model_len=vllm_max_model_len,
-            vllm_judge_max_model_len=vllm_judge_max_model_len
-            if vllm_judge_max_model_len is not None
-            else vllm_max_model_len,
-            vllm_tokenizer_mode=vllm_tokenizer_mode,
-            vllm_config_format=vllm_config_format,
-            vllm_load_format=vllm_load_format,
-            vllm_tool_call_parser=vllm_tool_call_parser,
-            vllm_enable_auto_tool_choice=vllm_enable_auto_tool_choice,
             max_samples=None if max_samples <= 0 else max_samples,
             use_4bit_judge=use_4bit_judge,
             sampling_config=SamplingConfig(

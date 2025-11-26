@@ -348,14 +348,20 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
 
 @pytest.mark.vllm_engine_test
 def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
+    from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+
+    vllm_config = VllmConfig(
+        tokenizer_mode="slow",
+        config_format="hf-torch",
+        load_format="dummy",
+        tool_call_parser="json",
+        enable_auto_tool_choice=True,
+    )
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
-        vllm_tokenizer_mode="slow",
-        vllm_config_format="hf-torch",
-        vllm_load_format="dummy",
-        vllm_tool_call_parser="json",
-        vllm_enable_auto_tool_choice=True,
+        model_engine="vllm",
+        vllm_config=vllm_config,
     )
 
     VllmEvalEngine(config)

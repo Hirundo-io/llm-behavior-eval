@@ -11,6 +11,7 @@ from .evaluation_utils.util_functions import (
     pick_best_dtype,
     safe_apply_chat_template,
 )
+from .evaluation_utils.vllm_config import VllmConfig
 
 __all__ = [
     "EvaluateFactory",
@@ -19,6 +20,7 @@ __all__ = [
     "DatasetType",
     "EvaluationConfig",
     "MlflowConfig",
+    "VllmConfig",
     "FreeTextBiasEvaluator",
     "SYSTEM_PROMPT_DICT",
     "SamplingConfig",

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from pydantic.functional_validators import model_validator
 
 from .sampling_config import SamplingConfig
-from .vllm_types import TokenizerModeOption
+from .vllm_config import VllmConfig
 
 
 class EvaluationConfig(BaseModel):
@@ -32,8 +32,7 @@ class EvaluationConfig(BaseModel):
         inference_engine: Whether to run inference with vLLM instead of transformers. Overrides model_engine and judge_engine arguments.
         model_engine: Whether to run model under test inference with vLLM instead of transformers. DO NOT combine with the inference_engine argument.
         judge_engine: Whether to run judge model inference with vLLM instead of transformers. DO NOT combine with the inference_engine argument.
-        vllm_max_model_len: Maximum model length for vLLM (optional).
-        vllm_judge_max_model_len: Maximum model length for vLLM judge (optional). Defaults to the same value as model inference
+        vllm_config: vLLM-specific configuration (optional). Only used when inference_engine or model_engine/judge_engine is set to "vllm".
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
         reasoning: Whether to enable chat-template reasoning (if supported by tokenizer/model).
         trust_remote_code: Whether to trust remote code when loading models.
@@ -58,13 +57,7 @@ class EvaluationConfig(BaseModel):
     inference_engine: Literal["vllm", "transformers"] | None = None
     model_engine: Literal["vllm", "transformers"] = "transformers"
     judge_engine: Literal["vllm", "transformers"] = "transformers"
-    vllm_max_model_len: int | None = None
-    vllm_judge_max_model_len: int | None = None
-    vllm_tokenizer_mode: TokenizerModeOption | None = None
-    vllm_config_format: str | None = None
-    vllm_load_format: str | None = None
-    vllm_tool_call_parser: str | None = None
-    vllm_enable_auto_tool_choice: bool | None = None
+    vllm_config: VllmConfig | None = None
     results_dir: Path
     reasoning: bool = False
     trust_remote_code: bool = False
@@ -75,6 +68,22 @@ class EvaluationConfig(BaseModel):
     def set_judge_token(self):
         if self.judge_token is None:
             self.judge_token = self.model_token
+        return self
+
+    @model_validator(mode="after")
+    def validate_vllm_config_usage(self):
+        """Ensure vllm_config is only provided when using vLLM."""
+        if self.vllm_config is not None:
+            using_vllm = (
+                self.inference_engine == "vllm"
+                or self.model_engine == "vllm"
+                or self.judge_engine == "vllm"
+            )
+            if not using_vllm:
+                raise ValueError(
+                    "vllm_config can only be specified when using vLLM "
+                    "(set inference_engine='vllm' or model_engine='vllm' or judge_engine='vllm')"
+                )
         return self
 
 
