@@ -42,11 +42,11 @@ def main() -> None:
         max_samples=200,  # set to None to run full dataset
         batch_size=32,
         sample=False,
-        answer_tokens=128,
+        max_answer_tokens=128,
         model_path_or_repo_id=model,
         model_token=model_token,
         judge_batch_size=64,
-        judge_output_tokens=32,
+        max_judge_tokens=32,
         judge_path_or_repo_id=judge_model,
         judge_token=judge_token,
         use_4bit_judge=False,

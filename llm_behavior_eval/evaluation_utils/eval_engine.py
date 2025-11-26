@@ -73,5 +73,5 @@ class EvalEngine(ABC):
     def _get_max_new_tokens(eval_config: EvaluationConfig, is_judge: bool) -> int:
         """Get the max new tokens setting from config based on whether this is a judge model."""
         return (
-            eval_config.judge_output_tokens if is_judge else eval_config.answer_tokens
+            eval_config.max_judge_tokens if is_judge else eval_config.max_answer_tokens
         )

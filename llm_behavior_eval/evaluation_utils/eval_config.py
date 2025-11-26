@@ -19,11 +19,11 @@ class EvaluationConfig(BaseModel):
         use_4bit: Whether to load the model in 4-bit mode (using bitsandbytes).
             This is only relevant for the model under test.
         device_map: Device map for model inference. If None, will be set to "auto".
-        answer_tokens: Number of tokens to generate per answer. Typical range is 32-256.
+        max_answer_tokens: Number of tokens to generate per answer. Typical range is 32-256.
         model_path_or_repo_id: HF repo ID or path of the model under test (e.g. "meta-llama/Llama-3.1-8B-Instruct").
         model_token: HuggingFace token for the model under test.
         judge_batch_size: Batch size for the judge model (free-text tasks only). If None, will be adjusted for GPU limits.
-        judge_output_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
+        max_judge_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
         judge_path_or_repo_id: HF repo ID or path of the judge model (e.g. "meta-llama/Llama-3.3-70B-Instruct").
         judge_token: HuggingFace token for the judge model. Defaults to the value of `model_token` if not provided.
         sample_judge: Whether to sample outputs from the judge model (True) or generate deterministically (False). Defaults to False.
@@ -45,11 +45,11 @@ class EvaluationConfig(BaseModel):
     sample: bool = False
     use_4bit: bool = False
     device_map: str | dict[str, int] | None = "auto"
-    answer_tokens: int = 128
+    max_answer_tokens: int = 128
     model_path_or_repo_id: str
     model_token: str | None = None
     judge_batch_size: None | int = None
-    judge_output_tokens: int = 32
+    max_judge_tokens: int = 32
     judge_path_or_repo_id: str = "google/gemma-3-12b-it"
     judge_token: str | None = None
     sample_judge: bool = False
