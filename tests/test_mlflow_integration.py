@@ -126,7 +126,10 @@ def test_init_mlflow_starts_run_and_logs_params(
     logged_params = mlflow_mock.log_params.call_args.args[0]
     assert logged_params["model_path_or_repo_id"] == "meta/model"
     assert logged_params["file_path"] == "hirundo-io/bbq-gender-bias-free-text"
-    assert logged_params["num_samples_evaluated"] == 3
+    logged_param = mlflow_mock.log_param.call_args.args[0]
+    logged_param_value = mlflow_mock.log_param.call_args.args[1]
+    assert logged_param == "num_samples_evaluated"
+    assert logged_param_value == 3
 
 
 def test_init_with_default_mlflow_config_still_logs(

@@ -120,6 +120,9 @@ class BaseEvaluator(ABC):
         self.tokenizer.padding_side = "left"
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
+        if not self.eval_config.mlflow_config or not mlflow:
+            return
+        mlflow.log_param("num_samples_evaluated", self.num_samples)
 
     def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
         tokenizer = self.judge_tokenizer
@@ -448,7 +451,6 @@ class BaseEvaluator(ABC):
                 ],
             ),
             **to_dict(self.dataset_config, ["file_path", "dataset_type", "seed"]),
-            "num_samples_evaluated": self.num_samples,
         }
         mlflow.log_params(params)
 
