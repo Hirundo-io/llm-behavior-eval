@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 from inspect import Parameter, signature
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any, Literal
 
 import torch
@@ -258,6 +256,12 @@ def torch_dtype_to_str(dtype: torch.dtype) -> VLLMDType:
     raise ValueError(f"Unsupported dtype for vLLM: {dtype}")
 
 
+def _get_default_from_vllm(parameter_name: str):
+    from vllm import LLM
+
+    return signature(LLM.__init__).parameters[parameter_name].default
+
+
 def load_vllm_model(
     model_name: str,
     dtype: torch.dtype,
@@ -310,70 +314,27 @@ def load_vllm_model(
         gpu_count = torch.cuda.device_count()
         tensor_parallel = gpu_count if gpu_count > 0 else None
 
-    if tensor_parallel is None and tokenizer_mode is None:
-        llm_instance = LLM(
-            model=model_name,
-            trust_remote_code=trust_remote_code,
-            dtype=dtype_literal,
-            enforce_eager=enforce_eager,
-            quantization=quantization,
-            max_num_seqs=batch_size,
-            hf_token=token,
-            max_model_len=max_model_len,
-            config_format=config_format,
-            load_format=load_format,
-            tool_call_parser=tool_call_parser,
-            enable_auto_tool_choice=enable_auto_tool_choice,
-        )
-    elif tensor_parallel is None:
-        llm_instance = LLM(
-            model=model_name,
-            trust_remote_code=trust_remote_code,
-            dtype=dtype_literal,
-            enforce_eager=enforce_eager,
-            quantization=quantization,
-            max_num_seqs=batch_size,
-            hf_token=token,
-            max_model_len=max_model_len,
-            tokenizer_mode=tokenizer_mode,
-            config_format=config_format,
-            load_format=load_format,
-            tool_call_parser=tool_call_parser,
-            enable_auto_tool_choice=enable_auto_tool_choice,
-        )
-    elif tokenizer_mode is None:
-        llm_instance = LLM(
-            model=model_name,
-            trust_remote_code=trust_remote_code,
-            dtype=dtype_literal,
-            enforce_eager=enforce_eager,
-            quantization=quantization,
-            tensor_parallel_size=tensor_parallel,
-            max_num_seqs=batch_size,
-            hf_token=token,
-            max_model_len=max_model_len,
-            config_format=config_format,
-            load_format=load_format,
-            tool_call_parser=tool_call_parser,
-            enable_auto_tool_choice=enable_auto_tool_choice,
-        )
-    else:
-        llm_instance = LLM(
-            model=model_name,
-            trust_remote_code=trust_remote_code,
-            dtype=dtype_literal,
-            enforce_eager=enforce_eager,
-            quantization=quantization,
-            tensor_parallel_size=tensor_parallel,
-            max_num_seqs=batch_size,
-            hf_token=token,
-            max_model_len=max_model_len,
-            tokenizer_mode=tokenizer_mode,
-            config_format=config_format,
-            load_format=load_format,
-            tool_call_parser=tool_call_parser,
-            enable_auto_tool_choice=enable_auto_tool_choice,
-        )
+    default_tokenizer_mode = _get_default_from_vllm("tokenizer_mode")
+    default_tensor_parallel = _get_default_from_vllm("tensor_parallel_size")
+
+    llm_instance = LLM(
+        model=model_name,
+        trust_remote_code=trust_remote_code,
+        dtype=dtype_literal,
+        enforce_eager=enforce_eager,
+        quantization=quantization,
+        tensor_parallel_size=tensor_parallel
+        if tensor_parallel is not None
+        else default_tensor_parallel,
+        max_num_seqs=batch_size,
+        hf_token=token,
+        max_model_len=max_model_len,
+        tokenizer_mode=tokenizer_mode or default_tokenizer_mode,
+        config_format=config_format,
+        load_format=load_format,
+        tool_call_parser=tool_call_parser,
+        enable_auto_tool_choice=enable_auto_tool_choice,
+    )
     return llm_instance
 
 
