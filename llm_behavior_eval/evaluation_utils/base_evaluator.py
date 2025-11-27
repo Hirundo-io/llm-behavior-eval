@@ -111,10 +111,10 @@ class BaseEvaluator(ABC):
                 self.eval_config,
             )
         self.tokenizer = self.eval_engine.tokenizer
+        self.tokenizer.padding_side = "left"
         self.trust_remote_code = self.eval_config.trust_remote_code
         self.prepare_dataloader()
         self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
-        self.tokenizer.padding_side = "left"
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
         # MLflow config (optional)

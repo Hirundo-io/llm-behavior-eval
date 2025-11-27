@@ -60,9 +60,9 @@ class PluginEvalEngine(TransformersEvalEngine):
                 do_sample=self.eval_config.sample,
                 # temperature=self.eval_config.temperature, # TODO: add temperature
                 pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id,
             )
         generated_tokens = outputs[:, model_input_ids.shape[1] :].detach().cpu()
-
         return tokenizer.batch_decode(
             generated_tokens,
             skip_special_tokens=True,
