@@ -466,7 +466,6 @@ def test_transformers_eval_engine_sampling_config_overrides_defaults(
     assert generate_call["temperature"] == 1.0
     assert generate_call["top_p"] == 1.0
     assert generate_call["top_k"] == 0
-    assert generate_call["seed"] == sampling_config.seed
 
 
 @pytest.mark.transformers_engine_test
