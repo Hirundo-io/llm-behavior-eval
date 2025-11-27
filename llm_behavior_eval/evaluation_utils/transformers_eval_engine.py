@@ -86,6 +86,8 @@ class TransformersEvalEngine(EvalEngine):
         top_k = sampling_config.top_k if sampling_config.top_k is not None else 0
         seed = sampling_config.seed
         device = self.model.device
+        generator = torch.Generator(device=device)
+        generator.manual_seed(seed)
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
         with torch.inference_mode():
@@ -99,7 +101,7 @@ class TransformersEvalEngine(EvalEngine):
                 temperature=temperature,
                 top_p=top_p,
                 top_k=top_k,
-                seed=seed,
+                generator=generator,
             )
         generated_tokens = outputs[:, model_input_ids.shape[1] :].detach().cpu()
         return self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
