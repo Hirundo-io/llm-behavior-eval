@@ -5,6 +5,7 @@ import torch
 from accelerate.utils.memory import find_executable_batch_size
 from datasets import Dataset
 from torch.utils.data import DataLoader
+from transformers import set_seed
 from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
@@ -85,6 +86,8 @@ class TransformersEvalEngine(EvalEngine):
         top_p = sampling_config.top_p if sampling_config.top_p is not None else 1.0
         top_k = sampling_config.top_k if sampling_config.top_k is not None else 0
         seed = sampling_config.seed
+        if seed is not None:
+            set_seed(seed)
         device = self.model.device
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
@@ -99,7 +102,6 @@ class TransformersEvalEngine(EvalEngine):
                 temperature=temperature,
                 top_p=top_p,
                 top_k=top_k,
-                seed=seed,
             )
         generated_tokens = outputs[:, model_input_ids.shape[1] :].detach().cpu()
         return self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
