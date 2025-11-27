@@ -346,6 +346,30 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
     assert call_kwargs["seed"] == 99
 
 
+@pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
+    from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+
+    vllm_config = VllmConfig(
+        tokenizer_mode="slow",
+        config_format="hf-torch",
+        load_format="dummy",
+    )
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        model_engine="vllm",
+        vllm_config=vllm_config,
+    )
+
+    VllmEvalEngine(config)
+
+    last_call = vllm_bundle.model_loader.calls[-1]["kwargs"]
+    assert last_call["tokenizer_mode"] == "slow"
+    assert last_call["config_format"] == "hf-torch"
+    assert last_call["load_format"] == "dummy"
+
+
 @pytest.mark.transformers_engine_test
 def test_transformers_eval_engine_generate_answers(
     transformers_bundle, tmp_path

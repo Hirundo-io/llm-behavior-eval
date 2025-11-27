@@ -280,6 +280,9 @@ def load_vllm_model(
     enforce_eager: bool = False,
     quantization: VLLMQuantization | None = None,
     max_model_len: int | None = None,
+    tokenizer_mode: TokenizerModeOption | None = None,
+    config_format: str | None = None,
+    load_format: str | None = None,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -293,6 +296,9 @@ def load_vllm_model(
         enforce_eager: Whether to enforce eager execution (useful for CPU-only setups).
         quantization: Optional quantization backend (for example ``"bitsandbytes"`` for 4-bit inference).
         max_model_len: Optional maximum model length passed to vLLM.
+        tokenizer_mode: Optional tokenizer mode string forwarded to vLLM.
+        config_format: Optional config format string forwarded to vLLM.
+        load_format: Optional checkpoint load format string forwarded to vLLM.
 
     Returns:
         An initialized ``vllm.LLM`` instance.
@@ -312,6 +318,7 @@ def load_vllm_model(
         gpu_count = torch.cuda.device_count()
         tensor_parallel = gpu_count if gpu_count > 0 else None
 
+    default_tokenizer_mode = _get_default_from_vllm("tokenizer_mode")
     default_tensor_parallel = _get_default_from_vllm("tensor_parallel_size")
 
     llm_instance = LLM(
@@ -326,6 +333,9 @@ def load_vllm_model(
         max_num_seqs=batch_size,
         hf_token=token,
         max_model_len=max_model_len,
+        tokenizer_mode=tokenizer_mode or default_tokenizer_mode,
+        config_format=config_format,
+        load_format=load_format,
     )
     return llm_instance
 
