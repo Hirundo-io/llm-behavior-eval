@@ -354,8 +354,6 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
         tokenizer_mode="slow",
         config_format="hf-torch",
         load_format="dummy",
-        tool_call_parser="json",
-        enable_auto_tool_choice=True,
     )
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -370,8 +368,6 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
     assert last_call["tokenizer_mode"] == "slow"
     assert last_call["config_format"] == "hf-torch"
     assert last_call["load_format"] == "dummy"
-    assert last_call["tool_call_parser"] == "json"
-    assert last_call["enable_auto_tool_choice"] is True
 
 
 @pytest.mark.transformers_engine_test

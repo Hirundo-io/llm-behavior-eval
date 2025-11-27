@@ -18,9 +18,6 @@ class VllmConfig(BaseModel):
         tokenizer_mode: Tokenizer mode forwarded to vLLM (e.g. 'auto', 'slow', 'mistral', 'custom').
         config_format: Model config format hint forwarded to vLLM (optional).
         load_format: Checkpoint load format hint forwarded to vLLM (optional).
-        tool_call_parser: Tool-call parser identifier forwarded to vLLM (optional).
-        enable_auto_tool_choice: Enable vLLM automatic tool selection (optional).
-            If None, vLLM's default will be used.
     """
 
     max_model_len: int | None = None
@@ -28,5 +25,3 @@ class VllmConfig(BaseModel):
     tokenizer_mode: TokenizerModeOption | None = None
     config_format: str | None = None
     load_format: str | None = None
-    tool_call_parser: str | None = None
-    enable_auto_tool_choice: bool | None = None

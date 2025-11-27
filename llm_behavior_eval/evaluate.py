@@ -231,22 +231,6 @@ def main(
             help="Checkpoint load format hint forwarded to vLLM.",
         ),
     ] = None,
-    vllm_tool_call_parser: Annotated[
-        str | None,
-        typer.Option(
-            "--vllm-tool-call-parser",
-            help="Tool-call parser identifier forwarded to vLLM.",
-        ),
-    ] = None,
-    vllm_enable_auto_tool_choice: Annotated[
-        bool | None,
-        typer.Option(
-            "--vllm-enable-auto-tool-choice/--no-vllm-enable-auto-tool-choice",
-            help=(
-                "Enable vLLM automatic tool selection (leave unset to keep vLLM default)."
-            ),
-        ),
-    ] = None,
     reasoning: Annotated[
         bool,
         typer.Option(
@@ -414,8 +398,6 @@ def main(
                 tokenizer_mode=vllm_tokenizer_mode,
                 config_format=vllm_config_format,
                 load_format=vllm_load_format,
-                tool_call_parser=vllm_tool_call_parser,
-                enable_auto_tool_choice=vllm_enable_auto_tool_choice,
             )
         else:
             vllm_config = None

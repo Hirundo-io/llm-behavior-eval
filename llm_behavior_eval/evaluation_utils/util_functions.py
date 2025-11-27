@@ -283,8 +283,6 @@ def load_vllm_model(
     tokenizer_mode: TokenizerModeOption | None = None,
     config_format: str | None = None,
     load_format: str | None = None,
-    tool_call_parser: str | None = None,
-    enable_auto_tool_choice: bool | None = None,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -301,8 +299,6 @@ def load_vllm_model(
         tokenizer_mode: Optional tokenizer mode string forwarded to vLLM.
         config_format: Optional config format string forwarded to vLLM.
         load_format: Optional checkpoint load format string forwarded to vLLM.
-        tool_call_parser: Optional tool call parser identifier for vLLM tool calling.
-        enable_auto_tool_choice: Whether to enable automatic tool selection in vLLM tool calling.
 
     Returns:
         An initialized ``vllm.LLM`` instance.
@@ -340,8 +336,6 @@ def load_vllm_model(
         tokenizer_mode=tokenizer_mode or default_tokenizer_mode,
         config_format=config_format,
         load_format=load_format,
-        tool_call_parser=tool_call_parser,
-        enable_auto_tool_choice=enable_auto_tool_choice,
     )
     return llm_instance
 
