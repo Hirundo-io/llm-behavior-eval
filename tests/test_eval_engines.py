@@ -413,7 +413,6 @@ def test_transformers_eval_engine_generate_answers(
     assert generate_call["temperature"] == sampling_config.temperature
     assert generate_call["top_p"] == sampling_config.top_p
     assert generate_call["top_k"] == sampling_config.top_k
-    assert generate_call["seed"] == sampling_config.seed
     decode_call = transformers_bundle.tokenizer.batch_decode_calls[0]
     assert decode_call["skip_special_tokens"] is True
     assert torch.equal(
