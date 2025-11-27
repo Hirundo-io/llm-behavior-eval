@@ -50,13 +50,6 @@ class VllmEvalEngine(EvalEngine):
         quantization = "bitsandbytes" if use_4bit else None
         # Extract vLLM configuration
         vllm_config = eval_config.vllm_config
-        tokenizer_mode = vllm_config.tokenizer_mode if vllm_config else None
-        config_format = vllm_config.config_format if vllm_config else None
-        load_format = vllm_config.load_format if vllm_config else None
-        tool_call_parser = vllm_config.tool_call_parser if vllm_config else None
-        enable_auto_tool_choice = (
-            vllm_config.enable_auto_tool_choice if vllm_config else None
-        )
 
         self.model = load_vllm_model(
             model_path_or_repo_id,
@@ -67,11 +60,6 @@ class VllmEvalEngine(EvalEngine):
             enforce_eager=not torch.cuda.is_available(),
             quantization=quantization,
             max_model_len=max_model_len,
-            tokenizer_mode=tokenizer_mode,
-            config_format=config_format,
-            load_format=load_format,
-            tool_call_parser=tool_call_parser,
-            enable_auto_tool_choice=enable_auto_tool_choice,
         )
         self._vllm_sampling_params = None
 

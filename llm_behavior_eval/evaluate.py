@@ -210,43 +210,6 @@ def main(
             help="Maximum model length for vLLM judge (optional). Defaults to the same value as model inference",
         ),
     ] = None,
-    vllm_tokenizer_mode: Annotated[
-        TokenizerModeOption | None,
-        typer.Option(
-            "--vllm-tokenizer-mode",
-            help="Tokenizer mode forwarded to vLLM (e.g. 'auto', 'slow').",
-        ),
-    ] = None,
-    vllm_config_format: Annotated[
-        str | None,
-        typer.Option(
-            "--vllm-config-format",
-            help="Model config format hint forwarded to vLLM.",
-        ),
-    ] = None,
-    vllm_load_format: Annotated[
-        str | None,
-        typer.Option(
-            "--vllm-load-format",
-            help="Checkpoint load format hint forwarded to vLLM.",
-        ),
-    ] = None,
-    vllm_tool_call_parser: Annotated[
-        str | None,
-        typer.Option(
-            "--vllm-tool-call-parser",
-            help="Tool-call parser identifier forwarded to vLLM.",
-        ),
-    ] = None,
-    vllm_enable_auto_tool_choice: Annotated[
-        bool | None,
-        typer.Option(
-            "--vllm-enable-auto-tool-choice/--no-vllm-enable-auto-tool-choice",
-            help=(
-                "Enable vLLM automatic tool selection (leave unset to keep vLLM default)."
-            ),
-        ),
-    ] = None,
     reasoning: Annotated[
         bool,
         typer.Option(
@@ -411,11 +374,6 @@ def main(
                 judge_max_model_len=vllm_judge_max_model_len
                 if vllm_judge_max_model_len is not None
                 else vllm_max_model_len,
-                tokenizer_mode=vllm_tokenizer_mode,
-                config_format=vllm_config_format,
-                load_format=vllm_load_format,
-                tool_call_parser=vllm_tool_call_parser,
-                enable_auto_tool_choice=vllm_enable_auto_tool_choice,
             )
         else:
             vllm_config = None

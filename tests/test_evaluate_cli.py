@@ -116,19 +116,9 @@ def test_main_passes_vllm_optional_args(
         "fake/model",
         "hallu",
         inference_engine="vllm",
-        vllm_tokenizer_mode="slow",
-        vllm_config_format="hf",
-        vllm_load_format="safetensors",
-        vllm_tool_call_parser="json",
-        vllm_enable_auto_tool_choice=True,
     )
     eval_config = capture_eval_config[-1]
     assert eval_config.vllm_config is not None
-    assert eval_config.vllm_config.tokenizer_mode == "slow"
-    assert eval_config.vllm_config.config_format == "hf"
-    assert eval_config.vllm_config.load_format == "safetensors"
-    assert eval_config.vllm_config.tool_call_parser == "json"
-    assert eval_config.vllm_config.enable_auto_tool_choice is True
 
 
 def test_main_does_not_create_vllm_config_when_not_using_vllm(
@@ -138,7 +128,6 @@ def test_main_does_not_create_vllm_config_when_not_using_vllm(
         "fake/model",
         "hallu",
         model_engine="transformers",
-        vllm_tokenizer_mode="slow",
     )
     eval_config = capture_eval_config[-1]
     assert eval_config.vllm_config is None
