@@ -66,6 +66,5 @@ class PluginEvalEngine(TransformersEvalEngine):
         return tokenizer.batch_decode(
             generated_tokens,
             skip_special_tokens=True,
-            clean_up_tokenization_spaces=True,
         )
 
