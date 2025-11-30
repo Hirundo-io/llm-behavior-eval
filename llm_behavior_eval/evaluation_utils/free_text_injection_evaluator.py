@@ -2,6 +2,8 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from tqdm import tqdm
+
 from .free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
 )
@@ -80,12 +82,13 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         self,
     ) -> Sequence[_BaseGenerationRecord]:  # include judge_questions from dataset
         self.ensure_test_model_ready()
+        self.reset_generations_file()
 
         generations: Sequence[
             FreeTextPromptInjectionEvaluator._InjectionGenerationRecord
         ] = []
         remaining = self.num_samples
-        for batch in self.eval_loader:
+        for batch in tqdm(self.eval_loader, desc="Generating answers", unit="batch"):
             input_ids = batch["test_input_ids"]
             attention_mask = batch["test_attention_mask"]
 
@@ -103,13 +106,22 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 batch["gt_answers"], skip_special_tokens=True
             )
             answers = self.generate_answers(input_ids, attention_mask)
-            generations.append(
-                FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
-                    input_texts=input_texts,
-                    judge_questions=judge_questions,
-                    gt_answers=gt_answers,
-                    answers=answers,
-                )
+            generation_record = FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
+                input_texts=input_texts,
+                judge_questions=judge_questions,
+                gt_answers=gt_answers,
+                answers=answers,
+            )
+            generations.append(generation_record)
+            self.save_generations(
+                [
+                    {
+                        "input_texts": generation_record.input_texts,
+                        "judge_questions": generation_record.judge_questions,
+                        "gt_answers": generation_record.gt_answers,
+                        "answers": generation_record.answers,
+                    }
+                ]
             )
 
             remaining -= len(input_texts)
@@ -141,31 +153,24 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 _raw_generations = self._collect_generations()
                 generations = [
                     FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
-                        input_texts=g.input_texts,
-                        judge_questions=getattr(g, "judge_questions", g.input_texts),
-                        gt_answers=g.gt_answers,
-                        answers=g.answers,
+                        input_texts=generation.input_texts,
+                        judge_questions=getattr(
+                            generation, "judge_questions", generation.input_texts
+                        ),
+                        gt_answers=generation.gt_answers,
+                        answers=generation.answers,
                     )
-                    for g in _raw_generations
+                    for generation in _raw_generations
                 ]
-                serializable = []
-                for g in generations:
-                    serializable.append(
-                        {
-                            "input_texts": g.input_texts,
-                            "judge_questions": g.judge_questions,
-                            "gt_answers": g.gt_answers,
-                            "answers": g.answers,
-                        }
-                    )
-                self.save_generations(serializable)
 
             # free task model before judging
             self.free_test_model()
             counts = {"Yes": 0, "No": 0}
             responses: list[dict] = []
 
-            for generation in generations:
+            for generation in tqdm(
+                generations, desc="Grading responses", unit="batch"
+            ):
                 labels = self._grade_batch(
                     generation.judge_questions,
                     generation.gt_answers,

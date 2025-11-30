@@ -470,7 +470,7 @@ class BaseEvaluator(ABC):
         # Log individual files
         responses_file = output_dir / "responses.json"
         metrics_file = output_dir / "metrics.csv"
-        generations_file = output_dir / "generations.json"
+        generations_file = output_dir / "generations.jsonl"
 
         if responses_file.exists():
             mlflow.log_artifact(str(responses_file))
@@ -488,22 +488,32 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     - Initialize and free judge pipeline
     """
 
-    def generations_path(self, filename: str = "generations.json") -> Path:
+    def generations_path(self, filename: str = "generations.jsonl") -> Path:
         return Path(self.get_output_dir()) / filename
 
-    def load_generations(self, filename: str = "generations.json") -> list[dict] | None:
+    def load_generations(self, filename: str = "generations.jsonl") -> list[dict] | None:
         path = self.generations_path(filename)
         if path.exists():
-            with open(path) as f:
-                return json.load(f)
+            with open(path) as file_handle:
+                generations = [
+                    json.loads(line) for line in file_handle if line.strip()
+                ]
+                return generations or None
         return None
 
+    def reset_generations_file(self, filename: str = "generations.jsonl") -> None:
+        path = self.generations_path(filename)
+        if path.exists():
+            path.unlink()
+
     def save_generations(
-        self, items: list[dict], filename: str = "generations.json"
+        self, items: list[dict], filename: str = "generations.jsonl"
     ) -> None:
         path = self.generations_path(filename)
-        with open(path, "w") as f:
-            json.dump(items, f, indent=2)
+        with open(path, "a") as file_handle:
+            for item in items:
+                file_handle.write(json.dumps(item))
+                file_handle.write("\n")
 
     def free_test_model(self) -> None:
         self.eval_engine.free_model()

@@ -2,6 +2,8 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from tqdm import tqdm
+
 from .base_evaluator import FreeTextSharedEvaluator
 from .util_functions import safe_apply_chat_template
 
@@ -48,10 +50,11 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
 
     def _collect_generations(self) -> Sequence[_GenerationRecord]:
         self.ensure_test_model_ready()
+        self.reset_generations_file()
 
         generations: list[_GenerationRecord] = []
         remaining = self.num_samples
-        for batch in self.eval_loader:
+        for batch in tqdm(self.eval_loader, desc="Generating answers", unit="batch"):
             input_ids = batch["test_input_ids"]
             attention_mask = batch["test_attention_mask"]
 
@@ -62,12 +65,20 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                 batch["gt_answers"], skip_special_tokens=True
             )
             answers = self.generate_answers(input_ids, attention_mask)
-            generations.append(
-                _GenerationRecord(
-                    input_texts=input_texts,
-                    gt_answers=gt_answers,
-                    answers=answers,
-                )
+            generation_record = _GenerationRecord(
+                input_texts=input_texts,
+                gt_answers=gt_answers,
+                answers=answers,
+            )
+            generations.append(generation_record)
+            self.save_generations(
+                [
+                    {
+                        "input_texts": generation_record.input_texts,
+                        "gt_answers": generation_record.gt_answers,
+                        "answers": generation_record.answers,
+                    }
+                ]
             )
             remaining -= len(input_texts)
             if remaining <= 0:
@@ -120,22 +131,15 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                 ]
             else:
                 generations = self._collect_generations()
-                serializable = [
-                    {
-                        "input_texts": g.input_texts,
-                        "gt_answers": g.gt_answers,
-                        "answers": g.answers,
-                    }
-                    for g in generations
-                ]
-                self.save_generations(serializable)
 
             # free task model
             self.free_test_model()
             counts = {k: 0 for k in CHOICE_STRINGS}
             responses: list[dict] = []
 
-            for generation in generations:
+            for generation in tqdm(
+                generations, desc="Grading responses", unit="batch"
+            ):
                 labels = self._grade_batch(
                     generation.input_texts, generation.gt_answers, generation.answers
                 )
