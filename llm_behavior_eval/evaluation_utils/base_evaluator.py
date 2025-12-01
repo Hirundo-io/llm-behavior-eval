@@ -7,7 +7,7 @@ import sys
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
 
 import pandas as pd
 import torch
@@ -485,7 +485,11 @@ class BaseEvaluator(ABC):
     def run_config_path(self) -> Path:
         return self.get_output_dir() / "run_config.json"
 
-    def _current_run_config(self) -> dict[str, Any]:
+    class RunConfig(TypedDict):
+        evaluation_config: dict[str, Any]
+        dataset_config: dict[str, Any]
+
+    def _current_run_config(self) -> RunConfig:
         evaluation_config_snapshot = self.eval_config.model_dump(
             exclude={"model_token", "judge_token"},
             exclude_none=True,
@@ -501,7 +505,7 @@ class BaseEvaluator(ABC):
             ),
         }
 
-    def _write_run_config(self, run_config: dict[str, Any]) -> None:
+    def _write_run_config(self, run_config: RunConfig) -> None:
         with open(self.run_config_path(), "w") as file_handle:
             json.dump(run_config, file_handle, indent=2)
 
