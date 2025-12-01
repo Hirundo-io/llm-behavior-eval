@@ -1,4 +1,5 @@
 import logging
+from copy import copy
 from functools import partial
 from pathlib import Path
 from typing import cast
@@ -63,7 +64,7 @@ def free_text_preprocess_function(
         system_msg = (
             {"role": "system", "content": system_override}
             if system_override
-            else SYSTEM_PROMPT_DICT
+            else copy(SYSTEM_PROMPT_DICT)
         )
         eval_strings.append(
             safe_apply_chat_template(
