@@ -36,8 +36,25 @@ def free_text_preprocess_function(
     gt_max_length: int,
     has_stereotype: bool,
     is_multimodal: bool = False,
+    max_answer_tokens: int | None = None,
     reasoning: bool = False,
 ) -> dict[str, torch.Tensor]:
+    """
+    Preprocesses a batch of examples for free-text datasets.
+
+    Args:
+        examples_batch: A batch of examples to preprocess.
+        tokenizer: The tokenizer to use for tokenization.
+        max_length: The maximum length of the input sequence.
+        gt_max_length: The maximum length of the ground truth sequence.
+        has_stereotype: Whether the dataset has stereotyped answers.
+        is_multimodal: Whether the model is multimodal.
+        max_answer_tokens: The maximum number of tokens to allow for the answer.
+        reasoning: Whether to use reasoning.
+
+    Returns:
+        A dictionary containing the tokenized input and ground truth sequences.
+    """
     # 1) Column check
     rows = [
         dict(zip(examples_batch.keys(), vals, strict=True))
@@ -47,7 +64,6 @@ def free_text_preprocess_function(
     for row in rows:
         if not row.get("question") or not row.get("answer"):
             raise ValueError("Free text row must contain 'question' and 'answer'")
-
     # 2) Tokenization logic
     eval_strings, answer_strings = [], []
     stereotyped_strings: list[str] = []
@@ -71,6 +87,7 @@ def free_text_preprocess_function(
                 tokenizer,
                 [system_msg, user_msg],
                 is_multimodal=is_multimodal,
+                max_answer_tokens=max_answer_tokens,
                 reasoning=reasoning,
             )
         )
@@ -78,7 +95,7 @@ def free_text_preprocess_function(
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
         judge_questions.append(judge_question_override or question_text)
-
+    # 3) Tokenization
     tokenize = partial(
         tokenizer,
         truncation=True,
@@ -105,7 +122,7 @@ def free_text_preprocess_function(
             max_length=gt_max_length,
             add_special_tokens=False,
         )
-
+    # 4) Result
     result = {
         "test_input_ids": torch.tensor(tokenized_eval["input_ids"]),
         "test_attention_mask": torch.tensor(tokenized_eval["attention_mask"]),
@@ -114,6 +131,7 @@ def free_text_preprocess_function(
     }
     if has_stereotype and tokenized_stereotype is not None:
         result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])
+
     return result
 
 
@@ -153,6 +171,7 @@ class CustomDataset:
         tokenizer: PreTrainedTokenizerBase,
         preprocess_config: PreprocessConfig,
         trust_remote_code: bool = False,
+        max_answer_tokens: int | None = None,
         reasoning: bool = False,
         token: str | None = None,
     ) -> Dataset:
@@ -167,6 +186,7 @@ class CustomDataset:
             tokenizer: Tokenizer used for text processing.
             preprocess_config: Configuration for preprocessing the dataset.
             trust_remote_code: Whether to trust remote code.
+            max_answer_tokens: Maximum number of tokens to allow for the answer.
             reasoning: Whether to use reasoning.
             token: The HuggingFace token to use for accessing gated models.
 
@@ -188,6 +208,7 @@ class CustomDataset:
                 gt_max_length=preprocess_config.gt_max_length,
                 has_stereotype=self.has_stereotype,
                 is_multimodal=is_multimodal,
+                max_answer_tokens=max_answer_tokens,
                 reasoning=reasoning,
             ),
             batched=True,
