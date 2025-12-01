@@ -63,6 +63,7 @@ class EvaluationConfig(BaseModel):
     trust_remote_code: bool = False
     sampling_config: SamplingConfig = SamplingConfig()
     mlflow_config: "MlflowConfig | None" = None
+    replace_existing_output: bool = False
 
     @model_validator(mode="after")
     def set_judge_token(self):

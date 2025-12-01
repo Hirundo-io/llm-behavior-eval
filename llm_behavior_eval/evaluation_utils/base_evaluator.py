@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import json
 import logging
+import sys
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import pandas as pd
 import torch
+import typer
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
@@ -120,9 +122,10 @@ class BaseEvaluator(ABC):
         self.tokenizer.padding_side = "left"
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
-        if not self.eval_config.mlflow_config or not mlflow:
-            return
-        mlflow.log_param("num_samples_evaluated", self.num_samples)
+        if self.eval_config.mlflow_config and mlflow:
+            mlflow.log_param("num_samples_evaluated", self.num_samples)
+
+        self._ensure_run_configuration_allowed()
 
     def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
         tokenizer = self.judge_tokenizer
@@ -470,7 +473,7 @@ class BaseEvaluator(ABC):
         # Log individual files
         responses_file = output_dir / "responses.json"
         metrics_file = output_dir / "metrics.csv"
-        generations_file = output_dir / "generations.json"
+        generations_file = output_dir / "generations.jsonl"
 
         if responses_file.exists():
             mlflow.log_artifact(str(responses_file))
@@ -478,6 +481,81 @@ class BaseEvaluator(ABC):
             mlflow.log_artifact(str(metrics_file))
         if generations_file.exists():
             mlflow.log_artifact(str(generations_file))
+
+    def run_config_path(self) -> Path:
+        return self.get_output_dir() / "run_config.json"
+
+    def _current_run_config(self) -> dict[str, Any]:
+        evaluation_config_snapshot = self.eval_config.model_dump(
+            exclude={"model_token", "judge_token"},
+            exclude_none=True,
+        )
+        dataset_config_snapshot = self.dataset_config.model_dump(exclude_none=True)
+
+        return {
+            "evaluation_config": json.loads(
+                json.dumps(evaluation_config_snapshot, default=str)
+            ),
+            "dataset_config": json.loads(
+                json.dumps(dataset_config_snapshot, default=str)
+            ),
+        }
+
+    def _write_run_config(self, run_config: dict[str, Any]) -> None:
+        with open(self.run_config_path(), "w") as file_handle:
+            json.dump(run_config, file_handle, indent=2)
+
+    def _clear_output_files(self) -> None:
+        for filename in ["responses.json", "metrics.csv", "generations.jsonl"]:
+            output_file = self.get_output_dir() / filename
+            if output_file.exists():
+                output_file.unlink()
+
+    def _ensure_run_configuration_allowed(self) -> None:
+        run_config = self._current_run_config()
+        config_path = self.run_config_path()
+
+        if not config_path.exists():
+            self._write_run_config(run_config)
+            return
+
+        with open(config_path) as file_handle:
+            existing_run_config = json.load(file_handle)
+
+        if existing_run_config == run_config:
+            logging.info(
+                "Existing outputs at %s match current configuration; continuing with cached generations if present.",
+                config_path,
+            )
+            return
+
+        if self.eval_config.replace_existing_output:
+            logging.info(
+                "Replacing outputs at %s because --replace-existing-output was provided.",
+                config_path,
+            )
+            self._clear_output_files()
+            self._write_run_config(run_config)
+            return
+
+        if sys.stdin.isatty():
+            should_replace = typer.confirm(
+                (
+                    "Existing evaluation outputs were produced with a different configuration. "
+                    "Replace them and rerun?"
+                ),
+                default=False,
+            )
+            if should_replace:
+                logging.info("User approved replacing outputs at %s.", config_path)
+                self._clear_output_files()
+                self._write_run_config(run_config)
+                return
+
+        raise RuntimeError(
+            "Existing evaluation outputs were produced with a different configuration. "
+            "Re-run with --replace-existing-output to overwrite them."
+        )
 
 
 class FreeTextSharedEvaluator(BaseEvaluator):
@@ -488,22 +566,51 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     - Initialize and free judge pipeline
     """
 
-    def generations_path(self, filename: str = "generations.json") -> Path:
+    def generations_path(self, filename: str = "generations.jsonl") -> Path:
         return Path(self.get_output_dir()) / filename
 
-    def load_generations(self, filename: str = "generations.json") -> list[dict] | None:
+    def load_generations(
+        self, filename: str = "generations.jsonl"
+    ) -> list[dict] | None:
         path = self.generations_path(filename)
         if path.exists():
-            with open(path) as f:
-                return json.load(f)
+            with open(path) as file_handle:
+                generations = [json.loads(line) for line in file_handle if line.strip()]
+                return generations or None
         return None
 
+    def reset_generations_file(self, filename: str = "generations.jsonl") -> None:
+        path = self.generations_path(filename)
+        if path.exists():
+            path.unlink()
+
     def save_generations(
-        self, items: list[dict], filename: str = "generations.json"
+        self, items: list[dict], filename: str = "generations.jsonl"
     ) -> None:
         path = self.generations_path(filename)
-        with open(path, "w") as f:
-            json.dump(items, f, indent=2)
+        with open(path, "a") as file_handle:
+            for item in items:
+                file_handle.write(json.dumps(item))
+                file_handle.write("\n")
+
+    def load_completed_generation_dicts(
+        self, filename: str = "generations.jsonl"
+    ) -> list[dict]:
+        """
+        Load completed generations, logging reuse before appending new batches.
+        """
+
+        existing_generations = self.load_generations(filename)
+        if not existing_generations:
+            self.reset_generations_file(filename)
+            return []
+
+        logging.info(
+            "Found %s completed generation batches in %s; new batches will be appended.",
+            len(existing_generations),
+            self.generations_path(filename),
+        )
+        return existing_generations
 
     def free_test_model(self) -> None:
         self.eval_engine.free_model()

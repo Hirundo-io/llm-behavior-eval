@@ -109,6 +109,13 @@ def test_main_sets_inference_engine_and_sampling(
     assert dataset_config.seed == 123
 
 
+def test_main_allows_replacing_existing_output(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main("fake/model", "hallu", replace_existing_output=True)
+    assert capture_eval_config[-1].replace_existing_output is True
+
+
 def test_main_passes_vllm_optional_args(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:

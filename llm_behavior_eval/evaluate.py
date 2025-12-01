@@ -231,6 +231,17 @@ def main(
             help="Checkpoint load format hint forwarded to vLLM.",
         ),
     ] = None,
+    replace_existing_output: Annotated[
+        bool,
+        typer.Option(
+            "--replace-existing-output/--no-replace-existing-output",
+            help=(
+                "Replace any existing evaluation outputs when the configuration "
+                "differs from previous runs. Defaults to keeping existing "
+                "results."
+            ),
+        ),
+    ] = False,
     reasoning: Annotated[
         bool,
         typer.Option(
@@ -418,6 +429,7 @@ def main(
             inference_engine=inference_engine,
             model_engine=model_engine,
             judge_engine=judge_engine,
+            replace_existing_output=replace_existing_output,
             max_samples=None if max_samples <= 0 else max_samples,
             batch_size=batch_size,
             use_4bit=use_4bit,
