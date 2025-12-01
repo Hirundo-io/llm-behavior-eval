@@ -80,7 +80,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
 
     def _collect_generations(
         self,
-    ) -> Sequence[_BaseGenerationRecord]:  # include judge_questions from dataset
+    ) -> Sequence[_InjectionGenerationRecord]:  # include judge_questions from dataset
         self.ensure_test_model_ready()
         completed_dicts = self.load_completed_generation_dicts()
         completed_generations = [
