@@ -155,12 +155,32 @@ candidate_uncertain: "<yes|no>"
 
     def _collect_generations(self) -> list[_GenerationRecord]:
         self.ensure_test_model_ready()
-        self.reset_generations_file()
+        completed_dicts = self.load_completed_generation_dicts()
+        completed_generations = [
+            _GenerationRecord(
+                questions=item.get("questions", []),
+                answers=item.get("answers", []),
+                correct_answers=item.get("correct_answers", []),
+                stereotyped_answers=item.get("stereotyped_answers"),
+            )
+            for item in completed_dicts
+        ]
+        completed_samples = sum(
+            len(generation.questions) for generation in completed_generations
+        )
+        completed_batches = len(completed_generations)
 
-        generation_records: list[_GenerationRecord] = []
-        remaining = self.num_samples
+        generation_records: list[_GenerationRecord] = list(completed_generations)
+        remaining = self.num_samples - completed_samples
 
-        for batch in tqdm(self.eval_loader, desc="Generating answers", unit="batch"):
+        if remaining <= 0:
+            return generation_records
+
+        for batch_index, batch in enumerate(
+            tqdm(self.eval_loader, desc="Generating answers", unit="batch")
+        ):
+            if batch_index < completed_batches:
+                continue
             input_ids = batch["test_input_ids"]
             attention_mask = batch["test_attention_mask"]
             correct_answer_ids = batch["gt_answers"]
@@ -289,20 +309,7 @@ candidate_uncertain: "<yes|no>"
 
     def evaluate(self) -> None:
         try:
-            # answers generation pass (resumable)
-            raw = self.load_generations()
-            if raw is not None:
-                generations = [
-                    _GenerationRecord(
-                        questions=item["questions"],
-                        answers=item["answers"],
-                        correct_answers=item["correct_answers"],
-                        stereotyped_answers=item.get("stereotyped_answers"),
-                    )
-                    for item in raw
-                ]
-            else:
-                generations = self._collect_generations()
+            generations = self._collect_generations()
 
             # free under-test model
             self.free_test_model()

@@ -515,6 +515,28 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 file_handle.write(json.dumps(item))
                 file_handle.write("\n")
 
+    def load_completed_generation_dicts(
+        self, filename: str = "generations.jsonl"
+    ) -> list[dict]:
+        """
+        Load completed generations, rewriting the cache to rerun the last batch.
+
+        When resuming, this drops the last recorded generation batch to guard
+        against partial writes, rewrites the cached file with only completed
+        batches, and returns those completed batches for reuse.
+        """
+
+        existing_generations = self.load_generations(filename)
+        if not existing_generations:
+            self.reset_generations_file(filename)
+            return []
+
+        completed_generations = existing_generations[:-1]
+        self.reset_generations_file(filename)
+        if completed_generations:
+            self.save_generations(completed_generations, filename)
+        return completed_generations
+
     def free_test_model(self) -> None:
         self.eval_engine.free_model()
         del self.eval_engine

@@ -50,11 +50,30 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
 
     def _collect_generations(self) -> Sequence[_GenerationRecord]:
         self.ensure_test_model_ready()
-        self.reset_generations_file()
+        completed_dicts = self.load_completed_generation_dicts()
+        completed_generations = [
+            _GenerationRecord(
+                input_texts=item.get("input_texts", []),
+                gt_answers=item.get("gt_answers", []),
+                answers=item.get("answers", []),
+            )
+            for item in completed_dicts
+        ]
+        completed_samples = sum(
+            len(generation.input_texts) for generation in completed_generations
+        )
+        completed_batches = len(completed_generations)
 
-        generations: list[_GenerationRecord] = []
-        remaining = self.num_samples
-        for batch in tqdm(self.eval_loader, desc="Generating answers", unit="batch"):
+        generations: list[_GenerationRecord] = list(completed_generations)
+        remaining = self.num_samples - completed_samples
+        if remaining <= 0:
+            return generations
+
+        for batch_index, batch in enumerate(
+            tqdm(self.eval_loader, desc="Generating answers", unit="batch")
+        ):
+            if batch_index < completed_batches:
+                continue
             input_ids = batch["test_input_ids"]
             attention_mask = batch["test_attention_mask"]
 
@@ -118,19 +137,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
 
     def evaluate(self) -> None:
         try:
-            # Collect generations (resumable)
-            raw = self.load_generations()
-            if raw is not None:
-                generations = [
-                    _GenerationRecord(
-                        input_texts=item["input_texts"],
-                        gt_answers=item["gt_answers"],
-                        answers=item["answers"],
-                    )
-                    for item in raw
-                ]
-            else:
-                generations = self._collect_generations()
+            generations = self._collect_generations()
 
             # free task model
             self.free_test_model()
