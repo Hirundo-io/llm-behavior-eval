@@ -1999,7 +1999,7 @@ requires-dist = [
     { name = "pytest", specifier = "<9.0.0" },
     { name = "sentencepiece", specifier = "<1.0.0" },
     { name = "torch", specifier = "<3.0.0" },
-    { name = "tqdm", specifier = "<5.0.0" },
+    { name = "tqdm" },
     { name = "transformers", specifier = "<5.0.0" },
     { name = "typer", specifier = "<1.0.0" },
     { name = "vllm", marker = "extra == 'vllm'", specifier = ">=0.11.0,<0.12.0" },
