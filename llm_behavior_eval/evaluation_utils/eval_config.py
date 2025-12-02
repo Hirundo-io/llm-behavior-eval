@@ -20,6 +20,7 @@ class EvaluationConfig(BaseModel):
             This is only relevant for the model under test.
         device_map: Device map for model inference. If None, will be set to "auto".
         max_answer_tokens: Number of tokens to generate per answer. Typical range is 32-256.
+        pass_max_answer_tokens: Whether to pass max_answer_tokens to the model.
         model_path_or_repo_id: HF repo ID or path of the model under test (e.g. "meta-llama/Llama-3.1-8B-Instruct").
         model_token: HuggingFace token for the model under test.
         judge_batch_size: Batch size for the judge model (free-text tasks only). If None, will be adjusted for GPU limits.
@@ -46,6 +47,7 @@ class EvaluationConfig(BaseModel):
     use_4bit: bool = False
     device_map: str | dict[str, int] | None = "auto"
     max_answer_tokens: int = 128
+    pass_max_answer_tokens: bool = False
     model_path_or_repo_id: str
     model_token: str | None = None
     judge_batch_size: None | int = None

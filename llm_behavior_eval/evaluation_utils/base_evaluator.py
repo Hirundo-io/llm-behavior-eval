@@ -164,7 +164,9 @@ class BaseEvaluator(ABC):
             self.tokenizer,
             self.dataset_config.preprocess_config,
             trust_remote_code=self.trust_remote_code,
+            max_answer_tokens=self.eval_config.max_answer_tokens,
             reasoning=self.eval_config.reasoning,
+            pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
             token=self.eval_config.model_token,
         )
         # Deterministic shuffle before sampling

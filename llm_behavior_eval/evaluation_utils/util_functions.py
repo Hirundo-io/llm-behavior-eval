@@ -49,7 +49,9 @@ class SafeApplyChatTemplate:
         tokenizer: PreTrainedTokenizerBase,
         messages: list[dict[str, str]],
         is_multimodal: bool = False,
+        max_answer_tokens: int | None = None,
         reasoning: bool = False,
+        pass_max_answer_tokens: bool = False,
     ) -> str:
         """
         Applies the chat template to the messages, ensuring that the system message is handled correctly.
@@ -62,7 +64,9 @@ class SafeApplyChatTemplate:
             tokenizer: The tokenizer to use for applying the chat template.
             messages: The list of messages to format.
             is_multimodal: Whether to format messages for a multimodal model.
+            max_answer_tokens: The maximum number of tokens to allow for the answer.
             reasoning: Whether to enable tokenizer chat-template reasoning (if supported).
+            pass_max_answer_tokens: Whether to pass the max_answer_tokens to the chat template.
 
         Returns:
             The formatted string after applying the chat template.
@@ -103,22 +107,22 @@ class SafeApplyChatTemplate:
             and "/no_think" in tokenizer.chat_template
         )
 
-        if is_gemma_v1 and messages and messages[0]["role"] == "system":
-            # merge system into next user turn or retag
-            # Gemma v1 models do not support system messages in their chat templates.
-            # To handle this, we merge the system message into the next user message or retag it as a user message.
-            sys_msg = messages.pop(0)["content"]
-            if messages and messages[0]["role"] == "user":
-                messages[0]["content"] = f"{sys_msg}\n\n{messages[0]['content']}"
-            else:
-                messages.insert(0, {"role": "user", "content": sys_msg})
-        elif (
-            uses_nothink
-            and not reasoning
-            and messages
-            and messages[0]["role"] == "system"
-        ):
-            messages[0]["content"] = f"/no_think {messages[0]['content']}"
+        if messages and messages[0]["role"] == "system":
+            if pass_max_answer_tokens and max_answer_tokens is not None:
+                messages[0]["content"] = (
+                    f"{messages[0]['content']} Respond in no more than {max_answer_tokens} tokens."
+                )
+            if is_gemma_v1:
+                # merge system into next user turn or retag
+                # Gemma v1 models do not support system messages in their chat templates.
+                # To handle this, we merge the system message into the next user message or retag it as a user message.
+                sys_msg = messages.pop(0)["content"]
+                if messages and messages[0]["role"] == "user":
+                    messages[0]["content"] = f"{sys_msg}\n\n{messages[0]['content']}"
+                else:
+                    messages.insert(0, {"role": "user", "content": sys_msg})
+            elif uses_nothink and not reasoning:
+                messages[0]["content"] = f"/no_think {messages[0]['content']}"
 
         # Choose formatting based on whether the model is multimodal
         def _apply_chat_template(

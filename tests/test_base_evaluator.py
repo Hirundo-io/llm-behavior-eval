@@ -47,7 +47,9 @@ class CaptureState:
     dataloader_args: tuple[Sized, int, bool, Callable[..., object] | None] | None = None
     tokenizer: object | None = None
     trust_remote_code: bool | None = None
+    max_answer_tokens: int | None = None
     reasoning: bool | None = None
+    pass_max_answer_tokens: bool | None = None
     token: str | None = None
     init_args: tuple[str, DatasetType] | None = None
 
@@ -141,12 +143,16 @@ def patch_custom_dataset(
             _preprocess_config: object,
             *,
             trust_remote_code: bool,
+            max_answer_tokens: int | None,
             reasoning: bool,
+            pass_max_answer_tokens: bool,
             token: str | None = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
             capture_state.trust_remote_code = trust_remote_code
+            capture_state.max_answer_tokens = max_answer_tokens
             capture_state.reasoning = reasoning
+            capture_state.pass_max_answer_tokens = pass_max_answer_tokens
             capture_state.token = token
             return StubDataset()
 

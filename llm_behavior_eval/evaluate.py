@@ -345,6 +345,13 @@ def main(
             show_default=str(DEFAULT_MAX_ANSWER_TOKENS),
         ),
     ] = DEFAULT_MAX_ANSWER_TOKENS,
+    pass_max_answer_tokens: Annotated[
+        bool,
+        typer.Option(
+            "--pass-max-answer-tokens/--no-pass-max-answer-tokens",
+            help="Pass max_answer_tokens to the model.",
+        ),
+    ] = False,
     max_judge_tokens: Annotated[
         int,
         typer.Option(
@@ -435,6 +442,7 @@ def main(
             use_4bit=use_4bit,
             device_map=device_map,
             max_answer_tokens=max_answer_tokens,
+            pass_max_answer_tokens=pass_max_answer_tokens,
             judge_batch_size=judge_batch_size,
             max_judge_tokens=max_judge_tokens,
             sample_judge=sample_judge,
