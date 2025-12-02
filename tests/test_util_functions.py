@@ -59,6 +59,45 @@ def test_safe_apply_chat_template_merges_system_message() -> None:
     assert "system" in formatted and "user" in formatted
 
 
+def test_safe_apply_chat_template_appends_max_answer_instruction() -> None:
+    tokenizer = StubTokenizer("some/model", "generic template")
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Answer the question."},
+    ]
+    formatted = safe_apply_chat_template(
+        cast("PreTrainedTokenizerBase", tokenizer),
+        messages,
+        max_answer_tokens=42,
+        pass_max_answer_tokens=True,
+    )
+    assert "Respond in no more than 42 tokens." in formatted
+    assert "You are a helpful assistant." in formatted
+    assert "Answer the question." in formatted
+
+
+def test_safe_apply_chat_template_does_not_append_without_flag_or_value() -> None:
+    tokenizer = StubTokenizer("some/model", "generic template")
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Answer the question."},
+    ]
+    without_flag = safe_apply_chat_template(
+        cast("PreTrainedTokenizerBase", tokenizer),
+        [m.copy() for m in messages],
+        max_answer_tokens=42,
+        pass_max_answer_tokens=False,
+    )
+    without_value = safe_apply_chat_template(
+        cast("PreTrainedTokenizerBase", tokenizer),
+        [m.copy() for m in messages],
+        max_answer_tokens=None,
+        pass_max_answer_tokens=True,
+    )
+    assert "Respond in no more than 42 tokens." not in without_flag
+    assert "Respond in no more than" not in without_value
+
+
 def test_torch_dtype_to_str_supported() -> None:
     assert torch_dtype_to_str(torch.float16) == "float16"
     assert torch_dtype_to_str(torch.bfloat16) == "bfloat16"

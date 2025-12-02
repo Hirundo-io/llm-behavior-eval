@@ -38,6 +38,7 @@ def free_text_preprocess_function(
     is_multimodal: bool = False,
     max_answer_tokens: int | None = None,
     reasoning: bool = False,
+    pass_max_answer_tokens: bool = False,
 ) -> dict[str, torch.Tensor]:
     """
     Preprocesses a batch of examples for free-text datasets.
@@ -51,6 +52,7 @@ def free_text_preprocess_function(
         is_multimodal: Whether the model is multimodal.
         max_answer_tokens: The maximum number of tokens to allow for the answer.
         reasoning: Whether to use reasoning.
+        pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
 
     Returns:
         A dictionary containing the tokenized input and ground truth sequences.
@@ -64,7 +66,7 @@ def free_text_preprocess_function(
     for row in rows:
         if not row.get("question") or not row.get("answer"):
             raise ValueError("Free text row must contain 'question' and 'answer'")
-    # 2) Tokenization logic
+    # 2) Apply chat template to dataset messages
     eval_strings, answer_strings = [], []
     stereotyped_strings: list[str] = []
     judge_questions: list[str] = []
@@ -89,6 +91,7 @@ def free_text_preprocess_function(
                 is_multimodal=is_multimodal,
                 max_answer_tokens=max_answer_tokens,
                 reasoning=reasoning,
+                pass_max_answer_tokens=pass_max_answer_tokens,
             )
         )
         answer_strings.append(answer_text)
@@ -173,6 +176,7 @@ class CustomDataset:
         trust_remote_code: bool = False,
         max_answer_tokens: int | None = None,
         reasoning: bool = False,
+        pass_max_answer_tokens: bool = False,
         token: str | None = None,
     ) -> Dataset:
         """
@@ -188,6 +192,7 @@ class CustomDataset:
             trust_remote_code: Whether to trust remote code.
             max_answer_tokens: Maximum number of tokens to allow for the answer.
             reasoning: Whether to use reasoning.
+            pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
             token: The HuggingFace token to use for accessing gated models.
 
         Returns:
@@ -210,6 +215,7 @@ class CustomDataset:
                 is_multimodal=is_multimodal,
                 max_answer_tokens=max_answer_tokens,
                 reasoning=reasoning,
+                pass_max_answer_tokens=pass_max_answer_tokens,
             ),
             batched=True,
             remove_columns=old_columns,

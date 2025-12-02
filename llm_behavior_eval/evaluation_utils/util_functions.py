@@ -51,6 +51,7 @@ class SafeApplyChatTemplate:
         is_multimodal: bool = False,
         max_answer_tokens: int | None = None,
         reasoning: bool = False,
+        pass_max_answer_tokens: bool = False,
     ) -> str:
         """
         Applies the chat template to the messages, ensuring that the system message is handled correctly.
@@ -65,6 +66,7 @@ class SafeApplyChatTemplate:
             is_multimodal: Whether to format messages for a multimodal model.
             max_answer_tokens: The maximum number of tokens to allow for the answer.
             reasoning: Whether to enable tokenizer chat-template reasoning (if supported).
+            pass_max_answer_tokens: Whether to pass the max_answer_tokens to the chat template.
 
         Returns:
             The formatted string after applying the chat template.
@@ -106,7 +108,7 @@ class SafeApplyChatTemplate:
         )
 
         if messages and messages[0]["role"] == "system":
-            if max_answer_tokens is not None:
+            if pass_max_answer_tokens and max_answer_tokens is not None:
                 messages[0]["content"] = (
                     f"{messages[0]['content']} Respond in no more than {max_answer_tokens} tokens."
                 )
@@ -119,12 +121,7 @@ class SafeApplyChatTemplate:
                     messages[0]["content"] = f"{sys_msg}\n\n{messages[0]['content']}"
                 else:
                     messages.insert(0, {"role": "user", "content": sys_msg})
-            elif (
-                uses_nothink
-                and not reasoning
-                and messages
-                and messages[0]["role"] == "system"
-            ):
+            elif uses_nothink and not reasoning:
                 messages[0]["content"] = f"/no_think {messages[0]['content']}"
 
         # Choose formatting based on whether the model is multimodal
