@@ -9,7 +9,7 @@ logic is unaffected when MLflow is not used.
 
 - Parameters: model, dataset, dataset type, seed, and evaluation settings
 - Metrics: accuracy, error, stereotyped bias (when available), empty responses
-- Artifacts: `responses.json`, `metrics.csv`, `generations.json` (when present)
+- Artifacts: `responses.json`, `metrics.csv`, `generations.jsonl` (when present)
 
 ## How to Enable
 

@@ -9,7 +9,7 @@ Core library code lives in `llm_behavior_eval/`, with behavior-specific helpers 
 - Dev containers run `.devcontainer/setup.sh`, which installs the base project by default; export `LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS="mlflow"` (or `mlflow,vllm`) before invoking the script if you require extras and have sufficient disk space.
 - Prefer `uv` for dependency management in automation scripts and local workflows; avoid invoking `pip` directly unless you are installing `uv` itself or a tool explicitly requires `pip`.
 - `pytest`: run the full test suite; pass `-k pattern` to scope to a module while iterating.
-- `ruff check .` and `ruff format .`: lint and auto-format the codebase.
+- Run `ruff format .` (or `ruff format --check --diff` to verify) before committing to ensure consistent styling, followed by `ruff check .` for linting.
 - `basedpyright`: run static type checks (CI uses the same configuration).
 
 ## Coding Style & Naming Conventions
