@@ -106,6 +106,10 @@ class SafeApplyChatTemplate:
         )
 
         if messages and messages[0]["role"] == "system":
+            if max_answer_tokens is not None:
+                messages[0]["content"] = (
+                    f"{messages[0]['content']} Respond in no more than {max_answer_tokens} tokens."
+                )
             if is_gemma_v1:
                 # merge system into next user turn or retag
                 # Gemma v1 models do not support system messages in their chat templates.
@@ -122,8 +126,6 @@ class SafeApplyChatTemplate:
                 and messages[0]["role"] == "system"
             ):
                 messages[0]["content"] = f"/no_think {messages[0]['content']}"
-            if max_answer_tokens is not None:
-                messages[0]["content"] = f"{messages[0]['content']} Respond in no more than {max_answer_tokens} tokens."
 
         # Choose formatting based on whether the model is multimodal
         def _apply_chat_template(
