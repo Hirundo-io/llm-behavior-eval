@@ -2,6 +2,8 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 
+from tqdm import tqdm
+
 from llm_behavior_eval.evaluation_utils.prompts import UNKNOWN_ANSWERS
 
 from .base_evaluator import FreeTextSharedEvaluator
@@ -153,11 +155,32 @@ candidate_uncertain: "<yes|no>"
 
     def _collect_generations(self) -> list[_GenerationRecord]:
         self.ensure_test_model_ready()
+        completed_dicts = self.load_completed_generation_dicts()
+        completed_generations = [
+            _GenerationRecord(
+                questions=item.get("questions", []),
+                answers=item.get("answers", []),
+                correct_answers=item.get("correct_answers", []),
+                stereotyped_answers=item.get("stereotyped_answers"),
+            )
+            for item in completed_dicts
+        ]
+        completed_samples = sum(
+            len(generation.questions) for generation in completed_generations
+        )
+        completed_batches = len(completed_generations)
 
-        gens: list[_GenerationRecord] = []
-        remaining = self.num_samples
+        generation_records: list[_GenerationRecord] = list(completed_generations)
+        remaining = self.num_samples - completed_samples
 
-        for batch in self.eval_loader:
+        if remaining <= 0:
+            return generation_records
+
+        for batch_index, batch in enumerate(
+            tqdm(self.eval_loader, desc="Generating answers", unit="batch")
+        ):
+            if batch_index < completed_batches:
+                continue
             input_ids = batch["test_input_ids"]
             attention_mask = batch["test_attention_mask"]
             correct_answer_ids = batch["gt_answers"]
@@ -172,20 +195,29 @@ candidate_uncertain: "<yes|no>"
                 )
             questions = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
             answers = self.generate_answers(input_ids, attention_mask)
-            gens.append(
-                _GenerationRecord(
-                    questions=questions,
-                    answers=answers,
-                    correct_answers=correct_answers_text,
-                    stereotyped_answers=stereotyped_answers_text,
-                )
+            generation_record = _GenerationRecord(
+                questions=questions,
+                answers=answers,
+                correct_answers=correct_answers_text,
+                stereotyped_answers=stereotyped_answers_text,
+            )
+            generation_records.append(generation_record)
+            self.save_generations(
+                [
+                    {
+                        "questions": generation_record.questions,
+                        "answers": generation_record.answers,
+                        "correct_answers": generation_record.correct_answers,
+                        "stereotyped_answers": generation_record.stereotyped_answers,
+                    }
+                ]
             )
 
             remaining -= len(questions)
             if remaining <= 0:
                 break
 
-        return gens
+        return generation_records
 
     def _match_llm_answers(
         self,
@@ -277,30 +309,7 @@ candidate_uncertain: "<yes|no>"
 
     def evaluate(self) -> None:
         try:
-            # answers generation pass (resumable)
-            raw = self.load_generations()
-            if raw is not None:
-                generations = [
-                    _GenerationRecord(
-                        questions=item["questions"],
-                        answers=item["answers"],
-                        correct_answers=item["correct_answers"],
-                        stereotyped_answers=item.get("stereotyped_answers"),
-                    )
-                    for item in raw
-                ]
-            else:
-                generations = self._collect_generations()
-                serializable = [
-                    {
-                        "questions": g.questions,
-                        "answers": g.answers,
-                        "correct_answers": g.correct_answers,
-                        "stereotyped_answers": g.stereotyped_answers,
-                    }
-                    for g in generations
-                ]
-                self.save_generations(serializable)
+            generations = self._collect_generations()
 
             # free under-test model
             self.free_test_model()
@@ -312,19 +321,21 @@ candidate_uncertain: "<yes|no>"
             empty_responses = 0
             responses = []
 
-            for gen in generations:
+            for generation_record in tqdm(
+                generations, desc="Grading responses", unit="batch"
+            ):
                 # categorize answers using the judge model
                 agreements, is_uncertain_flags = self._match_llm_answers(
-                    gen.answers,
-                    gen.correct_answers,
-                    gen.stereotyped_answers,
-                    gen.questions,
+                    generation_record.answers,
+                    generation_record.correct_answers,
+                    generation_record.stereotyped_answers,
+                    generation_record.questions,
                 )
 
                 stereo_iter = (
-                    gen.stereotyped_answers
-                    if gen.stereotyped_answers is not None
-                    else ["" for _ in range(len(gen.questions))]
+                    generation_record.stereotyped_answers
+                    if generation_record.stereotyped_answers is not None
+                    else ["" for _ in range(len(generation_record.questions))]
                 )
                 for (
                     question,
@@ -334,9 +345,9 @@ candidate_uncertain: "<yes|no>"
                     agreement,
                     is_uncertain_flag,
                 ) in zip(
-                    gen.questions,
-                    gen.answers,
-                    gen.correct_answers,
+                    generation_record.questions,
+                    generation_record.answers,
+                    generation_record.correct_answers,
                     stereo_iter,
                     agreements,
                     is_uncertain_flags,
