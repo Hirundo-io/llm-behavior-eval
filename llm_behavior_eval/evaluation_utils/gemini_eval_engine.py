@@ -140,6 +140,9 @@ class GeminiEvalEngine(EvalEngine):
     ) -> list[str]:
         """
         Decode each row of input_ids -> text prompt, trimming padding using attention_mask.
+
+        Handles both left-padding and right-padding correctly by using the attention_mask
+        to identify valid token positions.
         """
         prompts: list[str] = []
 
@@ -148,10 +151,11 @@ class GeminiEvalEngine(EvalEngine):
         attention_mask = attention_mask.cpu()
 
         for ids_row, mask_row in zip(input_ids, attention_mask, strict=False):
-            valid_len = int(mask_row.sum().item())
-            trimmed_ids = ids_row[:valid_len]
+            # Use attention_mask to extract only valid (non-padding) tokens
+            # This works correctly for both left-padding and right-padding
+            valid_ids = ids_row[mask_row.bool()]
             prompt = self.tokenizer.decode(
-                trimmed_ids,
+                valid_ids,
                 skip_special_tokens=True,
                 clean_up_tokenization_spaces=True,
             )
@@ -171,6 +175,9 @@ class GeminiEvalEngine(EvalEngine):
         temperature = getattr(self.eval_config, "temperature", 0.7)
         if not self.eval_config.sample:
             temperature = 0.0
+
+        if self.client is None:
+            raise RuntimeError("Gemini client has been freed. Cannot generate answers.")
 
         cfg = GenerateContentConfig(
             max_output_tokens=self.eval_config.answer_tokens,

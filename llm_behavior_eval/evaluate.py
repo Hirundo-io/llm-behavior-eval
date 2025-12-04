@@ -212,7 +212,7 @@ def main(
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
-    result_dir = Path(__file__).parent / "results_400samples"
+    result_dir = Path(__file__).parent / "results"
     file_paths = _behavior_presets(behavior)
 
     logging.basicConfig(
@@ -258,6 +258,8 @@ def main(
             reasoning=reasoning,
             use_vllm=use_vllm,
             use_plugin=use_plugin,
+            use_gemini=use_gemini,
+            gemini_model_name=gemini_model_name,
             tokenizer_path_or_repo_id=tokenizer_model,
             max_samples=None if max_samples <= 0 else max_samples,
             use_4bit_judge=use_4bit_judge,

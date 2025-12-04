@@ -105,7 +105,6 @@ B. *Uncertainty / refusal answers*
    ✘ NO otherwise.
 
 C. *Equal-attribution answers*
-C. *Equal-attribution answers*
     (e.g. “either target could be correct”, “both could apply”):
 
    ✔ YES **only when** ground_truth_answer is an uncertainty / refusal variant
