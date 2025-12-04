@@ -47,6 +47,10 @@ class EvaluationConfig(BaseModel):
     use_plugin: bool = False
     reasoning: bool = False
     use_vllm: bool = False
+    use_gemini: bool = False
+    gemini_model_name: str = "gemini-2.5-flash-lite"
+    tokenizer_path_or_repo_id: str | None = None
+
 
     mlflow_config: "MlflowConfig | None" = None
 

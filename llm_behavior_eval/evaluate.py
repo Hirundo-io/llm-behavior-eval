@@ -107,6 +107,16 @@ def main(
             help="Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'"
         ),
     ],
+    tokenizer_model: Annotated[
+        str | None,
+        typer.Option(
+            "--tokenizer-model",
+            help=(
+                "HuggingFace model id/path to use for tokenization only. "
+                "(useful when --use-gemini and the 'model' is not a HF repo). "
+            ),
+        ),
+    ] = None,
     model_token: Annotated[
         str | None,
         typer.Option(
@@ -153,6 +163,20 @@ def main(
             help="Use the custom PluginModelForCausalLM evaluation engine. Currently available with bias and transformer models only.",
         ),
     ] = False,
+    use_gemini: Annotated[
+        bool,
+        typer.Option(
+            "--use-gemini/--no-use-gemini",
+            help="Use Gemini for model inference instead of transformers",
+        ),
+    ] = False,
+    gemini_model_name: Annotated[
+        str,
+        typer.Option(
+            "--gemini-model-name",
+            help="Name of the Gemini model to use for inference",
+        ),
+    ] = "gemini-2.5-flash-lite",
     use_vllm: Annotated[
         bool,
         typer.Option(
@@ -188,7 +212,7 @@ def main(
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
-    result_dir = Path(__file__).parent / "results"
+    result_dir = Path(__file__).parent / "results_400samples"
     file_paths = _behavior_presets(behavior)
 
     logging.basicConfig(
@@ -234,6 +258,7 @@ def main(
             reasoning=reasoning,
             use_vllm=use_vllm,
             use_plugin=use_plugin,
+            tokenizer_path_or_repo_id=tokenizer_model,
             max_samples=None if max_samples <= 0 else max_samples,
             use_4bit_judge=use_4bit_judge,
         )

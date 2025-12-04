@@ -1,4 +1,6 @@
-from typing import cast
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, cast
 
 import torch
 
@@ -7,13 +9,16 @@ try:
 except ImportError as err:
     raise ImportError("Plugin model not found. `use_plugin` is not available.") from err
 from transformers import AutoConfig, AutoTokenizer
-from transformers.data.data_collator import DataCollator
 
-from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
 )
 from llm_behavior_eval.evaluation_utils.util_functions import pick_best_dtype
+
+if TYPE_CHECKING:
+    from transformers.data.data_collator import DataCollator
+
+    from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
 
 
 class PluginEvalEngine(TransformersEvalEngine):
@@ -33,7 +38,7 @@ class PluginEvalEngine(TransformersEvalEngine):
         self.model = PluginModelForCausalLM.from_pretrained(
             plugin_path,
             device_map=eval_config.device_map,
-            dtype=dtype,
+            torch_dtype=dtype,
             token=eval_config.model_token,
         )
         self.data_collator = data_collator
