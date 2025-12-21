@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel
 from pydantic.functional_validators import model_validator
@@ -45,6 +46,7 @@ class EvaluationConfig(BaseModel):
     use_4bit_judge: bool = False
     results_dir: Path
     use_plugin: bool = False
+    plugin_backend: Literal["gemini", "base", "base_tail"] = "base"
     reasoning: bool = False
     use_vllm: bool = False
     use_gemini: bool = False
