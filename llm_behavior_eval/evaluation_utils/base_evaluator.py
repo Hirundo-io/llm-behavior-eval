@@ -43,8 +43,12 @@ class BaseEvaluator(ABC):
         self.eval_config = eval_config
         self.dataset_config = dataset_config
         self.models_tokenizers_pairs = {}
+        # Use plugin model if provided, otherwise use regular model
+        # When plugin_model_path is provided, model_name is not used by load_model_and_tokenizer
         self.tokenizer, self.model = load_model_and_tokenizer(
-            eval_config.model_path_or_repo_id, eval_config.use_4bit
+            eval_config.model_path_or_repo_id,
+            eval_config.use_4bit,
+            plugin_model_path=eval_config.plugin_model_path_or_repo_id,
         )
         self.tokenizer.padding_side = "left"
         self.data_collator = default_data_collator

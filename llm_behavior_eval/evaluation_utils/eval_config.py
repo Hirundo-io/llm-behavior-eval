@@ -1,5 +1,6 @@
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -27,6 +28,14 @@ class EvaluationConfig(BaseModel):
         use_4bit_judge: Whether to load the judge model in 4-bit mode (using bitsandbytes).
                         This is only relevant for the judge model.
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
+        plugin_model_path_or_repo_id: Optional HF repo ID or path of the plugin model. If provided, 
+                                       the evaluation will use PluginModelForCausalLM instead of a regular model.
+                                       The base model path will be read from the plugin model's saved config.
+                                       When this is provided, model_path_or_repo_id is not used for model loading
+                                       (but may still be used for result naming).
+        plugin_backend: Backend to use for plugin model generation. Either "gemini" (uses Gemini API) 
+                        or "base" (uses the base model). Defaults to "gemini". Only relevant when 
+                        plugin_model_path_or_repo_id is provided.
     """
 
     max_samples: None | int
@@ -41,3 +50,5 @@ class EvaluationConfig(BaseModel):
     judge_path_or_repo_id: str
     use_4bit_judge: bool = False
     results_dir: Path
+    plugin_model_path_or_repo_id: None | str = None
+    plugin_backend: Literal["gemini", "base"] = "gemini"

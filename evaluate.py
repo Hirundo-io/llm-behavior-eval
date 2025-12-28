@@ -17,32 +17,36 @@ from llm_behavior_eval import (
 
 if __name__ == "__main__":
     model_path_or_repo_ids = [
-        "google/gemma-3-12b-it",
-        "meta-llama/Meta-Llama-3.1-8B-Instruct",
-        "meta-llama/Llama-3.2-3B-Instruct",
-        "google/gemma-7b-it",
-        "google/gemma-2b-it",
+        # "google/gemma-3-12b-it",
+        # "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        # "meta-llama/Llama-3.2-3B-Instruct",
+        # "google/gemma-7b-it",
+        # "google/gemma-2b-it",
         "google/gemma-3-4b-it",
     ]
     judge_path_or_repo_id = "google/gemma-3-12b-it"
     result_dir = Path(__file__).parent / "results"
     file_paths = [
         "hirundo-io/bbq-physical-bias-free-text",
-        "hirundo-io/bbq-physical-bias-multi-choice",
+        # "hirundo-io/bbq-physical-bias-multi-choice",
         "hirundo-io/bbq-physical-unbias-free-text",
-        "hirundo-io/bbq-physical-unbias-multi-choice",
+        # "hirundo-io/bbq-physical-unbias-multi-choice",
         "hirundo-io/bbq-race-bias-free-text",
-        "hirundo-io/bbq-race-bias-multi-choice",
+        # "hirundo-io/bbq-race-bias-multi-choice",
         "hirundo-io/bbq-race-unbias-free-text",
-        "hirundo-io/bbq-race-unbias-multi-choice",
+        # "hirundo-io/bbq-race-unbias-multi-choice",
         "hirundo-io/bbq-nationality-bias-free-text",
-        "hirundo-io/bbq-nationality-bias-multi-choice",
+        # "hirundo-io/bbq-nationality-bias-multi-choice",
         "hirundo-io/bbq-nationality-unbias-free-text",
-        "hirundo-io/bbq-nationality-unbias-multi-choice",
+        # "hirundo-io/bbq-nationality-unbias-multi-choice",
         "hirundo-io/bbq-gender-bias-free-text",
-        "hirundo-io/bbq-gender-bias-multi-choice",
+        # "hirundo-io/bbq-gender-bias-multi-choice",
         "hirundo-io/bbq-gender-unbias-free-text",
-        "hirundo-io/bbq-gender-unbias-multi-choice",
+        # "hirundo-io/bbq-gender-unbias-multi-choice",
+        "hirundo-io/bbq-age-bias-free-text",
+        "hirundo-io/bbq-age-unbias-free-text",
+        "hirundo-io/bbq-religion-bias-free-text",
+        "hirundo-io/bbq-religion-unbias-free-text",
     ]
     logging.basicConfig(
         level=logging.INFO,
@@ -63,17 +67,21 @@ if __name__ == "__main__":
                 preprocess_config=PreprocessConfig(),
             )
             eval_config = EvaluationConfig(
-                max_samples=None,  # Set to 100 or lower for testing the pipeline works
-                batch_size=64,
+                max_samples=500,  # Set to 100 or lower for testing the pipeline works
+                batch_size=8,
                 sample=False,
                 judge_type=JudgeType.BIAS,
                 answer_tokens=128,
-                model_path_or_repo_id=model_path_or_repo_id,
-                judge_batch_size=64,  # relevant only if the text format is free text
+                model_path_or_repo_id="gemma_4b_September25",
+                judge_batch_size=8,  # relevant only if the text format is free text
                 judge_output_tokens=32,  # relevant only if the text format is free text
                 judge_path_or_repo_id=judge_path_or_repo_id,  # relevant only if the text format is free text
                 use_4bit_judge=False,  # relevant only if the text format is free text
                 results_dir=result_dir,
+                # To use PluginModelForCausalLM, uncomment and set these:
+                plugin_model_path_or_repo_id="hirundo-io/gemma_4B_2048hid",
+                plugin_backend="base",  # "gemini" or "base" to use base model instead of Gemini API
+                # Note: base model path is read from the plugin model's saved config
             )
             set_seed(dataset_config.seed)
             evaluator = BiasEvaluatorFactory.create_evaluator(

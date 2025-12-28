@@ -1,11 +1,17 @@
 import gc
 import re
+import sys
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import torch
 from transformers.pipelines import pipeline
+
+sys.path.append(f"{Path(__file__).parents[4].as_posix()}/hirundo_core/h_core")
+sys.path.append(f"{Path(__file__).parents[4].as_posix()}/hirundo_core")
+sys.path.append(Path(__file__).parents[4].as_posix())
 
 from llm_behavior_eval.evaluation_utils.prompts import UNKNOWN_ANSWERS
 
@@ -181,13 +187,22 @@ candidate_uncertain: "<yes|no>"
                 stereotyped_answers_id, skip_special_tokens=True
             )
             questions = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-            out = cast("GenerationMixin", self.model).generate(
-                input_ids=input_ids,
-                attention_mask=attn_mask,
-                max_new_tokens=self.eval_config.answer_tokens,
-                do_sample=self.eval_config.sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-            )
+            
+            # Prepare generation kwargs
+            generate_kwargs = {
+                "input_ids": input_ids,
+                "attention_mask": attn_mask,
+                "max_new_tokens": self.eval_config.answer_tokens,
+                "do_sample": self.eval_config.sample,
+                "pad_token_id": self.tokenizer.pad_token_id,
+            }
+            
+            # Add backend parameter if using PluginModelForCausalLM
+            from hirundo_core.h_core.debias.methods.plugin_model import PluginModelForCausalLM
+            if isinstance(self.model, PluginModelForCausalLM):
+                generate_kwargs["backend"] = self.eval_config.plugin_backend
+            
+            out = cast("GenerationMixin", self.model).generate(**generate_kwargs)
             answers = self.tokenizer.batch_decode(
                 out[:, input_ids.shape[1] :],
                 skip_special_tokens=True,

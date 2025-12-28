@@ -1,4 +1,6 @@
 import logging
+import sys
+from pathlib import Path
 
 import torch
 from transformers.modeling_utils import PreTrainedModel
@@ -7,6 +9,12 @@ from transformers.models.auto.modeling_auto import AutoModelForCausalLM
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
+
+sys.path.append(f"{Path(__file__).parents[4].as_posix()}/hirundo_core/h_core")
+sys.path.append(f"{Path(__file__).parents[4].as_posix()}/hirundo_core")
+sys.path.append(Path(__file__).parents[4].as_posix())
+
+from hirundo_core.h_core.debias.methods.plugin_model import PluginModelForCausalLM
 
 
 def safe_apply_chat_template(
@@ -85,6 +93,7 @@ def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
 def load_model_and_tokenizer(
     model_name: str,
     use_4bit: bool = False,
+    plugin_model_path: str | None = None,
 ) -> tuple[PreTrainedTokenizerBase, PreTrainedModel]:
     """
     Load a tokenizer and a causal language model based on the model name/path,
@@ -93,9 +102,14 @@ def load_model_and_tokenizer(
     Optionally load the model in 4-bit precision (using bitsandbytes) instead
     of the default 16-bit precision.
 
+    If plugin_model_path is provided, loads a PluginModelForCausalLM instead of a regular model.
+    The base model path will be read from the plugin model's saved config.
+
     Args:
-        model_name: The repo-id or local path of the model to load.
+        model_name: The repo-id or local path of the model to load. Only used when plugin_model_path is None.
         use_4bit: If True, load the model in 4-bit mode using bitsandbytes.
+        plugin_model_path: Optional path to plugin model. If provided, loads PluginModelForCausalLM
+                          and the base model path is read from the plugin's config.
 
     Returns:
         A tuple containing the loaded tokenizer and model.
@@ -105,6 +119,55 @@ def load_model_and_tokenizer(
     dtype = pick_best_dtype(device)
     logging.info("Using dtype: %s", dtype)
 
+    # If plugin model is requested, load PluginModelForCausalLM
+    if plugin_model_path is not None:
+        logging.info("Loading plugin model from %s", plugin_model_path)
+
+        # Load config to get base model path
+        cfg = AutoConfig.from_pretrained(plugin_model_path)
+
+        # Get base model path from config
+        base_name = cfg.base_model_name_or_path
+        if not base_name:
+            raise ValueError(
+                "base_model_name_or_path must be in the plugin model's saved config. "
+                "Make sure the plugin model was saved with the base model path."
+            )
+
+        # Load PluginModelForCausalLM using from_pretrained
+        # Note: This loads both plugin and base models simultaneously
+        # Using low_cpu_mem_usage to reduce peak memory during loading
+        # device_map="auto" will distribute models across available GPUs/CPU
+        model = PluginModelForCausalLM.from_pretrained(
+            plugin_model_path,
+            base_model_name_or_path=base_name,
+            device_map="auto",
+            torch_dtype=dtype,
+            low_cpu_mem_usage=True,
+        )
+        
+        # Log memory usage after loading
+        if torch.cuda.is_available():
+            for i in range(torch.cuda.device_count()):
+                allocated = torch.cuda.memory_allocated(i) / 1024**3
+                reserved = torch.cuda.memory_reserved(i) / 1024**3
+                logging.info(
+                    f"GPU {i} memory after plugin model load: "
+                    f"{allocated:.2f}GB allocated, {reserved:.2f}GB reserved"
+                )
+
+        # Load tokenizer from base model path (from config)
+        tokenizer = AutoTokenizer.from_pretrained(cfg.base_model_name_or_path)
+        if not isinstance(tokenizer, PreTrainedTokenizerBase):
+            raise ValueError("Tokenizer is not supported!")
+
+        # Set pad_token if needed
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        return tokenizer, model
+
+    # Regular model loading
     # Load tokenizer
     tokenizer = load_tokenizer(model_name)
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
