@@ -94,13 +94,13 @@ def _behavior_presets(behavior: str) -> list[str]:
 
         if bias_type == "all":
             return [
-                f"unqover/unqover-{bt}-{kind}-free-text"
+                f"hirundo-io/unqover-{bt}-{kind}-free-text"
                 for bt in sorted(UNQOVER_BIAS_TYPES)
             ]
         if bias_type not in UNQOVER_BIAS_TYPES:
             allowed = ", ".join(sorted(list(UNQOVER_BIAS_TYPES)) + ["all"])
             raise ValueError(f"UNQOVER supports: {allowed}")
-        return [f"unqover/unqover-{bias_type}-{kind}-free-text"]
+        return [f"hirundo-io/unqover-{bias_type}-{kind}-free-text"]
 
     raise ValueError(
         "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
@@ -231,6 +231,13 @@ def main(
             help="Checkpoint load format hint forwarded to vLLM.",
         ),
     ] = None,
+    vllm_gpu_memory_utilization: Annotated[
+        float,
+        typer.Option(
+            "--vllm-gpu-memory-utilization",
+            help="GPU memory utilization for vLLM.",
+        ),
+    ] = 0.9,
     replace_existing_output: Annotated[
         bool,
         typer.Option(
@@ -416,6 +423,7 @@ def main(
                 tokenizer_mode=vllm_tokenizer_mode,
                 config_format=vllm_config_format,
                 load_format=vllm_load_format,
+                gpu_memory_utilization=vllm_gpu_memory_utilization,
             )
         else:
             vllm_config = None
