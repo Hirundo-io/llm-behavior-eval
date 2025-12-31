@@ -109,6 +109,22 @@ def test_main_sets_inference_engine_and_sampling(
     assert dataset_config.seed == 123
 
 
+def test_main_passes_plugin_engine_and_backend(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        model_engine="plugin",
+        plugin_backend="base",
+    )
+    captured = capture_configs[-1]
+    eval_config = captured.eval_config
+
+    assert eval_config.model_engine == "plugin"
+    assert eval_config.plugin_backend == "base"
+
+
 def test_main_allows_replacing_existing_output(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:

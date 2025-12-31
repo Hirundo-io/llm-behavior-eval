@@ -30,13 +30,14 @@ class EvaluationConfig(BaseModel):
         sample_judge: Whether to sample outputs from the judge model (True) or generate deterministically (False). Defaults to False.
         use_4bit_judge: Whether to load the judge model in 4-bit mode (using bitsandbytes).
             This is only relevant for the judge model.
-        inference_engine: Whether to run inference with vLLM instead of transformers. Overrides model_engine and judge_engine arguments.
-        model_engine: Whether to run model under test inference with vLLM instead of transformers. DO NOT combine with the inference_engine argument.
-        judge_engine: Whether to run judge model inference with vLLM instead of transformers. DO NOT combine with the inference_engine argument.
+        inference_engine: Whether to run inference with vLLM, transformers, or Gemini. Overrides model_engine and judge_engine arguments.
+        model_engine: Whether to run model under test inference with vLLM, transformers, Gemini, or a plugin model. DO NOT combine with the inference_engine argument.
+        judge_engine: Whether to run judge model inference with vLLM, transformers, or Gemini. DO NOT combine with the inference_engine argument.
         vllm_config: vLLM-specific configuration (optional). Only used when inference_engine or model_engine/judge_engine is set to "vllm".
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
         reasoning: Whether to enable chat-template reasoning (if supported by tokenizer/model).
         trust_remote_code: Whether to trust remote code when loading models.
+        plugin_backend: Backend to use inside the plugin model ("gemini" fusion or the saved base model).
         sampling_config: Sampling configuration for model inference.
         mlflow_config: MLflow configuration for tracking (optional).
     """
@@ -56,10 +57,14 @@ class EvaluationConfig(BaseModel):
     judge_token: str | None = None
     sample_judge: bool = False
     use_4bit_judge: bool = False
-    inference_engine: Literal["vllm", "transformers"] | None = None
-    model_engine: Literal["vllm", "transformers"] = "transformers"
-    judge_engine: Literal["vllm", "transformers"] = "transformers"
+    inference_engine: Literal["vllm", "transformers", "gemini"] | None = None
+    model_engine: Literal["vllm", "transformers", "gemini", "plugin"] = "transformers"
+    judge_engine: Literal["vllm", "transformers", "gemini"] = "transformers"
     vllm_config: VllmConfig | None = None
+    gemini_model_name: str = "gemini-2.5-flash"
+    gemini_api_key_env_var: str = "GOOGLE_API_KEY"
+    plugin_backend: Literal["gemini", "base"] = "gemini"
+    tokenizer_path_or_repo_id: str | None = "google/gemma-3-4b-it"
     results_dir: Path
     reasoning: bool = False
     trust_remote_code: bool = False

@@ -16,6 +16,7 @@ from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
 
+from llm_behavior_eval.evaluation_utils.plugin_eval_engine import PluginEvalEngine
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
 )
@@ -110,6 +111,15 @@ class BaseEvaluator(ABC):
                 self.eval_config,
                 max_model_len=max_model_len,
             )
+        elif self.model_engine == "plugin":
+            self.eval_engine = PluginEvalEngine(
+                self.data_collator,
+                self.eval_config,
+            )
+        elif self.model_engine == "gemini":
+            from .gemini_eval_engine import GeminiEvalEngine
+
+            self.eval_engine = GeminiEvalEngine(self.eval_config)
         else:
             self.eval_engine = TransformersEvalEngine(
                 self.data_collator,
@@ -801,6 +811,10 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                     is_judge=True,
                     max_model_len=max_model_len,
                 )
+            elif self.judge_engine == "gemini":
+                from .gemini_eval_engine import GeminiEvalEngine
+
+                judge_engine = GeminiEvalEngine(self.eval_config, is_judge=True)
             else:
                 judge_engine = TransformersEvalEngine(
                     self.data_collator,

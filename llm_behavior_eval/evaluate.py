@@ -166,10 +166,10 @@ def main(
         ),
     ] = None,
     inference_engine: Annotated[
-        Literal["vllm", "transformers"] | None,
+        Literal["vllm", "transformers", "gemini"] | None,
         typer.Option(
             "--inference-engine",
-            help="""Inference engine to use for model and judge inference. "vllm" or "transformers". Overrides model_engine and judge_engine arguments.""",
+            help="""Inference engine to use for model and judge inference. "vllm", "transformers", or "gemini". Overrides model_engine and judge_engine arguments.""",
         ),
     ] = None,
     trust_remote_code: Annotated[
@@ -183,10 +183,10 @@ def main(
         ),
     ] = None,
     model_engine: Annotated[
-        Literal["vllm", "transformers"],
+        Literal["vllm", "transformers", "gemini", "plugin"],
         typer.Option(
             "--model-engine",
-            help="""Model engine to use for model inference. "vllm" or "transformers". DO NOT combine with the inference_engine argument.""",
+            help="""Model engine to use for model inference. "vllm", "transformers", "gemini", or "plugin". DO NOT combine with the inference_engine argument. Plugin is only supported for the model, not the judge.""",
         ),
     ] = "transformers",
     vllm_max_model_len: Annotated[
@@ -197,10 +197,10 @@ def main(
         ),
     ] = None,
     judge_engine: Annotated[
-        Literal["vllm", "transformers"],
+        Literal["vllm", "transformers", "gemini"],
         typer.Option(
             "--judge-engine",
-            help="""Judge engine to use for judge model inference. "vllm" or "transformers". DO NOT combine with the inference_engine argument.""",
+            help="""Judge engine to use for judge model inference. "vllm", "transformers", or "gemini". DO NOT combine with the inference_engine argument.""",
         ),
     ] = "transformers",
     vllm_judge_max_model_len: Annotated[
@@ -231,6 +231,34 @@ def main(
             help="Checkpoint load format hint forwarded to vLLM.",
         ),
     ] = None,
+    gemini_model_name: Annotated[
+        str,
+        typer.Option(
+            "--gemini-model-name",
+            help="Gemini model name to use when engine is set to 'gemini'.",
+        ),
+    ] = "gemini-2.5-flash",
+    gemini_api_key_env_var: Annotated[
+        str,
+        typer.Option(
+            "--gemini-api-key-env-var",
+            help="Environment variable name that stores the Gemini API key.",
+        ),
+    ] = "GOOGLE_API_KEY",
+    plugin_backend: Annotated[
+        Literal["gemini", "base"],
+        typer.Option(
+            "--plugin-backend",
+            help="Backend for the plugin engine: 'gemini' fusion or the saved base model.",
+        ),
+    ] = "gemini",
+    tokenizer_path_or_repo_id: Annotated[
+        str | None,
+        typer.Option(
+            "--tokenizer-path-or-repo-id",
+            help="Optional tokenizer repo/path used for prompt construction (defaults to the model repo/path).",
+        ),
+    ] = "google/gemma-3-4b-it",
     replace_existing_output: Annotated[
         bool,
         typer.Option(
@@ -447,6 +475,10 @@ def main(
             max_judge_tokens=max_judge_tokens,
             sample_judge=sample_judge,
             use_4bit_judge=use_4bit_judge,
+            gemini_model_name=gemini_model_name,
+            gemini_api_key_env_var=gemini_api_key_env_var,
+            plugin_backend=plugin_backend,
+            tokenizer_path_or_repo_id=tokenizer_path_or_repo_id,
             sampling_config=SamplingConfig(
                 do_sample=sample,
                 temperature=temperature,
