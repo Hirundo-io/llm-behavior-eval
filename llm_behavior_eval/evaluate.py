@@ -235,7 +235,9 @@ def main(
         float,
         typer.Option(
             "--vllm-gpu-memory-utilization",
-            help="GPU memory utilization for vLLM.",
+            help="GPU memory utilization for vLLM (must be between 0 and 1).",
+            min=0.001,
+            max=1.0,
         ),
     ] = 0.9,
     replace_existing_output: Annotated[
