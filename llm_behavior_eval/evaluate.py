@@ -117,7 +117,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
         ),
     ],
     output_dir: Annotated[
@@ -377,7 +377,11 @@ def main(
         if output_dir is not None
         else Path(__file__).parent / "results"
     )
-    file_paths = _behavior_presets(behavior)
+    # Split behavior by commas and collect all file paths
+    behaviors = [b.strip() for b in behavior.split(",")]
+    file_paths = []
+    for b in behaviors:
+        file_paths.extend(_behavior_presets(b))
 
     logging.basicConfig(
         level=logging.INFO,
@@ -385,98 +389,124 @@ def main(
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    for file_path in file_paths:
-        logging.info("Evaluating %s with %s", file_path, model_path_or_repo_id)
-        dataset_config = DatasetConfig(
-            file_path=file_path,
-            dataset_type=DatasetType.UNBIAS
-            if "-unbias-" in file_path
-            else DatasetType.BIAS,
-            preprocess_config=PreprocessConfig(),
+    # Compose MLflow config separately
+    if (
+        use_mlflow
+        or mlflow_tracking_uri
+        or mlflow_experiment_name
+        or mlflow_run_name
+    ):
+        from llm_behavior_eval.evaluation_utils.eval_config import MlflowConfig
+
+        mlflow_config = MlflowConfig(
+            mlflow_tracking_uri=mlflow_tracking_uri,
+            mlflow_experiment_name=mlflow_experiment_name,
+            mlflow_run_name=mlflow_run_name,
+        )
+    else:
+        mlflow_config = None
+
+    # Compose vLLM config separately, only if using vLLM
+    vllm_related_args = [inference_engine, model_engine, judge_engine]
+    using_vllm = any([arg == "vllm" for arg in vllm_related_args])
+    if using_vllm:
+        vllm_config = VllmConfig(
+            max_model_len=vllm_max_model_len,
+            judge_max_model_len=vllm_judge_max_model_len
+            if vllm_judge_max_model_len is not None
+            else vllm_max_model_len,
+            tokenizer_mode=vllm_tokenizer_mode,
+            config_format=vllm_config_format,
+            load_format=vllm_load_format,
+            gpu_memory_utilization=vllm_gpu_memory_utilization,
+        )
+    else:
+        vllm_config = None
+
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id=model_path_or_repo_id,
+        model_token=model_token,
+        judge_path_or_repo_id=judge_path_or_repo_id,
+        judge_token=judge_token,
+        results_dir=result_dir,
+        mlflow_config=mlflow_config,
+        vllm_config=vllm_config,
+        reasoning=reasoning,
+        trust_remote_code=trust_remote_code
+        if trust_remote_code is not None
+        else model_path_or_repo_id.startswith("nvidia/"),
+        # ⬆️ Default logic: trust remote code for NVIDIA models on huggingface
+        inference_engine=inference_engine,
+        model_engine=model_engine,
+        judge_engine=judge_engine,
+        replace_existing_output=replace_existing_output,
+        max_samples=None if max_samples <= 0 else max_samples,
+        batch_size=batch_size,
+        use_4bit=use_4bit,
+        device_map=device_map,
+        max_answer_tokens=max_answer_tokens,
+        pass_max_answer_tokens=pass_max_answer_tokens,
+        judge_batch_size=judge_batch_size,
+        max_judge_tokens=max_judge_tokens,
+        sample_judge=sample_judge,
+        use_4bit_judge=use_4bit_judge,
+        sampling_config=SamplingConfig(
+            do_sample=sample,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
             seed=seed,
-        )
+        ),
+    )
 
-        # Compose MLflow config separately
-        if (
-            use_mlflow
-            or mlflow_tracking_uri
-            or mlflow_experiment_name
-            or mlflow_run_name
-        ):
-            from llm_behavior_eval.evaluation_utils.eval_config import MlflowConfig
-
-            mlflow_config = MlflowConfig(
-                mlflow_tracking_uri=mlflow_tracking_uri,
-                mlflow_experiment_name=mlflow_experiment_name,
-                mlflow_run_name=mlflow_run_name,
-            )
-        else:
-            mlflow_config = None
-
-        # Compose vLLM config separately, only if using vLLM
-        vllm_related_args = [inference_engine, model_engine, judge_engine]
-        using_vllm = any([arg == "vllm" for arg in vllm_related_args])
-        if using_vllm:
-            vllm_config = VllmConfig(
-                max_model_len=vllm_max_model_len,
-                judge_max_model_len=vllm_judge_max_model_len
-                if vllm_judge_max_model_len is not None
-                else vllm_max_model_len,
-                tokenizer_mode=vllm_tokenizer_mode,
-                config_format=vllm_config_format,
-                load_format=vllm_load_format,
-                gpu_memory_utilization=vllm_gpu_memory_utilization,
-            )
-        else:
-            vllm_config = None
-
-        eval_config = EvaluationConfig(
-            model_path_or_repo_id=model_path_or_repo_id,
-            model_token=model_token,
-            judge_path_or_repo_id=judge_path_or_repo_id,
-            judge_token=judge_token,
-            results_dir=result_dir,
-            mlflow_config=mlflow_config,
-            vllm_config=vllm_config,
-            reasoning=reasoning,
-            trust_remote_code=trust_remote_code
-            if trust_remote_code is not None
-            else model_path_or_repo_id.startswith("nvidia/"),
-            # ⬆️ Default logic: trust remote code for NVIDIA models on huggingface
-            inference_engine=inference_engine,
-            model_engine=model_engine,
-            judge_engine=judge_engine,
-            replace_existing_output=replace_existing_output,
-            max_samples=None if max_samples <= 0 else max_samples,
-            batch_size=batch_size,
-            use_4bit=use_4bit,
-            device_map=device_map,
-            max_answer_tokens=max_answer_tokens,
-            pass_max_answer_tokens=pass_max_answer_tokens,
-            judge_batch_size=judge_batch_size,
-            max_judge_tokens=max_judge_tokens,
-            sample_judge=sample_judge,
-            use_4bit_judge=use_4bit_judge,
-            sampling_config=SamplingConfig(
-                do_sample=sample,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                seed=seed,
-            ),
-        )
-        if dataset_config.seed is not None:
-            set_seed(dataset_config.seed)
-        elif eval_config.sampling_config.seed is not None:
-            set_seed(eval_config.sampling_config.seed)
-        evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
+    evaluator = None
+    generation_lists = []
+    dataset_configs = []
+    try:
+        # generation loop
         try:
-            with torch.inference_mode():
-                evaluator.evaluate()
+            for file_path in file_paths:
+                logging.info("Evaluating %s with %s", file_path, model_path_or_repo_id)
+                dataset_configs.append(DatasetConfig(
+                    file_path=file_path,
+                    dataset_type=DatasetType.UNBIAS
+                    if "-unbias-" in file_path
+                    else DatasetType.BIAS,
+                    preprocess_config=PreprocessConfig(),
+                    seed=seed,
+                ))
+                if dataset_configs[-1].seed is not None:
+                    set_seed(dataset_configs[-1].seed)
+                elif eval_config.sampling_config.seed is not None:
+                    set_seed(eval_config.sampling_config.seed)
+                if evaluator is None:
+                    evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_configs[-1])
+                else:
+                    evaluator.update_dataset_config(dataset_configs[-1])
+
+                with torch.inference_mode():
+                    generation_lists.append(evaluator.generate())
+                print(g.questions[0] for g in generation_lists[-1][:5])
         finally:
-            del evaluator
-            gc.collect()
-            empty_cuda_cache_if_available()
+            evaluator.free_test_model()
+
+        # Grading loop
+        with evaluator.get_judge_engine_context() as judge_engine:
+            for generations, dataset_config, file_path in zip(generation_lists, dataset_configs, file_paths):
+                logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
+                evaluator.update_dataset_config(dataset_config)
+                if dataset_config.seed is not None:
+                    set_seed(dataset_config.seed)
+                elif eval_config.sampling_config.seed is not None:
+                    set_seed(eval_config.sampling_config.seed)
+
+                with torch.inference_mode():
+                    evaluator.grade(generations, judge_engine)
+
+    finally:
+        del evaluator
+        gc.collect()
+        empty_cuda_cache_if_available()
 
 
 app = typer.Typer()

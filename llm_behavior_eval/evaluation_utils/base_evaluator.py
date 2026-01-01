@@ -221,6 +221,34 @@ class BaseEvaluator(ABC):
         """
         raise NotImplementedError("Subclasses must implement evaluate().")
 
+    def generate(self) -> list[Any]:
+        """
+        Generate the answers for the evaluation.
+
+        This is an abstract method that must be implemented by subclasses.
+        """
+        raise NotImplementedError("Subclasses must implement generate().")
+
+    def grade(self, generations: list[Any], judge_engine: EvalEngine) -> None:
+        """
+        Grade the answers for the evaluation.
+
+        This is an abstract method that must be implemented by subclasses.
+        """
+        raise NotImplementedError("Subclasses must implement grade().")
+
+    def update_dataset_config(self, dataset_config: DatasetConfig) -> None:
+        """
+        Update the dataset configuration for the evaluation.
+
+        This is an abstract method that must be implemented by subclasses.
+        """
+        self.dataset_config = dataset_config
+        if self.mlflow_config:
+            self._init_mlflow()
+        self.prepare_dataloader()
+        self._ensure_run_configuration_allowed()
+
     def save_results(
         self,
         responses: list[dict],
@@ -785,30 +813,33 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Yields:
             The judge eval engine instance.
         """
-        judge_engine = None
         try:
-            self.prepare_judge_tokenizer()
+            if not (hasattr(self, "eval_engine") and self.eval_engine.is_judge):
+                judge_engine = None
 
-            # Create appropriate judge engine based on config
-            if self.judge_engine == "vllm":
-                max_model_len = (
-                    self.eval_config.vllm_config.judge_max_model_len
-                    if self.eval_config.vllm_config
-                    else None
-                )
-                judge_engine = VllmEvalEngine(
-                    self.eval_config,
-                    is_judge=True,
-                    max_model_len=max_model_len,
-                )
-            else:
-                judge_engine = TransformersEvalEngine(
-                    self.data_collator,
-                    self.eval_config,
-                    is_judge=True,
-                )
-            judge_engine.set_dataset(self.eval_dataset)
+                self.prepare_judge_tokenizer()
 
-            yield judge_engine
+                # Create appropriate judge engine based on config
+                if self.judge_engine == "vllm":
+                    max_model_len = (
+                        self.eval_config.vllm_config.judge_max_model_len
+                        if self.eval_config.vllm_config
+                        else None
+                    )
+                    judge_engine = VllmEvalEngine(
+                        self.eval_config,
+                        is_judge=True,
+                        max_model_len=max_model_len,
+                    )
+                else:
+                    judge_engine = TransformersEvalEngine(
+                        self.data_collator,
+                        self.eval_config,
+                        is_judge=True,
+                    )
+                judge_engine.set_dataset(self.eval_dataset)
+
+                self.eval_engine = judge_engine
+            yield self.eval_engine
         finally:
-            self.free_judge(judge_engine)
+            self.free_judge(self.eval_engine)
