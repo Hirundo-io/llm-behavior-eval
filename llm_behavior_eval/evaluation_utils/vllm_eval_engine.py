@@ -53,6 +53,9 @@ class VllmEvalEngine(EvalEngine):
         tokenizer_mode = vllm_config.tokenizer_mode if vllm_config else None
         config_format = vllm_config.config_format if vllm_config else None
         load_format = vllm_config.load_format if vllm_config else None
+        gpu_memory_utilization = (
+            vllm_config.gpu_memory_utilization if vllm_config else 0.9
+        )
 
         self.model = load_vllm_model(
             model_path_or_repo_id,
@@ -66,6 +69,7 @@ class VllmEvalEngine(EvalEngine):
             tokenizer_mode=tokenizer_mode,
             config_format=config_format,
             load_format=load_format,
+            gpu_memory_utilization=gpu_memory_utilization,
         )
         self._vllm_sampling_params = None
 

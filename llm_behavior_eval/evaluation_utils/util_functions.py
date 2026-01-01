@@ -291,6 +291,7 @@ def load_vllm_model(
     tokenizer_mode: TokenizerModeOption | None = None,
     config_format: str | None = None,
     load_format: str | None = None,
+    gpu_memory_utilization: float = 0.9,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -307,7 +308,7 @@ def load_vllm_model(
         tokenizer_mode: Optional tokenizer mode string forwarded to vLLM.
         config_format: Optional config format string forwarded to vLLM.
         load_format: Optional checkpoint load format string forwarded to vLLM.
-
+        gpu_memory_utilization: Optional GPU memory utilization passed to vLLM.
     Returns:
         An initialized ``vllm.LLM`` instance.
     """
@@ -344,6 +345,7 @@ def load_vllm_model(
         tokenizer_mode=tokenizer_mode or default_tokenizer_mode,
         config_format=config_format,
         load_format=load_format,
+        gpu_memory_utilization=gpu_memory_utilization,
     )
     return llm_instance
 
