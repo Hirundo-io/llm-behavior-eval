@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -180,6 +181,17 @@ class ConcreteEvaluator(BaseEvaluator):
     def evaluate(self) -> None:
         return None
 
+    def generate(self) -> list[object]:
+        return []
+
+    def grade(self, generations: object, judge_engine: object = None) -> None:
+        del generations, judge_engine
+        return None
+
+    def get_grading_context(self):  # type: ignore[no-untyped-def]
+        # This test file doesn't exercise grading; we just need a valid context manager.
+        return nullcontext()
+
 
 def test_prepare_dataloader_receives_eval_engine_tokenizer(
     tmp_path: Path,
@@ -290,6 +302,16 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     class StubFreeTextEvaluator(FreeTextSharedEvaluator):
         def evaluate(self) -> None:
             return None
+
+        def generate(self) -> list[object]:
+            return []
+
+        def grade(self, generations: object, judge_engine: object = None) -> None:
+            del generations, judge_engine
+            return None
+
+        def get_grading_context(self):  # type: ignore[no-untyped-def]
+            return nullcontext()
 
     evaluator = StubFreeTextEvaluator.__new__(StubFreeTextEvaluator)
     evaluator.eval_config = EvaluationConfig(

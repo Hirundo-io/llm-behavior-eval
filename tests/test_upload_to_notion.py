@@ -16,7 +16,10 @@ from upload_to_notion import (
 
 def test_resolve_property_type_uses_existing_schema() -> None:
     existing = {
-        "Model name": {"type": "multi_select", "multi_select": {"options": [{"name": "foo"}]}},
+        "Model name": {
+            "type": "multi_select",
+            "multi_select": {"options": [{"name": "foo"}]},
+        },
         "Judge name": {"type": "rich_text", "rich_text": {}},
     }
 
@@ -38,7 +41,9 @@ def test_resolve_property_type_missing_defaults_to_multi_select_in_auto_mode() -
 
 
 def test_build_text_like_property_value_multi_select() -> None:
-    assert build_text_like_property_value("multi_select", "gpt-4") == {"multi_select": [{"name": "gpt-4"}]}
+    assert build_text_like_property_value("multi_select", "gpt-4") == {
+        "multi_select": [{"name": "gpt-4"}]
+    }
 
 
 def test_compute_properties_to_add_creates_expected_shapes() -> None:
@@ -87,7 +92,9 @@ def test_extract_model_and_judge_names_reads_first_run_config(tmp_path: Path) ->
     assert judge == "google/gemma-3-27b-it"
 
 
-def test_ensure_database_properties_raises_on_existing_non_number_dataset_props() -> None:
+def test_ensure_database_properties_raises_on_existing_non_number_dataset_props() -> (
+    None
+):
     class DummyClient:
         def __init__(self) -> None:
             self.calls: list[tuple[str, str, object | None]] = []
@@ -133,5 +140,3 @@ def test_build_dataset_number_properties_raises_on_non_number_schema() -> None:
     assert "Bad" in msg
     assert "select" in msg
     assert "db123" in msg
-
-
