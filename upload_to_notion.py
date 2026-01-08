@@ -214,6 +214,43 @@ def build_number(value: float) -> dict[str, Any]:
     return {"number": value}
 
 
+def _build_dataset_number_properties(
+    *,
+    dataset_values: dict[str, float],
+    existing_db_props: dict[str, Any],
+    database_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Build Notion page properties for dataset metric values.
+
+    Dataset metric properties are expected to be Notion "number" properties. If the
+    DB schema already defines a dataset property with a non-number type, we refuse
+    to write (rather than silently overwriting or coercing).
+    """
+    offending: list[tuple[str, str]] = []
+    out: dict[str, Any] = {}
+    for prop_name, value in dataset_values.items():
+        existing = existing_db_props.get(prop_name)
+        if existing is not None:
+            actual = str((existing or {}).get("type") or "")
+            if actual != "number":
+                offending.append((prop_name, actual))
+                continue
+        out[prop_name] = build_number(value)
+
+    if offending:
+        db_hint = f" (database_id={database_id})" if database_id else ""
+        details = ", ".join([f"{n!r}: {t!r}" for (n, t) in sorted(offending)])
+        raise NotionError(
+            "Notion DB schema mismatch: refusing to write numeric dataset metrics to "
+            f"non-number properties{db_hint}. Offending properties: {details}. "
+            "Fix the database schema (change these properties to type 'number'), or "
+            "rerun with --no-ensure-properties if you want to disable schema management."
+        )
+
+    return out
+
+
 def build_title(value: str) -> dict[str, Any]:
     return {"title": [{"type": "text", "text": {"content": value}}]}
 
@@ -313,6 +350,24 @@ def ensure_database_properties(
 ) -> None:
     db = client.request("GET", f"/databases/{database_id}")
     existing = db.get("properties") or {}
+
+    offending: list[tuple[str, str]] = []
+    for name in desired_number_props:
+        spec = existing.get(name)
+        if spec is None:
+            continue
+        actual = str((spec or {}).get("type") or "")
+        if actual != "number":
+            offending.append((name, actual))
+    if offending:
+        details = ", ".join([f"{n!r}: {t!r}" for (n, t) in sorted(offending)])
+        raise NotionError(
+            "Notion DB schema mismatch: expected dataset properties to be type 'number', "
+            f"but the following already exist with a different type (database_id={database_id}): "
+            f"{details}. Refusing to overwrite. "
+            "Fix the database schema (change these properties to type 'number'), or "
+            "rerun with --no-ensure-properties if you want to skip property management."
+        )
 
     to_add = _compute_properties_to_add(
         existing_properties=existing,
@@ -506,9 +561,11 @@ def main(argv: list[str] | None = None) -> int:
         dataset_values = parse_summary_brief(summary_path)
         model_name, judge_name = extract_model_and_judge_names(page_dir)
 
-        properties: dict[str, Any] = {
-            k: build_number(v) for k, v in dataset_values.items()
-        }
+        properties: dict[str, Any] = _build_dataset_number_properties(
+            dataset_values=dataset_values,
+            existing_db_props=existing_db_props,
+            database_id=args.database_id,
+        )
         if model_name is not None:
             properties[model_prop] = build_text_like_property_value(
                 model_prop_type, model_name

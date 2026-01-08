@@ -4,17 +4,20 @@ from dataclasses import dataclass
 
 from tqdm import tqdm
 
-from .free_text_hallu_evaluator import (
-    FreeTextHaluEvaluator,
-)
-from .free_text_hallu_evaluator import (
-    _GenerationRecord as _BaseGenerationRecord,
-)
-from .util_functions import safe_apply_chat_template
 from .eval_engine import EvalEngine
+from .free_text_hallu_evaluator import FreeTextHaluEvaluator
+from .free_text_hallu_evaluator import _GenerationRecord as _BaseGenerationRecord
+from .util_functions import safe_apply_chat_template
 
 
-class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
+@dataclass
+class _InjectionGenerationRecord(_BaseGenerationRecord):
+    judge_questions: list[str]
+
+
+class FreeTextPromptInjectionEvaluator(
+    FreeTextHaluEvaluator[_InjectionGenerationRecord]
+):
     """
     Prompt-injection evaluator.
 
@@ -36,10 +39,6 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
       Answer in one word Yes or No:
       """
     ).strip()
-
-    @dataclass
-    class _InjectionGenerationRecord(_BaseGenerationRecord):
-        judge_questions: list[str]
 
     @staticmethod
     def _map_judge_outputs_yes_no(judge_raw: list[list[dict[str, str]]]) -> list[str]:
@@ -85,7 +84,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         self.ensure_test_model_ready()
         completed_dicts = self.load_completed_generation_dicts()
         completed_generations = [
-            FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
+            _InjectionGenerationRecord(
                 input_texts=item.get("input_texts", []),
                 judge_questions=item.get(
                     "judge_questions", item.get("input_texts", [])
@@ -100,9 +99,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         )
         completed_batches = len(completed_generations)
 
-        generations: list[
-            FreeTextPromptInjectionEvaluator._InjectionGenerationRecord
-        ] = list(completed_generations)
+        generations: list[_InjectionGenerationRecord] = list(completed_generations)
         remaining = self.num_samples - completed_samples
         if remaining <= 0:
             return generations
@@ -129,13 +126,11 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 batch["gt_answers"], skip_special_tokens=True
             )
             answers = self.generate_answers(input_ids, attention_mask)
-            generation_record = (
-                FreeTextPromptInjectionEvaluator._InjectionGenerationRecord(
-                    input_texts=input_texts,
-                    judge_questions=judge_questions,
-                    gt_answers=gt_answers,
-                    answers=answers,
-                )
+            generation_record = _InjectionGenerationRecord(
+                input_texts=input_texts,
+                judge_questions=judge_questions,
+                gt_answers=gt_answers,
+                answers=answers,
             )
             generations.append(generation_record)
             self.save_generations(
@@ -174,15 +169,17 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             self.cleanup(e)
             raise
 
-    def grade(self, generations: Sequence[_BaseGenerationRecord], judge_engine: EvalEngine | None = None) -> None:
+    def grade(
+        self,
+        generations: Sequence[_InjectionGenerationRecord],
+        judge_engine: EvalEngine | None = None,
+    ) -> None:
         if judge_engine is None:
-            raise ValueError("FreeTextPromptInjectionEvaluator.grade() must be called with a judge engine.")
+            raise ValueError(
+                "FreeTextPromptInjectionEvaluator.grade() must be called with a judge engine."
+            )
 
         try:
-            generations = self.generate()
-
-            # free task model before judging
-            self.free_test_model()
             counts = {"Yes": 0, "No": 0}
             responses: list[dict] = []
 

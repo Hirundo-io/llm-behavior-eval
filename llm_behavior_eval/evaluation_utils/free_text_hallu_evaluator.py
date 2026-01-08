@@ -1,12 +1,13 @@
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Generic, TypeVar, cast
 
 from tqdm import tqdm
 
 from .base_evaluator import FreeTextSharedEvaluator
-from .util_functions import safe_apply_chat_template
 from .eval_engine import EvalEngine
+from .util_functions import safe_apply_chat_template
 
 CHOICE_LETTERS: list[str] = ["A", "B", "C"]
 CHOICE_STRINGS: list[str] = ["CORRECT", "INCORRECT", "NOT_ATTEMPTED"]
@@ -35,7 +36,10 @@ class _GenerationRecord:
     answers: list[str]
 
 
-class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
+_GenerationRecordT = TypeVar("_GenerationRecordT", bound=_GenerationRecord)
+
+
+class FreeTextHaluEvaluator(FreeTextSharedEvaluator, Generic[_GenerationRecordT]):
     @staticmethod
     def _map_judge_outputs(judge_raw: list[list[dict[str, str]]]) -> list[str]:
         labels = []
@@ -49,14 +53,17 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             )
         return labels
 
-    def _collect_generations(self) -> Sequence[_GenerationRecord]:
+    def _collect_generations(self) -> Sequence[_GenerationRecordT]:
         self.ensure_test_model_ready()
         completed_dicts = self.load_completed_generation_dicts()
         completed_generations = [
-            _GenerationRecord(
-                input_texts=item.get("input_texts", []),
-                gt_answers=item.get("gt_answers", []),
-                answers=item.get("answers", []),
+            cast(
+                "_GenerationRecordT",
+                _GenerationRecord(
+                    input_texts=item.get("input_texts", []),
+                    gt_answers=item.get("gt_answers", []),
+                    answers=item.get("answers", []),
+                ),
             )
             for item in completed_dicts
         ]
@@ -65,7 +72,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         )
         completed_batches = len(completed_generations)
 
-        generations: list[_GenerationRecord] = list(completed_generations)
+        generations: list[_GenerationRecordT] = list(completed_generations)
         remaining = self.num_samples - completed_samples
         if remaining <= 0:
             return generations
@@ -85,10 +92,13 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                 batch["gt_answers"], skip_special_tokens=True
             )
             answers = self.generate_answers(input_ids, attention_mask)
-            generation_record = _GenerationRecord(
-                input_texts=input_texts,
-                gt_answers=gt_answers,
-                answers=answers,
+            generation_record = cast(
+                "_GenerationRecordT",
+                _GenerationRecord(
+                    input_texts=input_texts,
+                    gt_answers=gt_answers,
+                    answers=answers,
+                ),
             )
             generations.append(generation_record)
             self.save_generations(
@@ -133,11 +143,10 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                     ],
                 )
             )
-        with self.get_judge_engine_context() as judge_engine:
-            raw = self.run_judge_with_backoff(judge_engine, prompts)
+        raw = self.run_judge_with_backoff(judge_engine, prompts)
         return self._map_judge_outputs(raw)
 
-    def generate(self) -> Sequence[_GenerationRecord]:
+    def generate(self) -> Sequence[_GenerationRecordT]:
         try:
             generations = self._collect_generations()
             return generations
@@ -157,9 +166,15 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             self.cleanup(e)
             raise
 
-    def grade(self, generations: Sequence[_GenerationRecord], judge_engine: EvalEngine | None = None) -> None:
+    def grade(
+        self,
+        generations: Sequence[_GenerationRecordT],
+        judge_engine: EvalEngine | None = None,
+    ) -> None:
         if judge_engine is None:
-            raise ValueError("FreeTextHalluEvaluator.grade() must be called with a judge engine.")
+            raise ValueError(
+                "FreeTextHalluEvaluator.grade() must be called with a judge engine."
+            )
 
         try:
             counts = {k: 0 for k in CHOICE_STRINGS}
@@ -167,7 +182,10 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
 
             for generation in tqdm(generations, desc="Grading responses", unit="batch"):
                 labels = self._grade_batch(
-                    judge_engine, generation.input_texts, generation.gt_answers, generation.answers
+                    judge_engine,
+                    generation.input_texts,
+                    generation.gt_answers,
+                    generation.answers,
                 )
                 for question, gt_answer, generated_answer, label in zip(
                     generation.input_texts,

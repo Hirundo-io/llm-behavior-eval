@@ -5,7 +5,7 @@ import json
 import logging
 import sys
 from abc import ABC, abstractmethod
-from contextlib import contextmanager, AbstractContextManager
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
 
@@ -231,7 +231,9 @@ class BaseEvaluator(ABC):
         raise NotImplementedError("Subclasses must implement generate().")
 
     @abstractmethod
-    def grade(self, generations: Sequence[Any], judge_engine: EvalEngine | None = None) -> None:
+    def grade(
+        self, generations: Sequence[Any], judge_engine: EvalEngine | None = None
+    ) -> None:
         """
         Grade the answers for the evaluation.
 
@@ -858,5 +860,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
                 self.eval_engine = judge_engine
             yield self.eval_engine
+        except Exception as e:
+            self.cleanup(e)
+            raise
         finally:
             self.free_judge(self.eval_engine)

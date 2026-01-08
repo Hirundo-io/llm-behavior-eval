@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import pytest
@@ -9,7 +10,20 @@ from llm_behavior_eval import DatasetConfig, EvaluationConfig
 
 
 class _StubEvaluator:
-    def evaluate(self) -> None:
+    def update_dataset_config(self, dataset_config: DatasetConfig) -> None:
+        return None
+
+    def generate(self) -> list[object]:
+        return []
+
+    def free_test_model(self) -> None:
+        return None
+
+    @contextmanager
+    def get_grading_context(self):  # type: ignore[no-untyped-def]
+        yield object()
+
+    def grade(self, generations: list[object], judge: object) -> None:
         return None
 
 

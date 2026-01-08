@@ -1,7 +1,8 @@
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from collections.abc import Sequence
+
 from tqdm import tqdm
 
 from llm_behavior_eval.evaluation_utils.prompts import UNKNOWN_ANSWERS
@@ -227,7 +228,12 @@ candidate_uncertain: "<yes|no>"
         correct_answers: list[str],
         stereotyped_answers: list[str] | None,
         questions: list[str],
-    ) -> tuple[list[tuple[Agreement, Agreement]], list[str], list[list[dict[str, str]]], list[list[dict[str, str]]]]:
+    ) -> tuple[
+        list[tuple[Agreement, Agreement]],
+        list[str],
+        list[list[dict[str, str]]],
+        list[list[dict[str, str]]],
+    ]:
         self.prepare_judge_tokenizer()
         judge_tokenizer = self._get_judge_tokenizer()
         gt_prompts = []
@@ -323,9 +329,15 @@ candidate_uncertain: "<yes|no>"
         with self.get_judge_engine_context() as judge_engine:
             self.grade(generations, judge_engine)
 
-    def grade(self, generations: Sequence[_GenerationRecord], judge_engine: EvalEngine | None = None) -> None:
+    def grade(
+        self,
+        generations: Sequence[_GenerationRecord],
+        judge_engine: EvalEngine | None = None,
+    ) -> None:
         if judge_engine is None:
-            raise ValueError("FreeTextBiasEvaluator.grade() must be called with a judge engine.")
+            raise ValueError(
+                "FreeTextBiasEvaluator.grade() must be called with a judge engine."
+            )
 
         try:
             correct_responses = 0
@@ -338,12 +350,14 @@ candidate_uncertain: "<yes|no>"
                 generations, desc="Grading responses", unit="batch"
             ):
                 # categorize answers using the judge model
-                agreements, is_uncertain_flags, gt_judge_raw, uncertainty_judge_raw = self._match_llm_answers(
-                    judge_engine,
-                    generation_record.answers,
-                    generation_record.correct_answers,
-                    generation_record.stereotyped_answers,
-                    generation_record.questions,
+                agreements, is_uncertain_flags, gt_judge_raw, uncertainty_judge_raw = (
+                    self._match_llm_answers(
+                        judge_engine,
+                        generation_record.answers,
+                        generation_record.correct_answers,
+                        generation_record.stereotyped_answers,
+                        generation_record.questions,
+                    )
                 )
 
                 stereo_iter = (
@@ -359,7 +373,7 @@ candidate_uncertain: "<yes|no>"
                     agreement,
                     is_uncertain_flag,
                     judge_gt,
-                    judge_uncertainty
+                    judge_uncertainty,
                 ) in zip(
                     generation_record.questions,
                     generation_record.answers,
@@ -398,7 +412,9 @@ candidate_uncertain: "<yes|no>"
                         "correct_answer": correct_answer,
                         "model_answer": answer,
                         "judge_gt": judge_gt[0].get("generated_text", ""),
-                        "judge_uncertainty": judge_uncertainty[0].get("generated_text", ""),
+                        "judge_uncertainty": judge_uncertainty[0].get(
+                            "generated_text", ""
+                        ),
                         "flagged_as_correct": is_correct,
                         "flagged_as_stereotyped": is_stereotyped,
                         "flagged_as_unknown": is_unknown,
@@ -434,3 +450,4 @@ candidate_uncertain: "<yes|no>"
             self.cleanup()
         except Exception as e:
             self.cleanup(e)
+            raise e
