@@ -390,12 +390,7 @@ def main(
     )
 
     # Compose MLflow config separately
-    if (
-        use_mlflow
-        or mlflow_tracking_uri
-        or mlflow_experiment_name
-        or mlflow_run_name
-    ):
+    if use_mlflow or mlflow_tracking_uri or mlflow_experiment_name or mlflow_run_name:
         from llm_behavior_eval.evaluation_utils.eval_config import MlflowConfig
 
         mlflow_config = MlflowConfig(
@@ -467,20 +462,24 @@ def main(
         try:
             for file_path in file_paths:
                 logging.info("Evaluating %s with %s", file_path, model_path_or_repo_id)
-                dataset_configs.append(DatasetConfig(
-                    file_path=file_path,
-                    dataset_type=DatasetType.UNBIAS
-                    if "-unbias-" in file_path
-                    else DatasetType.BIAS,
-                    preprocess_config=PreprocessConfig(),
-                    seed=seed,
-                ))
+                dataset_configs.append(
+                    DatasetConfig(
+                        file_path=file_path,
+                        dataset_type=DatasetType.UNBIAS
+                        if "-unbias-" in file_path
+                        else DatasetType.BIAS,
+                        preprocess_config=PreprocessConfig(),
+                        seed=seed,
+                    )
+                )
                 if dataset_configs[-1].seed is not None:
                     set_seed(dataset_configs[-1].seed)
                 elif eval_config.sampling_config.seed is not None:
                     set_seed(eval_config.sampling_config.seed)
                 if evaluator is None:
-                    evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_configs[-1])
+                    evaluator = EvaluateFactory.create_evaluator(
+                        eval_config, dataset_configs[-1]
+                    )
                 else:
                     evaluator.update_dataset_config(dataset_configs[-1])
 
@@ -495,7 +494,9 @@ def main(
 
         # Grading loop
         with evaluator.get_grading_context() as judge:
-            for generations, dataset_config, file_path in zip(generation_lists, dataset_configs, file_paths, strict=True):
+            for generations, dataset_config, file_path in zip(
+                generation_lists, dataset_configs, file_paths, strict=True
+            ):
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
                 evaluator.update_dataset_config(dataset_config)
                 if dataset_config.seed is not None:

@@ -62,7 +62,9 @@ class NotionClient:
     min_delay_s: float = 0.35  # ~3 req/sec max; keep some slack.
     max_retries: int = 6
 
-    def request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    def request(
+        self, method: str, path: str, payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         url = self.api_base.rstrip("/") + "/" + path.lstrip("/")
         parsed = urllib.parse.urlparse(url)
         if parsed.scheme != "https" or parsed.netloc != "api.notion.com":
@@ -87,9 +89,13 @@ class NotionClient:
                 time.sleep(self.min_delay_s)
 
             try:
-                conn = http.client.HTTPSConnection(parsed.netloc, timeout=self.timeout_s)
+                conn = http.client.HTTPSConnection(
+                    parsed.netloc, timeout=self.timeout_s
+                )
                 try:
-                    conn.request(method.upper(), parsed.path, body=body, headers=headers)
+                    conn.request(
+                        method.upper(), parsed.path, body=body, headers=headers
+                    )
                     resp = conn.getresponse()
                     status = resp.status
                     raw = resp.read().decode("utf-8")
@@ -102,7 +108,9 @@ class NotionClient:
                         return {}
                     return json.loads(raw)
 
-                last_err = NotionError(f"Notion HTTP {status} for {method} {path}: {raw}")
+                last_err = NotionError(
+                    f"Notion HTTP {status} for {method} {path}: {raw}"
+                )
                 retry_after = resp_headers.get("Retry-After")
                 if status == 429:
                     if retry_after is not None:
@@ -119,7 +127,9 @@ class NotionClient:
                 last_err = e
                 continue
 
-        raise NotionError(f"Notion request failed after retries: {method} {path}") from last_err
+        raise NotionError(
+            f"Notion request failed after retries: {method} {path}"
+        ) from last_err
 
 
 def find_results_pages(results_dir: Path) -> list[Path]:
@@ -141,7 +151,9 @@ def parse_summary_brief(summary_brief_csv: Path) -> dict[str, float]:
     with summary_brief_csv.open("r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         required_cols = {"Dataset", "Accuracy (%)", "Error (%)"}
-        if reader.fieldnames is None or not required_cols.issubset(set(reader.fieldnames)):
+        if reader.fieldnames is None or not required_cols.issubset(
+            set(reader.fieldnames)
+        ):
             raise ValueError(
                 f"{summary_brief_csv} missing required columns. "
                 f"Got: {reader.fieldnames}; required: {sorted(required_cols)}"
@@ -159,7 +171,9 @@ def parse_summary_brief(summary_brief_csv: Path) -> dict[str, float]:
             try:
                 out[dataset] = float(chosen)
             except ValueError as e:
-                raise ValueError(f"Non-numeric value for dataset={dataset!r} in {summary_brief_csv}: {chosen!r}") from e
+                raise ValueError(
+                    f"Non-numeric value for dataset={dataset!r} in {summary_brief_csv}: {chosen!r}"
+                ) from e
     return out
 
 
@@ -218,7 +232,9 @@ def _normalize_prop_type(value: str) -> str:
         return "auto"
     if v in {"rich_text", "select", "multi_select"}:
         return v
-    raise ValueError(f"Unsupported property type: {value!r}. Expected one of auto/rich_text/select/multi_select.")
+    raise ValueError(
+        f"Unsupported property type: {value!r}. Expected one of auto/rich_text/select/multi_select."
+    )
 
 
 def resolve_property_type(
@@ -282,7 +298,9 @@ def _compute_properties_to_add(
         elif prop_type == "multi_select":
             to_add[name] = {"multi_select": {"options": []}}
         else:
-            raise ValueError(f"Unsupported property type for DB creation: {prop_type!r}")
+            raise ValueError(
+                f"Unsupported property type for DB creation: {prop_type!r}"
+            )
     return to_add
 
 
@@ -305,7 +323,9 @@ def ensure_database_properties(
     if not to_add:
         return
     if dry_run:
-        print(f"[dry-run] Would add {len(to_add)} database properties: {sorted(to_add.keys())}")
+        print(
+            f"[dry-run] Would add {len(to_add)} database properties: {sorted(to_add.keys())}"
+        )
         return
     client.request("PATCH", f"/databases/{database_id}", payload={"properties": to_add})
 
@@ -343,7 +363,9 @@ def create_page(
         },
     }
     if dry_run:
-        print(f"[dry-run] Would create page title={title!r} with {len(properties)} properties")
+        print(
+            f"[dry-run] Would create page title={title!r} with {len(properties)} properties"
+        )
         return "dry-run"
     resp = client.request("POST", "/pages", payload=payload)
     return str(resp["id"])
@@ -357,7 +379,9 @@ def update_page(
 ) -> None:
     payload = {"properties": properties}
     if dry_run:
-        print(f"[dry-run] Would update page_id={page_id} with {len(properties)} properties")
+        print(
+            f"[dry-run] Would update page_id={page_id} with {len(properties)} properties"
+        )
         return
     client.request("PATCH", f"/pages/{page_id}", payload=payload)
 
@@ -366,7 +390,9 @@ def _infer_page_title(page_dir: Path) -> str:
     return page_dir.name
 
 
-def _collect_all_dataset_property_names(results_dir: Path, limit: int | None = None) -> set[str]:
+def _collect_all_dataset_property_names(
+    results_dir: Path, limit: int | None = None
+) -> set[str]:
     names: set[str] = set()
     for i, page_dir in enumerate(find_results_pages(results_dir)):
         if limit is not None and i >= limit:
@@ -379,7 +405,9 @@ def _collect_all_dataset_property_names(results_dir: Path, limit: int | None = N
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Upload llm-behavior-eval results into Notion.")
+    parser = argparse.ArgumentParser(
+        description="Upload llm-behavior-eval results into Notion."
+    )
     parser.add_argument(
         "--results-dir",
         default=str(Path("llm_behavior_eval") / "results"),
@@ -395,7 +423,9 @@ def main(argv: list[str] | None = None) -> int:
         default=os.environ.get("NOTION_TOKEN", ""),
         help="Notion integration token (or set NOTION_TOKEN).",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Print actions without calling Notion.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print actions without calling Notion."
+    )
     parser.add_argument(
         "--no-ensure-properties",
         action="store_true",
@@ -441,11 +471,17 @@ def main(argv: list[str] | None = None) -> int:
     model_prop = "Model name"
     judge_prop = "Judge name"
 
-    model_prop_type = resolve_property_type(existing_db_props, model_prop, args.model_prop_type)
-    judge_prop_type = resolve_property_type(existing_db_props, judge_prop, args.judge_prop_type)
+    model_prop_type = resolve_property_type(
+        existing_db_props, model_prop, args.model_prop_type
+    )
+    judge_prop_type = resolve_property_type(
+        existing_db_props, judge_prop, args.judge_prop_type
+    )
 
     if not args.no_ensure_properties:
-        dataset_props = _collect_all_dataset_property_names(results_dir, limit=args.limit)
+        dataset_props = _collect_all_dataset_property_names(
+            results_dir, limit=args.limit
+        )
         ensure_database_properties(
             client=client,
             database_id=args.database_id,
@@ -470,17 +506,25 @@ def main(argv: list[str] | None = None) -> int:
         dataset_values = parse_summary_brief(summary_path)
         model_name, judge_name = extract_model_and_judge_names(page_dir)
 
-        properties: dict[str, Any] = {k: build_number(v) for k, v in dataset_values.items()}
+        properties: dict[str, Any] = {
+            k: build_number(v) for k, v in dataset_values.items()
+        }
         if model_name is not None:
-            properties[model_prop] = build_text_like_property_value(model_prop_type, model_name)
+            properties[model_prop] = build_text_like_property_value(
+                model_prop_type, model_name
+            )
         if judge_name is not None:
-            properties[judge_prop] = build_text_like_property_value(judge_prop_type, judge_name)
+            properties[judge_prop] = build_text_like_property_value(
+                judge_prop_type, judge_name
+            )
 
         if args.dry_run:
             page_id = "dry-run"
             existing = None
         else:
-            existing = find_page_by_title(client, args.database_id, title_prop, page_title)
+            existing = find_page_by_title(
+                client, args.database_id, title_prop, page_title
+            )
             page_id = str(existing["id"]) if existing is not None else ""
 
         if existing is None:
@@ -495,7 +539,12 @@ def main(argv: list[str] | None = None) -> int:
             if not args.dry_run:
                 print(f"Created page {page_title!r} ({page_id})")
         else:
-            update_page(client=client, page_id=page_id, properties=properties, dry_run=args.dry_run)
+            update_page(
+                client=client,
+                page_id=page_id,
+                properties=properties,
+                dry_run=args.dry_run,
+            )
             if not args.dry_run:
                 print(f"Updated page {page_title!r} ({page_id})")
 
@@ -504,4 +553,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
