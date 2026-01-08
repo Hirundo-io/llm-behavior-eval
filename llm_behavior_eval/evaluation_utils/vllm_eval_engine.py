@@ -56,6 +56,11 @@ class VllmEvalEngine(EvalEngine):
         gpu_memory_utilization = (
             vllm_config.gpu_memory_utilization if vllm_config else 0.9
         )
+        logging.info(
+            "Initializing vLLM with max_num_seqs=%s and gpu_memory_utilization=%s",
+            batch_size,
+            gpu_memory_utilization,
+        )
 
         self.model = load_vllm_model(
             model_path_or_repo_id,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from contextlib import contextmanager
 from inspect import Parameter, signature
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -16,6 +18,8 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from .vllm_types import TokenizerModeOption
 
 VLLMDType = Literal["bfloat16", "float16", "float32"]
@@ -39,6 +43,27 @@ def empty_cuda_cache_if_available() -> None:
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+@contextmanager
+def _hf_token(token: str | None) -> Iterator[None]:
+    """
+    If `token` is truthy, temporarily set HF_TOKEN for Hugging Face API calls;
+    otherwise, do nothing.
+    """
+    if not token:
+        yield
+        return
+
+    prev: str | None = os.environ.get("HF_TOKEN")
+    os.environ["HF_TOKEN"] = token
+    try:
+        yield
+    finally:
+        if prev is None:
+            os.environ.pop("HF_TOKEN", None)
+        else:
+            os.environ["HF_TOKEN"] = prev
 
 
 class SafeApplyChatTemplate:
@@ -330,23 +355,24 @@ def load_vllm_model(
     default_tokenizer_mode = _get_default_from_vllm("tokenizer_mode")
     default_tensor_parallel = _get_default_from_vllm("tensor_parallel_size")
 
-    llm_instance = LLM(
-        model=model_name,
-        trust_remote_code=trust_remote_code,
-        dtype=dtype_literal,
-        enforce_eager=enforce_eager,
-        quantization=quantization,
-        tensor_parallel_size=tensor_parallel
-        if tensor_parallel is not None
-        else default_tensor_parallel,
-        max_num_seqs=batch_size,
-        hf_token=token,
-        max_model_len=max_model_len,
-        tokenizer_mode=tokenizer_mode or default_tokenizer_mode,
-        config_format=config_format,
-        load_format=load_format,
-        gpu_memory_utilization=gpu_memory_utilization,
-    )
+    with _hf_token(token):
+        llm_instance = LLM(
+            model=model_name,
+            trust_remote_code=trust_remote_code,
+            dtype=dtype_literal,
+            enforce_eager=enforce_eager,
+            quantization=quantization,
+            tensor_parallel_size=tensor_parallel
+            if tensor_parallel is not None
+            else default_tensor_parallel,
+            max_num_seqs=batch_size,
+            hf_token=token,
+            max_model_len=max_model_len,
+            tokenizer_mode=tokenizer_mode or default_tokenizer_mode,
+            config_format=config_format,
+            load_format=load_format,
+            gpu_memory_utilization=gpu_memory_utilization,
+        )
     return llm_instance
 
 
