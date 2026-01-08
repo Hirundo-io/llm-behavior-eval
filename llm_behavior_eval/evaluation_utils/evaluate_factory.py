@@ -1,4 +1,4 @@
-from .base_evaluator import BaseEvaluator
+from .base_evaluator import BaseEvaluator, FreeTextSharedEvaluator
 from .dataset_config import DatasetConfig
 from .eval_config import EvaluationConfig
 

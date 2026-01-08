@@ -486,13 +486,16 @@ def main(
 
                 with torch.inference_mode():
                     generation_lists.append(evaluator.generate())
-                print(g.questions[0] for g in generation_lists[-1][:5])
+        except Exception as e:
+            raise e
         finally:
+            if evaluator is None:
+                raise ValueError("Evaluator does not exist")
             evaluator.free_test_model()
 
         # Grading loop
-        with evaluator.get_judge_engine_context() as judge_engine:
-            for generations, dataset_config, file_path in zip(generation_lists, dataset_configs, file_paths):
+        with evaluator.get_grading_context() as judge:
+            for generations, dataset_config, file_path in zip(generation_lists, dataset_configs, file_paths, strict=True):
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
                 evaluator.update_dataset_config(dataset_config)
                 if dataset_config.seed is not None:
@@ -501,7 +504,7 @@ def main(
                     set_seed(eval_config.sampling_config.seed)
 
                 with torch.inference_mode():
-                    evaluator.grade(generations, judge_engine)
+                    evaluator.grade(generations, judge)
 
     finally:
         del evaluator

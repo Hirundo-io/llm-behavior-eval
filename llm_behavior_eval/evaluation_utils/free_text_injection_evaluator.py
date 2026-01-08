@@ -11,6 +11,7 @@ from .free_text_hallu_evaluator import (
     _GenerationRecord as _BaseGenerationRecord,
 )
 from .util_functions import safe_apply_chat_template
+from .eval_engine import EvalEngine
 
 
 class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
@@ -51,6 +52,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
 
     def _grade_batch(
         self,
+        judge_engine: EvalEngine,
         questions: list[str],
         gt_answers: list[str],  # unused but kept for signature compatibility
         generated_answers: list[str],
@@ -74,8 +76,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                     ],
                 )
             )
-        with self.get_judge_engine_context() as judge_engine:
-            raw = self.run_judge_with_backoff(judge_engine, prompts)
+        raw = self.run_judge_with_backoff(judge_engine, prompts)
         return self._map_judge_outputs_yes_no(raw)
 
     def _collect_generations(
@@ -153,9 +154,32 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 break
         return generations
 
-    def evaluate(self) -> None:
+    def generate(self) -> Sequence[_InjectionGenerationRecord]:
         try:
             generations = self._collect_generations()
+            return generations
+        except Exception as e:
+            self.cleanup(e)
+            raise
+
+    def evaluate(self) -> None:
+        try:
+            generations = self.generate()
+
+            # free task model
+            self.free_test_model()
+            with self.get_judge_engine_context() as judge_engine:
+                self.grade(generations, judge_engine)
+        except Exception as e:
+            self.cleanup(e)
+            raise
+
+    def grade(self, generations: Sequence[_BaseGenerationRecord], judge_engine: EvalEngine | None = None) -> None:
+        if judge_engine is None:
+            raise ValueError("FreeTextPromptInjectionEvaluator.grade() must be called with a judge engine.")
+
+        try:
+            generations = self.generate()
 
             # free task model before judging
             self.free_test_model()
@@ -164,6 +188,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
 
             for generation in tqdm(generations, desc="Grading responses", unit="batch"):
                 labels = self._grade_batch(
+                    judge_engine,
                     generation.judge_questions,
                     generation.gt_answers,
                     generation.answers,

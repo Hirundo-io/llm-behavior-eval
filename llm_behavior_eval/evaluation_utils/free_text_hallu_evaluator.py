@@ -6,6 +6,7 @@ from tqdm import tqdm
 
 from .base_evaluator import FreeTextSharedEvaluator
 from .util_functions import safe_apply_chat_template
+from .eval_engine import EvalEngine
 
 CHOICE_LETTERS: list[str] = ["A", "B", "C"]
 CHOICE_STRINGS: list[str] = ["CORRECT", "INCORRECT", "NOT_ATTEMPTED"]
@@ -106,6 +107,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
 
     def _grade_batch(
         self,
+        judge_engine: EvalEngine,
         questions: list[str],
         gt_answers: list[str],
         generated_answers: list[str],
@@ -135,18 +137,37 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             raw = self.run_judge_with_backoff(judge_engine, prompts)
         return self._map_judge_outputs(raw)
 
-    def evaluate(self) -> None:
+    def generate(self) -> Sequence[_GenerationRecord]:
         try:
             generations = self._collect_generations()
+            return generations
+        except Exception as e:
+            self.cleanup(e)
+            raise
+
+    def evaluate(self) -> None:
+        try:
+            generations = self.generate()
 
             # free task model
             self.free_test_model()
+            with self.get_judge_engine_context() as judge_engine:
+                self.grade(generations, judge_engine)
+        except Exception as e:
+            self.cleanup(e)
+            raise
+
+    def grade(self, generations: Sequence[_GenerationRecord], judge_engine: EvalEngine | None = None) -> None:
+        if judge_engine is None:
+            raise ValueError("FreeTextHalluEvaluator.grade() must be called with a judge engine.")
+
+        try:
             counts = {k: 0 for k in CHOICE_STRINGS}
             responses: list[dict] = []
 
             for generation in tqdm(generations, desc="Grading responses", unit="batch"):
                 labels = self._grade_batch(
-                    generation.input_texts, generation.gt_answers, generation.answers
+                    judge_engine, generation.input_texts, generation.gt_answers, generation.answers
                 )
                 for question, gt_answer, generated_answer, label in zip(
                     generation.input_texts,

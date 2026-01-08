@@ -5,7 +5,7 @@ import json
 import logging
 import sys
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
+from contextlib import contextmanager, AbstractContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
 
@@ -31,7 +31,7 @@ from .util_functions import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Sequence
 
     from torch import Tensor
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -221,7 +221,8 @@ class BaseEvaluator(ABC):
         """
         raise NotImplementedError("Subclasses must implement evaluate().")
 
-    def generate(self) -> list[Any]:
+    @abstractmethod
+    def generate(self) -> Sequence[Any]:
         """
         Generate the answers for the evaluation.
 
@@ -229,7 +230,8 @@ class BaseEvaluator(ABC):
         """
         raise NotImplementedError("Subclasses must implement generate().")
 
-    def grade(self, generations: list[Any], judge_engine: EvalEngine) -> None:
+    @abstractmethod
+    def grade(self, generations: Sequence[Any], judge_engine: EvalEngine | None = None) -> None:
         """
         Grade the answers for the evaluation.
 
@@ -248,6 +250,15 @@ class BaseEvaluator(ABC):
             self._init_mlflow()
         self.prepare_dataloader()
         self._ensure_run_configuration_allowed()
+
+    @abstractmethod
+    def get_grading_context(self) -> AbstractContextManager:
+        """
+        Context manager for the grading process.
+
+        This is an abstract method that must be implemented by subclasses.
+        """
+        raise NotImplementedError("Subclasses must implement get_grading_context().")
 
     def save_results(
         self,
@@ -519,6 +530,15 @@ class BaseEvaluator(ABC):
         evaluation_config: dict[str, Any]
         dataset_config: dict[str, Any]
 
+    def free_test_model(self) -> None:
+        self.eval_engine.free_model()
+        del self.eval_engine
+        empty_cuda_cache_if_available()
+        gc.collect()
+        print(
+            f"VRAM reserved after freeing test model is {torch.cuda.memory_reserved() / 1e9}GB",
+        )
+
     def _current_run_config(self) -> RunConfig:
         evaluation_config_snapshot = self.eval_config.model_dump(
             exclude={"model_token", "judge_token"},
@@ -645,15 +665,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             self.generations_path(filename),
         )
         return existing_generations
-
-    def free_test_model(self) -> None:
-        self.eval_engine.free_model()
-        del self.eval_engine
-        empty_cuda_cache_if_available()
-        gc.collect()
-        print(
-            f"VRAM reserved after freeing test model is {torch.cuda.memory_reserved() / 1e9}GB",
-        )
 
     def prepare_judge_tokenizer(self) -> None:
         """
@@ -803,6 +814,12 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             result.append([{"generated_text": answer}])
 
         return result
+
+    def get_grading_context(self) -> AbstractContextManager[EvalEngine]:
+        """
+        Context manager for the grading process.
+        """
+        return self.get_judge_engine_context()
 
     @contextmanager
     def get_judge_engine_context(self) -> Generator[EvalEngine, None, None]:
