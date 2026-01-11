@@ -52,7 +52,7 @@ mlflow = [
   "mlflow>=2.0.0",
 ]
 vllm = [
-  "vllm>=0.11.0,<0.12.0",
+  "vllm>=0.13.0",
 ]
 
 [dependency-groups]
