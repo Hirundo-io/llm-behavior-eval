@@ -145,18 +145,26 @@ class PluginEvalEngine(EvalEngine):
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
         with torch.inference_mode():
-            outputs = cast("GenerationMixin", self.model).generate(
-                input_ids=model_input_ids,
-                attention_mask=model_attention,
-                max_new_tokens=max_new_tokens,
-                do_sample=do_sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                backend=self.plugin_backend,
-            )
+            gen_kwargs = {
+                "input_ids": model_input_ids,
+                "attention_mask": model_attention,
+                "max_new_tokens": max_new_tokens,
+                "do_sample": do_sample,
+                "pad_token_id": self.tokenizer.pad_token_id,
+                "eos_token_id": self.tokenizer.eos_token_id,
+                "backend": self.plugin_backend,
+            }
+            # Only pass sampling-related kwargs when sampling; otherwise transformers may warn
+            # that these flags are ignored for greedy decoding.
+            if do_sample:
+                gen_kwargs.update(
+                    {
+                        "temperature": temperature,
+                        "top_p": top_p,
+                        "top_k": top_k,
+                    }
+                )
+            outputs = cast("GenerationMixin", self.model).generate(**gen_kwargs)
         generated_tokens = outputs[:, model_input_ids.shape[1] :].detach().cpu()
         return self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
 
