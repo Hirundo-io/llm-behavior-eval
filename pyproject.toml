@@ -53,6 +53,7 @@ mlflow = [
 ]
 vllm = [
   "vllm>=0.13.0",
+  # ⬆️ Required to fix vulnerability with ID GHSA-mcmc-2m55-j8jj (vLLM introduced enhanced protection for CVE-2025-62164)
 ]
 
 [dependency-groups]
