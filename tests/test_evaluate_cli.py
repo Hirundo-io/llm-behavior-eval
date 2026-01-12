@@ -226,3 +226,25 @@ def test_main_passes_judge_inference_config_options(
     eval_config = capture_eval_config[-1]
     assert eval_config.judge_batch_size == 32
     assert eval_config.sample_judge is True
+
+
+def test_main_maps_cbbq_bias_behavior_to_dataset_config(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "cbbq:bias:gender")
+    captured = capture_configs[-1]
+
+    assert captured.dataset_config.file_path == "hirundo-io/cbbq-gender-bias-free-text"
+    assert captured.dataset_config.dataset_type.value == "bias"
+
+
+def test_main_maps_cbbq_unbias_behavior_to_dataset_config(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "cbbq:unbias:gender")
+    captured = capture_configs[-1]
+
+    assert (
+        captured.dataset_config.file_path == "hirundo-io/cbbq-gender-unbias-free-text"
+    )
+    assert captured.dataset_config.dataset_type.value == "unbias"

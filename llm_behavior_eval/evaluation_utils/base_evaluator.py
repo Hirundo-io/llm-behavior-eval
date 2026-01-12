@@ -21,6 +21,7 @@ from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
 )
 from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
 
+from .cbbq_dataset import CbbqDataset
 from .custom_dataset import CustomDataset
 from .enums import DatasetType
 from .max_batch_size import MAX_BATCH_SIZE
@@ -157,10 +158,15 @@ class BaseEvaluator(ABC):
         to a maximum number of samples defined in the evaluation configuration. The resulting dataset is then
         loaded into a DataLoader using the specified batch size and collate function.
         """
-        custom_dataset = CustomDataset(
-            self.dataset_config.file_path, self.dataset_config.dataset_type
+        uses_cbbq_dataset = "cbbq" in self.dataset_config.file_path
+        dataset_loader = (
+            CbbqDataset(self.dataset_config.file_path, self.dataset_config.dataset_type)
+            if uses_cbbq_dataset
+            else CustomDataset(
+                self.dataset_config.file_path, self.dataset_config.dataset_type
+            )
         )
-        test_dataset = custom_dataset.preprocess(
+        test_dataset = dataset_loader.preprocess(
             self.tokenizer,
             self.dataset_config.preprocess_config,
             trust_remote_code=self.trust_remote_code,
@@ -186,7 +192,7 @@ class BaseEvaluator(ABC):
             collate_fn=self.data_collator,
         )
         # propagate flag
-        self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
+        self.has_stereotype = getattr(dataset_loader, "has_stereotype", False)
 
     def generate_answers(
         self,
@@ -332,6 +338,9 @@ class BaseEvaluator(ABC):
             # BBQ: bbq-<bias_type>-<kind>-free-text
             if parts[0] == "bbq" and len(parts) >= 2:
                 return f"BBQ: {parts[1]} {dataset_type_label}"
+            # CBBQ: cbbq-<bias_type>-<kind>-free-text
+            if parts[0] == "cbbq" and len(parts) >= 2:
+                return f"CBBQ: {parts[1]} {dataset_type_label}"
             # UNQOVER: unqover-<bias_type>-bias-free-text
             if parts[0] == "unqover" and len(parts) >= 2:
                 return f"UNQOVER: {parts[1]} {dataset_type_label}"
