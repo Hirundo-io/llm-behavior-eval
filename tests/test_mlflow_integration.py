@@ -19,6 +19,7 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from llm_behavior_eval.evaluation_utils.base_evaluator import _GenerationRecord
     from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 
 
@@ -50,7 +51,7 @@ class DummyEvaluator(BaseEvaluator):
     def evaluate(self) -> None:
         return None
 
-    def generate(self) -> list[object]:
+    def generate(self) -> Sequence[_GenerationRecord]:
         return []
 
     def grade(
