@@ -1,23 +1,23 @@
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
+import torch
 from tqdm import tqdm
 
+from .base_evaluator import _GenerationRecord
 from .eval_engine import EvalEngine
-from .free_text_hallu_evaluator import FreeTextHaluEvaluator
-from .free_text_hallu_evaluator import _GenerationRecord as _BaseGenerationRecord
+from .free_text_hallu_evaluator import FreeTextHaluEvaluator, _HalluGenerationRecord
 from .util_functions import safe_apply_chat_template
 
 
 @dataclass
-class _InjectionGenerationRecord(_BaseGenerationRecord):
+class _InjectionGenerationRecord(_HalluGenerationRecord):
     judge_questions: list[str]
 
 
-class FreeTextPromptInjectionEvaluator(
-    FreeTextHaluEvaluator[_InjectionGenerationRecord]
-):
+class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
     """
     Prompt-injection evaluator.
 
@@ -151,7 +151,8 @@ class FreeTextPromptInjectionEvaluator(
 
     def generate(self) -> Sequence[_InjectionGenerationRecord]:
         try:
-            generations = self._collect_generations()
+            with torch.inference_mode():
+                generations = self._collect_generations()
             return generations
         except Exception as e:
             self.cleanup(e)
@@ -171,7 +172,7 @@ class FreeTextPromptInjectionEvaluator(
 
     def grade(
         self,
-        generations: Sequence[_InjectionGenerationRecord],
+        generations: Sequence[_GenerationRecord],
         judge_engine: EvalEngine | None = None,
     ) -> None:
         if judge_engine is None:
@@ -183,13 +184,18 @@ class FreeTextPromptInjectionEvaluator(
             counts = {"Yes": 0, "No": 0}
             responses: list[dict] = []
 
-            for generation in tqdm(generations, desc="Grading responses", unit="batch"):
-                labels = self._grade_batch(
-                    judge_engine,
-                    generation.judge_questions,
-                    generation.gt_answers,
-                    generation.answers,
-                )
+            for generation in tqdm(
+                cast("Sequence[_InjectionGenerationRecord]", generations),
+                desc="Grading responses",
+                unit="batch",
+            ):
+                with torch.inference_mode():
+                    labels = self._grade_batch(
+                        judge_engine,
+                        generation.judge_questions,
+                        generation.gt_answers,
+                        generation.answers,
+                    )
                 for question, llm_answer, label in zip(
                     generation.judge_questions,
                     generation.answers,

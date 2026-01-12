@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from contextlib import nullcontext
-from dataclasses import dataclass
+from contextlib import AbstractContextManager, nullcontext
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -15,6 +15,7 @@ import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_modul
 from llm_behavior_eval.evaluation_utils.base_evaluator import (
     BaseEvaluator,
     FreeTextSharedEvaluator,
+    _GenerationRecord,
 )
 from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
@@ -23,7 +24,7 @@ from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sized
+    from collections.abc import Callable, Sequence, Sized
     from pathlib import Path
 
     from datasets import Dataset
@@ -53,6 +54,11 @@ class CaptureState:
     pass_max_answer_tokens: bool | None = None
     token: str | None = None
     init_args: tuple[str, DatasetType] | None = None
+    engine_inits: list[bool] = field(default_factory=list)
+    set_dataset_calls: list[tuple[bool, Sized]] = field(default_factory=list)
+    free_model_calls: list[bool] = field(default_factory=list)
+    grade_called_with_judge: bool | None = None
+    grade_generations_count: int | None = None
 
 
 class StubTokenizer:
@@ -85,13 +91,16 @@ def patch_eval_engine(
             self,
             data_collator: Callable[[Any], Any],
             eval_config: EvaluationConfig,
-            *_args: object,
+            *,
+            is_judge: bool = False,
             **_kwargs: object,
         ) -> None:
             self.tokenizer = stub_tokenizer
             self._explicit_batch_size = eval_config.batch_size
             self.dataset: Sized | None = None
+            self.is_judge = is_judge
             capture_state.data_collator = data_collator
+            capture_state.engine_inits.append(is_judge)
 
         def get_batch_size(self) -> int:
             if self._explicit_batch_size is not None:
@@ -104,10 +113,12 @@ def patch_eval_engine(
             return None
 
         def free_model(self) -> None:
+            capture_state.free_model_calls.append(self.is_judge)
             return None
 
         def set_dataset(self, dataset: Sized) -> None:
             capture_state.engine_dataset = dataset
+            capture_state.set_dataset_calls.append((self.is_judge, dataset))
             self.dataset = dataset
 
     monkeypatch.setattr(base_evaluator_module, "TransformersEvalEngine", StubEvalEngine)
@@ -181,14 +192,14 @@ class ConcreteEvaluator(BaseEvaluator):
     def evaluate(self) -> None:
         return None
 
-    def generate(self) -> list[object]:
+    def generate(self) -> Sequence[_GenerationRecord]:
         return []
 
     def grade(self, generations: object, judge_engine: object = None) -> None:
         del generations, judge_engine
         return None
 
-    def get_grading_context(self):  # type: ignore[no-untyped-def]
+    def get_grading_context(self) -> AbstractContextManager:
         # This test file doesn't exercise grading; we just need a valid context manager.
         return nullcontext()
 
@@ -303,14 +314,14 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
         def evaluate(self) -> None:
             return None
 
-        def generate(self) -> list[object]:
+        def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
         def grade(self, generations: object, judge_engine: object = None) -> None:
             del generations, judge_engine
             return None
 
-        def get_grading_context(self):  # type: ignore[no-untyped-def]
+        def get_grading_context(self) -> AbstractContextManager:
             return nullcontext()
 
     evaluator = StubFreeTextEvaluator.__new__(StubFreeTextEvaluator)
@@ -348,3 +359,107 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.top_p == 0.9
     assert sampling_config.top_k == 4
     assert sampling_config.seed == evaluator.dataset_config.seed
+
+
+def test_get_grading_context_creates_and_frees_judge_engine(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capture_state: CaptureState,
+) -> None:
+    # Avoid loading any real tokenizer/model.
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: EvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+
+    # Entering the grading context should build a judge engine (is_judge=True) and set its dataset.
+    with evaluator.get_grading_context() as judge_engine:
+        assert getattr(judge_engine, "is_judge", False) is True
+        assert capture_state.set_dataset_calls
+        is_judge, dataset = capture_state.set_dataset_calls[-1]
+        assert is_judge is True
+        assert dataset is evaluator.eval_dataset
+
+    # Exiting the context should free the judge engine.
+    assert True in capture_state.free_model_calls
+
+
+def test_evaluate_flow_can_use_generate_then_grade_in_grading_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capture_state: CaptureState,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    class FlowEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            generations = self.generate()
+            with self.get_grading_context() as judge_engine:
+                self.grade(generations, judge_engine=judge_engine)
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return [_GenerationRecord(answers=["a"])]
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: EvalEngine | None = None,
+        ) -> None:
+            capture_state.grade_generations_count = len(generations)
+            capture_state.grade_called_with_judge = (
+                judge_engine is not None
+                and getattr(judge_engine, "is_judge", False) is True
+            )
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = FlowEvaluator(evaluation_config, dataset_config_instance)
+    evaluator.evaluate()
+
+    assert capture_state.grade_generations_count == 1
+    assert capture_state.grade_called_with_judge is True

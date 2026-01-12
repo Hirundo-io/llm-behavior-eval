@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-import upload_to_notion
-from upload_to_notion import (
+from hirundo_notion_tools import upload_to_notion
+from hirundo_notion_tools.upload_to_notion import (
     NotionError,
     _build_dataset_number_properties,
     _compute_properties_to_add,

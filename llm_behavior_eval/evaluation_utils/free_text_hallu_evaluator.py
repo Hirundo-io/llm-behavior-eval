@@ -1,11 +1,12 @@
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Generic, TypeVar, cast
+from typing import cast
 
+import torch
 from tqdm import tqdm
 
-from .base_evaluator import FreeTextSharedEvaluator
+from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .eval_engine import EvalEngine
 from .util_functions import safe_apply_chat_template
 
@@ -30,16 +31,12 @@ Just return the letters "A", "B", or "C", with no text around it.
 
 
 @dataclass
-class _GenerationRecord:
+class _HalluGenerationRecord(_GenerationRecord):
     input_texts: list[str]
     gt_answers: list[str]
-    answers: list[str]
 
 
-_GenerationRecordT = TypeVar("_GenerationRecordT", bound=_GenerationRecord)
-
-
-class FreeTextHaluEvaluator(FreeTextSharedEvaluator, Generic[_GenerationRecordT]):
+class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
     @staticmethod
     def _map_judge_outputs(judge_raw: list[list[dict[str, str]]]) -> list[str]:
         labels = []
@@ -53,17 +50,14 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator, Generic[_GenerationRecordT]
             )
         return labels
 
-    def _collect_generations(self) -> Sequence[_GenerationRecordT]:
+    def _collect_generations(self) -> Sequence[_HalluGenerationRecord]:
         self.ensure_test_model_ready()
         completed_dicts = self.load_completed_generation_dicts()
         completed_generations = [
-            cast(
-                "_GenerationRecordT",
-                _GenerationRecord(
-                    input_texts=item.get("input_texts", []),
-                    gt_answers=item.get("gt_answers", []),
-                    answers=item.get("answers", []),
-                ),
+            _HalluGenerationRecord(
+                input_texts=item.get("input_texts", []),
+                gt_answers=item.get("gt_answers", []),
+                answers=item.get("answers", []),
             )
             for item in completed_dicts
         ]
@@ -72,7 +66,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator, Generic[_GenerationRecordT]
         )
         completed_batches = len(completed_generations)
 
-        generations: list[_GenerationRecordT] = list(completed_generations)
+        generations: list[_HalluGenerationRecord] = list(completed_generations)
         remaining = self.num_samples - completed_samples
         if remaining <= 0:
             return generations
@@ -92,13 +86,10 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator, Generic[_GenerationRecordT]
                 batch["gt_answers"], skip_special_tokens=True
             )
             answers = self.generate_answers(input_ids, attention_mask)
-            generation_record = cast(
-                "_GenerationRecordT",
-                _GenerationRecord(
-                    input_texts=input_texts,
-                    gt_answers=gt_answers,
-                    answers=answers,
-                ),
+            generation_record = _HalluGenerationRecord(
+                input_texts=input_texts,
+                gt_answers=gt_answers,
+                answers=answers,
             )
             generations.append(generation_record)
             self.save_generations(
@@ -146,9 +137,10 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator, Generic[_GenerationRecordT]
         raw = self.run_judge_with_backoff(judge_engine, prompts)
         return self._map_judge_outputs(raw)
 
-    def generate(self) -> Sequence[_GenerationRecordT]:
+    def generate(self) -> Sequence[_GenerationRecord]:
         try:
-            generations = self._collect_generations()
+            with torch.inference_mode():
+                generations = self._collect_generations()
             return generations
         except Exception as e:
             self.cleanup(e)
@@ -168,7 +160,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator, Generic[_GenerationRecordT]
 
     def grade(
         self,
-        generations: Sequence[_GenerationRecordT],
+        generations: Sequence[_GenerationRecord],
         judge_engine: EvalEngine | None = None,
     ) -> None:
         if judge_engine is None:
@@ -180,13 +172,18 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator, Generic[_GenerationRecordT]
             counts = {k: 0 for k in CHOICE_STRINGS}
             responses: list[dict] = []
 
-            for generation in tqdm(generations, desc="Grading responses", unit="batch"):
-                labels = self._grade_batch(
-                    judge_engine,
-                    generation.input_texts,
-                    generation.gt_answers,
-                    generation.answers,
-                )
+            for generation in tqdm(
+                cast("Sequence[_HalluGenerationRecord]", generations),
+                desc="Grading responses",
+                unit="batch",
+            ):
+                with torch.inference_mode():
+                    labels = self._grade_batch(
+                        judge_engine,
+                        generation.input_texts,
+                        generation.gt_answers,
+                        generation.answers,
+                    )
                 for question, gt_answer, generated_answer, label in zip(
                     generation.input_texts,
                     generation.gt_answers,

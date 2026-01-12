@@ -6,6 +6,7 @@ import logging
 import sys
 from abc import ABC, abstractmethod
 from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
 
@@ -15,6 +16,7 @@ import typer
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
+from transformers.trainer_utils import set_seed
 
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
@@ -67,6 +69,17 @@ def custom_collator(batch):
     }
 
 
+@dataclass
+class _GenerationRecord:
+    """Base record for a batch of generated answers.
+
+    Evaluators can subclass this to add per-batch metadata fields (e.g., prompts,
+    ground-truth answers, judge questions).
+    """
+
+    answers: list[str]
+
+
 class BaseEvaluator(ABC):
     def __init__(
         self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
@@ -88,6 +101,8 @@ class BaseEvaluator(ABC):
         self.model_engine = eval_config.inference_engine or eval_config.model_engine
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
+
+        self._set_seed()
 
         # MLflow config (optional)
         self.mlflow_config: MlflowConfig | None = (
@@ -222,7 +237,7 @@ class BaseEvaluator(ABC):
         raise NotImplementedError("Subclasses must implement evaluate().")
 
     @abstractmethod
-    def generate(self) -> Sequence[Any]:
+    def generate(self) -> Sequence[_GenerationRecord]:
         """
         Generate the answers for the evaluation.
 
@@ -232,7 +247,9 @@ class BaseEvaluator(ABC):
 
     @abstractmethod
     def grade(
-        self, generations: Sequence[Any], judge_engine: EvalEngine | None = None
+        self,
+        generations: Sequence[_GenerationRecord],
+        judge_engine: EvalEngine | None = None,
     ) -> None:
         """
         Grade the answers for the evaluation.
@@ -248,6 +265,7 @@ class BaseEvaluator(ABC):
         This is an abstract method that must be implemented by subclasses.
         """
         self.dataset_config = dataset_config
+        self._set_seed()
         if self.mlflow_config:
             self._init_mlflow()
         self.prepare_dataloader()
@@ -499,6 +517,12 @@ class BaseEvaluator(ABC):
             **to_dict(self.dataset_config, ["file_path", "dataset_type", "seed"]),
         }
         mlflow.log_params(params)
+
+    def _set_seed(self) -> None:
+        if self.dataset_config.seed is not None:
+            set_seed(self.dataset_config.seed)
+        elif self.eval_config.sampling_config.seed is not None:
+            set_seed(self.eval_config.sampling_config.seed)
 
     def _log_mlflow_metrics(self, metrics: dict[str, Any]) -> None:
         """Log evaluation metrics to MLflow."""

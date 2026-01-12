@@ -25,17 +25,18 @@ Notes:
 
 from __future__ import annotations
 
-import argparse
 import csv
 import http.client
 import json
-import os
+import secrets
 import time
 import urllib.error
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
+
+import typer
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -43,6 +44,7 @@ if TYPE_CHECKING:
 
 NOTION_API_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
+_SYSTEM_RANDOM = secrets.SystemRandom()
 
 
 class NotionError(RuntimeError):
@@ -83,8 +85,9 @@ class NotionClient:
         last_err: Exception | None = None
         for attempt in range(self.max_retries + 1):
             if attempt > 0:
+                random_delay = _SYSTEM_RANDOM.random()
                 # Exponential-ish backoff; still keep under a few seconds.
-                time.sleep(min(self.min_delay_s * (2**attempt), 8.0))
+                time.sleep(min(self.min_delay_s * (2**attempt), 8.0) + random_delay)
             else:
                 time.sleep(self.min_delay_s)
 
@@ -99,7 +102,7 @@ class NotionClient:
                     resp = conn.getresponse()
                     status = resp.status
                     raw = resp.read().decode("utf-8")
-                    resp_headers = {k: v for (k, v) in resp.getheaders()}
+                    resp_headers = {key: val for (key, val) in resp.getheaders()}
                 finally:
                     conn.close()
 
@@ -135,21 +138,23 @@ class NotionClient:
 def find_results_pages(results_dir: Path) -> list[Path]:
     if not results_dir.exists():
         raise FileNotFoundError(f"Results directory not found: {results_dir}")
-    return sorted([p for p in results_dir.iterdir() if p.is_dir()])
+    return sorted([page for page in results_dir.iterdir() if page.is_dir()])
 
 
 def parse_summary_brief(summary_brief_csv: Path) -> dict[str, float]:
     """
-    Returns {notion_property_name: value_as_number}.
+    Args:
+        summary_brief_csv: The path to the summary_brief.csv file.
 
-    Chooses `Error (%)` if present, else `Accuracy (%)`.
+    Returns:
+        A dictionary of {notion_property_name: value_as_number}.
     """
     if not summary_brief_csv.exists():
         raise FileNotFoundError(f"Missing summary_brief.csv: {summary_brief_csv}")
 
     out: dict[str, float] = {}
-    with summary_brief_csv.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
+    with summary_brief_csv.open("r", encoding="utf-8", newline="") as summary_file:
+        reader = csv.DictReader(summary_file)
         required_cols = {"Dataset", "Accuracy (%)", "Error (%)"}
         if reader.fieldnames is None or not required_cols.issubset(
             set(reader.fieldnames)
@@ -170,17 +175,17 @@ def parse_summary_brief(summary_brief_csv: Path) -> dict[str, float]:
                 continue
             try:
                 out[dataset] = float(chosen)
-            except ValueError as e:
+            except ValueError as err:
                 raise ValueError(
                     f"Non-numeric value for dataset={dataset!r} in {summary_brief_csv}: {chosen!r}"
-                ) from e
+                ) from err
     return out
 
 
 def _first_run_config(page_dir: Path) -> Path | None:
-    for p in page_dir.rglob("run_config.json"):
-        if p.is_file():
-            return p
+    for page in page_dir.rglob("run_config.json"):
+        if page.is_file():
+            return page
     return None
 
 
@@ -193,9 +198,9 @@ def extract_model_and_judge_names(page_dir: Path) -> tuple[str | None, str | Non
     eval_cfg = data.get("evaluation_config") or {}
     model = eval_cfg.get("model_path_or_repo_id")
     judge = eval_cfg.get("judge_path_or_repo_id")
-    model_s = str(model) if model is not None else None
-    judge_s = str(judge) if judge is not None else None
-    return model_s, judge_s
+    model_str = str(model) if model is not None else None
+    judge_str = str(judge) if judge is not None else None
+    return model_str, judge_str
 
 
 def get_title_property_name(database: dict[str, Any]) -> str:
@@ -222,10 +227,18 @@ def _build_dataset_number_properties(
 ) -> dict[str, Any]:
     """
     Build Notion page properties for dataset metric values.
+    Args:
+        dataset_values: A dictionary of dataset names and their corresponding metric values.
+        existing_db_props: A dictionary of existing database properties.
+        database_id: The ID of the database to write to.
+
+    Returns:
+        A dictionary of properties to add to the Notion page.
 
     Dataset metric properties are expected to be Notion "number" properties. If the
     DB schema already defines a dataset property with a non-number type, we refuse
-    to write (rather than silently overwriting or coercing).
+    to write (rather than silently overwriting or coercing). If the database_id is provided,
+    we include it in the error message.
     """
     offending: list[tuple[str, str]] = []
     out: dict[str, Any] = {}
@@ -348,8 +361,11 @@ def ensure_database_properties(
     desired_text_like_props: dict[str, str],
     dry_run: bool,
 ) -> None:
-    db = client.request("GET", f"/databases/{database_id}")
-    existing = db.get("properties") or {}
+    if dry_run:
+        existing = {}
+    else:
+        db = client.request("GET", f"/databases/{database_id}")
+        existing = db.get("properties") or {}
 
     offending: list[tuple[str, str]] = []
     for name in desired_number_props:
@@ -459,98 +475,119 @@ def _collect_all_dataset_property_names(
     return names
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Upload llm-behavior-eval results into Notion."
-    )
-    parser.add_argument(
-        "--results-dir",
-        default=str(Path("llm_behavior_eval") / "results"),
-        help="Path to the results directory (default: llm_behavior_eval/results).",
-    )
-    parser.add_argument(
-        "--database-id",
-        default=os.environ.get("NOTION_DATABASE_ID", ""),
-        help="Notion database ID (or set NOTION_DATABASE_ID).",
-    )
-    parser.add_argument(
-        "--token",
-        default=os.environ.get("NOTION_TOKEN", ""),
-        help="Notion integration token (or set NOTION_TOKEN).",
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="Print actions without calling Notion."
-    )
-    parser.add_argument(
-        "--no-ensure-properties",
-        action="store_true",
-        help="Do not auto-create missing database properties (will fail if missing).",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        help="Process at most N page directories (useful for testing).",
-    )
-    parser.add_argument(
-        "--model-prop-type",
-        default="auto",
-        choices=["auto", "rich_text", "select", "multi_select"],
-        help='Property type for "Model name". If "auto", uses DB schema if present; otherwise creates/uses multi_select.',
-    )
-    parser.add_argument(
-        "--judge-prop-type",
-        default="auto",
-        choices=["auto", "rich_text", "select", "multi_select"],
-        help='Property type for "Judge name". If "auto", uses DB schema if present; otherwise creates/uses multi_select.',
-    )
-    args = parser.parse_args(argv)
+PropType = Literal["auto", "rich_text", "select", "multi_select"]
 
-    if not args.database_id:
-        raise SystemExit("Missing --database-id (or NOTION_DATABASE_ID).")
-    if not args.token and not args.dry_run:
-        raise SystemExit("Missing --token (or NOTION_TOKEN).")
 
-    results_dir = Path(args.results_dir).resolve()
+def main(
+    results_dir: Annotated[
+        Path,
+        typer.Option(
+            "--results-dir",
+            help="Path to the results directory (default: llm_behavior_eval/results).",
+        ),
+    ] = Path("llm_behavior_eval") / "results",
+    database_id: Annotated[
+        str,
+        typer.Option(
+            "--database-id",
+            envvar="NOTION_DATABASE_ID",
+            help="Notion database ID (or set NOTION_DATABASE_ID).",
+        ),
+    ] = "",
+    token: Annotated[
+        str,
+        typer.Option(
+            "--token",
+            envvar="NOTION_TOKEN",
+            help="Notion integration token (or set NOTION_TOKEN).",
+        ),
+    ] = "",
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Print actions without writing to Notion (still performs read-only Notion API requests).",
+        ),
+    ] = False,
+    no_ensure_properties: Annotated[
+        bool,
+        typer.Option(
+            "--no-ensure-properties",
+            help="Do not auto-create missing database properties (will fail if missing).",
+        ),
+    ] = False,
+    limit: Annotated[
+        int | None,
+        typer.Option(
+            "--limit",
+            help="Process at most N page directories (useful for testing).",
+        ),
+    ] = None,
+    model_prop_type: Annotated[
+        PropType,
+        typer.Option(
+            "--model-prop-type",
+            help='Property type for "Model name". If "auto", uses DB schema if present; otherwise creates/uses multi_select.',
+        ),
+    ] = "auto",
+    judge_prop_type: Annotated[
+        PropType,
+        typer.Option(
+            "--judge-prop-type",
+            help='Property type for "Judge name". If "auto", uses DB schema if present; otherwise creates/uses multi_select.',
+        ),
+    ] = "auto",
+) -> None:
+    """
+    Upload llm-behavior-eval results into Notion.
+    """
+    if not database_id:
+        typer.echo("Missing --database-id (or NOTION_DATABASE_ID).", err=True)
+        raise typer.Exit(code=1)
+    if not token and not dry_run:
+        typer.echo("Missing --token (or NOTION_TOKEN).", err=True)
+        raise typer.Exit(code=1)
+
+    resolved_results_dir = results_dir.resolve()
 
     # In dry-run mode, we don't need a real token (but keep client object simple).
-    client = NotionClient(token=args.token or "dry-run-token")
+    client = NotionClient(token=token or "dry-run-token")
 
     title_prop = "Name"
     existing_db_props: dict[str, Any] = {}
-    if not args.dry_run:
-        db = client.request("GET", f"/databases/{args.database_id}")
+    if not dry_run:
+        db = client.request("GET", f"/databases/{database_id}")
         existing_db_props = db.get("properties") or {}
         title_prop = get_title_property_name(db)
 
     model_prop = "Model name"
     judge_prop = "Judge name"
 
-    model_prop_type = resolve_property_type(
-        existing_db_props, model_prop, args.model_prop_type
+    resolved_model_prop_type = resolve_property_type(
+        existing_db_props, model_prop, model_prop_type
     )
-    judge_prop_type = resolve_property_type(
-        existing_db_props, judge_prop, args.judge_prop_type
+    resolved_judge_prop_type = resolve_property_type(
+        existing_db_props, judge_prop, judge_prop_type
     )
 
-    if not args.no_ensure_properties:
+    if not no_ensure_properties:
         dataset_props = _collect_all_dataset_property_names(
-            results_dir, limit=args.limit
+            resolved_results_dir, limit=limit
         )
         ensure_database_properties(
             client=client,
-            database_id=args.database_id,
+            database_id=database_id,
             desired_number_props=sorted(dataset_props),
             desired_text_like_props={
-                model_prop: model_prop_type,
-                judge_prop: judge_prop_type,
+                model_prop: resolved_model_prop_type,
+                judge_prop: resolved_judge_prop_type,
             },
-            dry_run=args.dry_run,
+            dry_run=dry_run,
         )
 
-    page_dirs = find_results_pages(results_dir)
-    if args.limit is not None:
-        page_dirs = page_dirs[: args.limit]
+    page_dirs = find_results_pages(resolved_results_dir)
+    if limit is not None:
+        page_dirs = page_dirs[:limit]
 
     for page_dir in page_dirs:
         summary_path = page_dir / "summary_brief.csv"
@@ -564,49 +601,45 @@ def main(argv: list[str] | None = None) -> int:
         properties: dict[str, Any] = _build_dataset_number_properties(
             dataset_values=dataset_values,
             existing_db_props=existing_db_props,
-            database_id=args.database_id,
+            database_id=database_id,
         )
         if model_name is not None:
             properties[model_prop] = build_text_like_property_value(
-                model_prop_type, model_name
+                resolved_model_prop_type, model_name
             )
         if judge_name is not None:
             properties[judge_prop] = build_text_like_property_value(
-                judge_prop_type, judge_name
+                resolved_judge_prop_type, judge_name
             )
 
-        if args.dry_run:
-            page_id = "dry-run"
+        if dry_run:
             existing = None
+            page_id = "dry-run"
         else:
-            existing = find_page_by_title(
-                client, args.database_id, title_prop, page_title
-            )
+            existing = find_page_by_title(client, database_id, title_prop, page_title)
             page_id = str(existing["id"]) if existing is not None else ""
 
         if existing is None:
             page_id = create_page(
                 client=client,
-                database_id=args.database_id,
+                database_id=database_id,
                 title_prop=title_prop,
                 title=page_title,
                 properties=properties,
-                dry_run=args.dry_run,
+                dry_run=dry_run,
             )
-            if not args.dry_run:
+            if not dry_run:
                 print(f"Created page {page_title!r} ({page_id})")
         else:
             update_page(
                 client=client,
                 page_id=page_id,
                 properties=properties,
-                dry_run=args.dry_run,
+                dry_run=dry_run,
             )
-            if not args.dry_run:
+            if not dry_run:
                 print(f"Updated page {page_title!r} ({page_id})")
-
-    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    typer.run(main)

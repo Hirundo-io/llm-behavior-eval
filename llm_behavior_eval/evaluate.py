@@ -6,7 +6,6 @@ from typing import Annotated, Literal
 
 import torch
 import typer
-from transformers.trainer_utils import set_seed
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
@@ -30,6 +29,7 @@ BIAS_KINDS = {"bias", "unbias"}
 HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
+TRUSTED_MODEL_PROVIDERS = {"hirundo-io", "nvidia", "meta-llama", "google", "Qwen"}
 DEFAULT_MAX_SAMPLES = EvaluationConfig.model_fields["max_samples"].default
 DEFAULT_BATCH_SIZE = EvaluationConfig.model_fields["batch_size"].default
 DEFAULT_USE_4BIT = EvaluationConfig.model_fields["use_4bit"].default
@@ -178,7 +178,7 @@ def main(
             "--trust-remote-code/--no-trust-remote-code",
             help=(
                 "Trust remote code when loading models. "
-                "Automatically set to True for NVIDIA models on huggingface."
+                "Automatically set to True for providers defined in TRUSTED_MODEL_PROVIDERS."
             ),
         ),
     ] = None,
@@ -378,10 +378,10 @@ def main(
         else Path(__file__).parent / "results"
     )
     # Split behavior by commas and collect all file paths
-    behaviors = [b.strip() for b in behavior.split(",")]
+    behaviors = [behavior.strip() for behavior in behavior.split(",")]
     file_paths = []
-    for b in behaviors:
-        file_paths.extend(_behavior_presets(b))
+    for behavior in behaviors:
+        file_paths.extend(_behavior_presets(behavior))
 
     logging.basicConfig(
         level=logging.INFO,
@@ -429,8 +429,7 @@ def main(
         reasoning=reasoning,
         trust_remote_code=trust_remote_code
         if trust_remote_code is not None
-        else model_path_or_repo_id.startswith("nvidia/"),
-        # ⬆️ Default logic: trust remote code for NVIDIA models on huggingface
+        else model_path_or_repo_id.split("/")[0] in TRUSTED_MODEL_PROVIDERS,
         inference_engine=inference_engine,
         model_engine=model_engine,
         judge_engine=judge_engine,
@@ -462,35 +461,29 @@ def main(
         try:
             for file_path in file_paths:
                 logging.info("Evaluating %s with %s", file_path, model_path_or_repo_id)
-                dataset_configs.append(
-                    DatasetConfig(
-                        file_path=file_path,
-                        dataset_type=DatasetType.UNBIAS
-                        if "-unbias-" in file_path
-                        else DatasetType.BIAS,
-                        preprocess_config=PreprocessConfig(),
-                        seed=seed,
-                    )
+                dataset_config = DatasetConfig(
+                    file_path=file_path,
+                    dataset_type=DatasetType.UNBIAS
+                    if "-unbias-" in file_path
+                    else DatasetType.BIAS,
+                    preprocess_config=PreprocessConfig(),
+                    seed=seed,
                 )
-                if dataset_configs[-1].seed is not None:
-                    set_seed(dataset_configs[-1].seed)
-                elif eval_config.sampling_config.seed is not None:
-                    set_seed(eval_config.sampling_config.seed)
                 if evaluator is None:
                     evaluator = EvaluateFactory.create_evaluator(
-                        eval_config, dataset_configs[-1]
+                        eval_config, dataset_config
                     )
                 else:
-                    evaluator.update_dataset_config(dataset_configs[-1])
+                    evaluator.update_dataset_config(dataset_config)
 
-                with torch.inference_mode():
-                    generation_lists.append(evaluator.generate())
-        except Exception as e:
-            raise e
+                dataset_configs.append(dataset_config)
+                generation_lists.append(evaluator.generate())
         finally:
-            if evaluator is None:
-                raise ValueError("Evaluator does not exist")
-            evaluator.free_test_model()
+            if evaluator is not None:
+                evaluator.free_test_model()
+            else:
+                logging.error("Evaluator does not exist, see above for details")
+                return
 
         # Grading loop
         with evaluator.get_grading_context() as judge:
@@ -499,14 +492,7 @@ def main(
             ):
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
                 evaluator.update_dataset_config(dataset_config)
-                if dataset_config.seed is not None:
-                    set_seed(dataset_config.seed)
-                elif eval_config.sampling_config.seed is not None:
-                    set_seed(eval_config.sampling_config.seed)
-
-                with torch.inference_mode():
-                    evaluator.grade(generations, judge)
-
+                evaluator.grade(generations, judge)
     finally:
         del evaluator
         gc.collect()

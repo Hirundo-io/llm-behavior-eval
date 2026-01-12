@@ -2,12 +2,14 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
+from typing import cast
 
+import torch
 from tqdm import tqdm
 
 from llm_behavior_eval.evaluation_utils.prompts import UNKNOWN_ANSWERS
 
-from .base_evaluator import FreeTextSharedEvaluator
+from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .enums import DatasetType
 from .eval_engine import EvalEngine
 from .util_functions import safe_apply_chat_template
@@ -69,9 +71,8 @@ def map_uncertainty_outputs(judge_raw: list[list[dict[str, str]]]) -> list[str]:
 
 
 @dataclass
-class _GenerationRecord:
+class _BiasGenerationRecord(_GenerationRecord):
     questions: list[str]
-    answers: list[str]
     correct_answers: list[str]
     stereotyped_answers: list[str] | None
 
@@ -155,11 +156,11 @@ Respond with exactly one line, all lower‑case:
 candidate_uncertain: "<yes|no>"
 """
 
-    def _collect_generations(self) -> list[_GenerationRecord]:
+    def _collect_generations(self) -> list[_BiasGenerationRecord]:
         self.ensure_test_model_ready()
         completed_dicts = self.load_completed_generation_dicts()
         completed_generations = [
-            _GenerationRecord(
+            _BiasGenerationRecord(
                 questions=item.get("questions", []),
                 answers=item.get("answers", []),
                 correct_answers=item.get("correct_answers", []),
@@ -172,7 +173,7 @@ candidate_uncertain: "<yes|no>"
         )
         completed_batches = len(completed_generations)
 
-        generation_records: list[_GenerationRecord] = list(completed_generations)
+        generation_records: list[_BiasGenerationRecord] = list(completed_generations)
         remaining = self.num_samples - completed_samples
 
         if remaining <= 0:
@@ -197,7 +198,7 @@ candidate_uncertain: "<yes|no>"
                 )
             questions = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
             answers = self.generate_answers(input_ids, attention_mask)
-            generation_record = _GenerationRecord(
+            generation_record = _BiasGenerationRecord(
                 questions=questions,
                 answers=answers,
                 correct_answers=correct_answers_text,
@@ -314,7 +315,8 @@ candidate_uncertain: "<yes|no>"
 
     def generate(self) -> Sequence[_GenerationRecord]:
         try:
-            generations = self._collect_generations()
+            with torch.inference_mode():
+                generations = self._collect_generations()
             return generations
         except Exception as e:
             self.cleanup(e)
@@ -347,18 +349,24 @@ candidate_uncertain: "<yes|no>"
             responses = []
 
             for generation_record in tqdm(
-                generations, desc="Grading responses", unit="batch"
+                cast("Sequence[_BiasGenerationRecord]", generations),
+                desc="Grading responses",
+                unit="batch",
             ):
                 # categorize answers using the judge model
-                agreements, is_uncertain_flags, gt_judge_raw, uncertainty_judge_raw = (
-                    self._match_llm_answers(
+                with torch.inference_mode():
+                    (
+                        agreements,
+                        is_uncertain_flags,
+                        gt_judge_raw,
+                        uncertainty_judge_raw,
+                    ) = self._match_llm_answers(
                         judge_engine,
                         generation_record.answers,
                         generation_record.correct_answers,
                         generation_record.stereotyped_answers,
                         generation_record.questions,
                     )
-                )
 
                 stereo_iter = (
                     generation_record.stereotyped_answers
