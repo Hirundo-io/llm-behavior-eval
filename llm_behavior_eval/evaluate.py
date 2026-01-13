@@ -29,7 +29,14 @@ BIAS_KINDS = {"bias", "unbias"}
 HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
-TRUSTED_MODEL_PROVIDERS = {"hirundo-io", "nvidia", "meta-llama", "google", "Qwen"}
+TRUSTED_MODEL_PROVIDERS = {
+    "hirundo-io",
+    "nvidia",
+    "meta-llama",
+    "google",
+    "aisingapore",
+    "LGAI-EXAONE",
+}
 DEFAULT_MAX_SAMPLES = EvaluationConfig.model_fields["max_samples"].default
 DEFAULT_BATCH_SIZE = EvaluationConfig.model_fields["batch_size"].default
 DEFAULT_USE_4BIT = EvaluationConfig.model_fields["use_4bit"].default
