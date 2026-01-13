@@ -30,4 +30,4 @@ __all__ = [
     "safe_apply_chat_template",
 ]
 
-__version__ = "0.1.6b7"
+__version__ = "0.1.6b8"
