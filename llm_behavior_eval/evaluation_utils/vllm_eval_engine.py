@@ -42,6 +42,7 @@ class VllmEvalEngine(EvalEngine):
         self.tokenizer = load_tokenizer_with_transformers(
             model_path_or_repo_id,
             model_token,
+            trust_remote_code=eval_config.trust_remote_code,
         )
         if not self.tokenizer.pad_token:
             self.tokenizer.pad_token = self.tokenizer.eos_token
