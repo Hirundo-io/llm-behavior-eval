@@ -637,6 +637,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             self.judge_tokenizer = load_tokenizer_with_transformers(
                 self.eval_config.judge_path_or_repo_id,
                 token=self.eval_config.judge_token,
+                trust_remote_code=self.eval_config.trust_remote_code,
             )
             # left padding is useful when batch-generating variable-length prompts
             self.judge_tokenizer.padding_side = "left"
