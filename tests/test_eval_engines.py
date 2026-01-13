@@ -126,7 +126,7 @@ class TokenizerLoaderStub:
         self.tokenizer = tokenizer
 
     def __call__(
-        self, _model_id, _token: str | None = None, _trust_remote_code: bool = False
+        self, _model_id, _token: str | None = None, trust_remote_code: bool = False
     ):
         return self.tokenizer
 
