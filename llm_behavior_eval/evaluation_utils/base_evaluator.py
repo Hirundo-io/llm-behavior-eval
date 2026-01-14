@@ -5,7 +5,8 @@ import json
 import logging
 import sys
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
 
@@ -15,6 +16,7 @@ import typer
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
 from transformers.data.data_collator import default_data_collator
+from transformers.trainer_utils import set_seed
 
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
@@ -31,7 +33,7 @@ from .util_functions import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Sequence
 
     from torch import Tensor
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -67,6 +69,17 @@ def custom_collator(batch):
     }
 
 
+@dataclass
+class _GenerationRecord:
+    """Base record for a batch of generated answers.
+
+    Evaluators can subclass this to add per-batch metadata fields (e.g., prompts,
+    ground-truth answers, judge questions).
+    """
+
+    answers: list[str]
+
+
 class BaseEvaluator(ABC):
     def __init__(
         self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
@@ -88,6 +101,8 @@ class BaseEvaluator(ABC):
         self.model_engine = eval_config.inference_engine or eval_config.model_engine
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
+
+        self._set_seed()
 
         # MLflow config (optional)
         self.mlflow_config: MlflowConfig | None = (
@@ -220,6 +235,50 @@ class BaseEvaluator(ABC):
         This is an abstract method that must be implemented by subclasses.
         """
         raise NotImplementedError("Subclasses must implement evaluate().")
+
+    @abstractmethod
+    def generate(self) -> Sequence[_GenerationRecord]:
+        """
+        Generate the answers for the evaluation.
+
+        This is an abstract method that must be implemented by subclasses.
+        """
+        raise NotImplementedError("Subclasses must implement generate().")
+
+    @abstractmethod
+    def grade(
+        self,
+        generations: Sequence[_GenerationRecord],
+        judge_engine: EvalEngine | None = None,
+    ) -> None:
+        """
+        Grade the answers for the evaluation.
+
+        This is an abstract method that must be implemented by subclasses.
+        """
+        raise NotImplementedError("Subclasses must implement grade().")
+
+    def update_dataset_config(self, dataset_config: DatasetConfig) -> None:
+        """
+        Update the dataset configuration for the evaluation.
+
+        This is an abstract method that must be implemented by subclasses.
+        """
+        self.dataset_config = dataset_config
+        self._set_seed()
+        if self.mlflow_config:
+            self._init_mlflow()
+        self.prepare_dataloader()
+        self._ensure_run_configuration_allowed()
+
+    @abstractmethod
+    def get_grading_context(self) -> AbstractContextManager:
+        """
+        Context manager for the grading process.
+
+        This is an abstract method that must be implemented by subclasses.
+        """
+        raise NotImplementedError("Subclasses must implement get_grading_context().")
 
     def save_results(
         self,
@@ -459,6 +518,12 @@ class BaseEvaluator(ABC):
         }
         mlflow.log_params(params)
 
+    def _set_seed(self) -> None:
+        if self.dataset_config.seed is not None:
+            set_seed(self.dataset_config.seed)
+        elif self.eval_config.sampling_config.seed is not None:
+            set_seed(self.eval_config.sampling_config.seed)
+
     def _log_mlflow_metrics(self, metrics: dict[str, Any]) -> None:
         """Log evaluation metrics to MLflow."""
         if not self.eval_config.mlflow_config or not mlflow:
@@ -490,6 +555,15 @@ class BaseEvaluator(ABC):
     class RunConfig(TypedDict):
         evaluation_config: dict[str, Any]
         dataset_config: dict[str, Any]
+
+    def free_test_model(self) -> None:
+        self.eval_engine.free_model()
+        del self.eval_engine
+        empty_cuda_cache_if_available()
+        gc.collect()
+        print(
+            f"VRAM reserved after freeing test model is {torch.cuda.memory_reserved() / 1e9}GB",
+        )
 
     def _current_run_config(self) -> RunConfig:
         evaluation_config_snapshot = self.eval_config.model_dump(
@@ -617,15 +691,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             self.generations_path(filename),
         )
         return existing_generations
-
-    def free_test_model(self) -> None:
-        self.eval_engine.free_model()
-        del self.eval_engine
-        empty_cuda_cache_if_available()
-        gc.collect()
-        print(
-            f"VRAM reserved after freeing test model is {torch.cuda.memory_reserved() / 1e9}GB",
-        )
 
     def prepare_judge_tokenizer(self) -> None:
         """
@@ -777,6 +842,12 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
         return result
 
+    def get_grading_context(self) -> AbstractContextManager[EvalEngine]:
+        """
+        Context manager for the grading process.
+        """
+        return self.get_judge_engine_context()
+
     @contextmanager
     def get_judge_engine_context(self) -> Generator[EvalEngine, None, None]:
         """
@@ -786,30 +857,36 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Yields:
             The judge eval engine instance.
         """
-        judge_engine = None
         try:
-            self.prepare_judge_tokenizer()
+            if not (hasattr(self, "eval_engine") and self.eval_engine.is_judge):
+                judge_engine = None
 
-            # Create appropriate judge engine based on config
-            if self.judge_engine == "vllm":
-                max_model_len = (
-                    self.eval_config.vllm_config.judge_max_model_len
-                    if self.eval_config.vllm_config
-                    else None
-                )
-                judge_engine = VllmEvalEngine(
-                    self.eval_config,
-                    is_judge=True,
-                    max_model_len=max_model_len,
-                )
-            else:
-                judge_engine = TransformersEvalEngine(
-                    self.data_collator,
-                    self.eval_config,
-                    is_judge=True,
-                )
-            judge_engine.set_dataset(self.eval_dataset)
+                self.prepare_judge_tokenizer()
 
-            yield judge_engine
+                # Create appropriate judge engine based on config
+                if self.judge_engine == "vllm":
+                    max_model_len = (
+                        self.eval_config.vllm_config.judge_max_model_len
+                        if self.eval_config.vllm_config
+                        else None
+                    )
+                    judge_engine = VllmEvalEngine(
+                        self.eval_config,
+                        is_judge=True,
+                        max_model_len=max_model_len,
+                    )
+                else:
+                    judge_engine = TransformersEvalEngine(
+                        self.data_collator,
+                        self.eval_config,
+                        is_judge=True,
+                    )
+                judge_engine.set_dataset(self.eval_dataset)
+
+                self.eval_engine = judge_engine
+            yield self.eval_engine
+        except Exception as e:
+            self.cleanup(e)
+            raise
         finally:
-            self.free_judge(judge_engine)
+            self.free_judge(self.eval_engine)

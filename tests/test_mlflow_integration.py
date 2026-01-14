@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,6 +15,12 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
     EvaluationConfig,
     MlflowConfig,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from llm_behavior_eval.evaluation_utils.base_evaluator import _GenerationRecord
+    from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 
 
 class DummyTokenizer:
@@ -42,6 +50,19 @@ class DummyEvaluator(BaseEvaluator):
 
     def evaluate(self) -> None:
         return None
+
+    def generate(self) -> Sequence[_GenerationRecord]:
+        return []
+
+    def grade(
+        self, generations: Sequence[Any], judge_engine: EvalEngine | None = None
+    ) -> None:
+        return None
+
+    def get_grading_context(self) -> AbstractContextManager[EvalEngine]:
+        # This test doesn't exercise grading, but `evaluate.main()` expects an
+        # `EvalEngine` from the context manager. Yield a lightweight stub.
+        return nullcontext(cast("EvalEngine", MagicMock()))
 
 
 @pytest.fixture(autouse=True)
