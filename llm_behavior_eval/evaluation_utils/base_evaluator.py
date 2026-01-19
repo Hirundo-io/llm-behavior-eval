@@ -30,6 +30,7 @@ from .sampling_config import SamplingConfig
 from .util_functions import (
     empty_cuda_cache_if_available,
     load_tokenizer_with_transformers,
+    safe_apply_chat_template,
 )
 
 if TYPE_CHECKING:
@@ -80,6 +81,9 @@ class _GenerationRecord:
     answers: list[str]
 
 
+JudgePrompt = str | list[dict[str, str]]
+
+
 class BaseEvaluator(ABC):
     def __init__(
         self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
@@ -125,6 +129,13 @@ class BaseEvaluator(ABC):
                 self.eval_config,
                 max_model_len=max_model_len,
             )
+        elif self.model_engine == "api":
+            from .api_eval_engine import ApiEvalEngine
+
+            self.eval_engine = ApiEvalEngine(
+                self.eval_config,
+                is_judge=False,
+            )
         else:
             self.eval_engine = TransformersEvalEngine(
                 self.data_collator,
@@ -143,10 +154,37 @@ class BaseEvaluator(ABC):
         self._ensure_run_configuration_allowed()
 
     def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
+        if self.judge_engine == "api":
+            raise RuntimeError(
+                "Judge tokenizer is unavailable for API-based judge engines."
+            )
         tokenizer = self.judge_tokenizer
         if tokenizer is None:
             raise RuntimeError("Judge tokenizer is not initialized.")
         return tokenizer
+
+    def format_judge_messages(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        is_multimodal: bool = False,
+        max_answer_tokens: int | None = None,
+        reasoning: bool = False,
+        pass_max_answer_tokens: bool = False,
+    ) -> JudgePrompt:
+        if self.judge_engine == "api":
+            return messages
+
+        self.prepare_judge_tokenizer()
+        judge_tokenizer = self._get_judge_tokenizer()
+        return safe_apply_chat_template(
+            judge_tokenizer,
+            messages,
+            is_multimodal=is_multimodal,
+            max_answer_tokens=max_answer_tokens,
+            reasoning=reasoning,
+            pass_max_answer_tokens=pass_max_answer_tokens,
+        )
 
     def get_output_dir(self) -> Path:
         """
@@ -698,6 +736,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         initializing the full judge pipeline. This keeps memory lower while
         constructing representative prompts used for batch-size probing.
         """
+        if self.judge_engine == "api":
+            return
         if getattr(self, "judge_tokenizer", None) is None:
             self.judge_tokenizer = load_tokenizer_with_transformers(
                 self.eval_config.judge_path_or_repo_id,
@@ -722,7 +762,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     def run_judge_with_backoff(
         self,
         judge_engine: EvalEngine,
-        prompts: list[str],
+        prompts: list[JudgePrompt],
     ) -> list[list[dict[str, str]]]:
         """
         Execute the judge by probing an executable batch size that can
@@ -791,7 +831,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     def _process_judge_prompts_batch(
         self,
         judge_engine: EvalEngine,
-        prompts: list[str],
+        prompts: list[JudgePrompt],
         batch_size: int | None = None,
         do_sample: bool | None = None,
     ) -> list[list[dict[str, str]]]:
@@ -807,33 +847,54 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Returns:
             List where each element is [{"generated_text": answer}, ...] for that prompt.
         """
-        judge_tokenizer = self._get_judge_tokenizer()
+        if not prompts:
+            return []
 
-        # Tokenize prompts
-        tokenized = judge_tokenizer(
-            prompts,
-            return_tensors="pt",
-            padding=True,
-        )
-        # transformers' tokenizer classes don't have the correct type hints for the return_tensors argument
-        input_ids = cast("Tensor", tokenized["input_ids"])
-        attention_mask = cast("Tensor", tokenized["attention_mask"])
-
-        # Generate answers using judge engine for deterministic judging
         resolved_do_sample = (
             self.eval_config.sample_judge if do_sample is None else do_sample
         )
-        answers = judge_engine.generate_answers(
-            input_ids,
-            attention_mask,
-            sampling_config=SamplingConfig(
-                do_sample=resolved_do_sample,
-                temperature=self.eval_config.sampling_config.temperature,
-                top_p=self.eval_config.sampling_config.top_p,
-                top_k=self.eval_config.sampling_config.top_k,
-                seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
-            ),
+        sampling_config = SamplingConfig(
+            do_sample=resolved_do_sample,
+            temperature=self.eval_config.sampling_config.temperature,
+            top_p=self.eval_config.sampling_config.top_p,
+            top_k=self.eval_config.sampling_config.top_k,
+            seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
         )
+
+        if self.judge_engine == "api":
+            from .api_eval_engine import ApiEvalEngine
+
+            if not isinstance(judge_engine, ApiEvalEngine):
+                raise RuntimeError(
+                    "API judge engine is not initialized correctly for API prompts."
+                )
+            answers = judge_engine.generate_answers_from_prompts(
+                prompts,
+                sampling_config=sampling_config,
+            )
+        else:
+            if not isinstance(prompts[0], str):
+                raise ValueError(
+                    "Non-API judge engines require string prompts."
+                )
+            judge_tokenizer = self._get_judge_tokenizer()
+
+            # Tokenize prompts
+            tokenized = judge_tokenizer(
+                prompts,
+                return_tensors="pt",
+                padding=True,
+            )
+            # transformers' tokenizer classes don't have the correct type hints for the return_tensors argument
+            input_ids = cast("Tensor", tokenized["input_ids"])
+            attention_mask = cast("Tensor", tokenized["attention_mask"])
+
+            # Generate answers using judge engine for deterministic judging
+            answers = judge_engine.generate_answers(
+                input_ids,
+                attention_mask,
+                sampling_config=sampling_config,
+            )
 
         # Format output to match pipeline format: [{"generated_text": answer}, ...] per prompt
         result: list[list[dict[str, str]]] = []
@@ -861,9 +922,17 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             if not (hasattr(self, "eval_engine") and self.eval_engine.is_judge):
                 judge_engine = None
 
-                self.prepare_judge_tokenizer()
-
                 # Create appropriate judge engine based on config
+                if self.judge_engine == "api":
+                    from .api_eval_engine import ApiEvalEngine
+
+                    judge_engine = ApiEvalEngine(
+                        self.eval_config,
+                        is_judge=True,
+                    )
+                else:
+                    self.prepare_judge_tokenizer()
+
                 if self.judge_engine == "vllm":
                     max_model_len = (
                         self.eval_config.vllm_config.judge_max_model_len
@@ -875,7 +944,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                         is_judge=True,
                         max_model_len=max_model_len,
                     )
-                else:
+                elif self.judge_engine == "transformers":
                     judge_engine = TransformersEvalEngine(
                         self.data_collator,
                         self.eval_config,

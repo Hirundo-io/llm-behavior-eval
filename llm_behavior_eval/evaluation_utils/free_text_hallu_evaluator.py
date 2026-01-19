@@ -8,7 +8,6 @@ from tqdm import tqdm
 
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .eval_engine import EvalEngine
-from .util_functions import safe_apply_chat_template
 
 CHOICE_LETTERS: list[str] = ["A", "B", "C"]
 CHOICE_STRINGS: list[str] = ["CORRECT", "INCORRECT", "NOT_ATTEMPTED"]
@@ -113,15 +112,12 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         gt_answers: list[str],
         generated_answers: list[str],
     ) -> list[str]:
-        self.prepare_judge_tokenizer()
-        judge_tokenizer = self._get_judge_tokenizer()
         prompts = []
         for question, gt_answer, generated_answer in zip(
             questions, gt_answers, generated_answers, strict=True
         ):
             prompts.append(
-                safe_apply_chat_template(
-                    judge_tokenizer,
+                self.format_judge_messages(
                     [
                         {
                             "role": "user",

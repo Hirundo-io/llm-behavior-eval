@@ -140,12 +140,16 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 - `--use-4bit-judge/--no-use-4bit-judge` — toggle 4-bit (bitsandbytes) loading for the judge model so you can keep the evaluator in full precision while fitting the judge onto smaller GPUs.
 - `--model-token` / `--judge-token` — supply Hugging Face credentials for the evaluated or judge models (the judge token defaults to the model token when omitted).
 - `--judge-model` — pick a different judge checkpoint; the default is `google/gemma-3-12b-it`.
+- `--judge-engine api` — use hosted judge models via API providers (Azure OpenAI, Vertex AI, OpenAI, Anthropic, Bedrock, etc.). Combine with `--judge-model` using the provider/model syntax supported by LiteLLM (for example `openai/gpt-4o-mini` or `bedrock/anthropic.claude-3-sonnet-20240229-v1:0`).
+- `--model-engine api` — run the evaluated model via an API provider. Use `--model-tokenizer` to supply a compatible Hugging Face tokenizer when the API model id is not a HF repo.
 - `--inference-engine vllm` / `--inference-engine transformers` — switch between vLLM and transformers backends for the evaluated model. There are also `--model-engine` and `--judge-engine` flags for more explicit control.
 - `--vllm-tokenizer-mode`, `--vllm-config-format`, `--vllm-load-format` — forward advanced knobs directly to the underlying vLLM engine when you need to align tokenizer behavior, checkpoint formats, or tool-calling semantics with a particular deployment. Tokenizer mode accepts `auto`, `slow`, `mistral`, or `custom`.
 - `--reasoning/--no-reasoning` — enable chat-template reasoning modes on tokenizers that support them.
 - `--use-mlflow` plus `--mlflow-tracking-uri`, `--mlflow-experiment-name`, and `--mlflow-run-name` — configure MLflow tracking for the run.
 
 Need more control or wrappers around the library? Explore the scripts in `examples/` to see how to call the evaluators from Python directly, customize additional knobs, or embed the run inside your own orchestration logic.
+
+To enable API-based judge models, install the optional dependencies with `pip install llm-behavior-eval[api]` and configure the relevant provider credentials (e.g., `OPENAI_API_KEY`, `AZURE_API_KEY`, `AWS_ACCESS_KEY_ID`, or `GOOGLE_APPLICATION_CREDENTIALS`). The judge prompt will be sent directly to the selected provider using LiteLLM's routing rules.
 
 See `examples/presets_customization.py` for a minimal script-based workflow.
 

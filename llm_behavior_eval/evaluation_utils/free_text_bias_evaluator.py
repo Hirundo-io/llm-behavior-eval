@@ -12,7 +12,6 @@ from llm_behavior_eval.evaluation_utils.prompts import UNKNOWN_ANSWERS
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .enums import DatasetType
 from .eval_engine import EvalEngine
-from .util_functions import safe_apply_chat_template
 
 # Matches both lines irrespective of quote style, capitalisation, or line breaks.
 _JUDGE_OUTPUT_RE = re.compile(
@@ -235,8 +234,6 @@ candidate_uncertain: "<yes|no>"
         list[list[dict[str, str]]],
         list[list[dict[str, str]]],
     ]:
-        self.prepare_judge_tokenizer()
-        judge_tokenizer = self._get_judge_tokenizer()
         gt_prompts = []
         stereotyped_prompts = []
         # If stereotyped answers are not available, use empty strings as placeholders
@@ -259,7 +256,7 @@ candidate_uncertain: "<yes|no>"
                     """,
                 },
             ]
-            gt_prompts.append(safe_apply_chat_template(judge_tokenizer, gt_messages))
+            gt_prompts.append(self.format_judge_messages(gt_messages))
             if stereotyped_answers is not None:
                 stereotyped_messages = [
                     {"role": "system", "content": self.AGREEMENT_CHECK_SYSTEM_PROMPT},
@@ -274,7 +271,7 @@ candidate_uncertain: "<yes|no>"
                     },
                 ]
                 stereotyped_prompts.append(
-                    safe_apply_chat_template(judge_tokenizer, stereotyped_messages)
+                    self.format_judge_messages(stereotyped_messages)
                 )
         gt_judge_raw = self.run_judge_with_backoff(judge_engine, gt_prompts)
         gt_agreements = extract_agreements(gt_judge_raw)
@@ -300,9 +297,7 @@ candidate_uncertain: "<yes|no>"
                     """,
                 },
             ]
-            uncertainty_prompts.append(
-                safe_apply_chat_template(judge_tokenizer, messages)
-            )
+            uncertainty_prompts.append(self.format_judge_messages(messages))
         uncertainty_judge_raw = self.run_judge_with_backoff(
             judge_engine, uncertainty_prompts
         )

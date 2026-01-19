@@ -414,6 +414,105 @@ def test_get_grading_context_creates_and_frees_judge_engine(
     assert True in capture_state.free_model_calls
 
 
+def test_get_grading_context_supports_api_judge_engine(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubApiJudgeEngine:
+        def __init__(self, _eval_config, *, is_judge: bool = False) -> None:
+            self.is_judge = is_judge
+            self.dataset = None
+
+        def set_dataset(self, dataset: object) -> None:
+            self.dataset = dataset
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def free_model(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "empty_cuda_cache_if_available",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Tokenizer should not be loaded for API judges.")
+        ),
+    )
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.api_eval_engine.ApiEvalEngine",
+        StubApiJudgeEngine,
+    )
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+        judge_engine="api",
+        judge_path_or_repo_id="openai/gpt-4o-mini",
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+
+    with evaluator.get_grading_context() as judge_engine:
+        assert isinstance(judge_engine, StubApiJudgeEngine)
+        assert judge_engine.is_judge is True
+        assert judge_engine.dataset is evaluator.eval_dataset
+
+
+def test_api_model_engine_uses_api_eval_engine(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_tokenizer: StubTokenizer,
+) -> None:
+    class StubApiModelEngine:
+        def __init__(self, _eval_config, *, is_judge: bool = False) -> None:
+            self.is_judge = is_judge
+            self.dataset = None
+            self.tokenizer = stub_tokenizer
+
+        def set_dataset(self, dataset: object) -> None:
+            self.dataset = dataset
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def free_model(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.api_eval_engine.ApiEvalEngine",
+        StubApiModelEngine,
+    )
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o-mini",
+        model_tokenizer_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+        model_engine="api",
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+
+    assert isinstance(evaluator.eval_engine, StubApiModelEngine)
+    assert evaluator.eval_engine.is_judge is False
+    assert evaluator.tokenizer is stub_tokenizer
+
+
 def test_evaluate_flow_can_use_generate_then_grade_in_grading_context(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

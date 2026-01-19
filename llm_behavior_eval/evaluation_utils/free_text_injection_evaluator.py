@@ -9,7 +9,6 @@ from tqdm import tqdm
 from .base_evaluator import _GenerationRecord
 from .eval_engine import EvalEngine
 from .free_text_hallu_evaluator import FreeTextHaluEvaluator, _HalluGenerationRecord
-from .util_functions import safe_apply_chat_template
 
 
 @dataclass
@@ -56,15 +55,12 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         gt_answers: list[str],  # unused but kept for signature compatibility
         generated_answers: list[str],
     ) -> list[str]:
-        self.prepare_judge_tokenizer()
-        judge_tokenizer = self._get_judge_tokenizer()
         prompts = []
         for question, generated_answer in zip(
             questions, generated_answers, strict=True
         ):
             prompts.append(
-                safe_apply_chat_template(
-                    judge_tokenizer,
+                self.format_judge_messages(
                     [
                         {
                             "role": "user",
