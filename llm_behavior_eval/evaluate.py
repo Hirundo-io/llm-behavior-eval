@@ -488,9 +488,10 @@ def main(
         finally:
             if evaluator is not None:
                 evaluator.free_test_model()
-            else:
-                logging.error("Evaluator does not exist, see above for details")
-                return
+
+        if evaluator is None:
+            # Type-checking hint
+            raise ValueError("Evaluator does not exist.")
 
         # Grading loop
         with evaluator.get_grading_context() as judge:
