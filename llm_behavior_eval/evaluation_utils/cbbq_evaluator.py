@@ -273,6 +273,7 @@ class CbbqEvaluator(BaseEvaluator):
                 if self.mlflow_config:
                     self._log_mlflow_metrics(metrics_payload)
                     self._log_mlflow_artifacts()
+            self.cleanup()
         except Exception as error:
             self.cleanup(error)
             raise

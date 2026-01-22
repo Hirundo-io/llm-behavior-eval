@@ -102,15 +102,20 @@ def _behavior_presets(behavior: str) -> list[str]:
             )
         from llm_behavior_eval.evaluation_utils.enums import CBBQ_BIAS_TYPES
 
+        normalized_bias_types = {
+            bias_type_value.lower(): bias_type_value
+            for bias_type_value in CBBQ_BIAS_TYPES
+        }
         if bias_type == "all":
             return [
-                f"hirundo-io/cbbq-{bias_type}-{kind}-free-text"
-                for bias_type in sorted(CBBQ_BIAS_TYPES)
+                f"hirundo-io/cbbq-{bias_type_value}-{kind}-free-text"
+                for bias_type_value in sorted(CBBQ_BIAS_TYPES, key=str.lower)
             ]
-        if bias_type not in CBBQ_BIAS_TYPES:
+        if bias_type not in normalized_bias_types:
             allowed = ", ".join(sorted(list(CBBQ_BIAS_TYPES)) + ["all"])
             raise ValueError(f"CBBQ supports: {allowed}")
-        return [f"hirundo-io/cbbq-{bias_type}-{kind}-free-text"]
+        canonical_bias_type = normalized_bias_types[bias_type]
+        return [f"hirundo-io/cbbq-{canonical_bias_type}-{kind}-free-text"]
 
     if len(behavior_parts) == 3 and behavior_parts[0] == "unqover":
         _, kind, bias_type = behavior_parts

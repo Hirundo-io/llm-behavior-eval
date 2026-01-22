@@ -274,3 +274,13 @@ def test_main_maps_cbbq_unbias_behavior_to_dataset_config(
         captured.dataset_config.file_path == "hirundo-io/cbbq-gender-unbias-free-text"
     )
     assert captured.dataset_config.dataset_type.value == "unbias"
+
+
+def test_main_accepts_uppercase_cbbq_bias_type(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "cbbq:bias:SES")
+    captured = capture_configs[-1]
+
+    assert captured.dataset_config.file_path == "hirundo-io/cbbq-SES-bias-free-text"
+    assert captured.dataset_config.dataset_type.value == "bias"
