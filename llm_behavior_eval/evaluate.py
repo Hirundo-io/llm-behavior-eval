@@ -56,6 +56,7 @@ def _behavior_presets(behavior: str) -> list[str]:
 
     New formats:
     - BBQ: "bias:<bias_type>" or "unbias:<bias_type>"
+    - CBBQ: "cbbq:bias:<bias_type>" or "cbbq:unbias:<bias_type>"
     - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
     - Hallucinations: "hallu" or "hallu-med"
     - Prompt injection: "prompt-injection"
@@ -72,6 +73,8 @@ def _behavior_presets(behavior: str) -> list[str]:
 
     # Expected structures:
     # [kind, bias_type] for BBQ, where kind in {bias, unbias}
+    #   - bias_type can be a concrete type or 'all'
+    # ["cbbq", kind, bias_type] for CBBQ, where kind in {bias, unbias}
     #   - bias_type can be a concrete type or 'all'
     # ["unqover", kind, bias_type] for UNQOVER (kind must be 'bias')
     #   - bias_type can be a concrete type or 'all'
@@ -90,6 +93,29 @@ def _behavior_presets(behavior: str) -> list[str]:
             allowed = ", ".join(sorted(list(BBQ_BIAS_TYPES)) + ["all"])
             raise ValueError(f"BBQ supports: {allowed}")
         return [f"hirundo-io/bbq-{bias_type}-{kind}-free-text"]
+
+    if len(behavior_parts) == 3 and behavior_parts[0] == "cbbq":
+        _, kind, bias_type = behavior_parts
+        if kind not in BIAS_KINDS:
+            raise ValueError(
+                "For CBBQ use 'cbbq:bias:<bias_type>' or 'cbbq:unbias:<bias_type>'"
+            )
+        from llm_behavior_eval.evaluation_utils.enums import CBBQ_BIAS_TYPES
+
+        normalized_bias_types = {
+            bias_type_value.lower(): bias_type_value
+            for bias_type_value in CBBQ_BIAS_TYPES
+        }
+        if bias_type == "all":
+            return [
+                f"hirundo-io/cbbq-{bias_type_value}-{kind}-free-text"
+                for bias_type_value in sorted(CBBQ_BIAS_TYPES, key=str.lower)
+            ]
+        if bias_type not in normalized_bias_types:
+            allowed = ", ".join(sorted(list(CBBQ_BIAS_TYPES)) + ["all"])
+            raise ValueError(f"CBBQ supports: {allowed}")
+        canonical_bias_type = normalized_bias_types[bias_type]
+        return [f"hirundo-io/cbbq-{canonical_bias_type}-{kind}-free-text"]
 
     if len(behavior_parts) == 3 and behavior_parts[0] == "unqover":
         _, kind, bias_type = behavior_parts
@@ -110,8 +136,14 @@ def _behavior_presets(behavior: str) -> list[str]:
         return [f"hirundo-io/unqover-{bias_type}-{kind}-free-text"]
 
     raise ValueError(
-        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
+        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'cbbq:bias:<type|all>' | 'cbbq:unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
     )
+
+
+def _infer_dataset_type(file_path: str) -> DatasetType:
+    if "-unbias-" in file_path or "-disamb-" in file_path:
+        return DatasetType.UNBIAS
+    return DatasetType.BIAS
 
 
 def main(
@@ -124,7 +156,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; CBBQ: 'cbbq:bias:<type>' or 'cbbq:unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
         ),
     ],
     output_dir: Annotated[
@@ -470,9 +502,7 @@ def main(
                 logging.info("Evaluating %s with %s", file_path, model_path_or_repo_id)
                 dataset_config = DatasetConfig(
                     file_path=file_path,
-                    dataset_type=DatasetType.UNBIAS
-                    if "-unbias-" in file_path
-                    else DatasetType.BIAS,
+                    dataset_type=_infer_dataset_type(file_path),
                     preprocess_config=PreprocessConfig(),
                     seed=seed,
                 )
