@@ -180,3 +180,7 @@ cython_debug/
 # ACT Secrets
 act-events/pr.secrets
 !act-events/pr.json
+
+# pixi environments
+.pixi/*
+!.pixi/config.toml

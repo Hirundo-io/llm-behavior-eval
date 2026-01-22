@@ -198,6 +198,7 @@ safe_apply_chat_template = SafeApplyChatTemplate()
 def load_tokenizer_with_transformers(
     model_name: str,
     token: str | None = None,
+    trust_remote_code: bool = False,
 ) -> PreTrainedTokenizerBase:
     """
     Load a tokenizer by first trying the standard method and, if a ValueError
@@ -206,12 +207,14 @@ def load_tokenizer_with_transformers(
     Args:
         model_name: The repo-id or local path of the model to load.
         token: The HuggingFace token to use for the model.
+        trust_remote_code: Whether to trust remote code.
     """
     try:
         # Attempt to load the tokenizer normally
         tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             token=token,
+            trust_remote_code=trust_remote_code,
         )
         logging.info("Tokenizer loaded successfully from the remote repository.")
     except ValueError as error:
@@ -225,6 +228,7 @@ def load_tokenizer_with_transformers(
             model_name,
             local_files_only=True,
             token=token,
+            trust_remote_code=trust_remote_code,
         )
         logging.info("Tokenizer loaded successfully from the local files.")
 
@@ -424,7 +428,9 @@ def load_transformers_model_and_tokenizer(
     logging.info("Using dtype: %s", dtype)
 
     # Load tokenizer
-    tokenizer = load_tokenizer_with_transformers(model_name, token=token)
+    tokenizer = load_tokenizer_with_transformers(
+        model_name, token=token, trust_remote_code=trust_remote_code
+    )
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
         raise ValueError("Tokenizer is not supported!")
 

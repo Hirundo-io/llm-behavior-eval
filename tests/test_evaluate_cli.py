@@ -1,15 +1,41 @@
 from __future__ import annotations
 
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import pytest
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from llm_behavior_eval.evaluation_utils.base_evaluator import (
+        _GenerationRecord,
+    )
+    from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
+
 
 class _StubEvaluator:
-    def evaluate(self) -> None:
+    def update_dataset_config(self, dataset_config: DatasetConfig) -> None:
+        return None
+
+    def generate(self) -> Sequence[_GenerationRecord]:
+        return []
+
+    def free_test_model(self) -> None:
+        return None
+
+    def get_grading_context(self) -> AbstractContextManager:
+        return nullcontext()
+
+    def grade(
+        self,
+        generations: Sequence[_GenerationRecord],
+        judge_engine: EvalEngine | None = None,
+    ) -> None:
         return None
 
 

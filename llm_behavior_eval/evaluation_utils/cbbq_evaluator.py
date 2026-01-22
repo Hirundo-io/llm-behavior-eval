@@ -3,12 +3,18 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, cast
 
 import pandas as pd
 from tqdm import tqdm
 
-from .base_evaluator import BaseEvaluator
+from .base_evaluator import BaseEvaluator, _GenerationRecord
 from .enums import DatasetType
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from .eval_engine import EvalEngine
 
 _CBBQ_ANSWER_RE = re.compile(r"\b([ABC])\b", re.IGNORECASE)
 
@@ -133,29 +139,67 @@ class CbbqDisambiguousCounts:
         }
 
 
+@dataclass
+class _CbbqGenerationRecord(_GenerationRecord):
+    gold_labels: list[int]
+    polarities: list[int]
+
+
 class CbbqEvaluator(BaseEvaluator):
     def should_include_dataset_type_in_output_dir(self) -> bool:
         return True
 
-    def evaluate(self) -> None:
+    def generate(self) -> Sequence[_GenerationRecord]:
         try:
             self.ensure_test_model_ready()
+            generations: list[_CbbqGenerationRecord] = []
+            for batch in tqdm(self.eval_loader, desc="Generating answers"):
+                input_ids = batch["test_input_ids"]
+                attention_mask = batch["test_attention_mask"]
+                label_values = batch["cbbq_labels"].tolist()
+                polarity_values = batch["cbbq_polarities"].tolist()
+                generated_texts = self.generate_answers(input_ids, attention_mask)
+                generations.append(
+                    _CbbqGenerationRecord(
+                        answers=generated_texts,
+                        gold_labels=label_values,
+                        polarities=polarity_values,
+                    )
+                )
+            return generations
+        except Exception as error:
+            self.cleanup(error)
+            raise
+
+    def evaluate(self) -> None:
+        try:
+            generations = self.generate()
+            self.free_test_model()
+            self.grade(generations)
+        except Exception as error:
+            self.cleanup(error)
+            raise
+
+    def grade(
+        self,
+        generations: Sequence[_GenerationRecord],
+        judge_engine: EvalEngine | None = None,
+    ) -> None:
+        try:
             responses: list[dict[str, object]] = []
             output_dir = self.get_output_dir()
 
             if self.dataset_config.dataset_type == DatasetType.BIAS:
                 counts = CbbqAmbiguousCounts()
-                for batch in tqdm(self.eval_loader, desc="Generating answers"):
-                    input_ids = batch["test_input_ids"]
-                    attention_mask = batch["test_attention_mask"]
-                    label_values = batch["cbbq_labels"].tolist()
-                    polarity_values = batch["cbbq_polarities"].tolist()
-                    generated_texts = self.generate_answers(input_ids, attention_mask)
-
+                for generation in tqdm(
+                    cast("Sequence[_CbbqGenerationRecord]", generations),
+                    desc="Grading responses",
+                    unit="batch",
+                ):
                     for generated_text, gold_label, polarity_value in zip(
-                        generated_texts,
-                        label_values,
-                        polarity_values,
+                        generation.answers,
+                        generation.gold_labels,
+                        generation.polarities,
                         strict=True,
                     ):
                         predicted_label = extract_cbbq_prediction(generated_text)
@@ -186,17 +230,15 @@ class CbbqEvaluator(BaseEvaluator):
                     self._log_mlflow_artifacts()
             else:
                 counts = CbbqDisambiguousCounts()
-                for batch in tqdm(self.eval_loader, desc="Generating answers"):
-                    input_ids = batch["test_input_ids"]
-                    attention_mask = batch["test_attention_mask"]
-                    label_values = batch["cbbq_labels"].tolist()
-                    polarity_values = batch["cbbq_polarities"].tolist()
-                    generated_texts = self.generate_answers(input_ids, attention_mask)
-
+                for generation in tqdm(
+                    cast("Sequence[_CbbqGenerationRecord]", generations),
+                    desc="Grading responses",
+                    unit="batch",
+                ):
                     for generated_text, gold_label, polarity_value in zip(
-                        generated_texts,
-                        label_values,
-                        polarity_values,
+                        generation.answers,
+                        generation.gold_labels,
+                        generation.polarities,
                         strict=True,
                     ):
                         predicted_label = extract_cbbq_prediction(generated_text)
@@ -227,7 +269,6 @@ class CbbqEvaluator(BaseEvaluator):
                 if self.mlflow_config:
                     self._log_mlflow_metrics(metrics_payload)
                     self._log_mlflow_artifacts()
-
-            self.cleanup()
         except Exception as error:
             self.cleanup(error)
+            raise
