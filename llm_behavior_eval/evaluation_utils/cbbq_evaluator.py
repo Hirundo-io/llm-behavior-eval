@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
@@ -148,6 +149,9 @@ class _CbbqGenerationRecord(_GenerationRecord):
 class CbbqEvaluator(BaseEvaluator):
     def should_include_dataset_type_in_output_dir(self) -> bool:
         return True
+
+    def get_grading_context(self) -> AbstractContextManager[None]:
+        return nullcontext(None)
 
     def generate(self) -> Sequence[_GenerationRecord]:
         try:
