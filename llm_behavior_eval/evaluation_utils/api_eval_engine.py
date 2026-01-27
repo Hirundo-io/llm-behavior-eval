@@ -183,7 +183,7 @@ class ApiEvalEngine(EvalEngine):
             temperature = 0.0
 
         kwargs: dict[str, Any] = {
-            "max_tokens": self.eval_config.max_judge_tokens,
+            "max_tokens": self._get_max_new_tokens(self.eval_config, self.is_judge),
         }
         if temperature is not None:
             kwargs["temperature"] = temperature

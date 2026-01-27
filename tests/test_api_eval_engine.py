@@ -77,6 +77,34 @@ def test_api_eval_engine_calls_litellm_completion(tmp_path, monkeypatch) -> None
     assert call_kwargs["seed"] == 123
 
 
+def test_api_eval_engine_model_uses_answer_tokens(tmp_path, monkeypatch) -> None:
+    fake_litellm = patch_litellm(monkeypatch)
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+        max_answer_tokens=101,
+        max_judge_tokens=7,
+    )
+
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+    prompts = [[{"role": "user", "content": "Answer this."}]]
+    sampling_config = SamplingConfig(
+        do_sample=False,
+        temperature=0.7,
+        top_p=0.9,
+        top_k=2,
+        seed=123,
+    )
+
+    answers = engine.generate_answers_from_prompts(prompts, sampling_config)
+
+    assert answers == ["ok"]
+    call_kwargs = fake_litellm.calls[0]
+    assert call_kwargs["max_tokens"] == evaluation_config.max_answer_tokens
+
+
 def test_api_eval_engine_allows_missing_model_tokenizer(tmp_path, monkeypatch) -> None:
     patch_litellm(monkeypatch)
 
