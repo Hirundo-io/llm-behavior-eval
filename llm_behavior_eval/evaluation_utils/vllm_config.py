@@ -16,13 +16,14 @@ class VllmConfig(BaseModel):
         judge_max_model_len: Maximum model length for vLLM judge inference (optional).
             Defaults to the same value as max_model_len if not specified.
         tokenizer_mode: Tokenizer mode forwarded to vLLM (e.g. 'auto', 'slow', 'mistral', 'custom').
-        config_format: Model config format hint forwarded to vLLM (optional).
-        load_format: Checkpoint load format hint forwarded to vLLM (optional).
+        config_format: Model config format hint forwarded to vLLM.
+        load_format: Checkpoint load format hint forwarded to vLLM.
     """
 
     max_model_len: int | None = None
     judge_max_model_len: int | None = None
     tokenizer_mode: TokenizerModeOption | None = None
-    config_format: str | None = None
-    load_format: str | None = None
+    # vLLM expects string values for these fields. Default to "auto".
+    config_format: str = "auto"
+    load_format: str = "auto"
     gpu_memory_utilization: float = 0.9

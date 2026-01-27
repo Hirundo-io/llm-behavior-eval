@@ -9,6 +9,8 @@ import typer
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
+from dotenv import load_dotenv
+
 from llm_behavior_eval import (
     DatasetConfig,
     DatasetType,
@@ -22,6 +24,8 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
 )
 from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
+
+load_dotenv()
 
 torch.set_float32_matmul_precision("high")
 
@@ -139,6 +143,16 @@ def main(
             "--model-token", help="HuggingFace token for the model (optional)"
         ),
     ] = None,
+    model_tokenizer: Annotated[
+        str | None,
+        typer.Option(
+            "--model-tokenizer",
+            help=(
+                "Tokenizer repo id or path for the evaluated model (optional). "
+                "Use this when --model-engine=api and the model id is not a HF repo."
+            ),
+        ),
+    ] = None,
     judge_token: Annotated[
         str | None,
         typer.Option(
@@ -147,7 +161,13 @@ def main(
     ] = None,
     judge_model: Annotated[
         str,
-        typer.Option("--judge-model", help="Judge repo id or path (optional)"),
+        typer.Option(
+            "--judge-model",
+            help=(
+                "Judge repo id or path (optional). Use API model identifiers "
+                "when --judge-engine=api (e.g. openai/gpt-4o-mini)."
+            ),
+        ),
     ] = "google/gemma-3-12b-it",
     use_mlflow: Annotated[
         bool,
@@ -176,7 +196,10 @@ def main(
         Literal["vllm", "transformers"] | None,
         typer.Option(
             "--inference-engine",
-            help="""Inference engine to use for model and judge inference. "vllm" or "transformers". Overrides model_engine and judge_engine arguments.""",
+            help=(
+                'Inference engine to use for model and judge inference. "vllm" '
+                'or "transformers". Overrides model_engine and judge_engine arguments.'
+            ),
         ),
     ] = None,
     trust_remote_code: Annotated[
@@ -190,10 +213,14 @@ def main(
         ),
     ] = None,
     model_engine: Annotated[
-        Literal["vllm", "transformers"],
+        Literal["vllm", "transformers", "api"],
         typer.Option(
             "--model-engine",
-            help="""Model engine to use for model inference. "vllm" or "transformers". DO NOT combine with the inference_engine argument.""",
+            help=(
+                'Model engine to use for model inference. "vllm", '
+                '"transformers", or "api". DO NOT combine with the '
+                "inference_engine argument."
+            ),
         ),
     ] = "transformers",
     vllm_max_model_len: Annotated[
@@ -204,10 +231,14 @@ def main(
         ),
     ] = None,
     judge_engine: Annotated[
-        Literal["vllm", "transformers"],
+        Literal["vllm", "transformers", "api"],
         typer.Option(
             "--judge-engine",
-            help="""Judge engine to use for judge model inference. "vllm" or "transformers". DO NOT combine with the inference_engine argument.""",
+            help=(
+                'Judge engine to use for judge model inference. "vllm", '
+                '"transformers", or "api". DO NOT combine with the '
+                "inference_engine argument."
+            ),
         ),
     ] = "transformers",
     vllm_judge_max_model_len: Annotated[
@@ -418,8 +449,8 @@ def main(
             if vllm_judge_max_model_len is not None
             else vllm_max_model_len,
             tokenizer_mode=vllm_tokenizer_mode,
-            config_format=vllm_config_format,
-            load_format=vllm_load_format,
+            config_format=vllm_config_format or "auto",
+            load_format=vllm_load_format or "auto",
             gpu_memory_utilization=vllm_gpu_memory_utilization,
         )
     else:
@@ -428,6 +459,7 @@ def main(
     eval_config = EvaluationConfig(
         model_path_or_repo_id=model_path_or_repo_id,
         model_token=model_token,
+        model_tokenizer_path_or_repo_id=model_tokenizer,
         judge_path_or_repo_id=judge_path_or_repo_id,
         judge_token=judge_token,
         results_dir=result_dir,

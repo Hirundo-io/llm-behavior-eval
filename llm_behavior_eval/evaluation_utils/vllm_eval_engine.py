@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from .eval_engine import EvalEngine
+from .eval_engine import EvalDataset, EvalEngine
 from .util_functions import (
     build_vllm_prompt_token_ids,
     load_tokenizer_with_transformers,
@@ -15,7 +15,6 @@ from .util_functions import (
 )
 
 if TYPE_CHECKING:
-    from datasets import Dataset
     from vllm.inputs.data import PromptType
 
     from .eval_config import EvaluationConfig
@@ -79,7 +78,7 @@ class VllmEvalEngine(EvalEngine):
         )
         self._vllm_sampling_params = None
 
-    def set_dataset(self, eval_dataset: Dataset) -> None:
+    def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset
 
     def generate_answers(

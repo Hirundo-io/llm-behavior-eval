@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sized
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import torch
-    from datasets import Dataset
 
     from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
 
 
+EvalDataset = Sized
+
+
 class EvalEngine(ABC):
     @abstractmethod
-    def set_dataset(self, eval_dataset: Dataset) -> None:
+    def set_dataset(self, eval_dataset: EvalDataset) -> None:
         raise NotImplementedError("Subclasses must implement set_dataset().")
 
     @abstractmethod

@@ -22,17 +22,20 @@ class EvaluationConfig(BaseModel):
         max_answer_tokens: Number of tokens to generate per answer. Typical range is 32-256.
         pass_max_answer_tokens: Whether to pass max_answer_tokens to the model.
         model_path_or_repo_id: HF repo ID or path of the model under test (e.g. "meta-llama/Llama-3.1-8B-Instruct").
+        model_tokenizer_path_or_repo_id: Optional tokenizer repo ID or path for the model under test.
+            Use this when model_path_or_repo_id is an API model identifier.
         model_token: HuggingFace token for the model under test.
         judge_batch_size: Batch size for the judge model (free-text tasks only). If None, will be adjusted for GPU limits.
         max_judge_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
         judge_path_or_repo_id: HF repo ID or path of the judge model (e.g. "meta-llama/Llama-3.3-70B-Instruct").
+            When judge_engine="api", this should be an API model identifier (e.g. "openai/gpt-4o-mini").
         judge_token: HuggingFace token for the judge model. Defaults to the value of `model_token` if not provided.
         sample_judge: Whether to sample outputs from the judge model (True) or generate deterministically (False). Defaults to False.
         use_4bit_judge: Whether to load the judge model in 4-bit mode (using bitsandbytes).
             This is only relevant for the judge model.
         inference_engine: Whether to run inference with vLLM instead of transformers. Overrides model_engine and judge_engine arguments.
-        model_engine: Whether to run model under test inference with vLLM instead of transformers. DO NOT combine with the inference_engine argument.
-        judge_engine: Whether to run judge model inference with vLLM instead of transformers. DO NOT combine with the inference_engine argument.
+        model_engine: Model inference backend. Use "api" for hosted models. DO NOT combine with the inference_engine argument.
+        judge_engine: Judge model inference backend. Use "api" for hosted judge models. DO NOT combine with the inference_engine argument.
         vllm_config: vLLM-specific configuration (optional). Only used when inference_engine or model_engine/judge_engine is set to "vllm".
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
         reasoning: Whether to enable chat-template reasoning (if supported by tokenizer/model).
@@ -49,6 +52,7 @@ class EvaluationConfig(BaseModel):
     max_answer_tokens: int = 128
     pass_max_answer_tokens: bool = False
     model_path_or_repo_id: str
+    model_tokenizer_path_or_repo_id: str | None = None
     model_token: str | None = None
     judge_batch_size: None | int = None
     max_judge_tokens: int = 32
@@ -57,8 +61,8 @@ class EvaluationConfig(BaseModel):
     sample_judge: bool = False
     use_4bit_judge: bool = False
     inference_engine: Literal["vllm", "transformers"] | None = None
-    model_engine: Literal["vllm", "transformers"] = "transformers"
-    judge_engine: Literal["vllm", "transformers"] = "transformers"
+    model_engine: Literal["vllm", "transformers", "api"] = "transformers"
+    judge_engine: Literal["vllm", "transformers", "api"] = "transformers"
     vllm_config: VllmConfig | None = None
     results_dir: Path
     reasoning: bool = False
@@ -88,6 +92,22 @@ class EvaluationConfig(BaseModel):
                     "vllm_config can only be specified when using vLLM "
                     "(set inference_engine='vllm' or model_engine='vllm' or judge_engine='vllm')"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def validate_api_judge_engine(self):
+        if self.judge_engine == "api" and self.inference_engine is not None:
+            raise ValueError(
+                "judge_engine='api' cannot be combined with inference_engine."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_api_model_engine(self):
+        if self.model_engine == "api" and self.inference_engine is not None:
+            raise ValueError(
+                "model_engine='api' cannot be combined with inference_engine."
+            )
         return self
 
 

@@ -134,18 +134,138 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
 
+### API-Based Model Evaluation
+
+In addition to local inference (`--model-engine transformers` or `--model-engine vllm`), you can evaluate models served via **remote API endpoints** using `--model-engine api`. This uses [LiteLLM](https://docs.litellm.ai/) under the hood, supporting Azure OpenAI, OpenAI, Anthropic, Vertex AI, Bedrock, and any OpenAI-compatible endpoint.
+
+Use API mode when:
+- You want to evaluate hosted models (GPT-4o, Claude, etc.)
+- You have a model running on a separate inference server
+- You need to separate the evaluation process from model serving
+
+Install the API dependencies first:
+```bash
+pip install llm-behavior-eval[api]
+```
+
+#### Azure OpenAI
+
+Set your Azure credentials:
+```bash
+export AZURE_API_KEY="your-azure-api-key"
+export AZURE_API_BASE="https://your-resource.openai.azure.com/"
+export AZURE_API_VERSION="2024-12-01-preview"
+```
+
+Run evaluation with the `azure/` prefix:
+```bash
+llm-behavior-eval "azure/gpt-4o" bias:age \
+    --model-engine api \
+    --max-samples 100
+```
+
+Use Azure models for both evaluation and judging:
+```bash
+llm-behavior-eval "azure/gpt-4o" hallu \
+    --model-engine api \
+    --judge-engine api \
+    --judge-model "azure/gpt-4o-mini"
+```
+
+#### vLLM OpenAI-Compatible Server
+
+> **Note:** This section covers connecting to a **remote vLLM server** via its REST API. If you want to run vLLM **locally in the same process**, use `--model-engine vllm` instead (no API setup needed).
+
+If you're running a model with vLLM's OpenAI-compatible API server:
+
+```bash
+# Start vLLM server (in another terminal)
+vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
+```
+
+Set the endpoint:
+```bash
+export OPENAI_API_KEY="dummy"  # vLLM doesn't require auth, but LiteLLM expects this
+export OPENAI_API_BASE="http://localhost:8000/v1"
+```
+
+Run evaluation with the `openai/` prefix:
+```bash
+llm-behavior-eval "openai/meta-llama/Llama-3.1-8B-Instruct" bias:gender \
+    --model-engine api \
+    --max-samples 100
+```
+
+Alternatively, use the `hosted_vllm/` prefix with `HOSTED_VLLM_API_BASE`:
+```bash
+export HOSTED_VLLM_API_BASE="http://localhost:8000/v1"
+
+llm-behavior-eval "hosted_vllm/meta-llama/Llama-3.1-8B-Instruct" bias:gender \
+    --model-engine api
+```
+
+#### OpenAI
+
+```bash
+export OPENAI_API_KEY="your-openai-api-key"
+
+llm-behavior-eval "openai/gpt-4o" hallu \
+    --model-engine api
+```
+
+#### Google Vertex AI
+
+Set your Vertex AI credentials:
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account-key.json"
+# Or use gcloud auth application-default login
+```
+
+Run evaluation with the `vertex_ai/` prefix:
+```bash
+llm-behavior-eval "vertex_ai/gemini-pro" bias:gender \
+    --model-engine api \
+    --max-samples 100
+```
+
+#### Anthropic
+
+Set your Anthropic API key:
+```bash
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+```
+
+Run evaluation with the `anthropic/` prefix:
+```bash
+llm-behavior-eval "anthropic/claude-3-5-sonnet-20241022" hallu \
+    --model-engine api
+```
+
+#### Controlling API Concurrency
+
+Adjust parallel API call concurrency via environment variable:
+```bash
+export LLM_EVAL_API_CONCURRENCY=20  # Default is 10
+```
+
+> **Note:** When using `--model-engine api` for the **evaluated model**, you no longer need to provide `--model-tokenizer`. The evaluator will automatically use a raw-text path to send prompts directly to the API. However, you can still provide one if you want to use a specific chat template or reasoning mode.
+
 ### CLI options
 
 - `--max-samples <N>` — cap how many rows to evaluate per dataset (defaults to 500). Use `0` or any negative value to run the entire split.
 - `--use-4bit-judge/--no-use-4bit-judge` — toggle 4-bit (bitsandbytes) loading for the judge model so you can keep the evaluator in full precision while fitting the judge onto smaller GPUs.
 - `--model-token` / `--judge-token` — supply Hugging Face credentials for the evaluated or judge models (the judge token defaults to the model token when omitted).
 - `--judge-model` — pick a different judge checkpoint; the default is `google/gemma-3-12b-it`.
+- `--judge-engine api` — use hosted judge models via API providers (Azure OpenAI, Vertex AI, OpenAI, Anthropic, Bedrock, etc.). Combine with `--judge-model` using the provider/model syntax supported by LiteLLM (for example `openai/gpt-4o-mini` or `bedrock/anthropic.claude-3-sonnet-20240229-v1:0`).
+- `--model-engine api` — run the evaluated model via an API provider. Use `--model-tokenizer` to supply a compatible Hugging Face tokenizer when the API model id is not a HF repo.
 - `--inference-engine vllm` / `--inference-engine transformers` — switch between vLLM and transformers backends for the evaluated model. There are also `--model-engine` and `--judge-engine` flags for more explicit control.
 - `--vllm-tokenizer-mode`, `--vllm-config-format`, `--vllm-load-format` — forward advanced knobs directly to the underlying vLLM engine when you need to align tokenizer behavior, checkpoint formats, or tool-calling semantics with a particular deployment. Tokenizer mode accepts `auto`, `slow`, `mistral`, or `custom`.
 - `--reasoning/--no-reasoning` — enable chat-template reasoning modes on tokenizers that support them.
 - `--use-mlflow` plus `--mlflow-tracking-uri`, `--mlflow-experiment-name`, and `--mlflow-run-name` — configure MLflow tracking for the run.
 
 Need more control or wrappers around the library? Explore the scripts in `examples/` to see how to call the evaluators from Python directly, customize additional knobs, or embed the run inside your own orchestration logic.
+
+To enable API-based judge models, install the optional dependencies with `pip install llm-behavior-eval[api]` and configure the relevant provider credentials (e.g., `OPENAI_API_KEY`, `AZURE_API_KEY`, `AWS_ACCESS_KEY_ID`, or `GOOGLE_APPLICATION_CREDENTIALS`). The judge prompt will be sent directly to the selected provider using LiteLLM's routing rules.
 
 See `examples/presets_customization.py` for a minimal script-based workflow.
 
