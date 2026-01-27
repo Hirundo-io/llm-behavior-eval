@@ -49,6 +49,7 @@ class EvaluationConfig(BaseModel):
     max_answer_tokens: int = 128
     pass_max_answer_tokens: bool = False
     model_path_or_repo_id: str
+    lora_path_or_repo_id: str | None = None
     model_token: str | None = None
     judge_batch_size: None | int = None
     max_judge_tokens: int = 32
@@ -90,6 +91,19 @@ class EvaluationConfig(BaseModel):
                 )
         return self
 
+    @model_validator(mode="after")
+    def validate_lora_path_or_repo_id(self):
+        # LoRA usage currently only supported with vLLM
+        using_vllm = self.vllm_config is not None or any(
+            [
+                arg == "vllm"
+                for arg in [self.inference_engine, self.model_engine, self.judge_engine]
+            ]
+        )
+        if self.lora_path_or_repo_id is not None and not using_vllm:
+            raise ValueError("LoRA usage currently only supported with vLLM")
+        return self
+
 
 class MlflowConfig(BaseModel):
     """
@@ -102,3 +116,4 @@ class MlflowConfig(BaseModel):
     mlflow_tracking_uri: str | None = None
     mlflow_experiment_name: str | None = None
     mlflow_run_name: str | None = None
+    mlflow_run_id: str | None = None

@@ -26,3 +26,5 @@ class VllmConfig(BaseModel):
     config_format: str | None = None
     load_format: str | None = None
     gpu_memory_utilization: float = 0.9
+    enable_lora: bool = False
+    max_lora_rank: int = 128

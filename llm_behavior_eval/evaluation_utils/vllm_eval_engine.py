@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import torch
+from vllm.lora.request import LoRARequest
 
 from .eval_engine import EvalEngine
 from .util_functions import (
@@ -34,6 +35,7 @@ class VllmEvalEngine(EvalEngine):
         self.max_model_len = max_model_len
 
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
+        lora_path_or_repo_id = eval_config.lora_path_or_repo_id
         model_token = self._get_model_token(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
         batch_size_config = self._get_batch_size_from_config(eval_config, is_judge)
@@ -78,6 +80,16 @@ class VllmEvalEngine(EvalEngine):
             gpu_memory_utilization=gpu_memory_utilization,
         )
         self._vllm_sampling_params = None
+        if lora_path_or_repo_id is not None:
+            try:
+                self.lora_request = LoRARequest("adapter", 1, lora_path_or_repo_id)
+            except Exception as e:
+                logging.exception(
+                    f"Failed to load LoRA from path {lora_path_or_repo_id}. Verify that the path is either a local path, a HF repo or a MLFlow run id for an existing run.",
+                    e,
+                )
+        else:
+            self.lora_request = None
 
     def set_dataset(self, eval_dataset: Dataset) -> None:
         self.eval_dataset = eval_dataset
@@ -97,6 +109,7 @@ class VllmEvalEngine(EvalEngine):
             prompts=prompts,
             sampling_params=sampling_params,
             use_tqdm=False,
+            lora_request=self.lora_request,
         )
         responses: list[str] = []
         for output in outputs:
