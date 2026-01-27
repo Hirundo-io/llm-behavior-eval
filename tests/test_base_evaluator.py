@@ -11,6 +11,7 @@ pytest.importorskip("transformers")
 import torch
 from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokenizerBase
 
+import llm_behavior_eval.evaluation_utils.api_eval_engine as api_eval_engine_module
 import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_module
 from llm_behavior_eval.evaluation_utils.base_evaluator import (
     BaseEvaluator,
@@ -123,6 +124,17 @@ def patch_eval_engine(
 
     monkeypatch.setattr(base_evaluator_module, "TransformersEvalEngine", StubEvalEngine)
 
+    class StubApiEvalEngine(StubEvalEngine):
+        def __init__(self, eval_config: EvaluationConfig, *, is_judge: bool = False) -> None:
+            self.tokenizer = None
+            self._explicit_batch_size = eval_config.batch_size
+            self.dataset: Sized | None = None
+            self.is_judge = is_judge
+            capture_state.data_collator = None
+            capture_state.engine_inits.append(is_judge)
+
+    monkeypatch.setattr(api_eval_engine_module, "ApiEvalEngine", StubApiEvalEngine)
+
 
 @pytest.fixture(autouse=True)
 def patch_custom_dataset(
@@ -151,7 +163,7 @@ def patch_custom_dataset(
 
         def preprocess(
             self,
-            tokenizer: StubTokenizer,
+            tokenizer: StubTokenizer | None,
             _preprocess_config: object,
             *,
             trust_remote_code: bool,
@@ -231,6 +243,93 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
     assert evaluator.eval_loader == "loader"
     assert evaluator.num_samples == 3
     assert capture_state.engine_dataset == evaluator.eval_dataset
+
+
+def test_prepare_dataloader_api_raw_mode_uses_raw_collator(
+    tmp_path: Path,
+    capture_state: CaptureState,
+) -> None:
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        model_tokenizer_path_or_repo_id=None,
+        results_dir=tmp_path,
+        batch_size=None,
+        max_samples=10,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+
+    assert capture_state.tokenizer is None
+    assert evaluator.tokenizer is None
+    assert evaluator.api_raw_mode is True
+    assert capture_state.dataloader_args is not None
+    _, batch_size, _, collate_fn = capture_state.dataloader_args
+    assert batch_size == 3
+    assert collate_fn is base_evaluator_module.raw_text_collator
+
+
+def test_api_model_rebuilds_judge_dataset_with_judge_tokenizer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capture_state: CaptureState,
+    stub_tokenizer: StubTokenizer,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: stub_tokenizer,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: EvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        model_tokenizer_path_or_repo_id=None,
+        model_token="model-token",
+        judge_engine="transformers",
+        judge_token="judge-token",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+
+    assert evaluator._judge_dataset_needs_rebuild is True
+
+    with evaluator.get_grading_context() as _judge_engine:
+        assert capture_state.set_dataset_calls
+        is_judge, dataset = capture_state.set_dataset_calls[-1]
+        assert is_judge is True
+        assert dataset is not evaluator.eval_dataset
+
+    assert capture_state.tokenizer is stub_tokenizer
+    assert capture_state.token == "judge-token"
 
 
 def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> None:
@@ -342,6 +441,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
         seed=777,
     )
     evaluator.judge_tokenizer = StubJudgeTokenizer()
+    evaluator.judge_engine = "transformers"
 
     judge_engine = RecordingJudgeEngine()
     outputs = evaluator._process_judge_prompts_batch(
@@ -432,6 +532,22 @@ def test_get_grading_context_supports_api_judge_engine(
         def free_model(self) -> None:
             return None
 
+    # Need to use a FreeTextSharedEvaluator subclass to test get_judge_engine_context
+    class StubApiEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: EvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
     monkeypatch.setattr(
         base_evaluator_module,
         "empty_cuda_cache_if_available",
@@ -461,7 +577,7 @@ def test_get_grading_context_supports_api_judge_engine(
         dataset_type=DatasetType.BIAS,
     )
 
-    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+    evaluator = StubApiEvaluator(evaluation_config, dataset_config_instance)
 
     with evaluator.get_grading_context() as judge_engine:
         assert isinstance(judge_engine, StubApiJudgeEngine)
@@ -487,6 +603,9 @@ def test_api_model_engine_uses_api_eval_engine(
             return 1
 
         def free_model(self) -> None:
+            return None
+
+        def ensure_test_model_ready(self) -> None:
             return None
 
     monkeypatch.setattr(
