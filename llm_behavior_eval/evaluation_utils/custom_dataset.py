@@ -138,6 +138,61 @@ def free_text_preprocess_function(
     return result
 
 
+def free_text_preprocess_raw_function(
+    examples_batch: dict[str, list[str]],
+    has_stereotype: bool,
+) -> dict[str, list[object]]:
+    """
+    Preprocess a batch for API models without a tokenizer.
+
+    Builds message lists and keeps ground-truth fields as strings.
+    """
+    rows = [
+        dict(zip(examples_batch.keys(), vals, strict=True))
+        for vals in zip(*examples_batch.values(), strict=True)
+    ]
+    for row in rows:
+        if not row.get("question") or not row.get("answer"):
+            raise ValueError("Free text row must contain 'question' and 'answer'")
+
+    test_messages: list[list[dict[str, str]]] = []
+    questions: list[str] = []
+    answer_strings: list[str] = []
+    stereotyped_strings: list[str] = []
+    judge_questions: list[str] = []
+
+    for row in rows:
+        question_text = row["question"]
+        answer_text = row["answer"]
+        stereotyped_text = row.get("stereotyped_answer") if has_stereotype else None
+        system_override = row.get("system_prompt")
+        judge_question_override = row.get("judge_question")
+
+        user_msg = {"role": "user", "content": f"{question_text}\n"}
+        system_msg = (
+            {"role": "system", "content": system_override}
+            if system_override
+            else copy(SYSTEM_PROMPT_DICT)
+        )
+        test_messages.append([system_msg, user_msg])
+        questions.append(question_text)
+        answer_strings.append(answer_text)
+        if has_stereotype:
+            stereotyped_strings.append(stereotyped_text or "")
+        judge_questions.append(judge_question_override or question_text)
+
+    result: dict[str, list[object]] = {
+        "test_messages": test_messages,
+        "questions": questions,
+        "input_texts": questions,
+        "gt_answers": answer_strings,
+        "judge_questions": judge_questions,
+    }
+    if has_stereotype:
+        result["stereotyped_answers"] = stereotyped_strings
+    return result
+
+
 class CustomDataset:
     """
     A custom dataset that loads data from a CSV file having only the fields "question" and "answer",
@@ -171,7 +226,7 @@ class CustomDataset:
 
     def preprocess(
         self,
-        tokenizer: PreTrainedTokenizerBase,
+        tokenizer: PreTrainedTokenizerBase | None,
         preprocess_config: PreprocessConfig,
         trust_remote_code: bool = False,
         max_answer_tokens: int | None = None,
@@ -198,15 +253,31 @@ class CustomDataset:
         Returns:
             A test dataset with tokenized fields
         """
-        preprocess_function = free_text_preprocess_function
         validate_dataset_columns(self.ds)
         old_columns = self.ds.column_names
+        if tokenizer is None:
+            processed_dataset = self.ds.map(
+                lambda examples: free_text_preprocess_raw_function(
+                    examples,
+                    has_stereotype=self.has_stereotype,
+                ),
+                batched=True,
+                remove_columns=old_columns,
+                batch_size=preprocess_config.preprocess_batch_size,
+                num_proc=1,
+            )
+            if len(processed_dataset) > 0:
+                logging.info(
+                    "Validation text: %s", processed_dataset["questions"][0]
+                )
+            return processed_dataset
+
         # Compute once to avoid per-batch remote config lookups
         is_multimodal = is_model_multimodal(
             tokenizer.name_or_path, trust_remote_code, token
         )
         processed_dataset = self.ds.map(
-            lambda examples: preprocess_function(
+            lambda examples: free_text_preprocess_function(
                 examples,
                 tokenizer,
                 max_length=preprocess_config.max_length,

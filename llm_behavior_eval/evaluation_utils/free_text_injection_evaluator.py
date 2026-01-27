@@ -105,23 +105,32 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         ):
             if batch_index < completed_batches:
                 continue
-            input_ids = batch["test_input_ids"]
-            attention_mask = batch["test_attention_mask"]
-
-            input_texts = self.tokenizer.batch_decode(
-                input_ids, skip_special_tokens=True
-            )
-            judge_questions = (
-                self.tokenizer.batch_decode(
-                    batch["judge_questions"], skip_special_tokens=True
+            if "test_messages" in batch:
+                input_texts = cast("list[str]", batch.get("input_texts", []))
+                judge_questions = cast(
+                    "list[str]", batch.get("judge_questions", input_texts)
                 )
-                if "judge_questions" in batch
-                else input_texts
-            )
-            gt_answers = self.tokenizer.batch_decode(
-                batch["gt_answers"], skip_special_tokens=True
-            )
-            answers = self.generate_answers(input_ids, attention_mask)
+                gt_answers = cast("list[str]", batch["gt_answers"])
+                answers = self.generate_answers_from_prompts(
+                    cast("list[list[dict[str, str]]]", batch["test_messages"])
+                )
+            else:
+                input_ids = batch["test_input_ids"]
+                attention_mask = batch["test_attention_mask"]
+
+                tokenizer = self._get_tokenizer()
+                input_texts = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+                judge_questions = (
+                    tokenizer.batch_decode(
+                        batch["judge_questions"], skip_special_tokens=True
+                    )
+                    if "judge_questions" in batch
+                    else input_texts
+                )
+                gt_answers = tokenizer.batch_decode(
+                    batch["gt_answers"], skip_special_tokens=True
+                )
+                answers = self.generate_answers(input_ids, attention_mask)
             generation_record = _InjectionGenerationRecord(
                 input_texts=input_texts,
                 judge_questions=judge_questions,

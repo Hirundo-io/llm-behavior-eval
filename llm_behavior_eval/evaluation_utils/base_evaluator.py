@@ -70,6 +70,10 @@ def custom_collator(batch):
     }
 
 
+def raw_text_collator(batch):
+    return {key: [item[key] for item in batch] for key in batch[0]}
+
+
 @dataclass
 class _GenerationRecord:
     """Base record for a batch of generated answers.
@@ -105,6 +109,17 @@ class BaseEvaluator(ABC):
         self.model_engine = eval_config.inference_engine or eval_config.model_engine
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
+        self.api_raw_mode = (
+            self.model_engine == "api"
+            and self.eval_config.model_tokenizer_path_or_repo_id is None
+        )
+        # When the judge runs through a tokenizer-based engine, we still need a
+        # tokenized dataset for grading even if the test model is API-only.
+        self._judge_requires_tokenized_dataset = self.judge_engine != "api"
+        self._judge_dataset_needs_rebuild = (
+            self.api_raw_mode and self._judge_requires_tokenized_dataset
+        )
+        self._judge_dataset: Dataset | None = None
 
         self._set_seed()
 
@@ -118,7 +133,12 @@ class BaseEvaluator(ABC):
         if self.mlflow_config:
             self._init_mlflow()
 
-        self.data_collator = default_data_collator
+        self.data_collator = (
+            raw_text_collator if self.api_raw_mode else default_data_collator
+        )
+        self.judge_data_collator = (
+            default_data_collator if self.judge_engine != "api" else raw_text_collator
+        )
         if self.model_engine == "vllm":
             max_model_len = (
                 self.eval_config.vllm_config.max_model_len
@@ -145,13 +165,44 @@ class BaseEvaluator(ABC):
         self.trust_remote_code = self.eval_config.trust_remote_code
         self.prepare_dataloader()
         self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
-        self.tokenizer.padding_side = "left"
+        if self.tokenizer is not None:
+            self.tokenizer.padding_side = "left"
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
         if self.eval_config.mlflow_config and mlflow:
             mlflow.log_param("num_samples_evaluated", self.num_samples)
 
         self._ensure_run_configuration_allowed()
+
+    def prepare_judge_tokenizer(self) -> None:
+        """
+        Load only the judge tokenizer so we can format probe prompts before
+        initializing the full judge pipeline. This keeps memory lower while
+        constructing representative prompts used for batch-size probing.
+        """
+        if self.judge_engine == "api":
+            return
+        if getattr(self, "judge_tokenizer", None) is None:
+            self.judge_tokenizer = load_tokenizer_with_transformers(
+                self.eval_config.judge_path_or_repo_id,
+                token=self.eval_config.judge_token,
+                trust_remote_code=self.eval_config.trust_remote_code,
+            )
+            # left padding is useful when batch-generating variable-length prompts
+            self.judge_tokenizer.padding_side = "left"
+            # ensure we have a pad token for the judge model as not all models have it
+            if not self.judge_tokenizer.pad_token:
+                self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
+
+    def _get_tokenizer(self) -> PreTrainedTokenizerBase:
+        """Get the model tokenizer, raising an error if not initialized."""
+        tokenizer = self.tokenizer
+        if tokenizer is None:
+            raise RuntimeError(
+                "Model tokenizer is not initialized. "
+                "Ensure model_tokenizer_path_or_repo_id is set when using API models."
+            )
+        return tokenizer
 
     def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
         if self.judge_engine == "api":
@@ -213,8 +264,9 @@ class BaseEvaluator(ABC):
         custom_dataset = CustomDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
+        tokenizer = None if self.api_raw_mode else self._get_tokenizer()
         test_dataset = custom_dataset.preprocess(
-            self.tokenizer,
+            tokenizer,
             self.dataset_config.preprocess_config,
             trust_remote_code=self.trust_remote_code,
             max_answer_tokens=self.eval_config.max_answer_tokens,
@@ -241,6 +293,40 @@ class BaseEvaluator(ABC):
         # propagate flag
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
 
+        # If we ran in API raw mode but the judge needs tokenized inputs, the
+        # tokenized dataset must be prepared separately for the judge engine.
+        if self._judge_dataset_needs_rebuild:
+            self._judge_dataset = None
+
+    def _build_tokenized_dataset_for_judge(self) -> Dataset:
+        """
+        Rebuild the dataset using the judge tokenizer.
+
+        This keeps generation in API raw mode while ensuring the judge engine
+        receives tokenized fields such as `test_input_ids`.
+        """
+        custom_dataset = CustomDataset(
+            self.dataset_config.file_path, self.dataset_config.dataset_type
+        )
+        judge_tokenizer = self._get_judge_tokenizer()
+        tokenized_dataset = custom_dataset.preprocess(
+            judge_tokenizer,
+            self.dataset_config.preprocess_config,
+            trust_remote_code=self.trust_remote_code,
+            max_answer_tokens=self.eval_config.max_answer_tokens,
+            reasoning=self.eval_config.reasoning,
+            pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
+            token=self.eval_config.judge_token,
+        )
+        tokenized_dataset = tokenized_dataset.shuffle(seed=self.dataset_config.seed)
+        num_samples = (
+            min(len(tokenized_dataset), self.eval_config.max_samples)
+            if self.eval_config.max_samples
+            else len(tokenized_dataset)
+        )
+        # Mirror the same sampling approach used for the generation dataset.
+        return tokenized_dataset.select(range(num_samples))
+
     def generate_answers(
         self,
         input_ids: torch.Tensor,
@@ -250,6 +336,36 @@ class BaseEvaluator(ABC):
         return self.eval_engine.generate_answers(
             input_ids,
             attention_mask,
+            sampling_config=SamplingConfig(
+                do_sample=(
+                    do_sample
+                    if do_sample is not None
+                    else self.eval_config.sampling_config.do_sample
+                    if self.eval_config.sampling_config.do_sample is not None
+                    else self.eval_config.sample
+                ),
+                temperature=self.eval_config.sampling_config.temperature,
+                top_p=self.eval_config.sampling_config.top_p,
+                top_k=self.eval_config.sampling_config.top_k,
+                seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
+            ),
+        )
+
+    def generate_answers_from_prompts(
+        self,
+        prompts: list[JudgePrompt],
+        do_sample: bool | None = None,
+    ) -> list[str]:
+        if self.model_engine != "api":
+            raise RuntimeError("API prompt generation requires model_engine='api'.")
+        from .api_eval_engine import ApiEvalEngine
+
+        if not isinstance(self.eval_engine, ApiEvalEngine):
+            raise RuntimeError(
+                "API model engine is not initialized correctly for API prompts."
+            )
+        return self.eval_engine.generate_answers_from_prompts(
+            prompts,
             sampling_config=SamplingConfig(
                 do_sample=(
                     do_sample
@@ -306,7 +422,19 @@ class BaseEvaluator(ABC):
         self._set_seed()
         if self.mlflow_config:
             self._init_mlflow()
-        self.prepare_dataloader()
+        # If we are currently in the judge context and the judge needs tokenized
+        # inputs, rebuild a tokenized dataset for grading to avoid raw batches.
+        if getattr(self.eval_engine, "is_judge", False) and self._judge_dataset_needs_rebuild:
+            self.eval_dataset = self._build_tokenized_dataset_for_judge()
+            self.eval_engine.set_dataset(self.eval_dataset)
+            self.eval_loader = DataLoader(
+                cast("Dataset", self.eval_dataset),
+                batch_size=self.eval_engine.get_batch_size(),
+                shuffle=False,
+                collate_fn=self.judge_data_collator,
+            )
+        else:
+            self.prepare_dataloader()
         self._ensure_run_configuration_allowed()
 
     @abstractmethod
@@ -730,26 +858,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         )
         return existing_generations
 
-    def prepare_judge_tokenizer(self) -> None:
-        """
-        Load only the judge tokenizer so we can format probe prompts before
-        initializing the full judge pipeline. This keeps memory lower while
-        constructing representative prompts used for batch-size probing.
-        """
-        if self.judge_engine == "api":
-            return
-        if getattr(self, "judge_tokenizer", None) is None:
-            self.judge_tokenizer = load_tokenizer_with_transformers(
-                self.eval_config.judge_path_or_repo_id,
-                token=self.eval_config.judge_token,
-                trust_remote_code=self.eval_config.trust_remote_code,
-            )
-            # left padding is useful when batch-generating variable-length prompts
-            self.judge_tokenizer.padding_side = "left"
-            # ensure we have a pad token for the judge model as not all models have it
-            if not self.judge_tokenizer.pad_token:
-                self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
-
     def free_judge(self, judge_engine: EvalEngine | None = None) -> None:
         if judge_engine is not None:
             judge_engine.free_model()
@@ -874,14 +982,14 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             )
         else:
             if not isinstance(prompts[0], str):
-                raise ValueError(
-                    "Non-API judge engines require string prompts."
-                )
+                raise ValueError("Non-API judge engines require string prompts.")
+            # Type narrowing: after the check above, all prompts must be strings
+            string_prompts = cast("list[str]", prompts)
             judge_tokenizer = self._get_judge_tokenizer()
 
             # Tokenize prompts
             tokenized = judge_tokenizer(
-                prompts,
+                string_prompts,
                 return_tensors="pt",
                 padding=True,
             )
@@ -913,15 +1021,14 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     def get_judge_engine_context(self) -> Generator[EvalEngine, None, None]:
         """
         Context manager for the judge engine. Creates an eval engine instance
-        (either VllmEvalEngine or TransformersEvalEngine) based on configuration.
+        (either VllmEvalEngine, TransformersEvalEngine, or ApiEvalEngine) based on configuration.
 
         Yields:
             The judge eval engine instance.
         """
+        judge_engine: EvalEngine | None = None
         try:
             if not (hasattr(self, "eval_engine") and self.eval_engine.is_judge):
-                judge_engine = None
-
                 # Create appropriate judge engine based on config
                 if self.judge_engine == "api":
                     from .api_eval_engine import ApiEvalEngine
@@ -930,10 +1037,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                         self.eval_config,
                         is_judge=True,
                     )
-                else:
+                elif self.judge_engine == "vllm":
                     self.prepare_judge_tokenizer()
-
-                if self.judge_engine == "vllm":
                     max_model_len = (
                         self.eval_config.vllm_config.judge_max_model_len
                         if self.eval_config.vllm_config
@@ -944,18 +1049,27 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                         is_judge=True,
                         max_model_len=max_model_len,
                     )
-                elif self.judge_engine == "transformers":
+                else:
+                    # transformers engine (default)
+                    self.prepare_judge_tokenizer()
                     judge_engine = TransformersEvalEngine(
-                        self.data_collator,
+                        self.judge_data_collator,
                         self.eval_config,
                         is_judge=True,
                     )
-                judge_engine.set_dataset(self.eval_dataset)
-
+                if self._judge_dataset_needs_rebuild:
+                    # The generation dataset is raw (API mode) and does not
+                    # contain tokenized tensors required by tokenizer-based
+                    # judge engines.
+                    if self._judge_dataset is None:
+                        self._judge_dataset = self._build_tokenized_dataset_for_judge()
+                    judge_engine.set_dataset(self._judge_dataset)
+                else:
+                    judge_engine.set_dataset(self.eval_dataset)
                 self.eval_engine = judge_engine
             yield self.eval_engine
         except Exception as e:
             self.cleanup(e)
             raise
         finally:
-            self.free_judge(self.eval_engine)
+            self.free_judge(judge_engine)

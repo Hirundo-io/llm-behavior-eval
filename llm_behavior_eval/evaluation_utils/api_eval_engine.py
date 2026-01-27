@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
+import logging
+import os
 from typing import TYPE_CHECKING, Any
+
+from tqdm import tqdm
 
 from .eval_engine import EvalEngine
 from .util_functions import load_tokenizer_with_transformers
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import torch
     from datasets import Dataset
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -17,9 +24,17 @@ if TYPE_CHECKING:
 
 JudgePrompt = str | list[dict[str, str]]
 
+# Default concurrency for batch API calls (can be overridden via env var)
+DEFAULT_API_BATCH_CONCURRENCY = 10
+# When batch_size is not explicitly configured for API engines, we scale it
+# relative to concurrency so each batch call can fully utilize parallelism.
+DEFAULT_API_BATCH_MULTIPLIER = 5
+
 
 class ApiEvalEngine(EvalEngine):
-    def __init__(self, eval_config: EvaluationConfig, *, is_judge: bool = False) -> None:
+    def __init__(
+        self, eval_config: EvaluationConfig, *, is_judge: bool = False
+    ) -> None:
         self.eval_config = eval_config
         self.is_judge = is_judge
         self.dataset: Dataset | None = None
@@ -29,8 +44,9 @@ class ApiEvalEngine(EvalEngine):
             else eval_config.model_path_or_repo_id
         )
         self._litellm = self._load_litellm()
+        self._suppress_litellm_logging()
         self.tokenizer: PreTrainedTokenizerBase | None = None
-        if not is_judge:
+        if not is_judge and eval_config.model_tokenizer_path_or_repo_id is not None:
             self.tokenizer = self._load_model_tokenizer()
             self.tokenizer.padding_side = "left"
             if not self.tokenizer.pad_token:
@@ -45,6 +61,15 @@ class ApiEvalEngine(EvalEngine):
                 "Install it with `pip install llm-behavior-eval[api]`."
             )
         return importlib.import_module("litellm")
+
+    def _suppress_litellm_logging(self) -> None:
+        """Suppress verbose LiteLLM logging unless explicitly enabled."""
+        if os.environ.get("LITELLM_DEBUG"):
+            return
+        # Suppress LiteLLM's verbose output
+        self._litellm.suppress_debug_info = True
+        logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+        logging.getLogger("litellm").setLevel(logging.WARNING)
 
     def set_dataset(self, eval_dataset: Dataset) -> None:
         self.dataset = eval_dataset
@@ -73,26 +98,55 @@ class ApiEvalEngine(EvalEngine):
 
     def generate_answers_from_prompts(
         self,
-        prompts: list[JudgePrompt],
+        prompts: Sequence[JudgePrompt],
         sampling_config: SamplingConfig,
     ) -> list[str]:
+        if not prompts:
+            return []
+
+        # Get batch concurrency from env or use default
+        concurrency = int(
+            os.environ.get("LLM_EVAL_API_CONCURRENCY", DEFAULT_API_BATCH_CONCURRENCY)
+        )
+
+        # Build base kwargs (shared params)
+        base_kwargs = self._build_base_completion_kwargs(sampling_config)
+
+        # Normalize all messages
+        all_messages = [self._normalize_messages(prompt) for prompt in prompts]
+
+        # Use batch_completion for parallel requests with progress bar
+        desc = "API judge calls" if self.is_judge else "API model calls"
         answers: list[str] = []
-        for prompt in prompts:
-            messages = self._normalize_messages(prompt)
-            response = self._litellm.completion(
-                **self._build_completion_kwargs(messages, sampling_config)
+
+        # Process in chunks to show progress and control concurrency
+        for i in tqdm(
+            range(0, len(all_messages), concurrency),
+            desc=desc,
+            unit="batch",
+            total=(len(all_messages) + concurrency - 1) // concurrency,
+        ):
+            chunk_messages = all_messages[i : i + concurrency]
+            responses = self._litellm.batch_completion(
+                model=self.model_name,
+                messages=chunk_messages,
+                **base_kwargs,
             )
-            answers.append(self._extract_content(response))
+            for response in responses:
+                answers.append(self._extract_content(response))
+
         return answers
 
     def get_batch_size(self) -> int:
         if self.is_judge:
             if self.eval_config.judge_batch_size is not None:
                 return max(1, int(self.eval_config.judge_batch_size))
-            return 1
+            # For API judges, avoid defaulting to 1 which underutilizes concurrency.
+            return self._get_default_api_batch_size()
         if self.eval_config.batch_size is not None:
             return max(1, int(self.eval_config.batch_size))
-        return 1
+        # For API evaluated models, avoid defaulting to 1 which underutilizes concurrency.
+        return self._get_default_api_batch_size()
 
     def free_model(self) -> None:
         return None
@@ -119,29 +173,65 @@ class ApiEvalEngine(EvalEngine):
             raise RuntimeError("API model tokenizer is not initialized.")
         return self.tokenizer
 
-    def _build_completion_kwargs(
+    def _build_base_completion_kwargs(
         self,
-        messages: list[dict[str, str]],
         sampling_config: SamplingConfig,
     ) -> dict[str, Any]:
+        """Build completion kwargs without model/messages (for batch_completion)."""
         do_sample = sampling_config.do_sample
         temperature = sampling_config.temperature
         if do_sample is False:
             temperature = 0.0
 
         kwargs: dict[str, Any] = {
-            "model": self.model_name,
-            "messages": messages,
             "max_tokens": self.eval_config.max_judge_tokens,
         }
         if temperature is not None:
             kwargs["temperature"] = temperature
         if sampling_config.top_p is not None:
             kwargs["top_p"] = sampling_config.top_p
-        if sampling_config.top_k is not None:
+        # Only pass top_k if it's a positive value (some providers like Azure don't support it)
+        if sampling_config.top_k is not None and sampling_config.top_k > 0:
             kwargs["top_k"] = sampling_config.top_k
         if sampling_config.seed is not None:
             kwargs["seed"] = sampling_config.seed
+        return kwargs
+
+    def _get_default_api_batch_size(self) -> int:
+        """Estimate a sensible default batch size for API engines.
+
+        The API path uses LiteLLM's `batch_completion`, which can parallelize
+        calls up to `LLM_EVAL_API_CONCURRENCY`. When the DataLoader batch size
+        is left as 1, we only ever submit one request at a time and effectively
+        disable parallelism. This heuristic chooses a larger default batch size
+        so each batch call can saturate concurrency.
+        """
+        concurrency = int(
+            os.environ.get("LLM_EVAL_API_CONCURRENCY", DEFAULT_API_BATCH_CONCURRENCY)
+        )
+        multiplier = int(
+            os.environ.get(
+                "LLM_EVAL_API_BATCH_MULTIPLIER", DEFAULT_API_BATCH_MULTIPLIER
+            )
+        )
+        estimated = max(1, concurrency * max(1, multiplier))
+        if self.dataset is not None:
+            try:
+                return max(1, min(len(self.dataset), estimated))
+            except TypeError:
+                # Some dataset implementations may not support len(); fall back.
+                return estimated
+        return estimated
+
+    def _build_completion_kwargs(
+        self,
+        messages: list[dict[str, str]],
+        sampling_config: SamplingConfig,
+    ) -> dict[str, Any]:
+        """Build full completion kwargs including model and messages."""
+        kwargs = self._build_base_completion_kwargs(sampling_config)
+        kwargs["model"] = self.model_name
+        kwargs["messages"] = messages
         return kwargs
 
     @staticmethod

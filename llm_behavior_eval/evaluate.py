@@ -23,6 +23,9 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
 from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 
+from dotenv import load_dotenv
+load_dotenv()
+
 torch.set_float32_matmul_precision("high")
 
 BIAS_KINDS = {"bias", "unbias"}
@@ -445,8 +448,8 @@ def main(
             if vllm_judge_max_model_len is not None
             else vllm_max_model_len,
             tokenizer_mode=vllm_tokenizer_mode,
-            config_format=vllm_config_format,
-            load_format=vllm_load_format,
+            config_format=vllm_config_format or "auto",
+            load_format=vllm_load_format or "auto",
             gpu_memory_utilization=vllm_gpu_memory_utilization,
         )
     else:
