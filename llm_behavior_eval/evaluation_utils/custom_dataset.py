@@ -2,7 +2,7 @@ import logging
 from copy import copy
 from functools import partial
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import torch
 from datasets import Dataset, DatasetDict, load_dataset
@@ -141,7 +141,7 @@ def free_text_preprocess_function(
 def free_text_preprocess_raw_function(
     examples_batch: dict[str, list[str]],
     has_stereotype: bool,
-) -> dict[str, list[object]]:
+) -> dict[str, list[Any]]:
     """
     Preprocess a batch for API models without a tokenizer.
 
@@ -181,7 +181,7 @@ def free_text_preprocess_raw_function(
             stereotyped_strings.append(stereotyped_text or "")
         judge_questions.append(judge_question_override or question_text)
 
-    result: dict[str, list[object]] = {
+    result: dict[str, list[Any]] = {
         "test_messages": test_messages,
         "questions": questions,
         "input_texts": questions,

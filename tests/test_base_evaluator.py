@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence, Sized
     from pathlib import Path
 
-    from datasets import Dataset
     from transformers.tokenization_utils_base import TruncationStrategy
     from transformers.utils.generic import PaddingStrategy, TensorType
 
@@ -406,7 +405,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
         def get_batch_size(self) -> int:
             return 1
 
-        def set_dataset(self, eval_dataset: Dataset) -> None:
+        def set_dataset(self, eval_dataset: Sized) -> None:
             return None
 
     class StubFreeTextEvaluator(FreeTextSharedEvaluator):

@@ -113,6 +113,9 @@ def test_api_eval_engine_default_batch_size_uses_env_and_dataset(
         def __len__(self) -> int:
             return 7
 
+        def __getitem__(self, index: int) -> object:
+            raise IndexError
+
     engine.set_dataset(FakeDataset())
     assert engine.get_batch_size() == 6
 
@@ -137,6 +140,9 @@ def test_api_eval_engine_default_judge_batch_size_uses_env_and_dataset(
     class FakeDataset:
         def __len__(self) -> int:
             return 5
+
+        def __getitem__(self, index: int) -> object:
+            raise IndexError
 
     engine.set_dataset(FakeDataset())
     assert engine.get_batch_size() == 5

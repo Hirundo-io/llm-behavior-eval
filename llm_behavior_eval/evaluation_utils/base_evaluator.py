@@ -14,7 +14,8 @@ import pandas as pd
 import torch
 import typer
 from accelerate.utils import find_executable_batch_size
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
+from torch.utils.data import Dataset as TorchDataset
 from transformers.data.data_collator import default_data_collator
 from transformers.trainer_utils import set_seed
 
@@ -36,6 +37,7 @@ from .util_functions import (
 if TYPE_CHECKING:
     from collections.abc import Generator, Sequence
 
+    from datasets import Dataset as HFDataset
     from torch import Tensor
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
@@ -119,7 +121,7 @@ class BaseEvaluator(ABC):
         self._judge_dataset_needs_rebuild = (
             self.api_raw_mode and self._judge_requires_tokenized_dataset
         )
-        self._judge_dataset: Dataset | None = None
+        self._judge_dataset: HFDataset | None = None
 
         self._set_seed()
 
@@ -285,7 +287,7 @@ class BaseEvaluator(ABC):
         self.eval_engine.set_dataset(self.eval_dataset)
 
         self.eval_loader = DataLoader(
-            cast("Dataset", self.eval_dataset),
+            cast("TorchDataset", self.eval_dataset),
             batch_size=self.eval_engine.get_batch_size(),
             shuffle=False,
             collate_fn=self.data_collator,
@@ -298,7 +300,7 @@ class BaseEvaluator(ABC):
         if self._judge_dataset_needs_rebuild:
             self._judge_dataset = None
 
-    def _build_tokenized_dataset_for_judge(self) -> Dataset:
+    def _build_tokenized_dataset_for_judge(self) -> HFDataset:
         """
         Rebuild the dataset using the judge tokenizer.
 
@@ -353,7 +355,7 @@ class BaseEvaluator(ABC):
 
     def generate_answers_from_prompts(
         self,
-        prompts: list[JudgePrompt],
+        prompts: Sequence[JudgePrompt],
         do_sample: bool | None = None,
     ) -> list[str]:
         if self.model_engine != "api":
@@ -428,7 +430,7 @@ class BaseEvaluator(ABC):
             self.eval_dataset = self._build_tokenized_dataset_for_judge()
             self.eval_engine.set_dataset(self.eval_dataset)
             self.eval_loader = DataLoader(
-                cast("Dataset", self.eval_dataset),
+                cast("TorchDataset", self.eval_dataset),
                 batch_size=self.eval_engine.get_batch_size(),
                 shuffle=False,
                 collate_fn=self.judge_data_collator,
@@ -870,7 +872,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     def run_judge_with_backoff(
         self,
         judge_engine: EvalEngine,
-        prompts: list[JudgePrompt],
+        prompts: Sequence[JudgePrompt],
     ) -> list[list[dict[str, str]]]:
         """
         Execute the judge by probing an executable batch size that can
@@ -889,7 +891,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             fixed_batch_size = max(1, int(self.eval_config.judge_batch_size))
             outputs_fixed: list[list[dict[str, str]]] = []
             for start in range(0, len(prompts), fixed_batch_size):
-                chunk = prompts[start : start + fixed_batch_size]
+                chunk = list(prompts[start : start + fixed_batch_size])
                 result = self._process_judge_prompts_batch(judge_engine, chunk)
                 outputs_fixed.extend(result)
             return outputs_fixed
@@ -915,7 +917,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             outputs = []
             try:
                 for start in range(0, len(prompts), candidate_batch_size):
-                    chunk = prompts[start : start + candidate_batch_size]
+                    chunk = list(prompts[start : start + candidate_batch_size])
                     res = self._process_judge_prompts_batch(
                         judge_engine, chunk, candidate_batch_size
                     )
@@ -939,7 +941,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     def _process_judge_prompts_batch(
         self,
         judge_engine: EvalEngine,
-        prompts: list[JudgePrompt],
+        prompts: Sequence[JudgePrompt],
         batch_size: int | None = None,
         do_sample: bool | None = None,
     ) -> list[list[dict[str, str]]]:
@@ -984,7 +986,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             if not isinstance(prompts[0], str):
                 raise ValueError("Non-API judge engines require string prompts.")
             # Type narrowing: after the check above, all prompts must be strings
-            string_prompts = cast("list[str]", prompts)
+            string_prompts = cast("list[str]", list(prompts))
             judge_tokenizer = self._get_judge_tokenizer()
 
             # Tokenize prompts

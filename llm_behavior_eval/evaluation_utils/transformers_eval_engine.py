@@ -3,13 +3,12 @@ from typing import TYPE_CHECKING, cast
 
 import torch
 from accelerate.utils.memory import find_executable_batch_size
-from datasets import Dataset
 from torch.utils.data import DataLoader
 from transformers import set_seed
 from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
-from .eval_engine import EvalEngine
+from .eval_engine import EvalDataset, EvalEngine
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import (
@@ -41,7 +40,7 @@ class TransformersEvalEngine(EvalEngine):
         self.eval_config = eval_config
         self.is_judge = is_judge
 
-    def set_dataset(self, eval_dataset: Dataset) -> None:
+    def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset
 
     def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:

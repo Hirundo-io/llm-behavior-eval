@@ -9,6 +9,8 @@ import typer
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
+from dotenv import load_dotenv
+
 from llm_behavior_eval import (
     DatasetConfig,
     DatasetType,
@@ -23,7 +25,6 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
 from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 
-from dotenv import load_dotenv
 load_dotenv()
 
 torch.set_float32_matmul_precision("high")

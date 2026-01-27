@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_eval_config_rejects_api_model_engine_with_inference_engine(

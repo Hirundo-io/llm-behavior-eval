@@ -4,18 +4,17 @@ import importlib
 import importlib.util
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from tqdm import tqdm
 
-from .eval_engine import EvalEngine
+from .eval_engine import EvalDataset, EvalEngine
 from .util_functions import load_tokenizer_with_transformers
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import torch
-    from datasets import Dataset
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
     from .eval_config import EvaluationConfig
@@ -37,7 +36,7 @@ class ApiEvalEngine(EvalEngine):
     ) -> None:
         self.eval_config = eval_config
         self.is_judge = is_judge
-        self.dataset: Dataset | None = None
+        self.dataset: EvalDataset | None = None
         self.model_name = (
             eval_config.judge_path_or_repo_id
             if is_judge
@@ -67,11 +66,11 @@ class ApiEvalEngine(EvalEngine):
         if os.environ.get("LITELLM_DEBUG"):
             return
         # Suppress LiteLLM's verbose output
-        self._litellm.suppress_debug_info = True
+        cast("Any", self._litellm).suppress_debug_info = True
         logging.getLogger("LiteLLM").setLevel(logging.WARNING)
         logging.getLogger("litellm").setLevel(logging.WARNING)
 
-    def set_dataset(self, eval_dataset: Dataset) -> None:
+    def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.dataset = eval_dataset
 
     def generate_answers(
