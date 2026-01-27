@@ -134,6 +134,122 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
 
+### API-Based Model Evaluation
+
+In addition to local inference (`--model-engine transformers` or `--model-engine vllm`), you can evaluate models served via **remote API endpoints** using `--model-engine api`. This uses [LiteLLM](https://docs.litellm.ai/) under the hood, supporting Azure OpenAI, OpenAI, Anthropic, Vertex AI, Bedrock, and any OpenAI-compatible endpoint.
+
+Use API mode when:
+- You want to evaluate hosted models (GPT-4o, Claude, etc.)
+- You have a model running on a separate inference server
+- You need to separate the evaluation process from model serving
+
+Install the API dependencies first:
+```bash
+pip install llm-behavior-eval[api]
+```
+
+#### Azure OpenAI
+
+Set your Azure credentials:
+```bash
+export AZURE_API_KEY="your-azure-api-key"
+export AZURE_API_BASE="https://your-resource.openai.azure.com/"
+export AZURE_API_VERSION="2024-12-01-preview"
+```
+
+Run evaluation with the `azure/` prefix:
+```bash
+llm-behavior-eval "azure/gpt-4o" bias:age \
+    --model-engine api \
+    --max-samples 100
+```
+
+Use Azure models for both evaluation and judging:
+```bash
+llm-behavior-eval "azure/gpt-4o" hallu \
+    --model-engine api \
+    --judge-engine api \
+    --judge-model "azure/gpt-4o-mini"
+```
+
+#### vLLM OpenAI-Compatible Server
+
+> **Note:** This section covers connecting to a **remote vLLM server** via its REST API. If you want to run vLLM **locally in the same process**, use `--model-engine vllm` instead (no API setup needed).
+
+If you're running a model with vLLM's OpenAI-compatible API server:
+
+```bash
+# Start vLLM server (in another terminal)
+vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000
+```
+
+Set the endpoint:
+```bash
+export OPENAI_API_KEY="dummy"  # vLLM doesn't require auth, but LiteLLM expects this
+export OPENAI_API_BASE="http://localhost:8000/v1"
+```
+
+Run evaluation with the `openai/` prefix:
+```bash
+llm-behavior-eval "openai/meta-llama/Llama-3.1-8B-Instruct" bias:gender \
+    --model-engine api \
+    --max-samples 100
+```
+
+Alternatively, use the `hosted_vllm/` prefix with `HOSTED_VLLM_API_BASE`:
+```bash
+export HOSTED_VLLM_API_BASE="http://localhost:8000/v1"
+
+llm-behavior-eval "hosted_vllm/meta-llama/Llama-3.1-8B-Instruct" bias:gender \
+    --model-engine api
+```
+
+#### OpenAI
+
+```bash
+export OPENAI_API_KEY="your-openai-api-key"
+
+llm-behavior-eval "openai/gpt-4o" hallu \
+    --model-engine api
+```
+
+#### Google Vertex AI
+
+Set your Vertex AI credentials:
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account-key.json"
+# Or use gcloud auth application-default login
+```
+
+Run evaluation with the `vertex_ai/` prefix:
+```bash
+llm-behavior-eval "vertex_ai/gemini-pro" bias:gender \
+    --model-engine api \
+    --max-samples 100
+```
+
+#### Anthropic
+
+Set your Anthropic API key:
+```bash
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+```
+
+Run evaluation with the `anthropic/` prefix:
+```bash
+llm-behavior-eval "anthropic/claude-3-5-sonnet-20241022" hallu \
+    --model-engine api
+```
+
+#### Controlling API Concurrency
+
+Adjust parallel API call concurrency via environment variable:
+```bash
+export LLM_EVAL_API_CONCURRENCY=20  # Default is 10
+```
+
+> **Note:** When using `--model-engine api` for the **evaluated model**, you no longer need to provide `--model-tokenizer`. The evaluator will automatically use a raw-text path to send prompts directly to the API. However, you can still provide one if you want to use a specific chat template or reasoning mode.
+
 ### CLI options
 
 - `--max-samples <N>` — cap how many rows to evaluate per dataset (defaults to 500). Use `0` or any negative value to run the entire split.
