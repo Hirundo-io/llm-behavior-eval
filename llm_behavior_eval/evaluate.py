@@ -265,6 +265,13 @@ def main(
             max=1.0,
         ),
     ] = 0.9,
+    vllm_enforce_eager: Annotated[
+        bool,
+        typer.Option(
+            "--vllm-enforce-eager",
+            help="Enforce eager execution for vLLM.",
+        ),
+    ] = False,
     vllm_max_lora_rank: Annotated[
         int,
         typer.Option(
@@ -441,9 +448,15 @@ def main(
                         artifact_uri=f"runs:/{lora_path_or_repo_id}/hf_checkpoint/peft"
                     )
                 except MlflowException:
-                    lora_path_or_repo_id = download_artifacts(
-                        artifact_uri=f"runs:/{lora_path_or_repo_id}/hf_checkpoint"
-                    )
+                    try:
+                        lora_path_or_repo_id = download_artifacts(
+                            artifact_uri=f"runs:/{lora_path_or_repo_id}/hf_checkpoint"
+                        )
+                    except MlflowException:
+                        raise ValueError(
+                            f"Failed to download LoRA from MLflow run {lora_path_or_repo_id}"
+                        )
+                logging.info(f"Downloaded LoRA from MLflow run {lora_path_or_repo_id}")
     else:
         mlflow_config = None
 
@@ -462,6 +475,7 @@ def main(
             gpu_memory_utilization=vllm_gpu_memory_utilization,
             enable_lora=lora_path_or_repo_id is not None,
             max_lora_rank=vllm_max_lora_rank,
+            enforce_eager=vllm_enforce_eager,
         )
     else:
         vllm_config = None

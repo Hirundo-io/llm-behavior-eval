@@ -321,6 +321,8 @@ def load_vllm_model(
     config_format: str | None = None,
     load_format: str | None = None,
     gpu_memory_utilization: float = 0.9,
+    enable_lora: bool = False,
+    max_lora_rank: int = 128,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -338,6 +340,8 @@ def load_vllm_model(
         config_format: Optional config format string forwarded to vLLM.
         load_format: Optional checkpoint load format string forwarded to vLLM.
         gpu_memory_utilization: Optional GPU memory utilization passed to vLLM.
+        enable_lora: Whether to enable LoRA.
+        max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
     Returns:
         An initialized ``vllm.LLM`` instance.
     """
@@ -376,6 +380,8 @@ def load_vllm_model(
             config_format=config_format,
             load_format=load_format,
             gpu_memory_utilization=gpu_memory_utilization,
+            enable_lora=enable_lora,
+            max_lora_rank=max_lora_rank,
         )
     return llm_instance
 

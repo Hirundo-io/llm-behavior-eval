@@ -56,6 +56,9 @@ class VllmEvalEngine(EvalEngine):
         tokenizer_mode = vllm_config.tokenizer_mode if vllm_config else None
         config_format = vllm_config.config_format if vllm_config else None
         load_format = vllm_config.load_format if vllm_config else None
+        enable_lora = vllm_config.enable_lora if vllm_config else False
+        max_lora_rank = vllm_config.max_lora_rank if vllm_config else 128
+        enforce_eager = vllm_config.enforce_eager if vllm_config else False
         gpu_memory_utilization = (
             vllm_config.gpu_memory_utilization if vllm_config else 0.9
         )
@@ -71,13 +74,15 @@ class VllmEvalEngine(EvalEngine):
             eval_config.trust_remote_code,
             batch_size,
             model_token,
-            enforce_eager=not torch.cuda.is_available(),
+            enforce_eager=enforce_eager,
             quantization=quantization,
             max_model_len=max_model_len,
             tokenizer_mode=tokenizer_mode,
             config_format=config_format,
             load_format=load_format,
             gpu_memory_utilization=gpu_memory_utilization,
+            enable_lora=enable_lora,
+            max_lora_rank=max_lora_rank,
         )
         self._vllm_sampling_params = None
         if lora_path_or_repo_id is not None:

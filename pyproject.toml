@@ -50,6 +50,7 @@ dependencies = [
 [project.optional-dependencies]
 mlflow = [
   "mlflow>=2.0.0",
+  "google-cloud-storage",
 ]
 vllm = [
   "vllm>=0.13.0",
