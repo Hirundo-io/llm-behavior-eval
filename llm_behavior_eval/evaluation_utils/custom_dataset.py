@@ -267,9 +267,7 @@ class CustomDataset:
                 num_proc=1,
             )
             if len(processed_dataset) > 0:
-                logging.info(
-                    "Validation text: %s", processed_dataset["questions"][0]
-                )
+                logging.info("Validation text: %s", processed_dataset["questions"][0])
             return processed_dataset
 
         # Compute once to avoid per-batch remote config lookups

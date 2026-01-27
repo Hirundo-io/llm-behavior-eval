@@ -426,7 +426,10 @@ class BaseEvaluator(ABC):
             self._init_mlflow()
         # If we are currently in the judge context and the judge needs tokenized
         # inputs, rebuild a tokenized dataset for grading to avoid raw batches.
-        if getattr(self.eval_engine, "is_judge", False) and self._judge_dataset_needs_rebuild:
+        if (
+            getattr(self.eval_engine, "is_judge", False)
+            and self._judge_dataset_needs_rebuild
+        ):
             self.eval_dataset = self._build_tokenized_dataset_for_judge()
             self.eval_engine.set_dataset(self.eval_dataset)
             self.eval_loader = DataLoader(

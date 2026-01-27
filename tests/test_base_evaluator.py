@@ -124,7 +124,9 @@ def patch_eval_engine(
     monkeypatch.setattr(base_evaluator_module, "TransformersEvalEngine", StubEvalEngine)
 
     class StubApiEvalEngine(StubEvalEngine):
-        def __init__(self, eval_config: EvaluationConfig, *, is_judge: bool = False) -> None:
+        def __init__(
+            self, eval_config: EvaluationConfig, *, is_judge: bool = False
+        ) -> None:
             self.tokenizer = None
             self._explicit_batch_size = eval_config.batch_size
             self.dataset: Sized | None = None

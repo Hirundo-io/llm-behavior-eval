@@ -119,7 +119,9 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 attention_mask = batch["test_attention_mask"]
 
                 tokenizer = self._get_tokenizer()
-                input_texts = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+                input_texts = tokenizer.batch_decode(
+                    input_ids, skip_special_tokens=True
+                )
                 judge_questions = (
                     tokenizer.batch_decode(
                         batch["judge_questions"], skip_special_tokens=True

@@ -20,9 +20,7 @@ class FakeLiteLLM:
     def batch_completion(self, model, messages, **kwargs):
         """Batch completion returns a list of responses, one per message list."""
         self.calls.append({"model": model, "messages": messages, **kwargs})
-        return [
-            {"choices": [{"message": {"content": "ok"}}]} for _ in messages
-        ]
+        return [{"choices": [{"message": {"content": "ok"}}]} for _ in messages]
 
 
 def patch_litellm(monkeypatch) -> FakeLiteLLM:

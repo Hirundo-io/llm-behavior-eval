@@ -86,7 +86,9 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                 attention_mask = batch["test_attention_mask"]
 
                 tokenizer = self._get_tokenizer()
-                input_texts = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+                input_texts = tokenizer.batch_decode(
+                    input_ids, skip_special_tokens=True
+                )
                 gt_answers = tokenizer.batch_decode(
                     batch["gt_answers"], skip_special_tokens=True
                 )
