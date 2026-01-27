@@ -4,7 +4,6 @@ import os
 import sys
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -14,6 +13,8 @@ from llm_behavior_eval import DatasetConfig, EvaluationConfig
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from pathlib import Path
 
     from llm_behavior_eval.evaluation_utils.base_evaluator import (
         _GenerationRecord,
