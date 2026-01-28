@@ -11,6 +11,7 @@ from .util_functions import (
     build_vllm_prompt_token_ids,
     load_tokenizer_with_transformers,
     load_vllm_model,
+    maybe_download_adapter,
     pick_best_dtype,
 )
 from .vllm_config import VllmConfig
@@ -85,12 +86,19 @@ class VllmEvalEngine(EvalEngine):
                     "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable vllm for inference (e.g. when using the --inference-engine argument)."
                 ) from exc
             try:
+                mlflow_tracking_uri = (
+                    self.eval_config.mlflow_config.mlflow_tracking_uri
+                    if self.eval_config.mlflow_config
+                    else None
+                )
+                lora_path_or_repo_id = maybe_download_adapter(
+                    lora_path_or_repo_id, mlflow_tracking_uri=mlflow_tracking_uri
+                )
                 self.lora_request = LoRARequest("adapter", 1, lora_path_or_repo_id)
             except Exception as e:
-                logging.exception(
-                    f"Failed to load LoRA from path {lora_path_or_repo_id}. Verify that the path is either a local path, a HF repo or a MLFlow run id for an existing run.",
-                    e,
-                )
+                raise ValueError(
+                    f"Failed to load LoRA from path {lora_path_or_repo_id}. Verify that the path is either a local path, a HF repo or a remote location with a valid scheme."
+                ) from e
         else:
             self.lora_request = None
 

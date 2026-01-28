@@ -1,7 +1,6 @@
 import gc
 import logging
 import os
-import re
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -187,7 +186,7 @@ def main(
         str | None,
         typer.Option(
             "--lora-path-or-repo-id",
-            help="LoRA path or repo ID (optional), can be local path, HF repo or MLFlow run ID",
+            help="LoRA path or repo ID (optional), can be local path, HF repo or remote location with a valid scheme: mlflow://<run_id>/[<artifact_path>], git://<repo_url>[#<rev>[:<subdir>]], s3://<bucket>/<path>, gs://<bucket>/<path>",
         ),
     ] = None,
     inference_engine: Annotated[
@@ -437,26 +436,6 @@ def main(
             mlflow_experiment_name=mlflow_experiment_name,
             mlflow_run_name=mlflow_run_name,
         )
-        if (
-            mlflow
-            and lora_path_or_repo_id is not None
-            and re.match(r"^[0-9a-f]{32}$", lora_path_or_repo_id)
-        ):
-            if download_artifacts is not None and MlflowException is not None:
-                try:
-                    lora_path_or_repo_id = download_artifacts(
-                        artifact_uri=f"runs:/{lora_path_or_repo_id}/hf_checkpoint/peft"
-                    )
-                except MlflowException:
-                    try:
-                        lora_path_or_repo_id = download_artifacts(
-                            artifact_uri=f"runs:/{lora_path_or_repo_id}/hf_checkpoint"
-                        )
-                    except MlflowException as err:
-                        raise ValueError(
-                            f"Failed to download LoRA from MLflow run {lora_path_or_repo_id}"
-                        ) from err
-                logging.info(f"Downloaded LoRA from MLflow run {lora_path_or_repo_id}")
     else:
         mlflow_config = None
 
