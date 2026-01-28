@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -52,7 +52,7 @@ class VllmEvalEngine(EvalEngine):
         dtype = pick_best_dtype(device)
         quantization = "bitsandbytes" if use_4bit else None
         # Extract vLLM configuration
-        vllm_config = cast(VllmConfig, eval_config.vllm_config)
+        vllm_config = eval_config.vllm_config or VllmConfig()
 
         logging.info(
             "Initializing vLLM with max_num_seqs=%s and gpu_memory_utilization=%s",
