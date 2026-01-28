@@ -452,10 +452,10 @@ def main(
                         lora_path_or_repo_id = download_artifacts(
                             artifact_uri=f"runs:/{lora_path_or_repo_id}/hf_checkpoint"
                         )
-                    except MlflowException:
+                    except MlflowException as err:
                         raise ValueError(
                             f"Failed to download LoRA from MLflow run {lora_path_or_repo_id}"
-                        )
+                        ) from err
                 logging.info(f"Downloaded LoRA from MLflow run {lora_path_or_repo_id}")
     else:
         mlflow_config = None

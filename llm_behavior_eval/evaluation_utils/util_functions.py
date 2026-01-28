@@ -348,6 +348,7 @@ def load_vllm_model(
 
     try:
         from vllm import LLM
+        from vllm.config import CompilationConfig
     except ImportError as exc:
         raise ImportError(
             "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable vllm for inference (e.g. when using the --inference-engine argument)."
@@ -382,6 +383,7 @@ def load_vllm_model(
             gpu_memory_utilization=gpu_memory_utilization,
             enable_lora=enable_lora,
             max_lora_rank=max_lora_rank,
+            compilation_config=CompilationConfig(cudagraph_specialize_lora=False),
         )
     return llm_instance
 
