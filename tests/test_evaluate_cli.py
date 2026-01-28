@@ -13,7 +13,6 @@ from llm_behavior_eval import DatasetConfig, EvaluationConfig
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-
     from pathlib import Path
 
     from llm_behavior_eval.evaluation_utils.base_evaluator import (
