@@ -2248,8 +2248,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-mlflow = [
+gcloud = [
     { name = "google-cloud-storage" },
+]
+mlflow = [
     { name = "mlflow" },
 ]
 vllm = [
@@ -2260,6 +2262,7 @@ vllm = [
 dev = [
     { name = "basedpyright" },
     { name = "bumpver" },
+    { name = "llm-behavior-eval", extra = ["gcloud", "mlflow", "vllm"] },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "ruff" },
@@ -2273,7 +2276,7 @@ requires-dist = [
     { name = "accelerate", specifier = "<2.0.0" },
     { name = "bitsandbytes", marker = "sys_platform != 'darwin'", specifier = "<1.0.0" },
     { name = "datasets", specifier = "<4.0.0" },
-    { name = "google-cloud-storage", marker = "extra == 'mlflow'" },
+    { name = "google-cloud-storage", marker = "extra == 'gcloud'" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.0.0" },
     { name = "networkx", specifier = "<4.0.0" },
     { name = "numpy", specifier = "<3.0.0" },
@@ -2289,12 +2292,13 @@ requires-dist = [
     { name = "typer", specifier = "<1.0.0" },
     { name = "vllm", marker = "extra == 'vllm'", specifier = ">=0.13.0" },
 ]
-provides-extras = ["mlflow", "vllm"]
+provides-extras = ["mlflow", "vllm", "gcloud"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "basedpyright", specifier = ">=1.31.6" },
     { name = "bumpver", specifier = ">=2024.1130" },
+    { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcloud"], editable = "." },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "ruff", specifier = ">=0.11.11,<1.0.0" },
