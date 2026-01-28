@@ -7,6 +7,7 @@ from pydantic.functional_validators import model_validator
 from .sampling_config import SamplingConfig
 from .vllm_config import VllmConfig
 
+import logging
 
 class EvaluationConfig(BaseModel):
     """
@@ -104,6 +105,12 @@ class EvaluationConfig(BaseModel):
             raise ValueError("LoRA usage currently only supported with vLLM")
         return self
 
+    @model_validator(mode="after")
+    def validate_vllm_config_exists(self):
+        if self.vllm_config is None and "vllm" in [self.inference_engine, self.model_engine, self.judge_engine]:
+            logging.warning("No vLLM configuration provided, using default values")
+            self.vllm_config = VllmConfig()
+        return self
 
 class MlflowConfig(BaseModel):
     """
@@ -116,4 +123,3 @@ class MlflowConfig(BaseModel):
     mlflow_tracking_uri: str | None = None
     mlflow_experiment_name: str | None = None
     mlflow_run_name: str | None = None
-    mlflow_run_id: str | None = None

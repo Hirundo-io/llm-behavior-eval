@@ -187,7 +187,7 @@ def main(
         str | None,
         typer.Option(
             "--lora-path-or-repo-id",
-            help="LoRA path or repo id (optional), can be local path, HF repo or MLFlow run id",
+            help="LoRA path or repo ID (optional), can be local path, HF repo or MLFlow run ID",
         ),
     ] = None,
     inference_engine: Annotated[

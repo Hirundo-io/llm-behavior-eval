@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from torch import cuda
 
 from .vllm_types import TokenizerModeOption
 
@@ -31,4 +32,4 @@ class VllmConfig(BaseModel):
     gpu_memory_utilization: float = 0.9
     enable_lora: bool = False
     max_lora_rank: int = 128
-    enforce_eager: bool = False
+    enforce_eager: bool = not cuda.is_available()
