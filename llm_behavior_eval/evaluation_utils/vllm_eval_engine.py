@@ -5,7 +5,6 @@ import logging
 from typing import TYPE_CHECKING
 
 import torch
-from vllm.lora.request import LoRARequest
 
 from .eval_engine import EvalEngine
 from .util_functions import (
@@ -86,6 +85,12 @@ class VllmEvalEngine(EvalEngine):
         )
         self._vllm_sampling_params = None
         if lora_path_or_repo_id is not None:
+            try:
+                from vllm.lora.request import LoRARequest
+            except ImportError as exc:
+                raise ImportError(
+                    "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable vllm for inference (e.g. when using the --inference-engine argument)."
+                ) from exc
             try:
                 self.lora_request = LoRARequest("adapter", 1, lora_path_or_repo_id)
             except Exception as e:
