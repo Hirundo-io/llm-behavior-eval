@@ -501,7 +501,7 @@ def maybe_download_adapter(
 
     Behavior:
       - Deterministic cache location: <cache_dir or ~/.cache>/peft_adapters/<scheme>_<hash>/
-      - Overwrite: if destination exists, delete and re-download.
+      - Overwrite: re-download whether or not the destination exists. It's the user's responsibility to manage the cache.
 
     MLflow special-case:
       - If ref is exactly mlflow://<run_id> (no artifact subpath),
@@ -529,9 +529,6 @@ def maybe_download_adapter(
     digest = hashlib.blake2b(ref.encode("utf-8"), digest_size=8).hexdigest()
     dst = cache_root / f"{scheme}_{digest}"
 
-    # Overwrite behavior
-    if dst.exists():
-        shutil.rmtree(dst)
     dst.mkdir(parents=True, exist_ok=True)
 
     if scheme == "mlflow":
@@ -540,7 +537,7 @@ def maybe_download_adapter(
             from mlflow.artifacts import download_artifacts
         except Exception as e:
             raise ImportError(
-                "mlflow is required for mlflow:// refs. Install: pip install mlflow"
+                "mlflow is required for mlflow:// refs. Install: [uv] pip install mlflow"
             ) from e
 
         p = urlparse(ref)
@@ -581,7 +578,7 @@ def maybe_download_adapter(
             from git import Repo  # GitPython
         except Exception as e:
             raise ImportError(
-                "gitpython is required for git:// refs. Install: pip install gitpython"
+                "gitpython is required for git:// refs. Install: [uv] pip install gitpython"
             ) from e
 
         p = urlparse(ref)
@@ -613,7 +610,7 @@ def maybe_download_adapter(
         import fsspec
     except Exception as e:
         raise ImportError(
-            "fsspec is required for s3:// and gs:// refs. Install: pip install fsspec"
+            "fsspec is required for s3:// and gs:// refs. Install: [uv] pip install fsspec"
         ) from e
 
     fs, base = fsspec.core.url_to_fs(ref)

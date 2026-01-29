@@ -36,7 +36,9 @@ class VllmEvalEngine(EvalEngine):
         self.max_model_len = max_model_len
 
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
-        lora_path_or_repo_id = eval_config.lora_path_or_repo_id
+        lora_path_or_repo_id = (
+            eval_config.lora_path_or_repo_id if not self.is_judge else None
+        )
         model_token = self._get_model_token(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
         batch_size_config = self._get_batch_size_from_config(eval_config, is_judge)
@@ -74,7 +76,7 @@ class VllmEvalEngine(EvalEngine):
             config_format=vllm_config.config_format,
             load_format=vllm_config.load_format,
             gpu_memory_utilization=vllm_config.gpu_memory_utilization,
-            enable_lora=vllm_config.enable_lora,
+            enable_lora=vllm_config.enable_lora and not self.is_judge,
             max_lora_rank=vllm_config.max_lora_rank,
         )
         self._vllm_sampling_params = None
