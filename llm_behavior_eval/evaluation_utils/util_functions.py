@@ -603,6 +603,7 @@ def maybe_download_adapter(
         if rev:
             repo.git.fetch("--all", "--tags")
             repo.git.checkout(rev)
+            repo.git.pull()
 
         return str(dst / subdir) if subdir else str(dst)
 
