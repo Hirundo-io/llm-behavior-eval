@@ -19,3 +19,18 @@ repos:
     rev: 0.9.6
     hooks:
       - id: uv-lock
+  - repo: local
+    hooks:
+      - id: basedpyright
+        name: basedpyright
+        entry: basedpyright
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: pytest
+        name: pytest
+        entry: pytest
+        args: [-q]
+        language: system
+        types: [python]
+        pass_filenames: false
