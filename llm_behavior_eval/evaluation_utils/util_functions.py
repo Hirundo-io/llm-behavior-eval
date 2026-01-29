@@ -597,7 +597,8 @@ def maybe_download_adapter(
             else:
                 rev = p.fragment or None
 
-        Repo.clone_from(repo_url, str(dst))
+        if not (dst / ".git").exists():
+            Repo.clone_from(repo_url, str(dst))
         repo = Repo(str(dst))
         if rev:
             repo.git.fetch("--all", "--tags")
