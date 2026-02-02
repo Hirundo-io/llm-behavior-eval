@@ -26,12 +26,12 @@ repos:
         entry: basedpyright
         language: system
         types: [python]
-        pass_filenames: false
+        pass_filenames: true
       - id: pytest
         name: pytest
         entry: pytest
         args: [-q]
         language: system
         types: [python]
-        pass_filenames: false
+        pass_filenames: true
         stages: [push]
