@@ -485,67 +485,84 @@ def load_transformers_model_and_tokenizer(
     return tokenizer, model
 
 
+def is_mlflow_run_id(run_id: str) -> bool:
+    """Check if a string is a valid MLflow run id."""
+    return len(run_id) == 32 and all(c in "0123456789abcdef" for c in run_id)
+
+
 def maybe_download_adapter(
-    ref: str, cache_dir: str | None = None, mlflow_tracking_uri: str | None = None
+    adapter_ref: str,
+    cache_dir: str | None = None,
+    mlflow_tracking_uri: str | None = None,
 ) -> str:
     """
-    If `ref` is one of:
+    If `adapter_ref` is one of:
       - mlflow://...
+      - http://... / https://... with mlflow run id in the path
       - git://...
       - s3://...
       - gs://...
+      - Other schemes which fsspec supports
 
     ...download/clone it into a deterministic local cache directory and return that local path.
 
-    Otherwise (local path, HF repo id, etc.), return `ref` unchanged.
+    Otherwise (local path, HF repo id, etc.), return `adapter_ref` unchanged.
 
     Behavior:
       - Deterministic cache location: <cache_dir or ~/.cache>/peft_adapters/<scheme>_<hash>/
       - Overwrite: re-download whether or not the destination exists. It's the user's responsibility to manage the cache.
 
     MLflow special-case:
-      - If ref is exactly mlflow://<run_id> (no artifact subpath),
+      - If adapter_ref is exactly mlflow://<run_id> (no artifact subpath),
+        or http://... / https://... with mlflow run id in the path
         default artifact path is:
           1) hf_checkpoint/peft   (try first)
           2) hf_checkpoint        (fallback)
 
     Optional deps (lazy imports):
-      - mlflow               (for mlflow://)
+      - mlflow               (for mlflow:// or http://... / https://... with mlflow run id in the path)
       - gitpython            (for git://)
       - fsspec + s3fs/gcsfs  (for s3://, gs://)
+      - Other user deps for other schemes which fsspec supports
     """
-    ref = ref.strip()
-    if not ref:
-        raise ValueError("ref must be a non-empty string")
+    adapter_ref = adapter_ref.strip()
+    if not adapter_ref:
+        raise ValueError("adapter_ref must be a non-empty string")
 
-    scheme = ref.split("://", 1)[0].lower() if "://" in ref else ""
-    if scheme not in {"mlflow", "git", "s3", "gs"}:
-        return ref  # downstream handles local paths / HF repo ids / etc.
+    parsed_url = urlparse(adapter_ref, allow_fragments=False)
+    scheme = parsed_url.scheme.lower()
+    if not scheme and not parsed_url.netloc:
+        # Assume local path or HF repo id
+        logging.info(f"Assuming {adapter_ref} is a local path or HF repo id")
+        return adapter_ref  # downstream handles local paths / HF repo ids / etc.
 
     base_cache = Path(cache_dir).expanduser() if cache_dir else (Path.home() / ".cache")
     cache_root = base_cache / "peft_adapters"
     cache_root.mkdir(parents=True, exist_ok=True)
 
-    digest = hashlib.blake2b(ref.encode("utf-8"), digest_size=8).hexdigest()
-    dst = cache_root / f"{scheme}_{digest}"
+    digest = hashlib.blake2b(adapter_ref.encode("utf-8"), digest_size=8).hexdigest()
+    digest_path = cache_root / f"{scheme}_{digest}"
 
-    dst.mkdir(parents=True, exist_ok=True)
+    digest_path.mkdir(parents=True, exist_ok=True)
 
-    if scheme == "mlflow":
+    if scheme == "mlflow" or (
+        "http" in scheme and is_mlflow_run_id(parsed_url.path.split("/")[-1])
+    ):
         try:
             import mlflow
             from mlflow.artifacts import download_artifacts
-        except Exception as e:
+        except Exception as mlflow_exception:
             raise ImportError(
                 "mlflow is required for mlflow:// refs. Install: [uv] pip install mlflow"
-            ) from e
+            ) from mlflow_exception
 
-        p = urlparse(ref)
-        run_id = p.netloc
+        run_id = (
+            parsed_url.netloc if scheme == "mlflow" else parsed_url.path.split("/")[-1]
+        )
         if not run_id:
-            raise ValueError(f"Invalid mlflow ref (missing run id): {ref!r}")
+            raise ValueError(f"Invalid mlflow ref (missing run id): {adapter_ref!r}")
 
-        artifact_path = p.path.lstrip("/") or None
+        artifact_path = parsed_url.path.lstrip("/") or None
 
         tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
         if tracking_uri:
@@ -555,15 +572,19 @@ def maybe_download_adapter(
         if artifact_path is None:
             try:
                 local_path = download_artifacts(
-                    run_id=run_id, artifact_path="hf_checkpoint/peft", dst_path=str(dst)
+                    run_id=run_id,
+                    artifact_path="hf_checkpoint/peft",
+                    dst_path=str(digest_path),
                 )
             except Exception:
                 local_path = download_artifacts(
-                    run_id=run_id, artifact_path="hf_checkpoint", dst_path=str(dst)
+                    run_id=run_id,
+                    artifact_path="hf_checkpoint",
+                    dst_path=str(digest_path),
                 )
         else:
             local_path = download_artifacts(
-                run_id=run_id, artifact_path=artifact_path, dst_path=str(dst)
+                run_id=run_id, artifact_path=artifact_path, dst_path=str(digest_path)
             )
 
         local_dir = Path(local_path)
@@ -581,33 +602,33 @@ def maybe_download_adapter(
                 "gitpython is required for git:// refs. Install: [uv] pip install gitpython"
             ) from e
 
-        p = urlparse(ref)
+        parsed_url = urlparse(adapter_ref)
 
         # Minimal: map git://host/path -> https://host/path
-        repo_url = f"https://{p.netloc}{p.path}"
+        repo_url = f"https://{parsed_url.netloc}{parsed_url.path}"
 
         rev = None
         subdir = None
-        if p.fragment:
+        if parsed_url.fragment:
             # "#rev:subdir" or "#rev"
-            if ":" in p.fragment:
-                rev, subdir = p.fragment.split(":", 1)
+            if ":" in parsed_url.fragment:
+                rev, subdir = parsed_url.fragment.split(":", 1)
                 rev = rev or None
                 subdir = subdir or None
             else:
-                rev = p.fragment or None
+                rev = parsed_url.fragment or None
 
-        if not (dst / ".git").exists():
-            Repo.clone_from(repo_url, str(dst))
-        repo = Repo(str(dst))
+        if not (digest_path / ".git").exists():
+            Repo.clone_from(repo_url, str(digest_path))
+        repo = Repo(str(digest_path))
         if rev:
             repo.git.fetch("--all", "--tags")
             repo.git.checkout(rev)
             repo.git.pull()
 
-        return str(dst / subdir) if subdir else str(dst)
+        return str(digest_path / subdir) if subdir else str(digest_path)
 
-    # s3:// or gs:// via fsspec
+    # s3:// or gs:// (or others) via fsspec
     try:
         import fsspec
     except Exception as e:
@@ -615,22 +636,22 @@ def maybe_download_adapter(
             "fsspec is required for s3:// and gs:// refs. Install: [uv] pip install fsspec"
         ) from e
 
-    fs, base = fsspec.core.url_to_fs(ref)
+    fs, base = fsspec.core.url_to_fs(adapter_ref)
     if fs.isfile(base):
         raise ValueError(
-            f"{ref!r} points to a file; expected a directory/prefix containing adapter files."
+            f"{adapter_ref!r} points to a file; expected a directory/prefix containing adapter files."
         )
 
     base = base.rstrip("/")
     for remote in fs.find(base):
         if fs.isdir(remote):
             continue
-        rel = remote[len(base) :].lstrip("/")
-        if not rel:
+        relative_path = remote[len(base) :].lstrip("/")
+        if not relative_path:
             continue
-        local_path = dst / rel
+        local_path = digest_path / relative_path
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        with fs.open(remote, "rb") as r, open(local_path, "wb") as w:
-            shutil.copyfileobj(r, w)
+        with fs.open(remote, "rb") as remote_file, open(local_path, "wb") as local_file:
+            shutil.copyfileobj(remote_file, local_file)
 
-    return str(dst)
+    return str(digest_path)

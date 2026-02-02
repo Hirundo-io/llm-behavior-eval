@@ -95,13 +95,12 @@ class EvaluationConfig(BaseModel):
     def validate_lora_path_or_repo_id(self):
         # LoRA usage currently only supported with vLLM
         using_vllm = self.vllm_config is not None or any(
-            [
-                arg == "vllm"
-                for arg in [self.inference_engine, self.model_engine, self.judge_engine]
-            ]
+            [arg == "vllm" for arg in [self.inference_engine, self.model_engine]]
         )
         if self.lora_path_or_repo_id is not None and not using_vllm:
-            raise ValueError("LoRA usage currently only supported with vLLM")
+            raise ValueError(
+                "LoRA usage currently only supported with vLLM (Either inference_engine or model_engine must be set to 'vllm')"
+            )
         return self
 
 
