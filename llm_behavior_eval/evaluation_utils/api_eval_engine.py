@@ -48,15 +48,15 @@ class ApiEvalEngine(EvalEngine):
 
     @staticmethod
     def _load_litellm():
-        import importlib
-        import importlib.util
+        try:
+            import litellm
 
-        if importlib.util.find_spec("litellm") is None:
+            return litellm
+        except ImportError:
             raise ImportError(
                 "litellm is required for API-based models. "
                 "Install it with `pip install llm-behavior-eval[api]`."
-            )
-        return importlib.import_module("litellm")
+            ) from None
 
     def _suppress_litellm_logging(self) -> None:
         """Suppress verbose LiteLLM logging unless explicitly enabled."""

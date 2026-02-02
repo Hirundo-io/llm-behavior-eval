@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import importlib
-import importlib.util
-
 from llm_behavior_eval.evaluation_utils.api_eval_engine import ApiEvalEngine
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
@@ -24,21 +21,11 @@ class FakeLiteLLM:
 
 
 def patch_litellm(monkeypatch) -> FakeLiteLLM:
+    """Patch ApiEvalEngine._load_litellm to return a fake litellm module."""
     fake_litellm = FakeLiteLLM()
-    real_import_module = importlib.import_module
-
     monkeypatch.setattr(
-        importlib.util,
-        "find_spec",
-        lambda name: object() if name == "litellm" else None,
+        ApiEvalEngine, "_load_litellm", staticmethod(lambda: fake_litellm)
     )
-
-    def fake_import_module(name: str, *args, **kwargs):
-        if name == "litellm":
-            return fake_litellm
-        return real_import_module(name, *args, **kwargs)
-
-    monkeypatch.setattr(importlib, "import_module", fake_import_module)
     return fake_litellm
 
 

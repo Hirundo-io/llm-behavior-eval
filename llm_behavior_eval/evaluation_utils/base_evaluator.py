@@ -38,7 +38,6 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Sequence
 
     from datasets import Dataset as HFDataset
-    from torch import Tensor
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
     from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine, JudgePrompt
