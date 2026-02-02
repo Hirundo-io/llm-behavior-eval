@@ -21,6 +21,8 @@ from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
 
+from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -36,10 +38,11 @@ VLLMQuantization = Literal[
     "bitsandbytes",
 ]
 
-
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
     from vllm import LLM
+
+DIGEST_SIZE_FOR_PEFT_PATHS = 8
 
 
 def empty_cuda_cache_if_available() -> None:
@@ -326,7 +329,7 @@ def load_vllm_model(
     load_format: str | None = None,
     gpu_memory_utilization: float = 0.9,
     enable_lora: bool = False,
-    max_lora_rank: int = 128,
+    max_lora_rank: int = VllmConfig.model_fields["max_lora_rank"].default,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -498,7 +501,7 @@ def maybe_download_adapter(
     """
     If `adapter_ref` is one of:
       - mlflow://...
-      - http://... / https://... with mlflow run id in the path
+      - http://... / https://... where scheme+netloc match the MLflow tracking URI
       - git://...
       - s3://...
       - gs://...
@@ -514,13 +517,13 @@ def maybe_download_adapter(
 
     MLflow special-case:
       - If adapter_ref is exactly mlflow://<run_id> (no artifact subpath),
-        or http://... / https://... with mlflow run id in the path
+        or http://... / https://... where scheme+netloc match the MLflow tracking URI
         default artifact path is:
           1) hf_checkpoint/peft   (try first)
           2) hf_checkpoint        (fallback)
 
     Optional deps (lazy imports):
-      - mlflow               (for mlflow:// or http://... / https://... with mlflow run id in the path)
+      - mlflow               (for mlflow:// or http://... / https://... matching MLflow tracking URI)
       - gitpython            (for git://)
       - fsspec + s3fs/gcsfs  (for s3://, gs://)
       - Other user deps for other schemes which fsspec supports
@@ -541,14 +544,23 @@ def maybe_download_adapter(
     cache_root = base_cache / "peft_adapters"
     cache_root.mkdir(parents=True, exist_ok=True)
 
-    digest = hashlib.blake2b(adapter_ref.encode("utf-8"), digest_size=8).hexdigest()
+    digest = hashlib.blake2b(
+        adapter_ref.encode("utf-8"), digest_size=DIGEST_SIZE_FOR_PEFT_PATHS
+    ).hexdigest()
     digest_path = cache_root / f"{scheme}_{digest}"
 
     digest_path.mkdir(parents=True, exist_ok=True)
 
-    if scheme == "mlflow" or (
-        "http" in scheme and is_mlflow_run_id(parsed_url.path.split("/")[-1])
-    ):
+    tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
+    is_mlflow_url = scheme == "mlflow"
+    if not is_mlflow_url and tracking_uri:
+        # Check if scheme+netloc match the MLflow tracking URI
+        tracking_parsed = urlparse(tracking_uri)
+        adapter_scheme_netloc = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        tracking_scheme_netloc = f"{tracking_parsed.scheme}://{tracking_parsed.netloc}"
+        is_mlflow_url = adapter_scheme_netloc == tracking_scheme_netloc
+
+    if is_mlflow_url:
         try:
             import mlflow
             from mlflow.artifacts import download_artifacts
@@ -565,7 +577,6 @@ def maybe_download_adapter(
 
         artifact_path = parsed_url.path.lstrip("/") or None
 
-        tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
         if tracking_uri:
             mlflow.set_tracking_uri(tracking_uri)
 

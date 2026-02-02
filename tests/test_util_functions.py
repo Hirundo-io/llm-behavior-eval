@@ -419,7 +419,9 @@ def test_maybe_download_adapter_http_with_mlflow_run_id(
 
     try:
         maybe_download_adapter(
-            f"http://mlflow.example.com/runs/{run_id}", cache_dir=str(tmp_path)
+            f"http://mlflow.example.com/runs/{run_id}",
+            cache_dir=str(tmp_path),
+            mlflow_tracking_uri="http://mlflow.example.com",
         )
 
         assert len(mock_download_artifacts_calls) == 1
