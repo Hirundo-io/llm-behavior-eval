@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import importlib
-import importlib.util
 import logging
 import os
 from typing import TYPE_CHECKING, Any, cast
 
 from tqdm import tqdm
 
-from .eval_engine import EvalDataset, EvalEngine
+from .eval_engine import EvalDataset, EvalEngine, JudgePrompt
 from .util_functions import load_tokenizer_with_transformers
 
 if TYPE_CHECKING:
@@ -19,9 +17,6 @@ if TYPE_CHECKING:
 
     from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
-
-
-JudgePrompt = str | list[dict[str, str]]
 
 # Default concurrency for batch API calls (can be overridden via env var)
 DEFAULT_API_BATCH_CONCURRENCY = 10
@@ -53,10 +48,12 @@ class ApiEvalEngine(EvalEngine):
 
     @staticmethod
     def _load_litellm():
-        spec = importlib.util.find_spec("litellm")
-        if spec is None:
+        import importlib
+        import importlib.util
+
+        if importlib.util.find_spec("litellm") is None:
             raise ImportError(
-                "litellm is required for API-based judge models. "
+                "litellm is required for API-based models. "
                 "Install it with `pip install llm-behavior-eval[api]`."
             )
         return importlib.import_module("litellm")
@@ -65,9 +62,7 @@ class ApiEvalEngine(EvalEngine):
         """Suppress verbose LiteLLM logging unless explicitly enabled."""
         if os.environ.get("LITELLM_DEBUG"):
             return
-        # Suppress LiteLLM's verbose output
         cast("Any", self._litellm).suppress_debug_info = True
-        logging.getLogger("LiteLLM").setLevel(logging.WARNING)
         logging.getLogger("litellm").setLevel(logging.WARNING)
 
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
@@ -258,3 +253,7 @@ class ApiEvalEngine(EvalEngine):
         if message is not None:
             return str(getattr(message, "content", "") or "")
         return str(getattr(first, "text", "") or "")
+
+    def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
+        """For API engines, return messages unchanged (no tokenization needed)."""
+        return messages

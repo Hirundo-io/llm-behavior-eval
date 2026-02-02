@@ -8,11 +8,12 @@ from transformers import set_seed
 from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
-from .eval_engine import EvalDataset, EvalEngine
+from .eval_engine import EvalDataset, EvalEngine, JudgePrompt
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import (
     load_transformers_model_and_tokenizer,
+    safe_apply_chat_template,
 )
 
 if TYPE_CHECKING:
@@ -132,3 +133,26 @@ class TransformersEvalEngine(EvalEngine):
     def free_model(self) -> None:
         self.model = self.model.cpu()
         del self.model
+
+    def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
+        """Apply chat template to format messages into a tokenized prompt string."""
+        return safe_apply_chat_template(self.tokenizer, messages)
+
+    def generate_answers_from_prompts(
+        self,
+        prompts: list[JudgePrompt],
+        sampling_config: SamplingConfig,
+    ) -> list[str]:
+        """Tokenize string prompts and generate answers."""
+        if not prompts:
+            return []
+        # Ensure all prompts are strings (already formatted)
+        string_prompts = [p if isinstance(p, str) else str(p) for p in prompts]
+        tokenized = self.tokenizer(
+            string_prompts,
+            return_tensors="pt",
+            padding=True,
+        )
+        input_ids = cast("torch.Tensor", tokenized["input_ids"])
+        attention_mask = cast("torch.Tensor", tokenized["attention_mask"])
+        return self.generate_answers(input_ids, attention_mask, sampling_config)

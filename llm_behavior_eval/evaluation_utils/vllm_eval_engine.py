@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import torch
 
-from .eval_engine import EvalDataset, EvalEngine
+from .eval_engine import EvalDataset, EvalEngine, JudgePrompt
 from .util_functions import (
     build_vllm_prompt_token_ids,
     load_tokenizer_with_transformers,
     load_vllm_model,
     pick_best_dtype,
+    safe_apply_chat_template,
 )
 
 if TYPE_CHECKING:
@@ -175,3 +176,26 @@ class VllmEvalEngine(EvalEngine):
         del self.model
         with contextlib.suppress(AssertionError):
             torch.distributed.destroy_process_group()
+
+    def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
+        """Apply chat template to format messages into a tokenized prompt string."""
+        return safe_apply_chat_template(self.tokenizer, messages)
+
+    def generate_answers_from_prompts(
+        self,
+        prompts: list[JudgePrompt],
+        sampling_config: SamplingConfig,
+    ) -> list[str]:
+        """Tokenize string prompts and generate answers."""
+        if not prompts:
+            return []
+        # Ensure all prompts are strings (already formatted)
+        string_prompts = [p if isinstance(p, str) else str(p) for p in prompts]
+        tokenized = self.tokenizer(
+            string_prompts,
+            return_tensors="pt",
+            padding=True,
+        )
+        input_ids = cast("torch.Tensor", tokenized["input_ids"])
+        attention_mask = cast("torch.Tensor", tokenized["attention_mask"])
+        return self.generate_answers(input_ids, attention_mask, sampling_config)

@@ -445,9 +445,7 @@ def main(
     if using_vllm:
         vllm_config = VllmConfig(
             max_model_len=vllm_max_model_len,
-            judge_max_model_len=vllm_judge_max_model_len
-            if vllm_judge_max_model_len is not None
-            else vllm_max_model_len,
+            judge_max_model_len=vllm_judge_max_model_len or vllm_max_model_len,
             tokenizer_mode=vllm_tokenizer_mode,
             config_format=vllm_config_format or "auto",
             load_format=vllm_load_format or "auto",

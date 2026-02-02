@@ -401,6 +401,19 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
             )
             return ["yes"] * input_ids.shape[0]
 
+        def generate_answers_from_prompts(
+            self,
+            prompts,
+            sampling_config: SamplingConfig,
+        ):
+            self.calls.append(
+                {
+                    "prompts": prompts,
+                    "sampling_config": sampling_config,
+                }
+            )
+            return ["yes"] * len(prompts)
+
         def free_model(self) -> None:
             return None
 

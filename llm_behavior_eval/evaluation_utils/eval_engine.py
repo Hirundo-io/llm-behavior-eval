@@ -13,6 +13,9 @@ if TYPE_CHECKING:
 
 EvalDataset = Sized
 
+# Canonical type for judge prompts: either a tokenized string or raw messages for API
+JudgePrompt = str | list[dict[str, str]]
+
 
 class EvalEngine(ABC):
     @abstractmethod
@@ -77,4 +80,30 @@ class EvalEngine(ABC):
         """Get the max new tokens setting from config based on whether this is a judge model."""
         return (
             eval_config.max_judge_tokens if is_judge else eval_config.max_answer_tokens
+        )
+
+    def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
+        """Format messages into a prompt suitable for this engine.
+
+        For tokenizer-based engines, applies the chat template.
+        For API engines, returns messages unchanged.
+
+        Override in subclasses to provide engine-specific behavior.
+        """
+        raise NotImplementedError("Subclasses must implement format_prompt().")
+
+    def generate_answers_from_prompts(
+        self,
+        prompts: list[JudgePrompt],
+        sampling_config: SamplingConfig,
+    ) -> list[str]:
+        """Generate answers from pre-formatted prompts.
+
+        For API engines, this sends prompts directly.
+        For tokenizer-based engines, this tokenizes and calls generate_answers.
+
+        Override in subclasses to provide engine-specific behavior.
+        """
+        raise NotImplementedError(
+            "Subclasses must implement generate_answers_from_prompts()."
         )
