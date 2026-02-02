@@ -529,6 +529,7 @@ def maybe_download_adapter(
     if not adapter_ref:
         raise ValueError("adapter_ref must be a non-empty string")
 
+    # Do not allow fragments because mlflow can have "#" in the path
     parsed_url = urlparse(adapter_ref, allow_fragments=False)
     scheme = parsed_url.scheme.lower()
     if not scheme and not parsed_url.netloc:
@@ -593,6 +594,10 @@ def maybe_download_adapter(
                 f"MLflow artifact resolved to a file; expected directory: {local_dir}"
             )
         return str(local_dir)
+
+    # reparse because git needs fragments
+    parsed_url = urlparse(adapter_ref, allow_fragments=True)
+    scheme = parsed_url.scheme.lower()
 
     if scheme == "git":
         try:
