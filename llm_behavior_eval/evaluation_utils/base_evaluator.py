@@ -131,8 +131,10 @@ class BaseEvaluator(ABC):
         if self.mlflow_config:
             self._init_mlflow()
 
+        # Use raw_text_collator only when in API raw mode (no tokenizer provided)
+        # When a tokenizer is provided, we need default_data_collator for tensors
         self.data_collator = (
-            raw_text_collator if self.model_engine == "api" else default_data_collator
+            raw_text_collator if self.api_raw_mode else default_data_collator
         )
         self.judge_data_collator = (
             raw_text_collator if self.judge_engine == "api" else default_data_collator
