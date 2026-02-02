@@ -7,15 +7,6 @@ from typing import Annotated, Literal
 import torch
 import typer
 
-try:
-    import mlflow
-    from mlflow.artifacts import download_artifacts
-    from mlflow.exceptions import MlflowException
-except ImportError:
-    mlflow = None
-    download_artifacts = None
-    MlflowException = None
-
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
 from llm_behavior_eval import (
