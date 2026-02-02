@@ -612,12 +612,12 @@ def maybe_download_adapter(
         subdir = None
         if git_parsed_url.fragment:
             # "#rev:subdir" or "#rev"
-            if ":" in parsed_url.fragment:
+            if ":" in git_parsed_url.fragment:
                 rev, subdir = git_parsed_url.fragment.split(":", 1)
                 rev = rev or None
                 subdir = subdir or None
             else:
-                rev = parsed_url.fragment or None
+                rev = git_parsed_url.fragment or None
 
         if not (digest_path / ".git").exists():
             Repo.clone_from(repo_url, str(digest_path))
