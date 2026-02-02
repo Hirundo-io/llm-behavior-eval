@@ -248,6 +248,15 @@ Adjust parallel API call concurrency via environment variable:
 export LLM_EVAL_API_CONCURRENCY=20  # Default is 10
 ```
 
+#### Engine Selection Summary
+
+| Use Case | `--model-engine` | Notes |
+|----------|------------------|-------|
+| Local HuggingFace model | `transformers` (default) | Loads model into local GPU via transformers |
+| Local model with vLLM | `vllm` | Faster inference, requires vLLM installed |
+| Remote vLLM server | `api` | Connect via OpenAI-compatible API (see above) |
+| Cloud APIs (OpenAI, Azure, Anthropic, etc.) | `api` | Uses LiteLLM for routing |
+
 > **Note:** When using `--model-engine api` for the **evaluated model**, you no longer need to provide `--model-tokenizer`. The evaluator will automatically use a raw-text path to send prompts directly to the API. However, you can still provide one if you want to use a specific chat template or reasoning mode.
 
 ### CLI options

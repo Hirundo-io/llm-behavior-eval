@@ -217,9 +217,9 @@ def main(
         typer.Option(
             "--model-engine",
             help=(
-                'Model engine to use for model inference. "vllm", '
-                '"transformers", or "api". DO NOT combine with the '
-                "inference_engine argument."
+                'Model inference backend: "transformers" (default, local HF models), '
+                '"vllm" (local vLLM for faster inference), or "api" (remote endpoints '
+                "via LiteLLM - supports OpenAI, Azure, Anthropic, remote vLLM servers, etc.)."
             ),
         ),
     ] = "transformers",
@@ -235,9 +235,9 @@ def main(
         typer.Option(
             "--judge-engine",
             help=(
-                'Judge engine to use for judge model inference. "vllm", '
-                '"transformers", or "api". DO NOT combine with the '
-                "inference_engine argument."
+                'Judge model inference backend: "transformers" (default, local HF models), '
+                '"vllm" (local vLLM for faster inference), or "api" (remote endpoints '
+                "via LiteLLM - supports OpenAI, Azure, Anthropic, etc.)."
             ),
         ),
     ] = "transformers",
