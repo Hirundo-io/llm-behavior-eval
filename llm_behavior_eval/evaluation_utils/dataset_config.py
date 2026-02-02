@@ -11,6 +11,7 @@ class PreprocessConfig(BaseSettings):
         max_length: The maximum length of the text data.
         gt_max_length: The maximum length for ground truth data.
         preprocess_batch_size: The batch size for preprocessing the dataset.
+        system_prompt_prefix: The system prompt prefix for the evaluated model to follow.
     """
 
     model_config = SettingsConfigDict(env_prefix="bias_preprocess_")
@@ -18,6 +19,7 @@ class PreprocessConfig(BaseSettings):
     max_length: int = 1024
     gt_max_length: int = 256
     preprocess_batch_size: int = 128
+    system_prompt_prefix: str | None = None
 
 
 class DatasetConfig(BaseSettings):

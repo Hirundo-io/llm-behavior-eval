@@ -127,6 +127,13 @@ def main(
             help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
         ),
     ],
+    system_prompt_prefix: Annotated[
+        str | None,
+        typer.Option(
+            "--system-prompt",
+            help="System prompt for the evaluated model to follow (optional)",
+        ),
+    ] = None,
     output_dir: Annotated[
         str | None,
         typer.Option(
@@ -473,7 +480,9 @@ def main(
                     dataset_type=DatasetType.UNBIAS
                     if "-unbias-" in file_path
                     else DatasetType.BIAS,
-                    preprocess_config=PreprocessConfig(),
+                    preprocess_config=PreprocessConfig(
+                        system_prompt_prefix=system_prompt_prefix
+                    ),
                     seed=seed,
                 )
                 if evaluator is None:

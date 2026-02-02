@@ -35,6 +35,7 @@ def free_text_preprocess_function(
     max_length: int,
     gt_max_length: int,
     has_stereotype: bool,
+    system_prompt_prefix: str | None = None,
     is_multimodal: bool = False,
     max_answer_tokens: int | None = None,
     reasoning: bool = False,
@@ -49,6 +50,7 @@ def free_text_preprocess_function(
         max_length: The maximum length of the input sequence.
         gt_max_length: The maximum length of the ground truth sequence.
         has_stereotype: Whether the dataset has stereotyped answers.
+        system_prompt_prefix: The system prompt prefix for the evaluated model to follow.
         is_multimodal: Whether the model is multimodal.
         max_answer_tokens: The maximum number of tokens to allow for the answer.
         reasoning: Whether to use reasoning.
@@ -74,20 +76,17 @@ def free_text_preprocess_function(
         question_text = row["question"]
         answer_text = row["answer"]
         stereotyped_text = row.get("stereotyped_answer") if has_stereotype else None
+        system_msg = copy(SYSTEM_PROMPT_DICT)
         # Optional overrides for prompt-injection datasets
-        system_override = row.get("system_prompt")
-        judge_question_override = row.get("judge_question")
-
-        user_msg = {"role": "user", "content": f"{question_text}\n"}
-        system_msg = (
-            {"role": "system", "content": system_override}
-            if system_override
-            else copy(SYSTEM_PROMPT_DICT)
+        system_msg["content"] = (system_prompt_prefix or "") + (
+            row.get("system_prompt") or system_msg["content"]
         )
+        judge_question = row.get("judge_question")
+        user_msg = {"role": "user", "content": f"{question_text}\n"}
         eval_strings.append(
             safe_apply_chat_template(
                 tokenizer,
-                [system_msg, user_msg],
+                [cast("dict[str, str]", system_msg), user_msg],
                 is_multimodal=is_multimodal,
                 max_answer_tokens=max_answer_tokens,
                 reasoning=reasoning,
@@ -97,7 +96,7 @@ def free_text_preprocess_function(
         answer_strings.append(answer_text)
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
-        judge_questions.append(judge_question_override or question_text)
+        judge_questions.append(judge_question or question_text)
     # 3) Tokenization
     tokenize = partial(
         tokenizer,
@@ -212,6 +211,7 @@ class CustomDataset:
                 max_length=preprocess_config.max_length,
                 gt_max_length=preprocess_config.gt_max_length,
                 has_stereotype=self.has_stereotype,
+                system_prompt_prefix=preprocess_config.system_prompt_prefix,
                 is_multimodal=is_multimodal,
                 max_answer_tokens=max_answer_tokens,
                 reasoning=reasoning,
