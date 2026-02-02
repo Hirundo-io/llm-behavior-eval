@@ -595,10 +595,6 @@ def maybe_download_adapter(
             )
         return str(local_dir)
 
-    # reparse because git needs fragments
-    parsed_url = urlparse(adapter_ref, allow_fragments=True)
-    scheme = parsed_url.scheme.lower()
-
     if scheme == "git":
         try:
             from git import Repo  # GitPython
@@ -607,17 +603,17 @@ def maybe_download_adapter(
                 "gitpython is required for git:// refs. Install: [uv] pip install gitpython"
             ) from e
 
-        parsed_url = urlparse(adapter_ref)
+        git_parsed_url = urlparse(adapter_ref, allow_fragments=True)
 
         # Minimal: map git://host/path -> https://host/path
-        repo_url = f"https://{parsed_url.netloc}{parsed_url.path}"
+        repo_url = f"https://{git_parsed_url.netloc}{git_parsed_url.path}"
 
         rev = None
         subdir = None
-        if parsed_url.fragment:
+        if git_parsed_url.fragment:
             # "#rev:subdir" or "#rev"
             if ":" in parsed_url.fragment:
-                rev, subdir = parsed_url.fragment.split(":", 1)
+                rev, subdir = git_parsed_url.fragment.split(":", 1)
                 rev = rev or None
                 subdir = subdir or None
             else:
