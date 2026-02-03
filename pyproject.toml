@@ -55,6 +55,9 @@ vllm = [
   "vllm>=0.13.0",
   # ⬆️ Required to fix vulnerability with ID GHSA-mcmc-2m55-j8jj (vLLM introduced enhanced protection for CVE-2025-62164)
 ]
+gcs = [
+    "google-cloud-storage",
+]
 
 [dependency-groups]
 dev = [
@@ -63,6 +66,7 @@ dev = [
   "basedpyright>=1.31.6",
   "pytest>=8.3.5",
   "pre-commit>=4.3.0",
+  "llm-behavior-eval[mlflow,vllm,gcs]",
 ]
 docs = [
   "sphinx>=8.0.0",
@@ -71,6 +75,8 @@ docs = [
 [tool.uv.dependency-groups]
 docs = {requires-python = ">=3.11.4"}
 
+[tool.uv.sources]
+llm-behavior-eval = { path = ".", editable = true }
 
 [tool.setuptools.packages.find]
 include = ["llm_behavior_eval*"]

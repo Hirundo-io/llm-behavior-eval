@@ -48,6 +48,7 @@ DEFAULT_SAMPLE_JUDGE = EvaluationConfig.model_fields["sample_judge"].default
 DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
 DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
 DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
+DEFAULT_MAX_LORA_RANK = VllmConfig.model_fields["max_lora_rank"].default
 
 
 def _behavior_presets(behavior: str) -> list[str]:
@@ -179,6 +180,13 @@ def main(
             help="MLflow run name (optional, auto-generates if not specified)",
         ),
     ] = None,
+    lora_path_or_repo_id: Annotated[
+        str | None,
+        typer.Option(
+            "--lora-path-or-repo-id",
+            help="LoRA path or repo ID (optional), can be local path, HF repo or remote location with a valid scheme: mlflow://<run_id>/[<artifact_path>], git://<repo_url>[#<rev>[:<subdir>]], s3://<bucket>/<path>, gs://<bucket>/<path>",
+        ),
+    ] = None,
     inference_engine: Annotated[
         Literal["vllm", "transformers"] | None,
         typer.Option(
@@ -237,14 +245,14 @@ def main(
             "--vllm-config-format",
             help="Model config format hint forwarded to vLLM.",
         ),
-    ] = None,
+    ] = "auto",
     vllm_load_format: Annotated[
         str | None,
         typer.Option(
             "--vllm-load-format",
             help="Checkpoint load format hint forwarded to vLLM.",
         ),
-    ] = None,
+    ] = "auto",
     vllm_gpu_memory_utilization: Annotated[
         float,
         typer.Option(
@@ -254,6 +262,20 @@ def main(
             max=1.0,
         ),
     ] = 0.9,
+    vllm_enforce_eager: Annotated[
+        bool,
+        typer.Option(
+            "--vllm-enforce-eager",
+            help="Enforce eager execution for vLLM.",
+        ),
+    ] = False,
+    vllm_max_lora_rank: Annotated[
+        int,
+        typer.Option(
+            "--vllm-max-lora-rank",
+            help="Maximum LoRA rank for vLLM.",
+        ),
+    ] = DEFAULT_MAX_LORA_RANK,
     replace_existing_output: Annotated[
         bool,
         typer.Option(
@@ -428,6 +450,9 @@ def main(
             config_format=vllm_config_format,
             load_format=vllm_load_format,
             gpu_memory_utilization=vllm_gpu_memory_utilization,
+            enable_lora=lora_path_or_repo_id is not None,
+            max_lora_rank=vllm_max_lora_rank,
+            enforce_eager=vllm_enforce_eager,
         )
     else:
         vllm_config = None
@@ -435,6 +460,7 @@ def main(
     eval_config = EvaluationConfig(
         model_path_or_repo_id=model_path_or_repo_id,
         model_token=model_token,
+        lora_path_or_repo_id=lora_path_or_repo_id,
         judge_path_or_repo_id=judge_path_or_repo_id,
         judge_token=judge_token,
         results_dir=result_dir,
@@ -474,7 +500,14 @@ def main(
         # generation loop
         try:
             for file_path in file_paths:
-                logging.info("Evaluating %s with %s", file_path, model_path_or_repo_id)
+                logging.info(
+                    f"Evaluating {file_path} with {model_path_or_repo_id}"
+                    + (
+                        f" and LoRA from {lora_path_or_repo_id}"
+                        if lora_path_or_repo_id is not None
+                        else ""
+                    )
+                )
                 dataset_config = DatasetConfig(
                     file_path=file_path,
                     dataset_type=DatasetType.UNBIAS
