@@ -11,8 +11,6 @@ from .eval_engine import EvalDataset, EvalEngine, JudgePrompt
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    import torch
-
     from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
 
@@ -63,18 +61,9 @@ class ApiEvalEngine(EvalEngine):
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.dataset = eval_dataset
 
-    def generate_answers(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        sampling_config: SamplingConfig,
-    ) -> list[str]:
-        # API engines operate on raw text prompts, not tokenized tensors.
-        # Use generate_answers_from_prompts() instead.
-        raise NotImplementedError(
-            "ApiEvalEngine does not support tensor inputs. "
-            "Use generate_answers_from_prompts() with raw text prompts."
-        )
+    # Note: generate_answers() is intentionally not implemented for API engines.
+    # API engines operate on raw text prompts via generate_answers_from_prompts().
+    # The evaluators check model_engine == "api" and call the appropriate method.
 
     def generate_answers_from_prompts(
         self,

@@ -107,13 +107,11 @@ class BaseEvaluator(ABC):
         self.model_engine = eval_config.inference_engine or eval_config.model_engine
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
-        # API engines use raw text prompts; no local tokenizer is loaded.
-        self.api_raw_mode = self.model_engine == "api"
         # When the judge runs through a tokenizer-based engine, we still need a
         # tokenized dataset for grading even if the test model is API-only.
         self._judge_requires_tokenized_dataset = self.judge_engine != "api"
         self._judge_dataset_needs_rebuild = (
-            self.api_raw_mode and self._judge_requires_tokenized_dataset
+            self.model_engine == "api" and self._judge_requires_tokenized_dataset
         )
         self._judge_dataset: HFDataset | None = None
 
@@ -131,7 +129,7 @@ class BaseEvaluator(ABC):
 
         # API engines receive raw text prompts; local engines receive tokenized tensors.
         self.data_collator = (
-            raw_text_collator if self.api_raw_mode else default_data_collator
+            raw_text_collator if self.model_engine == "api" else default_data_collator
         )
         self.judge_data_collator = (
             raw_text_collator if self.judge_engine == "api" else default_data_collator
@@ -262,7 +260,7 @@ class BaseEvaluator(ABC):
         custom_dataset = CustomDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
-        tokenizer = None if self.api_raw_mode else self._get_tokenizer()
+        tokenizer = None if self.model_engine == "api" else self._get_tokenizer()
         test_dataset = custom_dataset.preprocess(
             tokenizer,
             self.dataset_config.preprocess_config,
