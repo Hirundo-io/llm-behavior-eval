@@ -639,7 +639,22 @@ def maybe_download_adapter(
                         f"Failed to pull repository {repo_url} at revision {rev}"
                     ) from error
 
-        return str(digest_path / subdir) if subdir else str(digest_path)
+        if subdir:
+            # Prevent directory traversal: reject absolute paths and paths with ..
+            subdir_path = Path(subdir)
+            if subdir_path.is_absolute():
+                raise ValueError(f"Subdirectory path must be relative, got: {subdir}")
+            # Normalize and resolve to ensure it stays within digest_path
+            resolved_path = (digest_path / subdir_path).resolve()
+            digest_resolved = digest_path.resolve()
+            try:
+                resolved_path.relative_to(digest_resolved)
+            except ValueError as error:
+                raise ValueError(
+                    f"Subdirectory path escapes repository directory: {subdir}"
+                ) from error
+            return str(resolved_path)
+        return str(digest_path)
 
     # s3:// or gs:// (or others) via fsspec
     try:
