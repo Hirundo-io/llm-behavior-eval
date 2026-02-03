@@ -418,9 +418,11 @@ def main(
     )
     # Split behavior by commas and collect all file paths
     behaviors = [behavior.strip() for behavior in behavior.split(",")]
-    file_paths = {}
+    behavior_file_paths = {}
+    all_file_paths = []
     for behavior in behaviors:
-        file_paths[behavior] = _behavior_presets(behavior)
+        behavior_file_paths[behavior] = _behavior_presets(behavior)
+        all_file_paths.extend(behavior_file_paths[behavior])
 
     logging.basicConfig(
         level=logging.INFO,
@@ -502,36 +504,37 @@ def main(
     try:
         # generation loop
         try:
-            for behavior, file_path in file_paths.items():
-                logging.info(
-                    f"Evaluating {behavior} on {file_path} with {model_path_or_repo_id}"
-                    + (
-                        f" and LoRA from {lora_path_or_repo_id}"
-                        if lora_path_or_repo_id is not None
-                        else ""
+            for behavior, file_paths in behavior_file_paths.items():
+                for file_path in file_paths:
+                    logging.info(
+                        f"Evaluating {behavior} on {file_path} with {model_path_or_repo_id}"
+                        + (
+                            f" and LoRA from {lora_path_or_repo_id}"
+                            if lora_path_or_repo_id is not None
+                            else ""
+                        )
                     )
-                )
-                if system_prompt_prefix is not None and behavior in INJECTION_ALIAS:
-                    system_prompt_prefix = PROMPT_INJECTION_SYSTEM_PROMPT_PREFIX
-                dataset_config = DatasetConfig(
-                    file_path=file_path,
-                    dataset_type=DatasetType.UNBIAS
-                    if "-unbias-" in file_path
-                    else DatasetType.BIAS,
-                    preprocess_config=PreprocessConfig(
-                        system_prompt_prefix=system_prompt_prefix
-                    ),
-                    seed=seed,
-                )
-                if evaluator is None:
-                    evaluator = EvaluateFactory.create_evaluator(
-                        eval_config, dataset_config
+                    if system_prompt_prefix is None and behavior in INJECTION_ALIAS:
+                        system_prompt_prefix = PROMPT_INJECTION_SYSTEM_PROMPT_PREFIX
+                    dataset_config = DatasetConfig(
+                        file_path=file_path,
+                        dataset_type=DatasetType.UNBIAS
+                        if "-unbias-" in file_path
+                        else DatasetType.BIAS,
+                        preprocess_config=PreprocessConfig(
+                            system_prompt_prefix=system_prompt_prefix
+                        ),
+                        seed=seed,
                     )
-                else:
-                    evaluator.update_dataset_config(dataset_config)
+                    if evaluator is None:
+                        evaluator = EvaluateFactory.create_evaluator(
+                            eval_config, dataset_config
+                        )
+                    else:
+                        evaluator.update_dataset_config(dataset_config)
 
-                dataset_configs.append(dataset_config)
-                generation_lists.append(evaluator.generate())
+                    dataset_configs.append(dataset_config)
+                    generation_lists.append(evaluator.generate())
         finally:
             if evaluator is not None:
                 evaluator.free_test_model()
@@ -543,7 +546,7 @@ def main(
         # Grading loop
         with evaluator.get_grading_context() as judge:
             for generations, dataset_config, file_path in zip(
-                generation_lists, dataset_configs, file_paths.values(), strict=True
+                generation_lists, dataset_configs, all_file_paths, strict=True
             ):
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
                 evaluator.update_dataset_config(dataset_config)
