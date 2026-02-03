@@ -508,7 +508,7 @@ def maybe_download_adapter(
 
     Behavior:
       - Deterministic cache location: <cache_dir or ~/.cache>/peft_adapters/<scheme>_<hash>/
-      - Overwrite: re-download whether or not the destination exists. It's the user's responsibility to manage the cache.
+      - Overwrite: existing cache dirs are reused, but files may be overwritten if they already exist.
 
     MLflow special-case:
       - If adapter_ref is exactly mlflow://<run_id> (no artifact subpath),
