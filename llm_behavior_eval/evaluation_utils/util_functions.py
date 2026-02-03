@@ -635,7 +635,6 @@ def maybe_download_adapter(
                 try:
                     repo.git.pull()
                 except Exception as error:
-                    # Silently ignore pull failures (e.g., detached HEAD, no upstream)
                     raise ValueError(
                         f"Failed to pull repository {repo_url} at revision {rev}"
                     ) from error

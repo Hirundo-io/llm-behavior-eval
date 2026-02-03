@@ -556,6 +556,10 @@ def test_maybe_download_adapter_git_scheme_with_rev_and_subdir(
         def pull(self):
             pass
 
+    class MockHead:
+        def __init__(self):
+            self.is_detached = True
+
     class MockRepo:
         def __init__(self, path: str):
             self.git = MockGit()
@@ -572,6 +576,7 @@ def test_maybe_download_adapter_git_scheme_with_rev_and_subdir(
         def __init__(self, path: str):
             self.path = path
             self.git = MockGit()
+            self.head = MockHead()
 
     mock_git_module = types.ModuleType("git")
     mock_git_module.Repo = MockRepoClass  # type: ignore[attr-defined]
