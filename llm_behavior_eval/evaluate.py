@@ -511,7 +511,7 @@ def main(
                         else ""
                     )
                 )
-                if system_prompt_prefix is not None and behavior == "prompt-injection":
+                if system_prompt_prefix is not None and behavior in INJECTION_ALIAS:
                     system_prompt_prefix = PROMPT_INJECTION_SYSTEM_PROMPT_PREFIX
                 dataset_config = DatasetConfig(
                     file_path=file_path,
