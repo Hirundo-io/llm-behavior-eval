@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import shutil
 from contextlib import contextmanager
 from inspect import Parameter, signature
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlparse
 
 import torch
 from transformers.models.auto.configuration_auto import AutoConfig
@@ -16,6 +20,8 @@ from transformers.models.auto.modeling_auto import (
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
+
+from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -32,10 +38,11 @@ VLLMQuantization = Literal[
     "bitsandbytes",
 ]
 
-
 if TYPE_CHECKING:
     from transformers.modeling_utils import PreTrainedModel
     from vllm import LLM
+
+DIGEST_SIZE_FOR_PEFT_PATHS = 8
 
 
 def empty_cuda_cache_if_available() -> None:
@@ -321,6 +328,8 @@ def load_vllm_model(
     config_format: str | None = None,
     load_format: str | None = None,
     gpu_memory_utilization: float = 0.9,
+    enable_lora: bool = False,
+    max_lora_rank: int = VllmConfig.model_fields["max_lora_rank"].default,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -338,12 +347,15 @@ def load_vllm_model(
         config_format: Optional config format string forwarded to vLLM.
         load_format: Optional checkpoint load format string forwarded to vLLM.
         gpu_memory_utilization: Optional GPU memory utilization passed to vLLM.
+        enable_lora: Whether to enable LoRA.
+        max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
     Returns:
         An initialized ``vllm.LLM`` instance.
     """
 
     try:
         from vllm import LLM
+        from vllm.config import CompilationConfig
     except ImportError as exc:
         raise ImportError(
             "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable vllm for inference (e.g. when using the --inference-engine argument)."
@@ -376,6 +388,9 @@ def load_vllm_model(
             config_format=config_format,
             load_format=load_format,
             gpu_memory_utilization=gpu_memory_utilization,
+            enable_lora=enable_lora,
+            max_lora_rank=max_lora_rank,
+            compilation_config=CompilationConfig(cudagraph_specialize_lora=False),
         )
     return llm_instance
 
@@ -471,3 +486,200 @@ def load_transformers_model_and_tokenizer(
         )
 
     return tokenizer, model
+
+
+def maybe_download_adapter(
+    adapter_ref: str,
+    cache_dir: str | None = None,
+    mlflow_tracking_uri: str | None = None,
+) -> str:
+    """
+    If `adapter_ref` is one of:
+      - mlflow://...
+      - http://... / https://... where scheme+netloc match the MLflow tracking URI
+      - git://...
+      - s3://...
+      - gs://...
+      - Other schemes which fsspec supports
+
+    ...download/clone it into a deterministic local cache directory and return that local path.
+
+    Otherwise (local path, HF repo id, etc.), return `adapter_ref` unchanged.
+
+    Behavior:
+      - Deterministic cache location: <cache_dir or ~/.cache>/peft_adapters/<scheme>_<hash>/
+      - Overwrite: existing cache dirs are reused, but files may be overwritten if they already exist.
+
+    MLflow special-case:
+      - If adapter_ref is exactly mlflow://<run_id> (no artifact subpath),
+        or http://... / https://... where scheme+netloc match the MLflow tracking URI
+        Under the run id, the adapter should reside in a directory by the following name:
+          1) hf_checkpoint/peft   (try first)
+          2) hf_checkpoint        (fallback)
+
+    Optional deps (lazy imports):
+      - mlflow               (for mlflow:// or http://... / https://... matching MLflow tracking URI)
+      - gitpython            (for git://)
+      - fsspec + s3fs/gcsfs  (for s3://, gs://)
+      - Other user deps for other schemes which fsspec supports
+    """
+    adapter_ref = adapter_ref.strip()
+    if not adapter_ref:
+        raise ValueError("adapter_ref must be a non-empty string")
+
+    # Do not allow fragments because mlflow can have "#" in the path
+    parsed_url = urlparse(adapter_ref, allow_fragments=False)
+    scheme = parsed_url.scheme.lower()
+    if not scheme and not parsed_url.netloc:
+        # Assume local path or HF repo id
+        logging.info(f"Assuming {adapter_ref} is a local path or HF repo id")
+        return adapter_ref  # downstream handles local paths / HF repo ids / etc.
+
+    base_cache = Path(cache_dir).expanduser() if cache_dir else (Path.home() / ".cache")
+    cache_root = base_cache / "peft_adapters"
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    digest = hashlib.blake2b(
+        adapter_ref.encode("utf-8"), digest_size=DIGEST_SIZE_FOR_PEFT_PATHS
+    ).hexdigest()
+    digest_path = cache_root / f"{scheme}_{digest}"
+
+    digest_path.mkdir(parents=True, exist_ok=True)
+
+    tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
+    is_mlflow_url = scheme == "mlflow"
+    if not is_mlflow_url and tracking_uri:
+        # Check if scheme+netloc match the MLflow tracking URI
+        tracking_parsed = urlparse(tracking_uri)
+        adapter_scheme_netloc = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        tracking_scheme_netloc = f"{tracking_parsed.scheme}://{tracking_parsed.netloc}"
+        is_mlflow_url = adapter_scheme_netloc == tracking_scheme_netloc
+
+    if is_mlflow_url:
+        try:
+            import mlflow
+            from mlflow.artifacts import download_artifacts
+        except Exception as mlflow_exception:
+            raise ImportError(
+                "mlflow is required for mlflow:// refs. Install: [uv] pip install mlflow"
+            ) from mlflow_exception
+
+        run_id = (
+            parsed_url.netloc if scheme == "mlflow" else parsed_url.path.split("/")[-1]
+        )
+        if not run_id:
+            raise ValueError(f"Invalid mlflow ref (missing run id): {adapter_ref!r}")
+
+        artifact_path = parsed_url.path.lstrip("/") or None
+
+        if tracking_uri:
+            mlflow.set_tracking_uri(tracking_uri)
+
+        # Default when user supplies only mlflow://<run_id>
+        if artifact_path is None:
+            try:
+                local_path = download_artifacts(
+                    run_id=run_id,
+                    artifact_path="hf_checkpoint/peft",
+                    dst_path=str(digest_path),
+                )
+            except Exception:
+                local_path = download_artifacts(
+                    run_id=run_id,
+                    artifact_path="hf_checkpoint",
+                    dst_path=str(digest_path),
+                )
+        else:
+            local_path = download_artifacts(
+                run_id=run_id, artifact_path=artifact_path, dst_path=str(digest_path)
+            )
+
+        local_dir = Path(local_path)
+        if not local_dir.is_dir():
+            raise ValueError(
+                f"MLflow artifact resolved to a file; expected directory: {local_dir}"
+            )
+        return str(local_dir)
+
+    if scheme == "git":
+        try:
+            from git import Repo  # GitPython
+        except Exception as e:
+            raise ImportError(
+                "gitpython is required for git:// refs. Install: [uv] pip install gitpython"
+            ) from e
+
+        git_parsed_url = urlparse(adapter_ref, allow_fragments=True)
+
+        # Minimal: map git://host/path -> https://host/path
+        repo_url = f"https://{git_parsed_url.netloc}{git_parsed_url.path}"
+
+        rev = None
+        subdir = None
+        if git_parsed_url.fragment:
+            # "#rev:subdir" or "#rev"
+            if ":" in git_parsed_url.fragment:
+                rev, subdir = git_parsed_url.fragment.split(":", 1)
+                rev = rev or None
+                subdir = subdir or None
+            else:
+                rev = git_parsed_url.fragment or None
+
+        if not (digest_path / ".git").exists():
+            Repo.clone_from(repo_url, str(digest_path))
+        repo = Repo(str(digest_path))
+        if rev:
+            repo.git.fetch("--all", "--tags")
+            repo.git.checkout(rev)
+            if not repo.head.is_detached:
+                try:
+                    repo.git.pull()
+                except Exception as error:
+                    raise ValueError(
+                        f"Failed to pull repository {repo_url} at revision {rev}"
+                    ) from error
+
+        if subdir:
+            # Prevent directory traversal: reject absolute paths and paths with ..
+            subdir_path = Path(subdir)
+            if subdir_path.is_absolute():
+                raise ValueError(f"Subdirectory path must be relative, got: {subdir}")
+            # Normalize and resolve to ensure it stays within digest_path
+            resolved_path = (digest_path / subdir_path).resolve()
+            digest_resolved = digest_path.resolve()
+            try:
+                resolved_path.relative_to(digest_resolved)
+            except ValueError as error:
+                raise ValueError(
+                    f"Subdirectory path escapes repository directory: {subdir}"
+                ) from error
+            return str(resolved_path)
+        return str(digest_path)
+
+    # s3:// or gs:// (or others) via fsspec
+    try:
+        import fsspec
+    except Exception as e:
+        raise ImportError(
+            "fsspec is required for s3:// and gs:// refs. Install: [uv] pip install fsspec"
+        ) from e
+
+    fs, base = fsspec.core.url_to_fs(adapter_ref)
+    if fs.isfile(base):
+        raise ValueError(
+            f"{adapter_ref!r} points to a file; expected a directory/prefix containing adapter files."
+        )
+
+    base = base.rstrip("/")
+    for remote in fs.find(base):
+        if fs.isdir(remote):
+            continue
+        relative_path = remote[len(base) :].lstrip("/")
+        if not relative_path:
+            continue
+        local_path = digest_path / relative_path
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        with fs.open(remote, "rb") as remote_file, open(local_path, "wb") as local_file:
+            shutil.copyfileobj(remote_file, local_file)
+
+    return str(digest_path)
