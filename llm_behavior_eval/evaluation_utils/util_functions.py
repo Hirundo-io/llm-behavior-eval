@@ -488,11 +488,6 @@ def load_transformers_model_and_tokenizer(
     return tokenizer, model
 
 
-def is_mlflow_run_id(run_id: str) -> bool:
-    """Check if a string is a valid MLflow run id."""
-    return len(run_id) == 32 and all(c in "0123456789abcdef" for c in run_id)
-
-
 def maybe_download_adapter(
     adapter_ref: str,
     cache_dir: str | None = None,
@@ -518,7 +513,7 @@ def maybe_download_adapter(
     MLflow special-case:
       - If adapter_ref is exactly mlflow://<run_id> (no artifact subpath),
         or http://... / https://... where scheme+netloc match the MLflow tracking URI
-        default artifact path is:
+        Under the run id, the adapter should reside in a directory by the following name:
           1) hf_checkpoint/peft   (try first)
           2) hf_checkpoint        (fallback)
 
@@ -636,7 +631,14 @@ def maybe_download_adapter(
         if rev:
             repo.git.fetch("--all", "--tags")
             repo.git.checkout(rev)
-            repo.git.pull()
+            if not repo.head.is_detached:
+                try:
+                    repo.git.pull()
+                except Exception as error:
+                    # Silently ignore pull failures (e.g., detached HEAD, no upstream)
+                    raise ValueError(
+                        f"Failed to pull repository {repo_url} at revision {rev}"
+                    ) from error
 
         return str(digest_path / subdir) if subdir else str(digest_path)
 
