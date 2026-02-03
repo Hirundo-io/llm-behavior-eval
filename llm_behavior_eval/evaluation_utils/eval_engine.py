@@ -23,13 +23,20 @@ class EvalEngine(ABC):
         raise NotImplementedError("Subclasses must implement set_dataset().")
 
     @abstractmethod
-    def generate_answers(
+    def generate_answers_from_tensors(
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         sampling_config: SamplingConfig,
     ) -> list[str]:
-        raise NotImplementedError("Subclasses must implement generate_answers().")
+        """Generate answers from pre-tokenized tensor inputs.
+
+        For local engines (transformers, vllm) that work with tokenized batches.
+        API engines do not implement this - use generate_answers_from_prompts() instead.
+        """
+        raise NotImplementedError(
+            "Subclasses must implement generate_answers_from_tensors()."
+        )
 
     def ensure_test_model_ready(self) -> None:
         return None
@@ -99,8 +106,8 @@ class EvalEngine(ABC):
     ) -> list[str]:
         """Generate answers from pre-formatted prompts.
 
-        For API engines, this sends prompts directly.
-        For tokenizer-based engines, this tokenizes and calls generate_answers.
+        For API engines, this sends prompts directly to the provider.
+        For local engines, this tokenizes and calls generate_answers_from_tensors().
 
         Override in subclasses to provide engine-specific behavior.
         """

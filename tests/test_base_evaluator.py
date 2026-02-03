@@ -386,7 +386,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
         def __init__(self) -> None:
             self.calls: list[dict[str, object]] = []
 
-        def generate_answers(
+        def generate_answers_from_tensors(
             self,
             input_ids,
             attention_mask,

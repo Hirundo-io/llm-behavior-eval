@@ -82,7 +82,7 @@ class VllmEvalEngine(EvalEngine):
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset
 
-    def generate_answers(
+    def generate_answers_from_tensors(
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
@@ -198,4 +198,6 @@ class VllmEvalEngine(EvalEngine):
         )
         input_ids = cast("torch.Tensor", tokenized["input_ids"])
         attention_mask = cast("torch.Tensor", tokenized["attention_mask"])
-        return self.generate_answers(input_ids, attention_mask, sampling_config)
+        return self.generate_answers_from_tensors(
+            input_ids, attention_mask, sampling_config
+        )

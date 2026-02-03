@@ -61,7 +61,7 @@ class ApiEvalEngine(EvalEngine):
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.dataset = eval_dataset
 
-    # Note: generate_answers() is intentionally not implemented for API engines.
+    # Note: generate_answers_from_tensors() is intentionally not implemented for API engines.
     # API engines operate on raw text prompts via generate_answers_from_prompts().
     # The evaluators check model_engine == "api" and call the appropriate method.
 

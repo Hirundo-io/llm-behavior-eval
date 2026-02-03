@@ -323,13 +323,13 @@ class BaseEvaluator(ABC):
         # Mirror the same sampling approach used for the generation dataset.
         return tokenized_dataset.select(range(num_samples))
 
-    def generate_answers(
+    def generate_answers_from_tensors(
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         do_sample: bool | None = None,
     ) -> list[str]:
-        return self.eval_engine.generate_answers(
+        return self.eval_engine.generate_answers_from_tensors(
             input_ids,
             attention_mask,
             sampling_config=SamplingConfig(

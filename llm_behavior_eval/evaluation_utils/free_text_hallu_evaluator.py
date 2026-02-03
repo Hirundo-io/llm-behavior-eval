@@ -92,7 +92,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                 gt_answers = tokenizer.batch_decode(
                     batch["gt_answers"], skip_special_tokens=True
                 )
-                answers = self.generate_answers(input_ids, attention_mask)
+                answers = self.generate_answers_from_tensors(input_ids, attention_mask)
             generation_record = _HalluGenerationRecord(
                 input_texts=input_texts,
                 gt_answers=gt_answers,

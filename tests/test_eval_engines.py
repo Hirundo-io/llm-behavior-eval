@@ -274,7 +274,7 @@ def _apply_transformers_patching(request, monkeypatch):
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
+def test_vllm_eval_engine_generate_answers_from_tensors(vllm_bundle, tmp_path) -> None:
     dataset = Dataset.from_dict({"question": ["q1", "q2"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -290,7 +290,7 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
     input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
     attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]])
 
-    responses = engine.generate_answers(
+    responses = engine.generate_answers_from_tensors(
         input_ids,
         attention_mask,
         sampling_config=SamplingConfig(
@@ -329,7 +329,7 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
     input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
     attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]])
 
-    responses = engine.generate_answers(
+    responses = engine.generate_answers_from_tensors(
         input_ids,
         attention_mask,
         sampling_config=SamplingConfig(
@@ -373,7 +373,7 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
 
 
 @pytest.mark.transformers_engine_test
-def test_transformers_eval_engine_generate_answers(
+def test_transformers_eval_engine_generate_answers_from_tensors(
     transformers_bundle, tmp_path
 ) -> None:
     dataset = Dataset.from_dict({"prompt": ["hi"]})
@@ -400,7 +400,7 @@ def test_transformers_eval_engine_generate_answers(
         top_k=5,
         seed=123,
     )
-    answers = engine.generate_answers(
+    answers = engine.generate_answers_from_tensors(
         input_ids,
         attention_mask,
         sampling_config=sampling_config,
@@ -458,7 +458,7 @@ def test_transformers_eval_engine_sampling_config_overrides_defaults(
         top_k=None,
         seed=321,
     )
-    engine.generate_answers(
+    engine.generate_answers_from_tensors(
         input_ids,
         attention_mask,
         sampling_config=sampling_config,

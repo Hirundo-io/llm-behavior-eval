@@ -209,7 +209,7 @@ candidate_uncertain: "<yes|no>"
                         stereotyped_answers_id, skip_special_tokens=True
                     )
                 questions = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-                answers = self.generate_answers(input_ids, attention_mask)
+                answers = self.generate_answers_from_tensors(input_ids, attention_mask)
             generation_record = _BiasGenerationRecord(
                 questions=questions,
                 answers=answers,
