@@ -23,7 +23,7 @@ class EvaluationConfig(BaseModel):
         pass_max_answer_tokens: Whether to pass max_answer_tokens to the model.
         model_path_or_repo_id: HF repo ID or path of the model under test (e.g. "meta-llama/Llama-3.1-8B-Instruct").
         model_tokenizer_path_or_repo_id: Optional tokenizer repo ID or path for the model under test.
-            Use this when model_path_or_repo_id is an API model identifier.
+            Only used with transformers/vllm engines. Not supported with model_engine='api'.
         model_token: HuggingFace token for the model under test.
         judge_batch_size: Batch size for the judge model (free-text tasks only). If None, will be adjusted for GPU limits.
         max_judge_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
@@ -107,6 +107,23 @@ class EvaluationConfig(BaseModel):
         if self.model_engine == "api" and self.inference_engine is not None:
             raise ValueError(
                 "model_engine='api' cannot be combined with inference_engine."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_api_no_tokenizer(self):
+        """Reject --model-tokenizer when using API model engine.
+
+        API providers handle chat template formatting internally, so providing
+        a tokenizer for the evaluated model is not supported.
+        """
+        if (
+            self.model_engine == "api"
+            and self.model_tokenizer_path_or_repo_id is not None
+        ):
+            raise ValueError(
+                "model_tokenizer_path_or_repo_id cannot be used with model_engine='api'. "
+                "API providers handle chat formatting internally."
             )
         return self
 

@@ -7,13 +7,11 @@ from typing import TYPE_CHECKING, Any, cast
 from tqdm import tqdm
 
 from .eval_engine import EvalDataset, EvalEngine, JudgePrompt
-from .util_functions import load_tokenizer_with_transformers
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import torch
-    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
     from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
@@ -26,6 +24,9 @@ DEFAULT_API_BATCH_MULTIPLIER = 5
 
 
 class ApiEvalEngine(EvalEngine):
+    # API engines do not load a local tokenizer; the provider handles formatting.
+    tokenizer: None = None
+
     def __init__(
         self, eval_config: EvaluationConfig, *, is_judge: bool = False
     ) -> None:
@@ -39,12 +40,6 @@ class ApiEvalEngine(EvalEngine):
         )
         self._litellm = self._load_litellm()
         self._suppress_litellm_logging()
-        self.tokenizer: PreTrainedTokenizerBase | None = None
-        if not is_judge and eval_config.model_tokenizer_path_or_repo_id is not None:
-            self.tokenizer = self._load_model_tokenizer()
-            self.tokenizer.padding_side = "left"
-            if not self.tokenizer.pad_token:
-                self.tokenizer.pad_token = self.tokenizer.eos_token
 
     @staticmethod
     def _load_litellm():
@@ -74,21 +69,12 @@ class ApiEvalEngine(EvalEngine):
         attention_mask: torch.Tensor,
         sampling_config: SamplingConfig,
     ) -> list[str]:
-        tokenizer = self._get_tokenizer()
-        prompts: list[str] = []
-        for row_index in range(input_ids.shape[0]):
-            if attention_mask is not None:
-                mask = attention_mask[row_index].bool()
-                prompt_ids = input_ids[row_index][mask]
-            else:
-                prompt_ids = input_ids[row_index]
-            prompts.append(
-                tokenizer.decode(
-                    prompt_ids,
-                    skip_special_tokens=True,
-                )
-            )
-        return self.generate_answers_from_prompts(prompts, sampling_config)
+        # API engines operate on raw text prompts, not tokenized tensors.
+        # Use generate_answers_from_prompts() instead.
+        raise NotImplementedError(
+            "ApiEvalEngine does not support tensor inputs. "
+            "Use generate_answers_from_prompts() with raw text prompts."
+        )
 
     def generate_answers_from_prompts(
         self,
@@ -150,22 +136,6 @@ class ApiEvalEngine(EvalEngine):
         if isinstance(prompt, str):
             return [{"role": "user", "content": prompt}]
         return prompt
-
-    def _load_model_tokenizer(self) -> PreTrainedTokenizerBase:
-        tokenizer_source = (
-            self.eval_config.model_tokenizer_path_or_repo_id
-            or self.eval_config.model_path_or_repo_id
-        )
-        return load_tokenizer_with_transformers(
-            tokenizer_source,
-            token=self.eval_config.model_token,
-            trust_remote_code=self.eval_config.trust_remote_code,
-        )
-
-    def _get_tokenizer(self) -> PreTrainedTokenizerBase:
-        if self.tokenizer is None:
-            raise RuntimeError("API model tokenizer is not initialized.")
-        return self.tokenizer
 
     def _build_base_completion_kwargs(
         self,

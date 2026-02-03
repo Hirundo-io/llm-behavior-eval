@@ -107,10 +107,8 @@ class BaseEvaluator(ABC):
         self.model_engine = eval_config.inference_engine or eval_config.model_engine
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
-        self.api_raw_mode = (
-            self.model_engine == "api"
-            and self.eval_config.model_tokenizer_path_or_repo_id is None
-        )
+        # API engines use raw text prompts; no local tokenizer is loaded.
+        self.api_raw_mode = self.model_engine == "api"
         # When the judge runs through a tokenizer-based engine, we still need a
         # tokenized dataset for grading even if the test model is API-only.
         self._judge_requires_tokenized_dataset = self.judge_engine != "api"
@@ -131,8 +129,7 @@ class BaseEvaluator(ABC):
         if self.mlflow_config:
             self._init_mlflow()
 
-        # Use raw_text_collator only when in API raw mode (no tokenizer provided)
-        # When a tokenizer is provided, we need default_data_collator for tensors
+        # API engines receive raw text prompts; local engines receive tokenized tensors.
         self.data_collator = (
             raw_text_collator if self.api_raw_mode else default_data_collator
         )
@@ -201,7 +198,7 @@ class BaseEvaluator(ABC):
         if tokenizer is None:
             raise RuntimeError(
                 "Model tokenizer is not initialized. "
-                "Ensure model_tokenizer_path_or_repo_id is set when using API models."
+                "API models do not provide a tokenizer."
             )
         return tokenizer
 

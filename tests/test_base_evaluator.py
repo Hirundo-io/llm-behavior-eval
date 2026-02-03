@@ -602,13 +602,14 @@ def test_get_grading_context_supports_api_judge_engine(
 def test_api_model_engine_uses_api_eval_engine(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    stub_tokenizer: StubTokenizer,
 ) -> None:
     class StubApiModelEngine:
+        # API engines do not load a local tokenizer
+        tokenizer = None
+
         def __init__(self, _eval_config, *, is_judge: bool = False) -> None:
             self.is_judge = is_judge
             self.dataset = None
-            self.tokenizer = stub_tokenizer
 
         def set_dataset(self, dataset: object) -> None:
             self.dataset = dataset
@@ -629,7 +630,6 @@ def test_api_model_engine_uses_api_eval_engine(
 
     evaluation_config = EvaluationConfig(
         model_path_or_repo_id="openai/gpt-4o-mini",
-        model_tokenizer_path_or_repo_id="meta/model",
         results_dir=tmp_path,
         max_samples=1,
         model_engine="api",
@@ -643,7 +643,7 @@ def test_api_model_engine_uses_api_eval_engine(
 
     assert isinstance(evaluator.eval_engine, StubApiModelEngine)
     assert evaluator.eval_engine.is_judge is False
-    assert evaluator.tokenizer is stub_tokenizer
+    assert evaluator.tokenizer is None
 
 
 def test_evaluate_flow_can_use_generate_then_grade_in_grading_context(

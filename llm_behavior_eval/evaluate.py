@@ -152,7 +152,8 @@ def main(
             "--model-tokenizer",
             help=(
                 "Tokenizer repo id or path for the evaluated model (optional). "
-                "Use this when --model-engine=api and the model id is not a HF repo."
+                "Use when the model repo differs from the tokenizer repo. "
+                "Not supported with --model-engine=api."
             ),
         ),
     ] = None,
