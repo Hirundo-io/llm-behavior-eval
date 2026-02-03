@@ -17,6 +17,9 @@ from llm_behavior_eval import (
     PreprocessConfig,
     SamplingConfig,
 )
+from llm_behavior_eval.evaluation_utils.prompts import (
+    PROMPT_INJECTION_SYSTEM_PROMPT_PREFIX,
+)
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
 )
@@ -415,9 +418,9 @@ def main(
     )
     # Split behavior by commas and collect all file paths
     behaviors = [behavior.strip() for behavior in behavior.split(",")]
-    file_paths = []
+    file_paths = {}
     for behavior in behaviors:
-        file_paths.extend(_behavior_presets(behavior))
+        file_paths[behavior] = _behavior_presets(behavior)
 
     logging.basicConfig(
         level=logging.INFO,
@@ -499,15 +502,17 @@ def main(
     try:
         # generation loop
         try:
-            for file_path in file_paths:
+            for behavior, file_path in file_paths.items():
                 logging.info(
-                    f"Evaluating {file_path} with {model_path_or_repo_id}"
+                    f"Evaluating {behavior} on {file_path} with {model_path_or_repo_id}"
                     + (
                         f" and LoRA from {lora_path_or_repo_id}"
                         if lora_path_or_repo_id is not None
                         else ""
                     )
                 )
+                if system_prompt_prefix is not None and behavior == "prompt-injection":
+                    system_prompt_prefix = PROMPT_INJECTION_SYSTEM_PROMPT_PREFIX
                 dataset_config = DatasetConfig(
                     file_path=file_path,
                     dataset_type=DatasetType.UNBIAS
@@ -538,7 +543,7 @@ def main(
         # Grading loop
         with evaluator.get_grading_context() as judge:
             for generations, dataset_config, file_path in zip(
-                generation_lists, dataset_configs, file_paths, strict=True
+                generation_lists, dataset_configs, file_paths.values(), strict=True
             ):
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
                 evaluator.update_dataset_config(dataset_config)
