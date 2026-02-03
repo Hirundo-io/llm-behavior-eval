@@ -423,7 +423,8 @@ def main(
         from llm_behavior_eval.evaluation_utils.eval_config import MlflowConfig
 
         mlflow_config = MlflowConfig(
-            mlflow_tracking_uri=mlflow_tracking_uri,
+            mlflow_tracking_uri=mlflow_tracking_uri
+            or os.environ.get("MLFLOW_TRACKING_URI"),
             mlflow_experiment_name=mlflow_experiment_name,
             mlflow_run_name=mlflow_run_name,
         )

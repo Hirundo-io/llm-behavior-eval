@@ -111,6 +111,7 @@ class BaseEvaluator(ABC):
             else None
         )
         self.mlflow_run = None
+        self.parent_run = None
         if self.mlflow_config:
             self._init_mlflow()
 
@@ -266,7 +267,8 @@ class BaseEvaluator(ABC):
         """
         self.dataset_config = dataset_config
         self._set_seed()
-        if self.mlflow_config:
+        if self.mlflow_config and self.eval_engine.is_judge:
+            # Only need to update mlflow run if we are judging (not generating), since logging only happens during judging
             self._init_mlflow()
         self.prepare_dataloader()
         self._ensure_run_configuration_allowed()
@@ -480,16 +482,36 @@ class BaseEvaluator(ABC):
         # Generate run name if not specified
         model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
         dataset_slug = self.dataset_config.file_path.split("/")[-1]
-        run_name = self.mlflow_config.mlflow_run_name or f"{model_slug}_{dataset_slug}"
 
-        # Start MLflow run
-        self.mlflow_run = mlflow.start_run(run_name=run_name)
-        logging.info(f"Started MLflow run: {run_name}")
+        if not mlflow.active_run():
+            # Set up parent run with model slug name only
+            run_name = self.mlflow_config.mlflow_run_name or f"{model_slug}"
+            # Start MLflow parent run
+            self.mlflow_run = mlflow.start_run(run_name=run_name)
+            self.parent_run = self.mlflow_run
+            logging.info(f"Started MLflow parent run: {run_name}")
+            self._log_mlflow_params(model_param=True, dataset_param=False)
+        else:
+            run_name = f"{dataset_slug}"
 
-        # Log configuration parameters
-        self._log_mlflow_params()
+            # Close other child run before relaunching
+            active_run = mlflow.active_run()
+            if (
+                active_run
+                and self.parent_run
+                and active_run.info.run_id != self.parent_run.info.run_id
+            ):
+                logging.info(
+                    f"Closing child run: {active_run.info.run_name} ({active_run.info.run_id})"
+                )
+                mlflow.end_run()
 
-    def _log_mlflow_params(self) -> None:
+            # Start new dataset child run (for judge only - no logging happens during generation)
+            self.mlflow_run = mlflow.start_run(run_name=run_name, nested=True)
+            logging.info(f"Started MLflow child run: {run_name}")
+            self._log_mlflow_params(model_param=False, dataset_param=True)
+
+    def _log_mlflow_params(self, model_param=True, dataset_param=True) -> None:
         """Log evaluation and dataset configuration parameters to MLflow."""
         if not self.eval_config.mlflow_config or not mlflow:
             return
@@ -497,25 +519,30 @@ class BaseEvaluator(ABC):
         def to_dict(obj_to_convert: object, keys: list[str]) -> dict[str, Any]:
             return {k: getattr(obj_to_convert, k) for k in keys}
 
-        params = {
-            **to_dict(
-                self.eval_config,
-                [
-                    "model_path_or_repo_id",
-                    "max_samples",
-                    "batch_size",
-                    "sample",
-                    "use_4bit",
-                    "max_answer_tokens",
-                    "judge_path_or_repo_id",
-                    "judge_batch_size",
-                    "max_judge_tokens",
-                    "use_4bit_judge",
-                    "reasoning",
-                ],
-            ),
-            **to_dict(self.dataset_config, ["file_path", "dataset_type", "seed"]),
-        }
+        params = {}
+        if model_param:
+            params.update(
+                to_dict(
+                    self.eval_config,
+                    [
+                        "model_path_or_repo_id",
+                        "max_samples",
+                        "batch_size",
+                        "sample",
+                        "use_4bit",
+                        "max_answer_tokens",
+                        "judge_path_or_repo_id",
+                        "judge_batch_size",
+                        "max_judge_tokens",
+                        "use_4bit_judge",
+                        "reasoning",
+                    ],
+                ),
+            )
+        if dataset_param:
+            params.update(
+                to_dict(self.dataset_config, ["file_path", "dataset_type", "seed"]),
+            )
         mlflow.log_params(params)
 
     def _set_seed(self) -> None:

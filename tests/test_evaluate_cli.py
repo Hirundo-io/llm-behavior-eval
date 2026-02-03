@@ -104,6 +104,19 @@ def test_main_passes_judge_quantization_flag(
     assert capture_eval_config[-1].use_4bit_judge is True
 
 
+def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
+    capture_eval_config: list[EvaluationConfig],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://tracking.from.env")
+    evaluate.main("fake/model", "hallu", use_mlflow=True)
+    assert capture_eval_config[-1].mlflow_config is not None
+    assert (
+        capture_eval_config[-1].mlflow_config.mlflow_tracking_uri
+        == "http://tracking.from.env"
+    )
+
+
 def test_main_sets_inference_engine_and_sampling(
     capture_configs: list[CapturedConfigs],
 ) -> None:
