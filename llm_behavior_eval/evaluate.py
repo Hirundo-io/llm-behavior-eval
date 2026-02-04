@@ -128,14 +128,23 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
+            help=(
+                "Behavior preset(s). Can be comma-separated for multiple behaviors. "
+                "BBQ: 'bias:<type>' or 'unbias:<type>'; "
+                "UNQOVER: 'unqover:bias:<type>'; "
+                "Hallucination: 'hallu' | 'hallu-med'; "
+                "Prompt injection: 'prompt-injection'"
+            ),
         ),
     ],
     system_prompt_prefix: Annotated[
         str | None,
         typer.Option(
             "--system-prompt",
-            help="System prompt for the evaluated model to follow (optional)",
+            help=(
+                "Prefix to add to the system prompt for the evaluated model to follow (optional). "
+                "Can be a custom string or `'auto'` to use existing preset/s for the provided behavior/s."
+                ),
         ),
     ] = None,
     output_dir: Annotated[
@@ -514,7 +523,7 @@ def main(
                             else ""
                         )
                     )
-                    if system_prompt_prefix is None and behavior in INJECTION_ALIAS:
+                    if system_prompt_prefix == "auto" and behavior in INJECTION_ALIAS:
                         system_prompt_prefix = PROMPT_INJECTION_SYSTEM_PROMPT_PREFIX
                     dataset_config = DatasetConfig(
                         file_path=file_path,
