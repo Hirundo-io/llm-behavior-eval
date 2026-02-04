@@ -38,6 +38,9 @@ class _StubEvaluator:
     ) -> None:
         return None
 
+    def cleanup(self) -> None:
+        return None
+
 
 @dataclass
 class CapturedConfigs:

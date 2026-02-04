@@ -536,6 +536,8 @@ def main(
                 evaluator.update_dataset_config(dataset_config)
                 evaluator.grade(generations, judge)
     finally:
+        if evaluator is not None:
+            evaluator.cleanup()
         del evaluator
         gc.collect()
         empty_cuda_cache_if_available()

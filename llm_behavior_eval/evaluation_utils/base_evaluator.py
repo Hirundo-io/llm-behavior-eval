@@ -456,10 +456,6 @@ class BaseEvaluator(ABC):
                 status = "FAILED" if error else "FINISHED"
             mlflow.end_run(status=status)
             logging.info(f"Ended MLflow run {run_id}")
-
-            if mlflow.active_run():
-                # Previous closed run was dataset run, now need to close main run as well
-                self.cleanup(error=error)
         if error:
             raise error
 
@@ -509,11 +505,7 @@ class BaseEvaluator(ABC):
 
             # Close other child run before relaunching
             active_run = mlflow.active_run()
-            if (
-                active_run
-                and self.parent_run
-                and active_run.info.run_id != self.parent_run.info.run_id
-            ):
+            if active_run and active_run.info.run_id != self.parent_run.info.run_id:
                 logging.info(
                     f"Closing dataset run: {active_run.info.run_name} ({active_run.info.run_id})"
                 )
