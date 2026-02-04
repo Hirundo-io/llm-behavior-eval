@@ -443,7 +443,9 @@ class BaseEvaluator(ABC):
             self._log_mlflow_artifacts()
 
     def cleanup(self, error: Exception | None = None) -> None:
-        if mlflow and self.mlflow_run:
+        if mlflow and mlflow.active_run():
+            active_run = mlflow.active_run()
+            run_id = active_run.info.run_id if active_run else None
             if RunStatus is not None:
                 status = (
                     RunStatus.to_string(RunStatus.FAILED)
@@ -453,7 +455,11 @@ class BaseEvaluator(ABC):
             else:
                 status = "FAILED" if error else "FINISHED"
             mlflow.end_run(status=status)
-            logging.info("Ended MLflow run")
+            logging.info(f"Ended MLflow run {run_id}")
+
+            if mlflow.active_run():
+                # Previous closed run was dataset run, now need to close main run as well
+                self.cleanup(error=error)
         if error:
             raise error
 
@@ -483,14 +489,21 @@ class BaseEvaluator(ABC):
         model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
         dataset_slug = self.dataset_config.file_path.split("/")[-1]
 
-        if not mlflow.active_run():
-            # Set up parent run with model slug name only
-            run_name = self.mlflow_config.mlflow_run_name or f"{model_slug}"
-            # Start MLflow parent run
-            self.mlflow_run = mlflow.start_run(run_name=run_name)
-            self.parent_run = self.mlflow_run
-            logging.info(f"Started MLflow parent run: {run_name}")
-            self._log_mlflow_params(model_param=True, dataset_param=False)
+        if not self.parent_run:
+            active_run = mlflow.active_run()
+            if active_run is not None:
+                logging.warning(
+                    f"Using existing active run {active_run.info.run_id} as main run"
+                )
+                self.parent_run = self.mlflow_run = active_run
+            else:
+                # Set up parent run with model slug name only
+                run_name = self.mlflow_config.mlflow_run_name or f"{model_slug}"
+                # Start MLflow parent run
+                self.mlflow_run = mlflow.start_run(run_name=run_name)
+                self.parent_run = self.mlflow_run
+                logging.info(f"Started MLflow main run: {run_name}")
+                self._log_mlflow_params(model_param=True, dataset_param=False)
         else:
             run_name = f"{dataset_slug}"
 
@@ -502,16 +515,18 @@ class BaseEvaluator(ABC):
                 and active_run.info.run_id != self.parent_run.info.run_id
             ):
                 logging.info(
-                    f"Closing child run: {active_run.info.run_name} ({active_run.info.run_id})"
+                    f"Closing dataset run: {active_run.info.run_name} ({active_run.info.run_id})"
                 )
                 mlflow.end_run()
 
             # Start new dataset child run (for judge only - no logging happens during generation)
             self.mlflow_run = mlflow.start_run(run_name=run_name, nested=True)
-            logging.info(f"Started MLflow child run: {run_name}")
+            logging.info(f"Started MLflow dataset run: {run_name}")
             self._log_mlflow_params(model_param=False, dataset_param=True)
 
-    def _log_mlflow_params(self, model_param=True, dataset_param=True) -> None:
+    def _log_mlflow_params(
+        self, model_param: bool = True, dataset_param: bool = True
+    ) -> None:
         """Log evaluation and dataset configuration parameters to MLflow."""
         if not self.eval_config.mlflow_config or not mlflow:
             return
