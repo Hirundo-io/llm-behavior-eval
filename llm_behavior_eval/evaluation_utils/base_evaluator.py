@@ -510,21 +510,25 @@ class BaseEvaluator(ABC):
         Args:
             run_name: The name of the run. If not provided, the dataset file path will be used.
         """
-        if mlflow:
-            run_name = run_name or f"{self.dataset_config.file_path.split('/')[-1]}"
+        try:
+            if mlflow and self.mlflow_config:
+                run_name = run_name or f"{self.dataset_config.file_path.split('/')[-1]}"
 
-            if not self.parent_run:
-                raise RuntimeError(
-                    "Main MLFlow run not found, cannot launch dataset run before initializing MLFlow"
-                )
+                if not self.parent_run:
+                    raise RuntimeError(
+                        "Main MLFlow run not found, cannot launch dataset run before initializing MLFlow"
+                    )
 
-            self.mlflow_run = mlflow.start_run(run_name=run_name, nested=True)
-            logging.info(f"Started MLflow dataset run: {run_name}")
-            self._log_mlflow_params(model_param=False, dataset_param=True)
+                self.mlflow_run = mlflow.start_run(run_name=run_name, nested=True)
+                logging.info(f"Started MLflow dataset run: {run_name}")
+                self._log_mlflow_params(model_param=False, dataset_param=True)
 
             yield
 
-            mlflow.end_run()
+        except Exception as error:
+            self.cleanup(error)
+        finally:
+            self.cleanup()
 
     def _log_mlflow_params(
         self, model_param: bool = True, dataset_param: bool = True

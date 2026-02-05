@@ -213,7 +213,7 @@ def test_dataset_mlflow_run_starts_nested_run_and_logs_dataset_params(
     parent_run = _make_run("parent-run", "model")
     child_run = _make_run("child-run", "bbq-age-bias-free-text")
     mlflow_mock.start_run.side_effect = [parent_run, child_run]
-    mlflow_mock.active_run.return_value = None
+    mlflow_mock.active_run.side_effect = [None, child_run, child_run]
 
     evaluator = DummyEvaluator(evaluation_config, dataset_config)
     evaluator.eval_engine.is_judge = True
