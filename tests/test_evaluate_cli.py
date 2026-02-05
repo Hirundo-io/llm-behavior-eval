@@ -31,6 +31,9 @@ class _StubEvaluator:
     def get_grading_context(self) -> AbstractContextManager:
         return nullcontext()
 
+    def dataset_mlflow_run(self, run_name: str | None = None) -> AbstractContextManager:
+        return nullcontext()
+
     def grade(
         self,
         generations: Sequence[_GenerationRecord],
