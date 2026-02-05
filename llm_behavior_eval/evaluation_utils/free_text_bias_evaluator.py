@@ -328,7 +328,7 @@ candidate_uncertain: "<yes|no>"
         self.free_test_model()
 
         # free under-test model
-        with self.get_judge_engine_context() as judge_engine:
+        with self.dataset_mlflow_run(), self.get_judge_engine_context() as judge_engine:
             self.grade(generations, judge_engine)
 
     def grade(

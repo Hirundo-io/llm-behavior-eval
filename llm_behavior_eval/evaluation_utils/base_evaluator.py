@@ -510,6 +510,7 @@ class BaseEvaluator(ABC):
         Args:
             run_name: The name of the run. If not provided, the dataset file path will be used.
         """
+        error: Exception | None = None
         try:
             if mlflow and self.mlflow_config:
                 run_name = run_name or f"{self.dataset_config.file_path.split('/')[-1]}"
@@ -525,10 +526,11 @@ class BaseEvaluator(ABC):
 
             yield
 
-        except Exception as error:
-            self.cleanup(error)
+        except Exception as exception:
+            error = exception
+            raise
         finally:
-            self.cleanup()
+            self.cleanup(error)
 
     def _log_mlflow_params(
         self, model_param: bool = True, dataset_param: bool = True
