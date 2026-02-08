@@ -34,7 +34,7 @@ from .util_functions import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Sequence
+    from collections.abc import Generator, Iterator, Sequence
 
     from torch import Tensor
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -501,11 +501,29 @@ class BaseEvaluator(ABC):
             self.parent_run = self.mlflow_run
             logging.info(f"Started MLflow main run: {run_name}")
 
-        self._log_mlflow_params(model_param=True, dataset_param=False)
+        mlflow.log_params(
+            config_to_dict(
+                self.eval_config,
+                [
+                    "model_path_or_repo_id",
+                    "max_samples",
+                    "batch_size",
+                    "sample",
+                    "use_4bit",
+                    "max_answer_tokens",
+                    "judge_path_or_repo_id",
+                    "judge_batch_size",
+                    "max_judge_tokens",
+                    "use_4bit_judge",
+                    "reasoning",
+                ],
+            )
+        )
 
     @contextmanager
-    def dataset_mlflow_run(self, run_name: str | None = None) -> Generator:
-        """Initialize a new MLFlow run for a specific dataset evaluation, and make sure it is closed after the context is exited.
+    def dataset_mlflow_run(self, run_name: str | None = None) -> Iterator[None]:
+        """
+        Initialize a new MLFlow run for a specific dataset evaluation, and make sure it is closed after the context is exited.
 
         Args:
             run_name: The name of the run. If not provided, the dataset file path will be used.
@@ -513,7 +531,10 @@ class BaseEvaluator(ABC):
         error: Exception | None = None
         try:
             if mlflow and self.mlflow_config:
-                run_name = run_name or f"{self.dataset_config.file_path.split('/')[-1]}"
+                dataset_slug = self.dataset_config.file_path.split("/")[-1]
+                if run_name is None:
+                    logging.info(f"Using run name {dataset_slug} for dataset run")
+                    run_name = dataset_slug
 
                 if not self.parent_run:
                     raise RuntimeError(
@@ -522,7 +543,11 @@ class BaseEvaluator(ABC):
 
                 self.mlflow_run = mlflow.start_run(run_name=run_name, nested=True)
                 logging.info(f"Started MLflow dataset run: {run_name}")
-                self._log_mlflow_params(model_param=False, dataset_param=True)
+                mlflow.log_params(
+                    config_to_dict(
+                        self.dataset_config, ["file_path", "dataset_type", "seed"]
+                    )
+                )
 
             yield
 
@@ -531,41 +556,6 @@ class BaseEvaluator(ABC):
             raise
         finally:
             self.cleanup(error)
-
-    def _log_mlflow_params(
-        self, model_param: bool = True, dataset_param: bool = True
-    ) -> None:
-        """Log evaluation and dataset configuration parameters to MLflow."""
-        if not self.eval_config.mlflow_config or not mlflow:
-            return
-
-        params = {}
-        if model_param:
-            params.update(
-                config_to_dict(
-                    self.eval_config,
-                    [
-                        "model_path_or_repo_id",
-                        "max_samples",
-                        "batch_size",
-                        "sample",
-                        "use_4bit",
-                        "max_answer_tokens",
-                        "judge_path_or_repo_id",
-                        "judge_batch_size",
-                        "max_judge_tokens",
-                        "use_4bit_judge",
-                        "reasoning",
-                    ],
-                ),
-            )
-        if dataset_param:
-            params.update(
-                config_to_dict(
-                    self.dataset_config, ["file_path", "dataset_type", "seed"]
-                ),
-            )
-        mlflow.log_params(params)
 
     def _set_seed(self) -> None:
         if self.dataset_config.seed is not None:
@@ -934,8 +924,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
                 self.eval_engine = judge_engine
             yield self.eval_engine
-        except Exception as e:
-            self.cleanup(e)
+        except Exception as error:
+            self.cleanup(error)
             raise
         finally:
             self.free_judge(self.eval_engine)

@@ -490,6 +490,7 @@ def main(
     evaluator = None
     generation_lists = []
     dataset_configs = []
+    evaluation_error = None
     try:
         # generation loop
         try:
@@ -536,9 +537,12 @@ def main(
                 evaluator.update_dataset_config(dataset_config)
                 with evaluator.dataset_mlflow_run():
                     evaluator.grade(generations, judge)
+    except Exception as error:
+        evaluation_error = error
+        raise
     finally:
         if evaluator is not None:
-            evaluator.cleanup()
+            evaluator.cleanup(evaluation_error)
         del evaluator
         gc.collect()
         empty_cuda_cache_if_available()

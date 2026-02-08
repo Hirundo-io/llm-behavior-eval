@@ -41,7 +41,7 @@ class _StubEvaluator:
     ) -> None:
         return None
 
-    def cleanup(self) -> None:
+    def cleanup(self, error: Exception | None = None) -> None:
         return None
 
 

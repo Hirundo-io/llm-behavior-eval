@@ -688,4 +688,4 @@ def maybe_download_adapter(
 
 
 def config_to_dict(obj_to_convert: BaseModel, keys: list[str]) -> dict[str, Any]:
-    return {k: getattr(obj_to_convert, k) for k in keys}
+    return {key: getattr(obj_to_convert, key) for key in keys}
