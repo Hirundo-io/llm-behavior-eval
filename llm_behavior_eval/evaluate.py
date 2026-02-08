@@ -542,10 +542,12 @@ def main(
         raise
     finally:
         if evaluator is not None:
-            evaluator.cleanup(evaluation_error)
+            evaluator.cleanup()
         del evaluator
         gc.collect()
         empty_cuda_cache_if_available()
+        if evaluation_error:
+            raise evaluation_error
 
 
 app = typer.Typer()
