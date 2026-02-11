@@ -138,14 +138,13 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         return self._map_judge_outputs(raw)
 
     def generate(self) -> Sequence[_GenerationRecord]:
-        error = True
         try:
             with torch.inference_mode():
                 generations = self._collect_generations()
-            error = False
             return generations
-        finally:
-            self.cleanup(error)
+        except Exception:
+            self.cleanup(True)
+            raise
 
     def evaluate(self) -> None:
         error = True

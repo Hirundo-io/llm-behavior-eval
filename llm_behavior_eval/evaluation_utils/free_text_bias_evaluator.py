@@ -314,23 +314,30 @@ candidate_uncertain: "<yes|no>"
         return True
 
     def generate(self) -> Sequence[_GenerationRecord]:
-        error = True
         try:
             with torch.inference_mode():
                 generations = self._collect_generations()
-            error = False
             return generations
-        finally:
-            self.cleanup(error)
+        except Exception:
+            self.cleanup(True)
+            raise
 
     def evaluate(self) -> None:
-        generations = self.generate()
+        error = True
+        try:
+            generations = self.generate()
 
-        self.free_test_model()
+            self.free_test_model()
 
-        # free under-test model
-        with self.dataset_mlflow_run(), self.get_judge_engine_context() as judge_engine:
-            self.grade(generations, judge_engine)
+            # free under-test model
+            with (
+                self.dataset_mlflow_run(),
+                self.get_judge_engine_context() as judge_engine,
+            ):
+                self.grade(generations, judge_engine)
+            error = False
+        finally:
+            self.cleanup(error)
 
     def grade(
         self,

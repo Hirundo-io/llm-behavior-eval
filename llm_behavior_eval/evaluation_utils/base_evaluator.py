@@ -897,7 +897,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Yields:
             The judge eval engine instance.
         """
-        error = True
         try:
             if not (hasattr(self, "eval_engine") and self.eval_engine.is_judge):
                 judge_engine = None
@@ -926,7 +925,5 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
                 self.eval_engine = judge_engine
             yield self.eval_engine
-            error = False
         finally:
-            self.cleanup(error)
             self.free_judge(self.eval_engine)
