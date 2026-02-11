@@ -150,13 +150,9 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         return generations
 
     def generate(self) -> Sequence[_InjectionGenerationRecord]:
-        try:
-            with torch.inference_mode():
-                generations = self._collect_generations()
-            return generations
-        except Exception:
-            self.cleanup(True)
-            raise
+        with torch.inference_mode():
+            generations = self._collect_generations()
+        return generations
 
     def evaluate(self) -> None:
         error = True

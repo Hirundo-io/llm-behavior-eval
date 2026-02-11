@@ -445,7 +445,7 @@ class BaseEvaluator(ABC):
         Cleanup the active MLFlow run if it exists, and set its status accordingly.
 
         Args:
-            error: The error that occurred during the evaluation. If None, the run is considered successful.
+            error: Flag indicating if the evaluation failed. If True, the run is marked as FAILED, otherwise FINISHED.
         """
         if mlflow and mlflow.active_run():
             active_run = mlflow.active_run()
