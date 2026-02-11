@@ -440,7 +440,13 @@ class BaseEvaluator(ABC):
             self._log_mlflow_metrics(mlflow_metrics)
             self._log_mlflow_artifacts()
 
-    def cleanup(self, error: Exception | None = None) -> None:
+    def cleanup(self, error: bool = False) -> None:
+        """
+        Cleanup the active MLFlow run if it exists, and set its status accordingly.
+
+        Args:
+            error: The error that occurred during the evaluation. If None, the run is considered successful.
+        """
         if mlflow and mlflow.active_run():
             active_run = mlflow.active_run()
             run_id = active_run.info.run_id if active_run else None
@@ -454,8 +460,6 @@ class BaseEvaluator(ABC):
                 status = "FAILED" if error else "FINISHED"
             mlflow.end_run(status=status)
             logging.info(f"Ended MLflow run {run_id}")
-        if error:
-            raise error
 
     # Hook: override in subclasses that want the dataset type in the output dir name
     def should_include_dataset_type_in_output_dir(self) -> bool:
@@ -528,7 +532,7 @@ class BaseEvaluator(ABC):
         Args:
             run_name: The name of the run. If not provided, the dataset file path will be used.
         """
-        error: Exception | None = None
+        error = True
         try:
             if mlflow and self.mlflow_config:
                 dataset_slug = self.dataset_config.file_path.split("/")[-1]
@@ -550,10 +554,7 @@ class BaseEvaluator(ABC):
                 )
 
             yield
-
-        except Exception as exception:
-            error = exception
-            raise
+            error = False
         finally:
             self.cleanup(error)
 
@@ -896,6 +897,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Yields:
             The judge eval engine instance.
         """
+        error = True
         try:
             if not (hasattr(self, "eval_engine") and self.eval_engine.is_judge):
                 judge_engine = None
@@ -924,8 +926,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
                 self.eval_engine = judge_engine
             yield self.eval_engine
-        except Exception as error:
-            self.cleanup(error)
-            raise
+            error = False
         finally:
+            self.cleanup(error)
             self.free_judge(self.eval_engine)

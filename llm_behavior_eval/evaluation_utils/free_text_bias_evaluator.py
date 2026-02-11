@@ -314,13 +314,14 @@ candidate_uncertain: "<yes|no>"
         return True
 
     def generate(self) -> Sequence[_GenerationRecord]:
+        error = True
         try:
             with torch.inference_mode():
                 generations = self._collect_generations()
+            error = False
             return generations
-        except Exception as e:
-            self.cleanup(e)
-            raise
+        finally:
+            self.cleanup(error)
 
     def evaluate(self) -> None:
         generations = self.generate()
