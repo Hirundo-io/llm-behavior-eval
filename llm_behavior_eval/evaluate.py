@@ -423,7 +423,8 @@ def main(
         from llm_behavior_eval.evaluation_utils.eval_config import MlflowConfig
 
         mlflow_config = MlflowConfig(
-            mlflow_tracking_uri=mlflow_tracking_uri,
+            mlflow_tracking_uri=mlflow_tracking_uri
+            or os.environ.get("MLFLOW_TRACKING_URI"),
             mlflow_experiment_name=mlflow_experiment_name,
             mlflow_run_name=mlflow_run_name,
         )
@@ -489,6 +490,7 @@ def main(
     evaluator = None
     generation_lists = []
     dataset_configs = []
+    evaluation_error = True
     try:
         # generation loop
         try:
@@ -533,8 +535,12 @@ def main(
             ):
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
                 evaluator.update_dataset_config(dataset_config)
-                evaluator.grade(generations, judge)
+                with evaluator.dataset_mlflow_run():
+                    evaluator.grade(generations, judge)
+        evaluation_error = False
     finally:
+        if evaluator is not None:
+            evaluator.cleanup(error=evaluation_error)
         del evaluator
         gc.collect()
         empty_cuda_cache_if_available()

@@ -65,6 +65,12 @@ class DummyEvaluator(BaseEvaluator):
         return nullcontext(cast("EvalEngine", MagicMock()))
 
 
+def _make_run(run_id: str, run_name: str) -> MagicMock:
+    run = MagicMock()
+    run.info = SimpleNamespace(run_id=run_id, run_name=run_name)
+    return run
+
+
 @pytest.fixture(autouse=True)
 def _mock_model_loading(monkeypatch):
     dummy_tokenizer = DummyTokenizer()
@@ -135,18 +141,19 @@ def test_init_mlflow_starts_run_and_logs_params(
     dataset_config: DatasetConfig,
     mlflow_mock: MagicMock,
 ) -> None:
+    parent_run = _make_run("parent-run", "model")
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
     DummyEvaluator(evaluation_config, dataset_config)
 
     mlflow_mock.set_tracking_uri.assert_called_once_with("http://tracking.example")
     mlflow_mock.set_experiment.assert_called_once_with("MLflow Tests")
-    mlflow_mock.start_run.assert_called_once_with(
-        run_name="model_bbq-gender-bias-free-text"
-    )
+    mlflow_mock.start_run.assert_called_once_with(run_name="model")
 
     assert mlflow_mock.log_params.call_count == 1
     logged_params = mlflow_mock.log_params.call_args.args[0]
     assert logged_params["model_path_or_repo_id"] == "meta/model"
-    assert logged_params["file_path"] == "hirundo-io/bbq-gender-bias-free-text"
+    assert "file_path" not in logged_params
     logged_param = mlflow_mock.log_param.call_args.args[0]
     logged_param_value = mlflow_mock.log_param.call_args.args[1]
     assert logged_param == "num_samples_evaluated"
@@ -158,14 +165,30 @@ def test_init_with_default_mlflow_config_still_logs(
     dataset_config: DatasetConfig,
     mlflow_mock: MagicMock,
 ) -> None:
+    parent_run = _make_run("parent-run", "model")
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
     DummyEvaluator(evaluation_config_default_mlflow, dataset_config)
 
     mlflow_mock.set_tracking_uri.assert_not_called()
     mlflow_mock.set_experiment.assert_not_called()
-    mlflow_mock.start_run.assert_called_once_with(
-        run_name="model_bbq-gender-bias-free-text"
-    )
+    mlflow_mock.start_run.assert_called_once_with(run_name="model")
     mlflow_mock.log_params.assert_called_once()
+
+
+def test_init_mlflow_uses_existing_active_run(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    active_run = _make_run("active-run", "existing")
+    mlflow_mock.active_run.return_value = active_run
+
+    evaluator = DummyEvaluator(evaluation_config, dataset_config)
+
+    mlflow_mock.start_run.assert_not_called()
+    assert evaluator.parent_run is active_run
+    assert evaluator.mlflow_run is active_run
 
 
 def test_init_without_mlflow_config_does_not_touch_mlflow(
@@ -180,6 +203,60 @@ def test_init_without_mlflow_config_does_not_touch_mlflow(
     mlflow_mock.start_run.assert_not_called()
     mlflow_mock.log_params.assert_not_called()
     assert evaluator.mlflow_config is None
+
+
+def test_dataset_mlflow_run_starts_nested_run_and_logs_dataset_params(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    parent_run = _make_run("parent-run", "model")
+    child_run = _make_run("child-run", "bbq-age-bias-free-text")
+    mlflow_mock.start_run.side_effect = [parent_run, child_run]
+    mlflow_mock.active_run.side_effect = [None, child_run, child_run]
+
+    evaluator = DummyEvaluator(evaluation_config, dataset_config)
+    evaluator.eval_engine.is_judge = True
+
+    new_dataset_config = DatasetConfig(
+        file_path="hirundo-io/bbq-age-bias-free-text",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator.update_dataset_config(new_dataset_config)
+
+    with evaluator.dataset_mlflow_run(run_name="bbq-age-bias-free-text"):
+        pass
+
+    assert mlflow_mock.start_run.call_args_list[1].kwargs == {
+        "run_name": "bbq-age-bias-free-text",
+        "nested": True,
+    }
+    dataset_params = mlflow_mock.log_params.call_args_list[1].args[0]
+    assert dataset_params["file_path"] == "hirundo-io/bbq-age-bias-free-text"
+    assert dataset_params["dataset_type"] == DatasetType.BIAS
+    assert dataset_params["seed"] == 42
+    assert "model_path_or_repo_id" not in dataset_params
+    mlflow_mock.end_run.assert_called_once()
+
+
+def test_dataset_mlflow_run_requires_parent_run(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    parent_run = _make_run("parent-run", "model")
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
+
+    evaluator = DummyEvaluator(evaluation_config, dataset_config)
+    evaluator.parent_run = None
+
+    with pytest.raises(
+        RuntimeError,
+        match="Main MLFlow run not found, cannot launch dataset run before initializing MLFlow",
+    ):
+        with evaluator.dataset_mlflow_run():
+            pass
 
 
 def test_save_results_logs_mlflow_metrics_and_artifacts(

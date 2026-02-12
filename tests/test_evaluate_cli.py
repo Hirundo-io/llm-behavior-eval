@@ -31,11 +31,17 @@ class _StubEvaluator:
     def get_grading_context(self) -> AbstractContextManager:
         return nullcontext()
 
+    def dataset_mlflow_run(self, run_name: str | None = None) -> AbstractContextManager:
+        return nullcontext()
+
     def grade(
         self,
         generations: Sequence[_GenerationRecord],
         judge_engine: EvalEngine | None = None,
     ) -> None:
+        return None
+
+    def cleanup(self, error: bool = False) -> None:
         return None
 
 
@@ -102,6 +108,19 @@ def test_main_passes_judge_quantization_flag(
 ) -> None:
     evaluate.main("fake/model", "hallu", use_4bit_judge=True)
     assert capture_eval_config[-1].use_4bit_judge is True
+
+
+def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
+    capture_eval_config: list[EvaluationConfig],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://tracking.from.env")
+    evaluate.main("fake/model", "hallu", use_mlflow=True)
+    assert capture_eval_config[-1].mlflow_config is not None
+    assert (
+        capture_eval_config[-1].mlflow_config.mlflow_tracking_uri
+        == "http://tracking.from.env"
+    )
 
 
 def test_main_sets_inference_engine_and_sampling(

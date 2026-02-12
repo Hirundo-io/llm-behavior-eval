@@ -26,6 +26,8 @@ from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from pydantic import BaseModel
+
     from .vllm_types import TokenizerModeOption
 
 VLLMDType = Literal["bfloat16", "float16", "float32"]
@@ -683,3 +685,7 @@ def maybe_download_adapter(
             shutil.copyfileobj(remote_file, local_file)
 
     return str(digest_path)
+
+
+def config_to_dict(obj_to_convert: BaseModel, keys: list[str]) -> dict[str, Any]:
+    return {key: getattr(obj_to_convert, key) for key in keys}
