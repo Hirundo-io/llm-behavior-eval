@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from torch import cuda
 
 from .vllm_types import TokenizerModeOption
 
@@ -16,8 +17,11 @@ class VllmConfig(BaseModel):
         judge_max_model_len: Maximum model length for vLLM judge inference (optional).
             Defaults to the same value as max_model_len if not specified.
         tokenizer_mode: Tokenizer mode forwarded to vLLM (e.g. 'auto', 'slow', 'mistral', 'custom').
-        config_format: Model config format hint forwarded to vLLM.
-        load_format: Checkpoint load format hint forwarded to vLLM.
+        config_format: Model config format hint forwarded to vLLM (optional).
+        load_format: Checkpoint load format hint forwarded to vLLM (optional).
+        enable_lora: Whether to enable LoRA.
+        max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
+        enforce_eager: Whether to enforce eager execution (useful for CPU-only setups or for saving memory on CUDA graphs).
     """
 
     max_model_len: int | None = None
@@ -27,3 +31,6 @@ class VllmConfig(BaseModel):
     config_format: str = "auto"
     load_format: str = "auto"
     gpu_memory_utilization: float = 0.9
+    enable_lora: bool = False
+    max_lora_rank: int = 128
+    enforce_eager: bool = not cuda.is_available()

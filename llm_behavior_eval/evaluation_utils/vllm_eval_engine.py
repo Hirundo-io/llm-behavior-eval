@@ -11,9 +11,11 @@ from .util_functions import (
     build_vllm_prompt_token_ids,
     load_tokenizer_with_transformers,
     load_vllm_model,
+    maybe_download_adapter,
     pick_best_dtype,
     safe_apply_chat_template,
 )
+from .vllm_config import VllmConfig
 
 if TYPE_CHECKING:
     from vllm.inputs.data import PromptType
@@ -37,6 +39,9 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
         tokenizer_path_or_repo_id = self._get_tokenizer_path_or_repo_id(
             eval_config, is_judge
         )
+        lora_path_or_repo_id = (
+            eval_config.lora_path_or_repo_id if not self.is_judge else None
+        )
         model_token = self._get_model_token(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
         batch_size_config = self._get_batch_size_from_config(eval_config, is_judge)
@@ -53,17 +58,12 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
         dtype = pick_best_dtype(device)
         quantization = "bitsandbytes" if use_4bit else None
         # Extract vLLM configuration
-        vllm_config = eval_config.vllm_config
-        tokenizer_mode = vllm_config.tokenizer_mode if vllm_config else None
-        config_format = vllm_config.config_format if vllm_config else None
-        load_format = vllm_config.load_format if vllm_config else None
-        gpu_memory_utilization = (
-            vllm_config.gpu_memory_utilization if vllm_config else 0.9
-        )
+        vllm_config = eval_config.vllm_config or VllmConfig()
+
         logging.info(
             "Initializing vLLM with max_num_seqs=%s and gpu_memory_utilization=%s",
             batch_size,
-            gpu_memory_utilization,
+            vllm_config.gpu_memory_utilization,
         )
 
         self.model = load_vllm_model(
@@ -72,15 +72,40 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
             eval_config.trust_remote_code,
             batch_size,
             model_token,
-            enforce_eager=not torch.cuda.is_available(),
+            enforce_eager=vllm_config.enforce_eager,
             quantization=quantization,
             max_model_len=max_model_len,
-            tokenizer_mode=tokenizer_mode,
-            config_format=config_format,
-            load_format=load_format,
-            gpu_memory_utilization=gpu_memory_utilization,
+            tokenizer_mode=vllm_config.tokenizer_mode,
+            config_format=vllm_config.config_format,
+            load_format=vllm_config.load_format,
+            gpu_memory_utilization=vllm_config.gpu_memory_utilization,
+            enable_lora=vllm_config.enable_lora and not self.is_judge,
+            max_lora_rank=vllm_config.max_lora_rank,
         )
         self._vllm_sampling_params = None
+        if lora_path_or_repo_id is not None:
+            try:
+                from vllm.lora.request import LoRARequest
+            except ImportError as exc:
+                raise ImportError(
+                    "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable vllm for inference (e.g. when using the --inference-engine argument)."
+                ) from exc
+            try:
+                mlflow_tracking_uri = (
+                    self.eval_config.mlflow_config.mlflow_tracking_uri
+                    if self.eval_config.mlflow_config
+                    else None
+                )
+                lora_path_or_repo_id = maybe_download_adapter(
+                    lora_path_or_repo_id, mlflow_tracking_uri=mlflow_tracking_uri
+                )
+                self.lora_request = LoRARequest("adapter", 1, lora_path_or_repo_id)
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to load LoRA from path {lora_path_or_repo_id}. Verify that the path is either a local path, a HF repo or a remote location with a valid scheme."
+                ) from e
+        else:
+            self.lora_request = None
 
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset
@@ -100,6 +125,7 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
             prompts=prompts,
             sampling_params=sampling_params,
             use_tqdm=False,
+            lora_request=self.lora_request,
         )
         responses: list[str] = []
         for output in outputs:

@@ -875,7 +875,7 @@ def test_evaluate_flow_can_use_generate_then_grade_in_grading_context(
     class FlowEvaluator(FreeTextSharedEvaluator):
         def evaluate(self) -> None:
             generations = self.generate()
-            with self.get_grading_context() as judge_engine:
+            with self.dataset_mlflow_run(), self.get_grading_context() as judge_engine:
                 self.grade(generations, judge_engine=judge_engine)
 
         def generate(self) -> Sequence[_GenerationRecord]:

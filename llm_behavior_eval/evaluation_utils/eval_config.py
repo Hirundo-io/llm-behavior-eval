@@ -26,6 +26,7 @@ class EvaluationConfig(BaseModel):
         model_path_or_repo_id: HF repo ID or path of the model under test (e.g. "meta-llama/Llama-3.1-8B-Instruct").
         model_tokenizer_path_or_repo_id: Optional tokenizer repo ID or path for the model under test.
             Only used with transformers/vllm engines. Not supported with model_engine='api'.
+        lora_path_or_repo_id: Optional LoRA adapter path/repo for evaluated model (vLLM only).
         model_token: HuggingFace token for the model under test.
         judge_batch_size: Batch size for the judge model (free-text tasks only). If None, will be adjusted for GPU limits.
         max_judge_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
@@ -58,6 +59,7 @@ class EvaluationConfig(BaseModel):
     pass_max_answer_tokens: bool = False
     model_path_or_repo_id: str
     model_tokenizer_path_or_repo_id: str | None = None
+    lora_path_or_repo_id: str | None = None
     model_token: str | None = None
     judge_batch_size: None | int = None
     max_judge_tokens: int = 32
@@ -133,6 +135,18 @@ class EvaluationConfig(BaseModel):
                 "judge_path_or_repo_id must be set to an API model identifier when "
                 "judge_engine='api' (or inference_engine='api'). "
                 "For example: openai/gpt-4o-mini."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_lora_path_or_repo_id(self):
+        # LoRA usage currently only supported with vLLM
+        using_vllm = self.vllm_config is not None or any(
+            [arg == "vllm" for arg in [self.inference_engine, self.model_engine]]
+        )
+        if self.lora_path_or_repo_id is not None and not using_vllm:
+            raise ValueError(
+                "LoRA usage currently only supported with vLLM (Either inference_engine or model_engine must be set to 'vllm')"
             )
         return self
 

@@ -55,6 +55,7 @@ DEFAULT_SAMPLE_JUDGE = EvaluationConfig.model_fields["sample_judge"].default
 DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
 DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
 DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
+DEFAULT_MAX_LORA_RANK = VllmConfig.model_fields["max_lora_rank"].default
 
 
 def _behavior_presets(behavior: str) -> list[str]:
@@ -207,6 +208,13 @@ def main(
             help="MLflow run name (optional, auto-generates if not specified)",
         ),
     ] = None,
+    lora_path_or_repo_id: Annotated[
+        str | None,
+        typer.Option(
+            "--lora-path-or-repo-id",
+            help="LoRA path or repo ID (optional), can be local path, HF repo or remote location with a valid scheme: mlflow://<run_id>/[<artifact_path>], git://<repo_url>[#<rev>[:<subdir>]], s3://<bucket>/<path>, gs://<bucket>/<path>",
+        ),
+    ] = None,
     inference_engine: Annotated[
         Literal["vllm", "transformers", "api"] | None,
         typer.Option(
@@ -294,6 +302,20 @@ def main(
             max=1.0,
         ),
     ] = 0.9,
+    vllm_enforce_eager: Annotated[
+        bool,
+        typer.Option(
+            "--vllm-enforce-eager",
+            help="Enforce eager execution for vLLM.",
+        ),
+    ] = False,
+    vllm_max_lora_rank: Annotated[
+        int,
+        typer.Option(
+            "--vllm-max-lora-rank",
+            help="Maximum LoRA rank for vLLM.",
+        ),
+    ] = DEFAULT_MAX_LORA_RANK,
     replace_existing_output: Annotated[
         bool,
         typer.Option(
@@ -448,7 +470,8 @@ def main(
         from llm_behavior_eval.evaluation_utils.eval_config import MlflowConfig
 
         mlflow_config = MlflowConfig(
-            mlflow_tracking_uri=mlflow_tracking_uri,
+            mlflow_tracking_uri=mlflow_tracking_uri
+            or os.environ.get("MLFLOW_TRACKING_URI"),
             mlflow_experiment_name=mlflow_experiment_name,
             mlflow_run_name=mlflow_run_name,
         )
@@ -466,6 +489,9 @@ def main(
             config_format=vllm_config_format,
             load_format=vllm_load_format,
             gpu_memory_utilization=vllm_gpu_memory_utilization,
+            enable_lora=lora_path_or_repo_id is not None,
+            max_lora_rank=vllm_max_lora_rank,
+            enforce_eager=vllm_enforce_eager,
         )
     else:
         vllm_config = None
@@ -474,6 +500,7 @@ def main(
         model_path_or_repo_id=model_path_or_repo_id,
         model_token=model_token,
         model_tokenizer_path_or_repo_id=model_tokenizer_path_or_repo_id,
+        lora_path_or_repo_id=lora_path_or_repo_id,
         judge_path_or_repo_id=judge_path_or_repo_id,
         judge_tokenizer_path_or_repo_id=judge_tokenizer_path_or_repo_id,
         judge_token=judge_token,
@@ -510,11 +537,19 @@ def main(
     evaluator = None
     generation_lists = []
     dataset_configs = []
+    evaluation_error = True
     try:
         # generation loop
         try:
             for file_path in file_paths:
-                logging.info("Evaluating %s with %s", file_path, model_path_or_repo_id)
+                logging.info(
+                    f"Evaluating {file_path} with {model_path_or_repo_id}"
+                    + (
+                        f" and LoRA from {lora_path_or_repo_id}"
+                        if lora_path_or_repo_id is not None
+                        else ""
+                    )
+                )
                 dataset_config = DatasetConfig(
                     file_path=file_path,
                     dataset_type=DatasetType.UNBIAS
@@ -535,9 +570,10 @@ def main(
         finally:
             if evaluator is not None:
                 evaluator.free_test_model()
-            else:
-                logging.error("Evaluator does not exist, see above for details")
-                return
+
+        if evaluator is None:
+            # Type-checking hint
+            raise ValueError("Evaluator does not exist.")
 
         # Grading loop
         with evaluator.get_grading_context() as judge:
@@ -546,8 +582,12 @@ def main(
             ):
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
                 evaluator.update_dataset_config(dataset_config)
-                evaluator.grade(generations, judge)
+                with evaluator.dataset_mlflow_run():
+                    evaluator.grade(generations, judge)
+        evaluation_error = False
     finally:
+        if evaluator is not None:
+            evaluator.cleanup(error=evaluation_error)
         del evaluator
         gc.collect()
         empty_cuda_cache_if_available()
