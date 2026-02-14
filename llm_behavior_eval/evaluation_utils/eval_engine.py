@@ -22,22 +22,6 @@ class EvalEngine(ABC):
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         raise NotImplementedError("Subclasses must implement set_dataset().")
 
-    @abstractmethod
-    def generate_answers_from_tensors(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        sampling_config: SamplingConfig,
-    ) -> list[str]:
-        """Generate answers from pre-tokenized tensor inputs.
-
-        For local engines (transformers, vllm) that work with tokenized batches.
-        API engines do not implement this - use generate_answers_from_prompts() instead.
-        """
-        raise NotImplementedError(
-            "Subclasses must implement generate_answers_from_tensors()."
-        )
-
     def ensure_test_model_ready(self) -> None:
         return None
 
@@ -58,6 +42,21 @@ class EvalEngine(ABC):
             eval_config.judge_path_or_repo_id
             if is_judge
             else eval_config.model_path_or_repo_id
+        )
+
+    @staticmethod
+    def _get_tokenizer_path_or_repo_id(
+        eval_config: EvaluationConfig, is_judge: bool
+    ) -> str:
+        """Get the tokenizer path based on whether this is a judge model."""
+        if is_judge:
+            return (
+                eval_config.judge_tokenizer_path_or_repo_id
+                or eval_config.judge_path_or_repo_id
+            )
+        return (
+            eval_config.model_tokenizer_path_or_repo_id
+            or eval_config.model_path_or_repo_id
         )
 
     @staticmethod
@@ -89,28 +88,55 @@ class EvalEngine(ABC):
             eval_config.max_judge_tokens if is_judge else eval_config.max_answer_tokens
         )
 
+
+class TensorEvalEngine(EvalEngine, ABC):
+    @abstractmethod
+    def generate_answers_from_tensors(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        sampling_config: SamplingConfig,
+    ) -> list[str]:
+        """Generate answers from pre-tokenized tensor inputs."""
+        raise NotImplementedError(
+            "Subclasses must implement generate_answers_from_tensors()."
+        )
+
+
+class PromptEvalEngine(EvalEngine, ABC):
+    @abstractmethod
     def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
-        """Format messages into a prompt suitable for this engine.
-
-        For tokenizer-based engines, applies the chat template.
-        For API engines, returns messages unchanged.
-
-        Override in subclasses to provide engine-specific behavior.
-        """
+        """Format messages into a prompt suitable for this engine."""
         raise NotImplementedError("Subclasses must implement format_prompt().")
 
+    def normalize_prompts_to_strings(self, prompts: list[JudgePrompt]) -> list[str]:
+        """Normalize mixed prompt inputs into string prompts.
+
+        Tokenizer-backed engines accept either:
+        - preformatted strings, or
+        - message lists that still need formatting via `format_prompt`.
+        """
+        string_prompts: list[str] = []
+        for prompt in prompts:
+            if isinstance(prompt, str):
+                string_prompts.append(prompt)
+                continue
+
+            formatted_prompt = self.format_prompt(prompt)
+            if not isinstance(formatted_prompt, str):
+                raise TypeError(
+                    "Tokenizer-backed engines must format message prompts into strings."
+                )
+            string_prompts.append(formatted_prompt)
+        return string_prompts
+
+    @abstractmethod
     def generate_answers_from_prompts(
         self,
         prompts: list[JudgePrompt],
         sampling_config: SamplingConfig,
     ) -> list[str]:
-        """Generate answers from pre-formatted prompts.
-
-        For API engines, this sends prompts directly to the provider.
-        For local engines, this tokenizes and calls generate_answers_from_tensors().
-
-        Override in subclasses to provide engine-specific behavior.
-        """
+        """Generate answers from pre-formatted prompts."""
         raise NotImplementedError(
             "Subclasses must implement generate_answers_from_prompts()."
         )

@@ -12,6 +12,10 @@ import torch
 from datasets import Dataset
 
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.eval_engine import (
+    PromptEvalEngine,
+    TensorEvalEngine,
+)
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
@@ -24,6 +28,7 @@ class RecordingTokenizer:
         self.pad_token_id = pad_token_id
         self.eos_token_id = eos_token_id
         self.batch_decode_calls: list[dict[str, object]] = []
+        self.encode_calls: list[dict[str, object]] = []
         self.pad_token: str | None = None
         self.eos_token = "<eos>"
 
@@ -32,6 +37,54 @@ class RecordingTokenizer:
             {"tokens": tokens.clone(), "skip_special_tokens": skip_special_tokens}
         )
         return ["decoded"] * tokens.size(0)
+
+    def __call__(
+        self,
+        texts: list[str],
+        *,
+        return_tensors: str = "pt",
+        padding: bool = True,
+    ) -> dict[str, torch.Tensor]:
+        self.encode_calls.append(
+            {
+                "texts": list(texts),
+                "return_tensors": return_tensors,
+                "padding": padding,
+            }
+        )
+        batch_size = len(texts)
+        return {
+            "input_ids": torch.ones((batch_size, 2), dtype=torch.long),
+            "attention_mask": torch.ones((batch_size, 2), dtype=torch.long),
+        }
+
+
+class RecordingVllmTokenizer:
+    def __init__(self) -> None:
+        self.pad_token: str | None = None
+        self.eos_token = "<eos>"
+        self.eos_token_id = 7
+        self.encode_calls: list[dict[str, object]] = []
+
+    def __call__(
+        self,
+        texts: list[str],
+        *,
+        return_tensors: str = "pt",
+        padding: bool = True,
+    ) -> dict[str, torch.Tensor]:
+        self.encode_calls.append(
+            {
+                "texts": list(texts),
+                "return_tensors": return_tensors,
+                "padding": padding,
+            }
+        )
+        batch_size = len(texts)
+        return {
+            "input_ids": torch.ones((batch_size, 2), dtype=torch.long),
+            "attention_mask": torch.ones((batch_size, 2), dtype=torch.long),
+        }
 
 
 class DummyTransformersModel:
@@ -116,18 +169,28 @@ class TransformModelLoaderStub:
     def __init__(self, tokenizer: RecordingTokenizer, model: DummyTransformersModel):
         self.tokenizer = tokenizer
         self.model = model
+        self.calls: list[dict[str, object]] = []
 
     def __call__(self, *args, **kwargs):
+        self.calls.append({"args": args, "kwargs": kwargs})
         return self.tokenizer, self.model
 
 
 class TokenizerLoaderStub:
     def __init__(self, tokenizer) -> None:
         self.tokenizer = tokenizer
+        self.calls: list[dict[str, object]] = []
 
     def __call__(
         self, _model_id, _token: str | None = None, trust_remote_code: bool = False
     ):
+        self.calls.append(
+            {
+                "model_id": _model_id,
+                "token": _token,
+                "trust_remote_code": trust_remote_code,
+            }
+        )
         return self.tokenizer
 
 
@@ -168,7 +231,7 @@ class CandidateRecorder:
 
 @dataclass
 class VllmPatchBundle:
-    tokenizer: SimpleNamespace
+    tokenizer: RecordingVllmTokenizer
     build_recorder: BuildPromptRecorder
     sampling_recorder: SamplingParamsRecorder
     outputs_log: list[object]
@@ -188,11 +251,7 @@ class TransformersPatchBundle:
 
 @pytest.fixture
 def vllm_bundle() -> VllmPatchBundle:
-    tokenizer = SimpleNamespace(
-        pad_token=None,
-        eos_token="<eos>",
-        eos_token_id=7,
-    )
+    tokenizer = RecordingVllmTokenizer()
     build_recorder = BuildPromptRecorder()
     sampling_recorder = SamplingParamsRecorder()
     outputs_log: list[object] = []
@@ -274,6 +333,48 @@ def _apply_transformers_patching(request, monkeypatch):
 
 
 @pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_implements_prompt_and_tensor_interfaces(tmp_path) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+    )
+
+    engine = VllmEvalEngine(config)
+
+    assert isinstance(engine, PromptEvalEngine)
+    assert isinstance(engine, TensorEvalEngine)
+
+
+@pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_uses_model_tokenizer_override(
+    vllm_bundle, tmp_path
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        model_tokenizer_path_or_repo_id="fake/tokenizer",
+        results_dir=tmp_path,
+    )
+
+    VllmEvalEngine(config)
+
+    assert vllm_bundle.tokenizer_loader.calls[-1]["model_id"] == "fake/tokenizer"
+
+
+@pytest.mark.vllm_engine_test
+def test_vllm_judge_engine_uses_judge_tokenizer_override(vllm_bundle, tmp_path) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        judge_path_or_repo_id="fake/judge-model",
+        judge_tokenizer_path_or_repo_id="fake/judge-tokenizer",
+        results_dir=tmp_path,
+    )
+
+    VllmEvalEngine(config, is_judge=True)
+
+    assert vllm_bundle.tokenizer_loader.calls[-1]["model_id"] == "fake/judge-tokenizer"
+
+
+@pytest.mark.vllm_engine_test
 def test_vllm_eval_engine_generate_answers_from_tensors(vllm_bundle, tmp_path) -> None:
     dataset = Dataset.from_dict({"question": ["q1", "q2"]})
     config = EvaluationConfig(
@@ -310,6 +411,35 @@ def test_vllm_eval_engine_generate_answers_from_tensors(vllm_bundle, tmp_path) -
     assert call_kwargs["stop_token_ids"] == [vllm_bundle.tokenizer.eos_token_id]
     assert vllm_bundle.tokenizer.pad_token == vllm_bundle.tokenizer.eos_token
     assert engine.get_batch_size() == len(dataset)
+
+
+@pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_formats_message_prompts_before_tokenization(
+    vllm_bundle, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.vllm_eval_engine.safe_apply_chat_template",
+        lambda _tokenizer, messages: f"templated::{messages[0]['content']}",
+    )
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+    )
+    engine = VllmEvalEngine(config)
+
+    answers = engine.generate_answers_from_prompts(
+        prompts=[
+            [{"role": "user", "content": "hello"}],
+            "already-formatted",
+        ],
+        sampling_config=SamplingConfig(),
+    )
+
+    assert answers == ["first", ""]
+    assert vllm_bundle.tokenizer.encode_calls[-1]["texts"] == [
+        "templated::hello",
+        "already-formatted",
+    ]
 
 
 @pytest.mark.vllm_engine_test
@@ -373,6 +503,64 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
 
 
 @pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_implements_prompt_and_tensor_interfaces(
+    transformers_bundle, tmp_path
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+    )
+
+    engine = TransformersEvalEngine(
+        transformers_bundle.data_collator,
+        config,
+    )
+
+    assert isinstance(engine, PromptEvalEngine)
+    assert isinstance(engine, TensorEvalEngine)
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_uses_model_tokenizer_override(
+    transformers_bundle, tmp_path
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        model_tokenizer_path_or_repo_id="fake/tokenizer",
+        results_dir=tmp_path,
+    )
+
+    TransformersEvalEngine(
+        transformers_bundle.data_collator,
+        config,
+    )
+
+    assert transformers_bundle.loader_stub.calls[-1]["args"][1] == "fake/tokenizer"
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_judge_engine_uses_judge_tokenizer_override(
+    transformers_bundle, tmp_path
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        judge_path_or_repo_id="fake/judge-model",
+        judge_tokenizer_path_or_repo_id="fake/judge-tokenizer",
+        results_dir=tmp_path,
+    )
+
+    TransformersEvalEngine(
+        transformers_bundle.data_collator,
+        config,
+        is_judge=True,
+    )
+
+    assert (
+        transformers_bundle.loader_stub.calls[-1]["args"][1] == "fake/judge-tokenizer"
+    )
+
+
+@pytest.mark.transformers_engine_test
 def test_transformers_eval_engine_generate_answers_from_tensors(
     transformers_bundle, tmp_path
 ) -> None:
@@ -428,6 +616,38 @@ def test_transformers_eval_engine_generate_answers_from_tensors(
     engine.free_model()
     assert transformers_bundle.model.cpu_called
     assert not hasattr(engine, "model")
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_formats_message_prompts_before_tokenization(
+    transformers_bundle, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.transformers_eval_engine.safe_apply_chat_template",
+        lambda _tokenizer, messages: f"templated::{messages[0]['content']}",
+    )
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+    )
+    engine = TransformersEvalEngine(
+        transformers_bundle.data_collator,
+        config,
+    )
+
+    answers = engine.generate_answers_from_prompts(
+        prompts=[
+            [{"role": "user", "content": "hello"}],
+            "already-formatted",
+        ],
+        sampling_config=SamplingConfig(),
+    )
+
+    assert answers == ["decoded", "decoded"]
+    assert transformers_bundle.tokenizer.encode_calls[-1]["texts"] == [
+        "templated::hello",
+        "already-formatted",
+    ]
 
 
 @pytest.mark.transformers_engine_test

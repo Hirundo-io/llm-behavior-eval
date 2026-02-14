@@ -257,7 +257,11 @@ export LLM_EVAL_API_CONCURRENCY=20  # Default is 10
 | Remote vLLM server | `api` | Connect via OpenAI-compatible API (see above) |
 | Cloud APIs (OpenAI, Azure, Anthropic, etc.) | `api` | Uses LiteLLM for routing |
 
-> **Note:** When using `--model-engine api` for the **evaluated model**, you no longer need to provide `--model-tokenizer`. The evaluator will automatically use a raw-text path to send prompts directly to the API. However, you can still provide one if you want to use a specific chat template or reasoning mode.
+> **Note:** When using `--model-engine api` for the **evaluated model**, do not pass `--model-tokenizer`. The evaluator sends raw-text prompts to the API, and the provider handles tokenization and chat formatting. `--model-tokenizer` is not supported with `--model-engine api`.
+
+> **Note:** When using `--judge-engine api` for the **judge model**, do not pass `--judge-tokenizer`. The provider handles tokenization and chat formatting.
+
+> **Architecture note:** Normal evaluator flow is prompt-first across engines. Local `transformers` and `vllm` backends still tokenize internally, while API backends rely on provider-side tokenization. Explicit tensor inputs are only needed for advanced, token-level workflows.
 
 ### CLI options
 
@@ -265,9 +269,10 @@ export LLM_EVAL_API_CONCURRENCY=20  # Default is 10
 - `--use-4bit-judge/--no-use-4bit-judge` — toggle 4-bit (bitsandbytes) loading for the judge model so you can keep the evaluator in full precision while fitting the judge onto smaller GPUs.
 - `--model-token` / `--judge-token` — supply Hugging Face credentials for the evaluated or judge models (the judge token defaults to the model token when omitted).
 - `--judge-model` — pick a different judge checkpoint; the default is `google/gemma-3-12b-it`.
+- `--model-tokenizer` / `--judge-tokenizer` — optionally override tokenizer repos when they differ from model repos (supported for `transformers`/`vllm`, not `api` engines).
 - `--judge-engine api` — use hosted judge models via API providers (Azure OpenAI, Vertex AI, OpenAI, Anthropic, Bedrock, etc.). Combine with `--judge-model` using the provider/model syntax supported by LiteLLM (for example `openai/gpt-4o-mini` or `bedrock/anthropic.claude-3-sonnet-20240229-v1:0`).
-- `--model-engine api` — run the evaluated model via an API provider. Use `--model-tokenizer` to supply a compatible Hugging Face tokenizer when the API model id is not a HF repo.
-- `--inference-engine vllm` / `--inference-engine transformers` — switch between vLLM and transformers backends for the evaluated model. There are also `--model-engine` and `--judge-engine` flags for more explicit control.
+- `--model-engine api` — run the evaluated model via an API provider. Do not use `--model-tokenizer` with this engine; the API handles formatting.
+- `--inference-engine vllm` / `--inference-engine transformers` / `--inference-engine api` — set a shared backend for both evaluated model and judge in one flag. Use `--model-engine` and `--judge-engine` when you need them to differ.
 - `--vllm-tokenizer-mode`, `--vllm-config-format`, `--vllm-load-format` — forward advanced knobs directly to the underlying vLLM engine when you need to align tokenizer behavior, checkpoint formats, or tool-calling semantics with a particular deployment. Tokenizer mode accepts `auto`, `slow`, `mistral`, or `custom`.
 - `--reasoning/--no-reasoning` — enable chat-template reasoning modes on tokenizers that support them.
 - `--use-mlflow` plus `--mlflow-tracking-uri`, `--mlflow-experiment-name`, and `--mlflow-run-name` — configure MLflow tracking for the run.

@@ -26,6 +26,7 @@ from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
 
 from .custom_dataset import CustomDataset
 from .enums import DatasetType
+from .eval_engine import EvalEngine, JudgePrompt, PromptEvalEngine, TensorEvalEngine
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import (
@@ -39,8 +40,6 @@ if TYPE_CHECKING:
 
     from datasets import Dataset as HFDataset
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
-
-    from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine, JudgePrompt
 
     from .dataset_config import DatasetConfig
     from .eval_config import EvaluationConfig, MlflowConfig
@@ -87,6 +86,14 @@ class _GenerationRecord:
 
 
 class BaseEvaluator(ABC):
+    @staticmethod
+    def _resolve_data_collator_for_engine(engine_name: str):
+        match engine_name:
+            case "api":
+                return raw_text_collator
+            case _:
+                return default_data_collator
+
     def __init__(
         self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
     ) -> None:
@@ -114,6 +121,7 @@ class BaseEvaluator(ABC):
             self.model_engine == "api" and self._judge_requires_tokenized_dataset
         )
         self._judge_dataset: HFDataset | None = None
+        self._selected_sample_indices: list[int] = []
 
         self._set_seed()
 
@@ -127,15 +135,16 @@ class BaseEvaluator(ABC):
         if self.mlflow_config:
             self._init_mlflow()
 
+        self.api_raw_mode = self.model_engine == "api"
+
         # API engines receive raw text prompts; local engines receive tokenized tensors.
-        self.data_collator = (
-            raw_text_collator if self.model_engine == "api" else default_data_collator
+        self.judge_data_collator = self._resolve_data_collator_for_engine(
+            self.judge_engine
         )
-        self.judge_data_collator = (
-            raw_text_collator if self.judge_engine == "api" else default_data_collator
-        )
+        self.eval_engine: EvalEngine
         match self.model_engine:
             case "vllm":
+                self.data_collator = default_data_collator
                 max_model_len = (
                     self.eval_config.vllm_config.max_model_len
                     if self.eval_config.vllm_config
@@ -146,6 +155,7 @@ class BaseEvaluator(ABC):
                     max_model_len=max_model_len,
                 )
             case "api":
+                self.data_collator = raw_text_collator
                 from .api_eval_engine import ApiEvalEngine
 
                 self.eval_engine = ApiEvalEngine(
@@ -153,6 +163,7 @@ class BaseEvaluator(ABC):
                     is_judge=False,
                 )
             case _:
+                self.data_collator = default_data_collator
                 self.eval_engine = TransformersEvalEngine(
                     self.data_collator,
                     self.eval_config,
@@ -179,8 +190,11 @@ class BaseEvaluator(ABC):
         if self.judge_engine == "api":
             return
         if getattr(self, "judge_tokenizer", None) is None:
+            judge_tokenizer_path_or_repo_id = EvalEngine._get_tokenizer_path_or_repo_id(
+                self.eval_config, is_judge=True
+            )
             self.judge_tokenizer = load_tokenizer_with_transformers(
-                self.eval_config.judge_path_or_repo_id,
+                judge_tokenizer_path_or_repo_id,
                 token=self.eval_config.judge_token,
                 trust_remote_code=self.eval_config.trust_remote_code,
             )
@@ -260,7 +274,7 @@ class BaseEvaluator(ABC):
         custom_dataset = CustomDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
-        tokenizer = None if self.model_engine == "api" else self._get_tokenizer()
+        tokenizer = None if self.api_raw_mode else self._get_tokenizer()
         test_dataset = custom_dataset.preprocess(
             tokenizer,
             self.dataset_config.preprocess_config,
@@ -277,7 +291,8 @@ class BaseEvaluator(ABC):
             if self.eval_config.max_samples
             else len(test_dataset)
         )
-        self.eval_dataset = test_dataset.select(range(self.num_samples))
+        self._selected_sample_indices = list(range(self.num_samples))
+        self.eval_dataset = test_dataset.select(self._selected_sample_indices)
         self.eval_engine.set_dataset(self.eval_dataset)
 
         self.eval_loader = DataLoader(
@@ -315,13 +330,16 @@ class BaseEvaluator(ABC):
             token=self.eval_config.judge_token,
         )
         tokenized_dataset = tokenized_dataset.shuffle(seed=self.dataset_config.seed)
-        num_samples = (
-            min(len(tokenized_dataset), self.eval_config.max_samples)
-            if self.eval_config.max_samples
-            else len(tokenized_dataset)
-        )
-        # Mirror the same sampling approach used for the generation dataset.
-        return tokenized_dataset.select(range(num_samples))
+        selected_indices = self._selected_sample_indices
+        if not selected_indices:
+            num_samples = (
+                min(len(tokenized_dataset), self.eval_config.max_samples)
+                if self.eval_config.max_samples
+                else len(tokenized_dataset)
+            )
+            selected_indices = list(range(num_samples))
+        # Reuse the exact sampled indices from generation to keep judge/model alignment.
+        return tokenized_dataset.select(selected_indices)
 
     def generate_answers_from_tensors(
         self,
@@ -329,6 +347,11 @@ class BaseEvaluator(ABC):
         attention_mask: torch.Tensor,
         do_sample: bool | None = None,
     ) -> list[str]:
+        if not isinstance(self.eval_engine, TensorEvalEngine):
+            raise RuntimeError(
+                "Current evaluation engine does not support tensor-based generation."
+            )
+
         return self.eval_engine.generate_answers_from_tensors(
             input_ids,
             attention_mask,
@@ -352,16 +375,13 @@ class BaseEvaluator(ABC):
         prompts: Sequence[JudgePrompt],
         do_sample: bool | None = None,
     ) -> list[str]:
-        if self.model_engine != "api":
-            raise RuntimeError("API prompt generation requires model_engine='api'.")
-        from .api_eval_engine import ApiEvalEngine
-
-        if not isinstance(self.eval_engine, ApiEvalEngine):
+        if not isinstance(self.eval_engine, PromptEvalEngine):
             raise RuntimeError(
-                "API model engine is not initialized correctly for API prompts."
+                "Current evaluation engine does not support prompt-based generation."
             )
+
         return self.eval_engine.generate_answers_from_prompts(
-            prompts,
+            list(prompts),
             sampling_config=SamplingConfig(
                 do_sample=(
                     do_sample
@@ -883,6 +903,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Returns:
             List of judge outputs in format [{"generated_text": ...}, ...] per prompt.
         """
+        if not isinstance(judge_engine, PromptEvalEngine):
+            raise RuntimeError("Judge engine does not support prompt-based generation.")
+
         # If a fixed judge batch size is provided, run regularly with that size (no backoff)
         if self.eval_config.judge_batch_size is not None:
             fixed_batch_size = max(1, int(self.eval_config.judge_batch_size))
@@ -954,6 +977,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Returns:
             List where each element is [{"generated_text": answer}, ...] for that prompt.
         """
+        if not isinstance(judge_engine, PromptEvalEngine):
+            raise RuntimeError("Judge engine does not support prompt-based generation.")
+
         if not prompts:
             return []
 
@@ -995,6 +1021,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         judge_engine: EvalEngine | None = None
         try:
             if not (hasattr(self, "eval_engine") and self.eval_engine.is_judge):
+                self.prepare_judge_tokenizer()
                 # Create appropriate judge engine based on config
                 match self.judge_engine:
                     case "api":
@@ -1005,7 +1032,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                             is_judge=True,
                         )
                     case "vllm":
-                        self.prepare_judge_tokenizer()
                         max_model_len = (
                             self.eval_config.vllm_config.judge_max_model_len
                             if self.eval_config.vllm_config
@@ -1018,7 +1044,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                         )
                     case _:
                         # transformers engine (default)
-                        self.prepare_judge_tokenizer()
                         judge_engine = TransformersEvalEngine(
                             self.judge_data_collator,
                             self.eval_config,

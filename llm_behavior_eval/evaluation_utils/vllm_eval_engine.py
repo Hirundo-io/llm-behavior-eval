@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, cast
 
 import torch
 
-from .eval_engine import EvalDataset, EvalEngine, JudgePrompt
+from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine, TensorEvalEngine
 from .util_functions import (
     build_vllm_prompt_token_ids,
     load_tokenizer_with_transformers,
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from .sampling_config import SamplingConfig
 
 
-class VllmEvalEngine(EvalEngine):
+class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
     def __init__(
         self,
         eval_config: EvaluationConfig,
@@ -34,13 +34,16 @@ class VllmEvalEngine(EvalEngine):
         self.max_model_len = max_model_len
 
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
+        tokenizer_path_or_repo_id = self._get_tokenizer_path_or_repo_id(
+            eval_config, is_judge
+        )
         model_token = self._get_model_token(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
         batch_size_config = self._get_batch_size_from_config(eval_config, is_judge)
         batch_size = batch_size_config or 256
 
         self.tokenizer = load_tokenizer_with_transformers(
-            model_path_or_repo_id,
+            tokenizer_path_or_repo_id,
             model_token,
             trust_remote_code=eval_config.trust_remote_code,
         )
@@ -189,8 +192,7 @@ class VllmEvalEngine(EvalEngine):
         """Tokenize string prompts and generate answers."""
         if not prompts:
             return []
-        # Ensure all prompts are strings (already formatted)
-        string_prompts = [p if isinstance(p, str) else str(p) for p in prompts]
+        string_prompts = self.normalize_prompts_to_strings(prompts)
         tokenized = self.tokenizer(
             string_prompts,
             return_tensors="pt",

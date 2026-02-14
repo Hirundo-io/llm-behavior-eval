@@ -29,13 +29,16 @@ class EvaluationConfig(BaseModel):
         max_judge_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
         judge_path_or_repo_id: HF repo ID or path of the judge model (e.g. "meta-llama/Llama-3.3-70B-Instruct").
             When judge_engine="api", this should be an API model identifier (e.g. "openai/gpt-4o-mini").
+        judge_tokenizer_path_or_repo_id: Optional tokenizer repo ID or path for the judge model.
+            Only used with transformers/vllm engines. Not supported with judge_engine='api'.
         judge_token: HuggingFace token for the judge model. Defaults to the value of `model_token` if not provided.
         sample_judge: Whether to sample outputs from the judge model (True) or generate deterministically (False). Defaults to False.
         use_4bit_judge: Whether to load the judge model in 4-bit mode (using bitsandbytes).
             This is only relevant for the judge model.
-        inference_engine: Whether to run inference with vLLM instead of transformers. Overrides model_engine and judge_engine arguments.
-        model_engine: Model inference backend. Use "api" for hosted models. DO NOT combine with the inference_engine argument.
-        judge_engine: Judge model inference backend. Use "api" for hosted judge models. DO NOT combine with the inference_engine argument.
+        inference_engine: Optional shared backend for both evaluated model and judge.
+            Overrides model_engine and judge_engine when provided.
+        model_engine: Model inference backend when inference_engine is not provided.
+        judge_engine: Judge model inference backend when inference_engine is not provided.
         vllm_config: vLLM-specific configuration (optional). Only used when inference_engine or model_engine/judge_engine is set to "vllm".
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
         reasoning: Whether to enable chat-template reasoning (if supported by tokenizer/model).
@@ -57,10 +60,11 @@ class EvaluationConfig(BaseModel):
     judge_batch_size: None | int = None
     max_judge_tokens: int = 32
     judge_path_or_repo_id: str = "google/gemma-3-12b-it"
+    judge_tokenizer_path_or_repo_id: str | None = None
     judge_token: str | None = None
     sample_judge: bool = False
     use_4bit_judge: bool = False
-    inference_engine: Literal["vllm", "transformers"] | None = None
+    inference_engine: Literal["vllm", "transformers", "api"] | None = None
     model_engine: Literal["vllm", "transformers", "api"] = "transformers"
     judge_engine: Literal["vllm", "transformers", "api"] = "transformers"
     vllm_config: VllmConfig | None = None
@@ -95,34 +99,22 @@ class EvaluationConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def validate_api_judge_engine(self):
-        if self.judge_engine == "api" and self.inference_engine is not None:
-            raise ValueError(
-                "judge_engine='api' cannot be combined with inference_engine."
-            )
-        return self
-
-    @model_validator(mode="after")
-    def validate_api_model_engine(self):
-        if self.model_engine == "api" and self.inference_engine is not None:
-            raise ValueError(
-                "model_engine='api' cannot be combined with inference_engine."
-            )
-        return self
-
-    @model_validator(mode="after")
     def validate_api_no_tokenizer(self):
-        """Reject --model-tokenizer when using API model engine.
+        """Reject local tokenizer overrides when using API engines.
 
         API providers handle chat template formatting internally, so providing
-        a tokenizer for the evaluated model is not supported.
+        local tokenizer overrides is not supported.
         """
-        if (
-            self.model_engine == "api"
-            and self.model_tokenizer_path_or_repo_id is not None
-        ):
+        effective_model_engine = self.inference_engine or self.model_engine
+        effective_judge_engine = self.inference_engine or self.judge_engine
+        if effective_model_engine == "api" and self.model_tokenizer_path_or_repo_id:
             raise ValueError(
                 "model_tokenizer_path_or_repo_id cannot be used with model_engine='api'. "
+                "API providers handle chat formatting internally."
+            )
+        if effective_judge_engine == "api" and self.judge_tokenizer_path_or_repo_id:
+            raise ValueError(
+                "judge_tokenizer_path_or_repo_id cannot be used with judge_engine='api'. "
                 "API providers handle chat formatting internally."
             )
         return self

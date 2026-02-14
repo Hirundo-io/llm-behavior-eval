@@ -8,7 +8,7 @@ from transformers import set_seed
 from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
-from .eval_engine import EvalDataset, EvalEngine, JudgePrompt
+from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine, TensorEvalEngine
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import (
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from transformers.generation.utils import GenerationMixin
 
 
-class TransformersEvalEngine(EvalEngine):
+class TransformersEvalEngine(TensorEvalEngine, PromptEvalEngine):
     def __init__(
         self,
         data_collator: DataCollator,
@@ -28,10 +28,14 @@ class TransformersEvalEngine(EvalEngine):
         is_judge: bool = False,
     ) -> None:
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
+        tokenizer_path_or_repo_id = self._get_tokenizer_path_or_repo_id(
+            eval_config, is_judge
+        )
         model_token = self._get_model_token(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
         self.tokenizer, self.model = load_transformers_model_and_tokenizer(
             model_path_or_repo_id,
+            tokenizer_path_or_repo_id,
             model_token,
             use_4bit,
             eval_config.device_map,
@@ -146,8 +150,7 @@ class TransformersEvalEngine(EvalEngine):
         """Tokenize string prompts and generate answers."""
         if not prompts:
             return []
-        # Ensure all prompts are strings (already formatted)
-        string_prompts = [p if isinstance(p, str) else str(p) for p in prompts]
+        string_prompts = self.normalize_prompts_to_strings(prompts)
         tokenized = self.tokenizer(
             string_prompts,
             return_tensors="pt",

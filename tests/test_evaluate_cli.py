@@ -135,6 +135,30 @@ def test_main_sets_inference_engine_and_sampling(
     assert dataset_config.seed == 123
 
 
+def test_main_allows_api_inference_engine(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "openai/gpt-4o-mini",
+        "hallu",
+        inference_engine="api",
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.inference_engine == "api"
+
+
+def test_main_passes_judge_tokenizer_override(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        judge_tokenizer_path_or_repo_id="fake/judge-tokenizer",
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.judge_tokenizer_path_or_repo_id == "fake/judge-tokenizer"
+
+
 def test_main_allows_replacing_existing_output(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:

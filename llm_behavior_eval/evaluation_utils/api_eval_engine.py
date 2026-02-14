@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from tqdm import tqdm
 
-from .eval_engine import EvalDataset, EvalEngine, JudgePrompt
+from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -21,7 +21,20 @@ DEFAULT_API_BATCH_CONCURRENCY = 10
 DEFAULT_API_BATCH_MULTIPLIER = 5
 
 
-class ApiEvalEngine(EvalEngine):
+def _read_env_int(name: str, default: int, *, min_value: int | None = None) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    if min_value is not None:
+        return max(min_value, parsed)
+    return parsed
+
+
+class ApiEvalEngine(PromptEvalEngine):
     # API engines do not load a local tokenizer; the provider handles formatting.
     tokenizer: None = None
 
@@ -45,25 +58,21 @@ class ApiEvalEngine(EvalEngine):
             import litellm
 
             return litellm
-        except ImportError:
+        except ImportError as exc:
             raise ImportError(
                 "litellm is required for API-based models. "
                 "Install it with `pip install llm-behavior-eval[api]`."
-            ) from None
+            ) from exc
 
     def _suppress_litellm_logging(self) -> None:
         """Suppress verbose LiteLLM logging unless explicitly enabled."""
-        if os.environ.get("LITELLM_DEBUG"):
+        if os.getenv("LITELLM_DEBUG"):
             return
         cast("Any", self._litellm).suppress_debug_info = True
         logging.getLogger("litellm").setLevel(logging.WARNING)
 
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.dataset = eval_dataset
-
-    # Note: generate_answers_from_tensors() is intentionally not implemented for API engines.
-    # API engines operate on raw text prompts via generate_answers_from_prompts().
-    # The evaluators check model_engine == "api" and call the appropriate method.
 
     def generate_answers_from_prompts(
         self,
@@ -74,8 +83,10 @@ class ApiEvalEngine(EvalEngine):
             return []
 
         # Get batch concurrency from env or use default
-        concurrency = int(
-            os.environ.get("LLM_EVAL_API_CONCURRENCY", DEFAULT_API_BATCH_CONCURRENCY)
+        concurrency = _read_env_int(
+            "LLM_EVAL_API_CONCURRENCY",
+            DEFAULT_API_BATCH_CONCURRENCY,
+            min_value=1,
         )
 
         # Build base kwargs (shared params)
@@ -107,14 +118,13 @@ class ApiEvalEngine(EvalEngine):
         return answers
 
     def get_batch_size(self) -> int:
-        if self.is_judge:
-            if self.eval_config.judge_batch_size is not None:
-                return max(1, int(self.eval_config.judge_batch_size))
-            # For API judges, avoid defaulting to 1 which underutilizes concurrency.
-            return self._get_default_api_batch_size()
-        if self.eval_config.batch_size is not None:
-            return max(1, int(self.eval_config.batch_size))
-        # For API evaluated models, avoid defaulting to 1 which underutilizes concurrency.
+        configured_batch_size = (
+            self.eval_config.judge_batch_size
+            if self.is_judge
+            else self.eval_config.batch_size
+        )
+        if configured_batch_size is not None:
+            return max(1, int(configured_batch_size))
         return self._get_default_api_batch_size()
 
     def free_model(self) -> None:
@@ -130,7 +140,14 @@ class ApiEvalEngine(EvalEngine):
         self,
         sampling_config: SamplingConfig,
     ) -> dict[str, Any]:
-        """Build completion kwargs without model/messages (for batch_completion)."""
+        """Build completion kwargs without model/messages.
+
+        Args:
+            sampling_config: Sampling settings for completion generation.
+
+        Returns:
+            Provider kwargs suitable for LiteLLM `batch_completion`.
+        """
         do_sample = sampling_config.do_sample
         temperature = sampling_config.temperature
         if do_sample is False:
@@ -158,14 +175,17 @@ class ApiEvalEngine(EvalEngine):
         is left as 1, we only ever submit one request at a time and effectively
         disable parallelism. This heuristic chooses a larger default batch size
         so each batch call can saturate concurrency.
+
+        Returns:
+            A positive batch size tuned from environment concurrency settings.
         """
-        concurrency = int(
-            os.environ.get("LLM_EVAL_API_CONCURRENCY", DEFAULT_API_BATCH_CONCURRENCY)
+        concurrency = _read_env_int(
+            "LLM_EVAL_API_CONCURRENCY",
+            DEFAULT_API_BATCH_CONCURRENCY,
+            min_value=1,
         )
-        multiplier = int(
-            os.environ.get(
-                "LLM_EVAL_API_BATCH_MULTIPLIER", DEFAULT_API_BATCH_MULTIPLIER
-            )
+        multiplier = _read_env_int(
+            "LLM_EVAL_API_BATCH_MULTIPLIER", DEFAULT_API_BATCH_MULTIPLIER
         )
         estimated = max(1, concurrency * max(1, multiplier))
         if self.dataset is not None:
@@ -176,41 +196,28 @@ class ApiEvalEngine(EvalEngine):
                 return estimated
         return estimated
 
-    def _build_completion_kwargs(
-        self,
-        messages: list[dict[str, str]],
-        sampling_config: SamplingConfig,
-    ) -> dict[str, Any]:
-        """Build full completion kwargs including model and messages."""
-        kwargs = self._build_base_completion_kwargs(sampling_config)
-        kwargs["model"] = self.model_name
-        kwargs["messages"] = messages
-        return kwargs
-
     @staticmethod
     def _extract_content(response: Any) -> str:
-        if isinstance(response, dict):
-            choices = response.get("choices", [])
-            if not choices:
-                return ""
-            first = choices[0]
-            if isinstance(first, dict):
-                message = first.get("message")
-                if isinstance(message, dict):
-                    return str(message.get("content") or "")
-                return str(first.get("text") or "")
-            message = getattr(first, "message", None)
-            if message is not None:
-                return str(getattr(message, "content", "") or "")
-            return str(getattr(first, "text", "") or "")
-
-        choices = getattr(response, "choices", None)
+        choices = (
+            response.get("choices")
+            if isinstance(response, dict)
+            else getattr(response, "choices", None)
+        )
         if not choices:
             return ""
+
         first = choices[0]
-        message = getattr(first, "message", None)
+        message = (
+            first.get("message")
+            if isinstance(first, dict)
+            else getattr(first, "message", None)
+        )
+        if isinstance(message, dict):
+            return str(message.get("content") or "")
         if message is not None:
             return str(getattr(message, "content", "") or "")
+        if isinstance(first, dict):
+            return str(first.get("text") or "")
         return str(getattr(first, "text", "") or "")
 
     def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:

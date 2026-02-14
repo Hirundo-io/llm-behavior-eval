@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import pytest
+
 from llm_behavior_eval.evaluation_utils.api_eval_engine import ApiEvalEngine
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.eval_engine import (
+    PromptEvalEngine,
+    TensorEvalEngine,
+)
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 
@@ -106,6 +112,23 @@ def test_api_eval_engine_allows_missing_model_tokenizer(tmp_path, monkeypatch) -
     assert engine.tokenizer is None
 
 
+def test_api_eval_engine_implements_prompt_interface(tmp_path, monkeypatch) -> None:
+    patch_litellm(monkeypatch)
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    assert isinstance(engine, PromptEvalEngine)
+    assert not isinstance(engine, TensorEvalEngine)
+
+    assert engine.tokenizer is None
+
+
 def test_api_eval_engine_default_batch_size_uses_env_and_dataset(
     tmp_path, monkeypatch
 ) -> None:
@@ -159,3 +182,30 @@ def test_api_eval_engine_default_judge_batch_size_uses_env_and_dataset(
 
     engine.set_dataset(FakeDataset())
     assert engine.get_batch_size() == 5
+
+
+@pytest.mark.parametrize("concurrency_value", ["0", "-3"])
+def test_api_eval_engine_clamps_invalid_concurrency_for_batching(
+    tmp_path, monkeypatch, concurrency_value: str
+) -> None:
+    fake_litellm = patch_litellm(monkeypatch)
+    monkeypatch.setenv("LLM_EVAL_API_CONCURRENCY", concurrency_value)
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    prompts = [
+        [{"role": "user", "content": "First"}],
+        [{"role": "user", "content": "Second"}],
+    ]
+    answers = engine.generate_answers_from_prompts(
+        prompts,
+        SamplingConfig(do_sample=False),
+    )
+
+    assert answers == ["ok", "ok"]
+    assert len(fake_litellm.calls) == 2

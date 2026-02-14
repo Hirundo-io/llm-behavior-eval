@@ -21,7 +21,7 @@ from llm_behavior_eval.evaluation_utils.base_evaluator import (
 from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
-from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
+from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine, PromptEvalEngine
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 if TYPE_CHECKING:
@@ -274,16 +274,100 @@ def test_prepare_dataloader_api_raw_mode_uses_raw_collator(
     assert collate_fn is base_evaluator_module.raw_text_collator
 
 
+def test_generate_answers_from_tensors_requires_tensor_engine(
+    tmp_path: Path,
+) -> None:
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        model_tokenizer_path_or_repo_id=None,
+        results_dir=tmp_path,
+        batch_size=None,
+        max_samples=1,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+
+    with pytest.raises(RuntimeError, match="tensor-based generation"):
+        evaluator.generate_answers_from_tensors(
+            torch.tensor([[1]]),
+            torch.tensor([[1]]),
+        )
+
+
+def test_generate_answers_from_prompts_uses_prompt_engine(
+    tmp_path: Path,
+) -> None:
+    class StubPromptEngine(PromptEvalEngine):
+        tokenizer = None
+
+        def __init__(self) -> None:
+            self.last_prompts: list[str | list[dict[str, str]]] | None = None
+            self.last_sampling_config: SamplingConfig | None = None
+
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
+
+        def generate_answers_from_prompts(
+            self,
+            prompts: list[str | list[dict[str, str]]],
+            sampling_config: SamplingConfig,
+        ) -> list[str]:
+            self.last_prompts = prompts
+            self.last_sampling_config = sampling_config
+            return ["ok" for _ in prompts]
+
+        def set_dataset(self, eval_dataset: Sized) -> None:
+            del eval_dataset
+            return None
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def free_model(self) -> None:
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+    prompt_engine = StubPromptEngine()
+    evaluator.eval_engine = prompt_engine
+
+    answers = evaluator.generate_answers_from_prompts(["prompt-a"])
+
+    assert answers == ["ok"]
+    assert prompt_engine.last_prompts == ["prompt-a"]
+    assert isinstance(prompt_engine.last_sampling_config, SamplingConfig)
+
+
 def test_api_model_rebuilds_judge_dataset_with_judge_tokenizer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capture_state: CaptureState,
     stub_tokenizer: StubTokenizer,
 ) -> None:
+    load_calls: list[str] = []
+
+    def fake_load_tokenizer(model_name: str, **_kwargs: object) -> StubTokenizer:
+        load_calls.append(model_name)
+        return stub_tokenizer
+
     monkeypatch.setattr(
         base_evaluator_module,
         "load_tokenizer_with_transformers",
-        lambda *_args, **_kwargs: stub_tokenizer,
+        fake_load_tokenizer,
     )
     monkeypatch.setattr(
         base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
@@ -310,6 +394,7 @@ def test_api_model_rebuilds_judge_dataset_with_judge_tokenizer(
         model_tokenizer_path_or_repo_id=None,
         model_token="model-token",
         judge_engine="transformers",
+        judge_tokenizer_path_or_repo_id="meta/judge-tokenizer",
         judge_token="judge-token",
         results_dir=tmp_path,
         max_samples=1,
@@ -331,6 +416,7 @@ def test_api_model_rebuilds_judge_dataset_with_judge_tokenizer(
 
     assert capture_state.tokenizer is stub_tokenizer
     assert capture_state.token == "judge-token"
+    assert load_calls[-1] == "meta/judge-tokenizer"
 
 
 def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> None:
@@ -382,9 +468,12 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
                 {"input_ids": input_ids, "attention_mask": attention_mask}
             )
 
-    class RecordingJudgeEngine(EvalEngine):
+    class RecordingJudgeEngine(PromptEvalEngine):
         def __init__(self) -> None:
             self.calls: list[dict[str, object]] = []
+
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
 
         def generate_answers_from_tensors(
             self,

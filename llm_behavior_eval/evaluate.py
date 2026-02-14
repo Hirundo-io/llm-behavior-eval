@@ -146,7 +146,7 @@ def main(
             "--model-token", help="HuggingFace token for the model (optional)"
         ),
     ] = None,
-    model_tokenizer: Annotated[
+    model_tokenizer_path_or_repo_id: Annotated[
         str | None,
         typer.Option(
             "--model-tokenizer",
@@ -154,6 +154,17 @@ def main(
                 "Tokenizer repo id or path for the evaluated model (optional). "
                 "Use when the model repo differs from the tokenizer repo. "
                 "Not supported with --model-engine=api."
+            ),
+        ),
+    ] = None,
+    judge_tokenizer_path_or_repo_id: Annotated[
+        str | None,
+        typer.Option(
+            "--judge-tokenizer",
+            help=(
+                "Tokenizer repo id or path for the judge model (optional). "
+                "Use when the judge model repo differs from the tokenizer repo. "
+                "Not supported with --judge-engine=api."
             ),
         ),
     ] = None,
@@ -197,12 +208,13 @@ def main(
         ),
     ] = None,
     inference_engine: Annotated[
-        Literal["vllm", "transformers"] | None,
+        Literal["vllm", "transformers", "api"] | None,
         typer.Option(
             "--inference-engine",
             help=(
-                'Inference engine to use for model and judge inference. "vllm" '
-                'or "transformers". Overrides model_engine and judge_engine arguments.'
+                "Inference engine to use for both model and judge inference. "
+                '"vllm", "transformers", or "api". '
+                "Overrides model_engine and judge_engine arguments."
             ),
         ),
     ] = None,
@@ -260,19 +272,19 @@ def main(
         ),
     ] = None,
     vllm_config_format: Annotated[
-        str | None,
+        str,
         typer.Option(
             "--vllm-config-format",
             help="Model config format hint forwarded to vLLM.",
         ),
-    ] = None,
+    ] = "auto",
     vllm_load_format: Annotated[
-        str | None,
+        str,
         typer.Option(
             "--vllm-load-format",
             help="Checkpoint load format hint forwarded to vLLM.",
         ),
-    ] = None,
+    ] = "auto",
     vllm_gpu_memory_utilization: Annotated[
         float,
         typer.Option(
@@ -445,14 +457,14 @@ def main(
 
     # Compose vLLM config separately, only if using vLLM
     vllm_related_args = [inference_engine, model_engine, judge_engine]
-    using_vllm = any([arg == "vllm" for arg in vllm_related_args])
+    using_vllm = any(arg == "vllm" for arg in vllm_related_args)
     if using_vllm:
         vllm_config = VllmConfig(
             max_model_len=vllm_max_model_len,
             judge_max_model_len=vllm_judge_max_model_len or vllm_max_model_len,
             tokenizer_mode=vllm_tokenizer_mode,
-            config_format=vllm_config_format or "auto",
-            load_format=vllm_load_format or "auto",
+            config_format=vllm_config_format,
+            load_format=vllm_load_format,
             gpu_memory_utilization=vllm_gpu_memory_utilization,
         )
     else:
@@ -461,8 +473,9 @@ def main(
     eval_config = EvaluationConfig(
         model_path_or_repo_id=model_path_or_repo_id,
         model_token=model_token,
-        model_tokenizer_path_or_repo_id=model_tokenizer,
+        model_tokenizer_path_or_repo_id=model_tokenizer_path_or_repo_id,
         judge_path_or_repo_id=judge_path_or_repo_id,
+        judge_tokenizer_path_or_repo_id=judge_tokenizer_path_or_repo_id,
         judge_token=judge_token,
         results_dir=result_dir,
         mlflow_config=mlflow_config,
