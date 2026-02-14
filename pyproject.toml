@@ -31,6 +31,7 @@ requires-python = ">=3.10.12,<3.14"
 # Please only install Python >=3.10.12 or >=3.11.4 or >=3.12 to avoid GHSA-4xh5-x5gv-qwph vulnerability
 dependencies = [
   "datasets<4.0.0",
+  "pyarrow<21.0.0",
   "numpy<3.0.0",
   "pandas<3.0.0",
   "pydantic<3.0.0",

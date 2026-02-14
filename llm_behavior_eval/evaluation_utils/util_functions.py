@@ -7,7 +7,7 @@ import shutil
 from contextlib import contextmanager
 from inspect import Parameter, signature
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
 
 import torch
@@ -379,7 +379,7 @@ def load_vllm_model(
             trust_remote_code=trust_remote_code,
             dtype=dtype_literal,
             enforce_eager=enforce_eager,
-            quantization=quantization,
+            quantization=cast("Any", quantization),
             tensor_parallel_size=tensor_parallel
             if tensor_parallel is not None
             else default_tensor_parallel,

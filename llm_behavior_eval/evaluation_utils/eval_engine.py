@@ -18,6 +18,8 @@ JudgePrompt = str | list[dict[str, str]]
 
 
 class EvalEngine(ABC):
+    is_judge: bool = False
+
     @abstractmethod
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         raise NotImplementedError("Subclasses must implement set_dataset().")

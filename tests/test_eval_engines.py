@@ -346,9 +346,7 @@ def test_vllm_eval_engine_implements_prompt_and_tensor_interfaces(tmp_path) -> N
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_uses_model_tokenizer_override(
-    vllm_bundle, tmp_path
-) -> None:
+def test_vllm_eval_engine_uses_model_tokenizer_override(vllm_bundle, tmp_path) -> None:
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         model_tokenizer_path_or_repo_id="fake/tokenizer",

@@ -144,7 +144,7 @@ class BaseEvaluator(ABC):
         )
         self.mlflow_run = None
         self.parent_run = None
-        if self.mlflow_config:
+        if self.mlflow_config and self.parent_run is None:
             self._init_mlflow()
 
         self.api_raw_mode = self.model_engine == "api"
@@ -458,7 +458,7 @@ class BaseEvaluator(ABC):
         """
         self.dataset_config = dataset_config
         self._set_seed()
-        if self.mlflow_config:
+        if self.mlflow_config and self.parent_run is None:
             self._init_mlflow()
         # If we are currently in the judge context and the judge needs tokenized
         # inputs, rebuild a tokenized dataset for grading to avoid raw batches.
