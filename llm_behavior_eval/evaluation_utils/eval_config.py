@@ -7,6 +7,8 @@ from pydantic.functional_validators import model_validator
 from .sampling_config import SamplingConfig
 from .vllm_config import VllmConfig
 
+DEFAULT_JUDGE_MODEL_PATH_OR_REPO_ID = "google/gemma-3-12b-it"
+
 
 class EvaluationConfig(BaseModel):
     """
@@ -59,7 +61,7 @@ class EvaluationConfig(BaseModel):
     model_token: str | None = None
     judge_batch_size: None | int = None
     max_judge_tokens: int = 32
-    judge_path_or_repo_id: str = "google/gemma-3-12b-it"
+    judge_path_or_repo_id: str = DEFAULT_JUDGE_MODEL_PATH_OR_REPO_ID
     judge_tokenizer_path_or_repo_id: str | None = None
     judge_token: str | None = None
     sample_judge: bool = False
@@ -116,6 +118,21 @@ class EvaluationConfig(BaseModel):
             raise ValueError(
                 "judge_tokenizer_path_or_repo_id cannot be used with judge_engine='api'. "
                 "API providers handle chat formatting internally."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_api_judge_model_identifier(self):
+        """Require an explicit API-compatible judge model when judge uses API."""
+        effective_judge_engine = self.inference_engine or self.judge_engine
+        if (
+            effective_judge_engine == "api"
+            and self.judge_path_or_repo_id == DEFAULT_JUDGE_MODEL_PATH_OR_REPO_ID
+        ):
+            raise ValueError(
+                "judge_path_or_repo_id must be set to an API model identifier when "
+                "judge_engine='api' (or inference_engine='api'). "
+                "For example: openai/gpt-4o-mini."
             )
         return self
 

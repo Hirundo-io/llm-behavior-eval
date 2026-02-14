@@ -85,6 +85,13 @@ class _GenerationRecord:
     answers: list[str]
 
 
+@dataclass
+class _DatasetSamplingState:
+    num_samples: int
+    selected_sample_indices: list[int]
+    has_stereotype: bool
+
+
 class BaseEvaluator(ABC):
     @staticmethod
     def _resolve_data_collator_for_engine(engine_name: str):
@@ -122,6 +129,9 @@ class BaseEvaluator(ABC):
         )
         self._judge_dataset: HFDataset | None = None
         self._selected_sample_indices: list[int] = []
+        self._dataset_sampling_state_by_key: dict[
+            tuple[str, str, int | None], _DatasetSamplingState
+        ] = {}
 
         self._set_seed()
 
@@ -303,6 +313,7 @@ class BaseEvaluator(ABC):
         )
         # propagate flag
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
+        self._store_current_dataset_sampling_state()
 
         # If we ran in API raw mode but the judge needs tokenized inputs, the
         # tokenized dataset must be prepared separately for the judge engine.
@@ -329,8 +340,9 @@ class BaseEvaluator(ABC):
             pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
             token=self.eval_config.judge_token,
         )
+        self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
         tokenized_dataset = tokenized_dataset.shuffle(seed=self.dataset_config.seed)
-        selected_indices = self._selected_sample_indices
+        selected_indices = list(self._selected_sample_indices)
         if not selected_indices:
             num_samples = (
                 min(len(tokenized_dataset), self.eval_config.max_samples)
@@ -338,6 +350,14 @@ class BaseEvaluator(ABC):
                 else len(tokenized_dataset)
             )
             selected_indices = list(range(num_samples))
+        if selected_indices and max(selected_indices) >= len(tokenized_dataset):
+            raise RuntimeError(
+                "Selected sample indices are out of range for the current dataset. "
+                "Regenerate outputs for this dataset to refresh sampled indices."
+            )
+        self.num_samples = len(selected_indices)
+        self._selected_sample_indices = selected_indices
+        self._store_current_dataset_sampling_state()
         # Reuse the exact sampled indices from generation to keep judge/model alignment.
         return tokenized_dataset.select(selected_indices)
 
@@ -444,7 +464,12 @@ class BaseEvaluator(ABC):
             getattr(self.eval_engine, "is_judge", False)
             and self._judge_dataset_needs_rebuild
         ):
+            # In judge context we skip prepare_dataloader, so restore the exact
+            # sampled metadata captured during generation for this dataset.
+            if not self._restore_dataset_sampling_state():
+                self._selected_sample_indices = []
             self.eval_dataset = self._build_tokenized_dataset_for_judge()
+            self._judge_dataset = self.eval_dataset
             self.eval_engine.set_dataset(self.eval_dataset)
             self.eval_loader = DataLoader(
                 cast("TorchDataset", self.eval_dataset),
@@ -455,6 +480,38 @@ class BaseEvaluator(ABC):
         else:
             self.prepare_dataloader()
         self._ensure_run_configuration_allowed()
+
+    def _dataset_state_key(self) -> tuple[str, str, int | None]:
+        dataset_type = (
+            self.dataset_config.dataset_type.value
+            if hasattr(self.dataset_config.dataset_type, "value")
+            else str(self.dataset_config.dataset_type)
+        )
+        return (
+            self.dataset_config.file_path,
+            dataset_type,
+            self.dataset_config.seed,
+        )
+
+    def _store_current_dataset_sampling_state(self) -> None:
+        self._dataset_sampling_state_by_key[self._dataset_state_key()] = (
+            _DatasetSamplingState(
+                num_samples=self.num_samples,
+                selected_sample_indices=list(self._selected_sample_indices),
+                has_stereotype=self.has_stereotype,
+            )
+        )
+
+    def _restore_dataset_sampling_state(self) -> bool:
+        cached_state = self._dataset_sampling_state_by_key.get(
+            self._dataset_state_key()
+        )
+        if cached_state is None:
+            return False
+        self.num_samples = cached_state.num_samples
+        self._selected_sample_indices = list(cached_state.selected_sample_indices)
+        self.has_stereotype = cached_state.has_stereotype
+        return True
 
     @abstractmethod
     def get_grading_context(self) -> AbstractContextManager:

@@ -419,6 +419,129 @@ def test_api_model_rebuilds_judge_dataset_with_judge_tokenizer(
     assert load_calls[-1] == "meta/judge-tokenizer"
 
 
+def test_update_dataset_config_restores_dataset_state_in_judge_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_tokenizer: StubTokenizer,
+) -> None:
+    selected_indices_by_dataset: list[tuple[str, list[int]]] = []
+    dataset_specs = {
+        "repo/dataset-a": (2, False),
+        "repo/dataset-b": (5, True),
+    }
+
+    class StubDataset:
+        def __init__(self, file_path: str) -> None:
+            self._file_path = file_path
+            self._size = dataset_specs[file_path][0]
+
+        def shuffle(self, *, seed: int) -> StubDataset:
+            del seed
+            return self
+
+        def select(self, indices: list[int]) -> StubDataset:
+            if indices and max(indices) >= self._size:
+                raise IndexError("selected index out of range")
+            selected_indices_by_dataset.append((self._file_path, list(indices)))
+            return self
+
+        def __len__(self) -> int:
+            return self._size
+
+    class StubCustomDataset:
+        def __init__(self, file_path: str, dataset_type: DatasetType) -> None:
+            del dataset_type
+            self.file_path = file_path
+            self.has_stereotype = dataset_specs[file_path][1]
+
+        def preprocess(
+            self,
+            tokenizer: StubTokenizer | None,
+            _preprocess_config: object,
+            *,
+            trust_remote_code: bool,
+            max_answer_tokens: int | None,
+            reasoning: bool,
+            pass_max_answer_tokens: bool,
+            token: str | None = None,
+        ) -> StubDataset:
+            del tokenizer
+            del trust_remote_code
+            del max_answer_tokens
+            del reasoning
+            del pass_max_answer_tokens
+            del token
+            return StubDataset(self.file_path)
+
+    monkeypatch.setattr(base_evaluator_module, "CustomDataset", StubCustomDataset)
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: stub_tokenizer,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "empty_cuda_cache_if_available",
+        lambda: None,
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: EvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        model_tokenizer_path_or_repo_id=None,
+        judge_engine="transformers",
+        judge_tokenizer_path_or_repo_id="meta/judge-tokenizer",
+        results_dir=tmp_path,
+        max_samples=4,
+    )
+    dataset_a = DatasetConfig(
+        file_path="repo/dataset-a",
+        dataset_type=DatasetType.BIAS,
+        seed=7,
+    )
+    dataset_b = DatasetConfig(
+        file_path="repo/dataset-b",
+        dataset_type=DatasetType.BIAS,
+        seed=7,
+    )
+
+    evaluator = StubEvaluator(evaluation_config, dataset_a)
+    assert evaluator._selected_sample_indices == [0, 1]
+    assert evaluator.num_samples == 2
+    assert evaluator.has_stereotype is False
+
+    # Simulate generation phase iterating to another dataset.
+    evaluator.update_dataset_config(dataset_b)
+    assert evaluator._selected_sample_indices == [0, 1, 2, 3]
+    assert evaluator.num_samples == 4
+    assert evaluator.has_stereotype is True
+
+    # Simulate grading phase moving back to dataset A while judge engine is active.
+    with evaluator.get_grading_context() as _judge:
+        evaluator.update_dataset_config(dataset_a)
+        assert evaluator._selected_sample_indices == [0, 1]
+        assert evaluator.num_samples == 2
+        assert evaluator.has_stereotype is False
+
+    assert ("repo/dataset-a", [0, 1]) in selected_indices_by_dataset
+    assert ("repo/dataset-b", [0, 1, 2, 3]) in selected_indices_by_dataset
+
+
 def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> None:
     class StubJudgeTokenizer(PreTrainedTokenizerBase):
         def __call__(

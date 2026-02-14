@@ -142,9 +142,22 @@ def test_main_allows_api_inference_engine(
         "openai/gpt-4o-mini",
         "hallu",
         inference_engine="api",
+        judge_model="openai/gpt-4o-mini",
     )
     eval_config = capture_eval_config[-1]
     assert eval_config.inference_engine == "api"
+
+
+def test_main_rejects_api_inference_engine_with_default_judge_model() -> None:
+    with pytest.raises(
+        ValueError,
+        match="judge_path_or_repo_id must be set to an API model identifier",
+    ):
+        evaluate.main(
+            "openai/gpt-4o-mini",
+            "hallu",
+            inference_engine="api",
+        )
 
 
 def test_main_passes_judge_tokenizer_override(

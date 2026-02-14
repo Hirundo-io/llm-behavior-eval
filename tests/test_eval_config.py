@@ -107,3 +107,43 @@ def test_eval_config_allows_judge_tokenizer_with_local_judge_engine(
         judge_engine="transformers",
     )
     assert config.judge_tokenizer_path_or_repo_id == "meta/judge-tokenizer"
+
+
+def test_eval_config_rejects_default_judge_model_with_api_judge_engine(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="judge_path_or_repo_id must be set to an API model identifier",
+    ):
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            judge_engine="api",
+        )
+
+
+def test_eval_config_rejects_default_judge_model_with_api_inference_engine(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="judge_path_or_repo_id must be set to an API model identifier",
+    ):
+        EvaluationConfig(
+            model_path_or_repo_id="openai/gpt-4o",
+            results_dir=tmp_path,
+            inference_engine="api",
+        )
+
+
+def test_eval_config_allows_explicit_api_judge_model(
+    tmp_path: Path,
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        results_dir=tmp_path,
+        inference_engine="api",
+        judge_path_or_repo_id="openai/gpt-4o-mini",
+    )
+    assert config.judge_path_or_repo_id == "openai/gpt-4o-mini"
