@@ -246,7 +246,7 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
     assert capture_state.engine_dataset == evaluator.eval_dataset
 
 
-def test_prepare_dataloader_api_raw_mode_uses_raw_collator(
+def test_prepare_dataloader_api_model_uses_raw_collator(
     tmp_path: Path,
     capture_state: CaptureState,
 ) -> None:
@@ -267,7 +267,6 @@ def test_prepare_dataloader_api_raw_mode_uses_raw_collator(
 
     assert capture_state.tokenizer is None
     assert evaluator.tokenizer is None
-    assert evaluator.api_raw_mode is True
     assert capture_state.dataloader_args is not None
     _, batch_size, _, collate_fn = capture_state.dataloader_args
     assert batch_size == 3
@@ -405,8 +404,6 @@ def test_api_model_rebuilds_judge_dataset_with_judge_tokenizer(
     )
 
     evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
-
-    assert evaluator._judge_dataset_needs_rebuild is True
 
     with evaluator.get_grading_context() as _judge_engine:
         assert capture_state.set_dataset_calls

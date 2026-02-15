@@ -214,15 +214,77 @@ class CustomDataset:
         self.dataset_type = dataset_type
         try:
             raw = load_dataset(str(self.file_path))
+        except NotImplementedError as exc:
+            raw = self._load_dataset_hub_tabular_fallback(exc)
         except (OSError, ValueError) as exc:
             raise RuntimeError(
                 f"Failed to load dataset '{self.file_path}'. "
                 "Check that the identifier is correct."
             ) from exc
-        if not isinstance(raw, DatasetDict):
-            raise ValueError(f"Expected DatasetDict, got {type(raw)}")
-        self.ds = cast("Dataset", raw["train"])
+        if isinstance(raw, DatasetDict):
+            self.ds = cast("Dataset", raw["train"])
+        elif isinstance(raw, Dataset):
+            self.ds = raw
+        else:
+            raise ValueError(f"Expected DatasetDict or Dataset, got {type(raw)}")
         self.has_stereotype: bool = "stereotyped_answer" in self.ds.column_names
+
+    def _load_dataset_hub_tabular_fallback(self, original_exc: Exception) -> Dataset:
+        """
+        Fallback for environments where `datasets.load_dataset` cannot read
+        cached LocalFileSystem datasets.
+        """
+        dataset_ref = str(self.file_path)
+        logging.warning(
+            "Primary dataset loading failed for '%s' (%s). Falling back to direct CSV loading.",
+            dataset_ref,
+            original_exc,
+        )
+        try:
+            from huggingface_hub import hf_hub_download, list_repo_files
+        except ImportError as exc:
+            raise RuntimeError(
+                "Fallback dataset loading requires `huggingface_hub`."
+            ) from exc
+
+        try:
+            repo_files = list_repo_files(dataset_ref, repo_type="dataset")
+            tabular_files = [
+                f
+                for f in repo_files
+                if f.lower().endswith((".parquet", ".csv", ".json", ".jsonl"))
+            ]
+            if not tabular_files:
+                raise RuntimeError(
+                    f"No supported dataset files found in dataset repository '{dataset_ref}'."
+                )
+            preferred_file = next(
+                (
+                    f
+                    for f in tabular_files
+                    if Path(f).name in {"train.csv", "train.parquet", "train.json"}
+                ),
+                tabular_files[0],
+            )
+            local_file_path = hf_hub_download(
+                repo_id=dataset_ref,
+                filename=preferred_file,
+                repo_type="dataset",
+            )
+            import pandas as pd
+
+            lower_name = preferred_file.lower()
+            if lower_name.endswith(".parquet"):
+                df = pd.read_parquet(local_file_path)
+            elif lower_name.endswith(".csv"):
+                df = pd.read_csv(local_file_path)
+            else:
+                df = pd.read_json(local_file_path, lines=lower_name.endswith(".jsonl"))
+            return Dataset.from_pandas(df, preserve_index=False)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to load dataset '{dataset_ref}' via fallback file path."
+            ) from exc
 
     def preprocess(
         self,
