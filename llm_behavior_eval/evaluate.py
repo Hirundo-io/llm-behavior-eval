@@ -155,7 +155,9 @@ def main(
             "--output-dir",
             help=(
                 "Output directory for evaluation results (optional). "
-                "Defaults to an OS-specific data directory."
+                "Defaults to: macOS ~/Library/Application Support/llm-behavior-eval/results; "
+                "Linux $XDG_DATA_HOME/llm-behavior-eval/results (or ~/.local/share/llm-behavior-eval/results); "
+                "Windows %LOCALAPPDATA%\\llm-behavior-eval\\results."
             ),
         ),
     ] = None,
