@@ -305,10 +305,13 @@ class BaseEvaluator(ABC):
         )
         tokenizer = self.tokenizer
         preprocess_config = self.dataset_config.preprocess_config
-        self.eval_engine.set_preprocess_limits(
-            preprocess_config.max_length,
-            preprocess_config.gt_max_length,
-        )
+        raw_text_truncator = None
+        if not getattr(self.eval_engine, "is_judge", False):
+            self.eval_engine.set_preprocess_limits(
+                preprocess_config.max_length,
+                preprocess_config.gt_max_length,
+            )
+            raw_text_truncator = self.eval_engine.get_raw_text_truncator()
         test_dataset = custom_dataset.preprocess(
             tokenizer,
             preprocess_config,
@@ -317,7 +320,7 @@ class BaseEvaluator(ABC):
             reasoning=self.eval_config.reasoning,
             pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
             token=self.eval_config.model_token,
-            raw_text_truncator=self.eval_engine.get_raw_text_truncator(),
+            raw_text_truncator=raw_text_truncator,
         )
         # Deterministic shuffle before sampling
         test_dataset = test_dataset.shuffle(seed=self._resolved_dataset_shuffle_seed())

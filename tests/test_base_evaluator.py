@@ -54,6 +54,7 @@ class CaptureState:
     pass_max_answer_tokens: bool | None = None
     token: str | None = None
     preprocess_limits: tuple[int, int] | None = None
+    preprocess_limit_calls: list[tuple[bool, int, int]] = field(default_factory=list)
     raw_text_truncator: object | None = None
     init_args: tuple[str, DatasetType] | None = None
     engine_inits: list[bool] = field(default_factory=list)
@@ -125,6 +126,9 @@ def patch_eval_engine(
 
         def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
             capture_state.preprocess_limits = (max_length, gt_max_length)
+            capture_state.preprocess_limit_calls.append(
+                (self.is_judge, max_length, gt_max_length)
+            )
 
         def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
             return None
@@ -837,6 +841,60 @@ def test_get_grading_context_supports_api_judge_engine(
         assert isinstance(judge_engine, StubApiJudgeEngine)
         assert judge_engine.is_judge is True
         assert judge_engine.dataset is evaluator.eval_dataset
+
+
+def test_update_dataset_config_in_api_judge_context_does_not_set_judge_preprocess_limits(
+    tmp_path: Path,
+    capture_state: CaptureState,
+) -> None:
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: EvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o-mini",
+        model_engine="api",
+        judge_engine="api",
+        judge_path_or_repo_id="openai/gpt-4o-mini",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_a = DatasetConfig(
+        file_path="repo/dataset-a",
+        dataset_type=DatasetType.BIAS,
+    )
+    dataset_b = DatasetConfig(
+        file_path="repo/dataset-b",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_a)
+
+    # Initial model-engine dataloader setup sets preprocess limits once.
+    assert capture_state.preprocess_limit_calls == [
+        (
+            False,
+            dataset_a.preprocess_config.max_length,
+            dataset_a.preprocess_config.gt_max_length,
+        )
+    ]
+
+    with evaluator.get_grading_context():
+        evaluator.update_dataset_config(dataset_b)
+
+    # In judge context, prepare_dataloader must not push preprocessing limits
+    # onto the judge engine to avoid truncating judge prompts by dataset limits.
+    assert all(not is_judge for is_judge, _, _ in capture_state.preprocess_limit_calls)
 
 
 def test_prepare_judge_tokenizer_after_free_judge_does_not_raise(
