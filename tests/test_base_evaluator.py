@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -126,7 +126,7 @@ def patch_eval_engine(
         def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
             capture_state.preprocess_limits = (max_length, gt_max_length)
 
-        def get_raw_text_truncator(self):
+        def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
             return None
 
     monkeypatch.setattr(base_evaluator_module, "TransformersEvalEngine", StubEvalEngine)
@@ -139,11 +139,13 @@ def patch_eval_engine(
             self._explicit_batch_size = eval_config.batch_size
             self.dataset: Sized | None = None
             self.is_judge = is_judge
-            self._raw_text_truncator = lambda text, max_tokens: text[:max_tokens]
+            self._raw_text_truncator: Callable[[str, int], str] = (
+                lambda text, max_tokens: text[:max_tokens]
+            )
             capture_state.data_collator = None
             capture_state.engine_inits.append(is_judge)
 
-        def get_raw_text_truncator(self):
+        def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
             return self._raw_text_truncator
 
     monkeypatch.setattr(api_eval_engine_module, "ApiEvalEngine", StubApiEvalEngine)
@@ -876,7 +878,7 @@ def test_prepare_judge_tokenizer_after_free_judge_does_not_raise(
     )
     evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
 
-    evaluator.judge_tokenizer = StubTokenizer()
+    evaluator.judge_tokenizer = cast("PreTrainedTokenizerBase", StubTokenizer())
     evaluator.free_judge()
 
     assert hasattr(evaluator, "judge_tokenizer")
