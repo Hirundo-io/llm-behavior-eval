@@ -52,6 +52,14 @@ class EvalEngine(ABC):
         del max_length, gt_max_length
         return None
 
+    def should_combine_judge_prompt_groups(self) -> bool:
+        """
+        Whether grouped judge prompts should be coalesced into one engine call.
+
+        API engines benefit from this to maximize provider-side batching.
+        """
+        return False
+
     @staticmethod
     def _get_model_path_or_repo_id(
         eval_config: EvaluationConfig, is_judge: bool

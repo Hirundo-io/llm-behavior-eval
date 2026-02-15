@@ -91,6 +91,9 @@ class ApiEvalEngine(PromptEvalEngine):
         self._max_input_tokens = max(0, int(max_length))
         self._max_ref_tokens = max(0, int(gt_max_length))
 
+    def should_combine_judge_prompt_groups(self) -> bool:
+        return True
+
     def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
         return self._truncate_text_to_model_tokens
 

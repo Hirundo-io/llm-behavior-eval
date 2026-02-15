@@ -305,7 +305,7 @@ candidate_uncertain: "<yes|no>"
             ]
             uncertainty_prompts.append(self.format_judge_messages(messages))
 
-        if self.judge_engine == "api":
+        if judge_engine.should_combine_judge_prompt_groups():
             # One combined judge call improves throughput by exposing more prompts
             # to LiteLLM's parallelism in a single batch_completion invocation.
             combined_prompts: list[JudgePrompt] = []
