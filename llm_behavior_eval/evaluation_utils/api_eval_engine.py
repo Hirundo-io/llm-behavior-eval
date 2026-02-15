@@ -61,7 +61,6 @@ class ApiEvalEngine(PromptEvalEngine):
         self._litellm = self._load_litellm()
         self._suppress_litellm_logging()
         self._max_input_tokens: int | None = None
-        self._max_ref_tokens: int | None = None
         self._token_truncation_warning_logged = False
         self._message_trim_warning_logged = False
 
@@ -89,7 +88,7 @@ class ApiEvalEngine(PromptEvalEngine):
 
     def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
         self._max_input_tokens = max(0, int(max_length))
-        self._max_ref_tokens = max(0, int(gt_max_length))
+        del gt_max_length
 
     def should_combine_judge_prompt_groups(self) -> bool:
         return True
