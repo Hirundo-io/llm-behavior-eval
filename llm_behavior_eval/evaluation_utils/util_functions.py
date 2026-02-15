@@ -47,6 +47,10 @@ if TYPE_CHECKING:
 DIGEST_SIZE_FOR_PEFT_PATHS = 8
 
 
+def raw_text_collator(batch: list[dict[str, Any]]) -> dict[str, list[Any]]:
+    return {key: [item[key] for item in batch] for key in batch[0]}
+
+
 def empty_cuda_cache_if_available() -> None:
     """Free CUDA cache if GPUs are available."""
 

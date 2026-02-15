@@ -143,24 +143,19 @@ Use API mode when:
 - You have a model running on a separate inference server
 - You need to separate the evaluation process from model serving
 
-Install the API core dependency first:
-```bash
-uv pip install llm-behavior-eval[api]
-```
-
-Install only the provider SDKs you need:
+Install the provider extras you need:
 ```bash
 # OpenAI only
-uv pip install llm-behavior-eval[api,api-openai]
+uv pip install llm-behavior-eval[api-openai]
 
 # Anthropic only
-uv pip install llm-behavior-eval[api,api-anthropic]
+uv pip install llm-behavior-eval[api-anthropic]
 
 # Vertex AI only
-uv pip install llm-behavior-eval[api,api-vertex]
+uv pip install llm-behavior-eval[api-vertex]
 
 # Bedrock only
-uv pip install llm-behavior-eval[api,api-bedrock]
+uv pip install llm-behavior-eval[api-bedrock]
 
 # Everything
 uv pip install llm-behavior-eval[api-all]
@@ -296,7 +291,7 @@ export LLM_EVAL_API_CONCURRENCY=20  # Default is 10
 
 Need more control or wrappers around the library? Explore the scripts in `examples/` to see how to call the evaluators from Python directly, customize additional knobs, or embed the run inside your own orchestration logic.
 
-To enable API-based judge models, install `llm-behavior-eval[api]` plus the provider extras you need (for example `api-openai`, `api-anthropic`, `api-bedrock`, or `api-vertex`), and configure the relevant provider credentials (e.g., `OPENAI_API_KEY`, `AZURE_API_KEY`, `AWS_ACCESS_KEY_ID`, or `GOOGLE_APPLICATION_CREDENTIALS`). The judge prompt will be sent directly to the selected provider using LiteLLM's routing rules.
+To enable API-based judge models, install the provider extras you need (for example `api-openai`, `api-anthropic`, `api-bedrock`, or `api-vertex`) or install `api-all`, and configure the relevant provider credentials (e.g., `OPENAI_API_KEY`, `AZURE_API_KEY`, `AWS_ACCESS_KEY_ID`, or `GOOGLE_APPLICATION_CREDENTIALS`). The judge prompt will be sent directly to the selected provider using LiteLLM's routing rules.
 
 See `examples/presets_customization.py` for a minimal script-based workflow.
 

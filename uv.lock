@@ -2517,9 +2517,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-api = [
-    { name = "litellm" },
-]
 api-all = [
     { name = "anthropic" },
     { name = "boto3" },
@@ -2529,15 +2526,19 @@ api-all = [
 ]
 api-anthropic = [
     { name = "anthropic" },
+    { name = "litellm" },
 ]
 api-bedrock = [
     { name = "boto3" },
+    { name = "litellm" },
 ]
 api-openai = [
+    { name = "litellm" },
     { name = "openai" },
 ]
 api-vertex = [
     { name = "google-cloud-aiplatform" },
+    { name = "litellm" },
 ]
 gcs = [
     { name = "google-cloud-storage" },
@@ -2575,8 +2576,11 @@ requires-dist = [
     { name = "google-cloud-aiplatform", marker = "extra == 'api-all'", specifier = ">=1.71.0" },
     { name = "google-cloud-aiplatform", marker = "extra == 'api-vertex'", specifier = ">=1.71.0" },
     { name = "google-cloud-storage", marker = "extra == 'gcs'" },
-    { name = "litellm", marker = "extra == 'api'", specifier = ">=1.53.0" },
     { name = "litellm", marker = "extra == 'api-all'", specifier = ">=1.53.0" },
+    { name = "litellm", marker = "extra == 'api-anthropic'", specifier = ">=1.53.0" },
+    { name = "litellm", marker = "extra == 'api-bedrock'", specifier = ">=1.53.0" },
+    { name = "litellm", marker = "extra == 'api-openai'", specifier = ">=1.53.0" },
+    { name = "litellm", marker = "extra == 'api-vertex'", specifier = ">=1.53.0" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.0.0" },
     { name = "networkx", specifier = "<4.0.0" },
     { name = "numpy", specifier = "<3.0.0" },
@@ -2594,7 +2598,7 @@ requires-dist = [
     { name = "typer", specifier = "<1.0.0" },
     { name = "vllm", marker = "extra == 'vllm'", specifier = ">=0.13.0" },
 ]
-provides-extras = ["mlflow", "vllm", "api", "api-openai", "api-anthropic", "api-bedrock", "api-vertex", "api-all", "gcs"]
+provides-extras = ["mlflow", "vllm", "api-openai", "api-anthropic", "api-bedrock", "api-vertex", "api-all", "gcs"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -33,6 +33,7 @@ from .util_functions import (
     config_to_dict,
     empty_cuda_cache_if_available,
     load_tokenizer_with_transformers,
+    raw_text_collator,
     safe_apply_chat_template,
 )
 
@@ -69,10 +70,6 @@ def custom_collator(batch):
         )
         for key in batch[0]
     }
-
-
-def raw_text_collator(batch):
-    return {key: [item[key] for item in batch] for key in batch[0]}
 
 
 @dataclass

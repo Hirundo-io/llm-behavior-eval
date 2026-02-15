@@ -73,7 +73,8 @@ class ApiEvalEngine(PromptEvalEngine):
         except ImportError as exc:
             raise ImportError(
                 "litellm is required for API-based models. "
-                "Install it with `pip install llm-behavior-eval[api]`."
+                "Install it with `uv pip install llm-behavior-eval[api-all]` "
+                "or a provider extra like `[api-openai]`."
             ) from exc
 
     def _suppress_litellm_logging(self) -> None:
