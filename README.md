@@ -136,16 +136,34 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 
 ### API-Based Model Evaluation
 
-In addition to local inference (`--model-engine transformers` or `--model-engine vllm`), you can evaluate models served via **remote API endpoints** using `--model-engine api`. This uses [LiteLLM](https://docs.litellm.ai/) under the hood, supporting Azure OpenAI, OpenAI, Anthropic, Vertex AI, Bedrock, and any OpenAI-compatible endpoint.
+In addition to local inference (`--model-engine transformers` or `--model-engine vllm`), you can evaluate models served via **remote API endpoints** using `--model-engine api` (model only), `--judge-engine api` (judge only), or `--inference-engine api` (both model and judge). This uses [LiteLLM](https://docs.litellm.ai/) under the hood, supporting Azure OpenAI, OpenAI, Anthropic, Vertex AI, Bedrock, and any OpenAI-compatible endpoint.
 
 Use API mode when:
 - You want to evaluate hosted models (GPT-4o, Claude, etc.)
 - You have a model running on a separate inference server
 - You need to separate the evaluation process from model serving
 
-Install the API dependencies first:
+Install the API core dependency first:
 ```bash
-pip install llm-behavior-eval[api]
+uv pip install llm-behavior-eval[api]
+```
+
+Install only the provider SDKs you need:
+```bash
+# OpenAI only
+uv pip install llm-behavior-eval[api,api-openai]
+
+# Anthropic only
+uv pip install llm-behavior-eval[api,api-anthropic]
+
+# Vertex AI only
+uv pip install llm-behavior-eval[api,api-vertex]
+
+# Bedrock only
+uv pip install llm-behavior-eval[api,api-bedrock]
+
+# Everything
+uv pip install llm-behavior-eval[api-all]
 ```
 
 #### Azure OpenAI
@@ -167,8 +185,7 @@ llm-behavior-eval "azure/gpt-4o" bias:age \
 Use Azure models for both evaluation and judging:
 ```bash
 llm-behavior-eval "azure/gpt-4o" hallu \
-    --model-engine api \
-    --judge-engine api \
+    --inference-engine api \
     --judge-model "azure/gpt-4o-mini"
 ```
 
@@ -279,7 +296,7 @@ export LLM_EVAL_API_CONCURRENCY=20  # Default is 10
 
 Need more control or wrappers around the library? Explore the scripts in `examples/` to see how to call the evaluators from Python directly, customize additional knobs, or embed the run inside your own orchestration logic.
 
-To enable API-based judge models, install the optional dependencies with `pip install llm-behavior-eval[api]` and configure the relevant provider credentials (e.g., `OPENAI_API_KEY`, `AZURE_API_KEY`, `AWS_ACCESS_KEY_ID`, or `GOOGLE_APPLICATION_CREDENTIALS`). The judge prompt will be sent directly to the selected provider using LiteLLM's routing rules.
+To enable API-based judge models, install `llm-behavior-eval[api]` plus the provider extras you need (for example `api-openai`, `api-anthropic`, `api-bedrock`, or `api-vertex`), and configure the relevant provider credentials (e.g., `OPENAI_API_KEY`, `AZURE_API_KEY`, `AWS_ACCESS_KEY_ID`, or `GOOGLE_APPLICATION_CREDENTIALS`). The judge prompt will be sent directly to the selected provider using LiteLLM's routing rules.
 
 See `examples/presets_customization.py` for a minimal script-based workflow.
 

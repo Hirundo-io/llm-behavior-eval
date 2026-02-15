@@ -2518,11 +2518,26 @@ dependencies = [
 
 [package.optional-dependencies]
 api = [
+    { name = "litellm" },
+]
+api-all = [
     { name = "anthropic" },
     { name = "boto3" },
     { name = "google-cloud-aiplatform" },
     { name = "litellm" },
     { name = "openai" },
+]
+api-anthropic = [
+    { name = "anthropic" },
+]
+api-bedrock = [
+    { name = "boto3" },
+]
+api-openai = [
+    { name = "openai" },
+]
+api-vertex = [
+    { name = "google-cloud-aiplatform" },
 ]
 gcs = [
     { name = "google-cloud-storage" },
@@ -2538,7 +2553,7 @@ vllm = [
 dev = [
     { name = "basedpyright" },
     { name = "bumpver" },
-    { name = "llm-behavior-eval", extra = ["api", "gcs", "mlflow", "vllm"] },
+    { name = "llm-behavior-eval", extra = ["api-all", "gcs", "mlflow", "vllm"] },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "ruff" },
@@ -2551,17 +2566,22 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", specifier = "<2.0.0" },
-    { name = "anthropic", marker = "extra == 'api'", specifier = ">=0.71.0" },
+    { name = "anthropic", marker = "extra == 'api-all'", specifier = ">=0.71.0" },
+    { name = "anthropic", marker = "extra == 'api-anthropic'", specifier = ">=0.71.0" },
     { name = "bitsandbytes", marker = "sys_platform != 'darwin'", specifier = "<1.0.0" },
-    { name = "boto3", marker = "extra == 'api'", specifier = ">=1.34.0" },
+    { name = "boto3", marker = "extra == 'api-all'", specifier = ">=1.34.0" },
+    { name = "boto3", marker = "extra == 'api-bedrock'", specifier = ">=1.34.0" },
     { name = "datasets", specifier = "<4.0.0" },
-    { name = "google-cloud-aiplatform", marker = "extra == 'api'", specifier = ">=1.71.0" },
+    { name = "google-cloud-aiplatform", marker = "extra == 'api-all'", specifier = ">=1.71.0" },
+    { name = "google-cloud-aiplatform", marker = "extra == 'api-vertex'", specifier = ">=1.71.0" },
     { name = "google-cloud-storage", marker = "extra == 'gcs'" },
     { name = "litellm", marker = "extra == 'api'", specifier = ">=1.53.0" },
+    { name = "litellm", marker = "extra == 'api-all'", specifier = ">=1.53.0" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.0.0" },
     { name = "networkx", specifier = "<4.0.0" },
     { name = "numpy", specifier = "<3.0.0" },
-    { name = "openai", marker = "extra == 'api'", specifier = ">=2.6.0" },
+    { name = "openai", marker = "extra == 'api-all'", specifier = ">=2.6.0" },
+    { name = "openai", marker = "extra == 'api-openai'", specifier = ">=2.6.0" },
     { name = "pandas", specifier = "<3.0.0" },
     { name = "protobuf", specifier = "<7.0.0" },
     { name = "pydantic", specifier = "<3.0.0" },
@@ -2574,13 +2594,13 @@ requires-dist = [
     { name = "typer", specifier = "<1.0.0" },
     { name = "vllm", marker = "extra == 'vllm'", specifier = ">=0.13.0" },
 ]
-provides-extras = ["mlflow", "vllm", "api", "gcs"]
+provides-extras = ["mlflow", "vllm", "api", "api-openai", "api-anthropic", "api-bedrock", "api-vertex", "api-all", "gcs"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "basedpyright", specifier = ">=1.31.6" },
     { name = "bumpver", specifier = ">=2024.1130" },
-    { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "api"], editable = "." },
+    { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "api-all"], editable = "." },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "ruff", specifier = ">=0.11.11,<1.0.0" },
