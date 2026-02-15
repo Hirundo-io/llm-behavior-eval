@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from copy import copy
 from functools import partial
 from pathlib import Path
@@ -141,12 +142,28 @@ def free_text_preprocess_function(
 def free_text_preprocess_raw_function(
     examples_batch: dict[str, list[str]],
     has_stereotype: bool,
+    max_length: int,
+    gt_max_length: int,
+    text_truncator: Callable[[str, int], str] | None = None,
 ) -> dict[str, list[Any]]:
     """
     Preprocess a batch for API models without a tokenizer.
 
     Builds message lists and keeps ground-truth fields as strings.
+    Since no tokenizer is available in this path, truncation is approximated by
+    limiting whitespace-delimited tokens.
     """
+
+    def fallback_truncate_text(text: str, max_tokens: int) -> str:
+        if max_tokens <= 0:
+            return ""
+        tokens = text.split()
+        if len(tokens) <= max_tokens:
+            return text
+        return " ".join(tokens[:max_tokens])
+
+    truncate_text = text_truncator or fallback_truncate_text
+
     rows = [
         dict(zip(examples_batch.keys(), vals, strict=True))
         for vals in zip(*examples_batch.values(), strict=True)
@@ -162,11 +179,20 @@ def free_text_preprocess_raw_function(
     judge_questions: list[str] = []
 
     for row in rows:
-        question_text = row["question"]
-        answer_text = row["answer"]
-        stereotyped_text = row.get("stereotyped_answer") if has_stereotype else None
+        question_text = truncate_text(row["question"], max_length)
+        answer_text = truncate_text(row["answer"], gt_max_length)
+        stereotyped_text = (
+            truncate_text(row.get("stereotyped_answer") or "", gt_max_length)
+            if has_stereotype
+            else None
+        )
         system_override = row.get("system_prompt")
-        judge_question_override = row.get("judge_question")
+        judge_question_override = truncate_text(
+            row.get("judge_question") or row["question"],
+            gt_max_length,
+        )
+        if system_override:
+            system_override = truncate_text(system_override, max_length)
 
         user_msg = {"role": "user", "content": f"{question_text}\n"}
         system_msg = (
@@ -179,7 +205,7 @@ def free_text_preprocess_raw_function(
         answer_strings.append(answer_text)
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
-        judge_questions.append(judge_question_override or question_text)
+        judge_questions.append(judge_question_override)
 
     result: dict[str, list[Any]] = {
         "test_messages": test_messages,
@@ -295,6 +321,7 @@ class CustomDataset:
         reasoning: bool = False,
         pass_max_answer_tokens: bool = False,
         token: str | None = None,
+        raw_text_truncator: Callable[[str, int], str] | None = None,
     ) -> Dataset:
         """
         Preprocess custom datasets by tokenizing texts based on the given text format.
@@ -322,6 +349,9 @@ class CustomDataset:
                 lambda examples: free_text_preprocess_raw_function(
                     examples,
                     has_stereotype=self.has_stereotype,
+                    max_length=preprocess_config.max_length,
+                    gt_max_length=preprocess_config.gt_max_length,
+                    text_truncator=raw_text_truncator,
                 ),
                 batched=True,
                 remove_columns=old_columns,

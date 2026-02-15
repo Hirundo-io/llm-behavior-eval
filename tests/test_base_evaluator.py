@@ -53,6 +53,8 @@ class CaptureState:
     reasoning: bool | None = None
     pass_max_answer_tokens: bool | None = None
     token: str | None = None
+    preprocess_limits: tuple[int, int] | None = None
+    raw_text_truncator: object | None = None
     init_args: tuple[str, DatasetType] | None = None
     engine_inits: list[bool] = field(default_factory=list)
     set_dataset_calls: list[tuple[bool, Sized]] = field(default_factory=list)
@@ -121,6 +123,12 @@ def patch_eval_engine(
             capture_state.set_dataset_calls.append((self.is_judge, dataset))
             self.dataset = dataset
 
+        def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
+            capture_state.preprocess_limits = (max_length, gt_max_length)
+
+        def get_raw_text_truncator(self):
+            return None
+
     monkeypatch.setattr(base_evaluator_module, "TransformersEvalEngine", StubEvalEngine)
 
     class StubApiEvalEngine(StubEvalEngine):
@@ -131,8 +139,12 @@ def patch_eval_engine(
             self._explicit_batch_size = eval_config.batch_size
             self.dataset: Sized | None = None
             self.is_judge = is_judge
+            self._raw_text_truncator = lambda text, max_tokens: text[:max_tokens]
             capture_state.data_collator = None
             capture_state.engine_inits.append(is_judge)
+
+        def get_raw_text_truncator(self):
+            return self._raw_text_truncator
 
     monkeypatch.setattr(api_eval_engine_module, "ApiEvalEngine", StubApiEvalEngine)
 
@@ -172,6 +184,7 @@ def patch_custom_dataset(
             reasoning: bool,
             pass_max_answer_tokens: bool,
             token: str | None = None,
+            raw_text_truncator: object = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
             capture_state.trust_remote_code = trust_remote_code
@@ -179,6 +192,7 @@ def patch_custom_dataset(
             capture_state.reasoning = reasoning
             capture_state.pass_max_answer_tokens = pass_max_answer_tokens
             capture_state.token = token
+            capture_state.raw_text_truncator = raw_text_truncator
             return StubDataset()
 
     monkeypatch.setattr(base_evaluator_module, "CustomDataset", StubCustomDataset)
@@ -238,6 +252,11 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
     assert capture_state.tokenizer is stub_tokenizer
     assert evaluator.tokenizer is stub_tokenizer
     assert capture_state.trust_remote_code == evaluation_config.trust_remote_code
+    assert capture_state.preprocess_limits == (
+        dataset_config_instance.preprocess_config.max_length,
+        dataset_config_instance.preprocess_config.gt_max_length,
+    )
+    assert capture_state.raw_text_truncator is None
     assert capture_state.dataloader_args is not None
     _, batch_size, _, _ = capture_state.dataloader_args
     assert batch_size == 3
@@ -267,6 +286,14 @@ def test_prepare_dataloader_api_model_uses_raw_collator(
 
     assert capture_state.tokenizer is None
     assert evaluator.tokenizer is None
+    assert capture_state.preprocess_limits == (
+        dataset_config_instance.preprocess_config.max_length,
+        dataset_config_instance.preprocess_config.gt_max_length,
+    )
+    assert (
+        capture_state.raw_text_truncator
+        is evaluator.eval_engine.get_raw_text_truncator()
+    )
     assert capture_state.dataloader_args is not None
     _, batch_size, _, collate_fn = capture_state.dataloader_args
     assert batch_size == 3
@@ -461,6 +488,7 @@ def test_update_dataset_config_restores_dataset_state_in_judge_context(
             reasoning: bool,
             pass_max_answer_tokens: bool,
             token: str | None = None,
+            raw_text_truncator: object = None,
         ) -> StubDataset:
             del tokenizer
             del trust_remote_code
@@ -468,6 +496,7 @@ def test_update_dataset_config_restores_dataset_state_in_judge_context(
             del reasoning
             del pass_max_answer_tokens
             del token
+            del raw_text_truncator
             return StubDataset(self.file_path)
 
     monkeypatch.setattr(base_evaluator_module, "CustomDataset", StubCustomDataset)
@@ -808,6 +837,164 @@ def test_get_grading_context_supports_api_judge_engine(
         assert judge_engine.dataset is evaluator.eval_dataset
 
 
+def test_prepare_judge_tokenizer_after_free_judge_does_not_raise(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: EvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+
+    evaluator.judge_tokenizer = StubTokenizer()
+    evaluator.free_judge()
+
+    assert hasattr(evaluator, "judge_tokenizer")
+    assert evaluator.judge_tokenizer is None
+
+    evaluator.prepare_judge_tokenizer()
+    assert evaluator.judge_tokenizer is not None
+
+
+def test_judge_dataset_rebuild_uses_sampling_seed_when_dataset_seed_is_none(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_tokenizer: StubTokenizer,
+) -> None:
+    shuffle_calls: list[tuple[str, int]] = []
+    selected_indices_by_dataset: list[tuple[str, list[int]]] = []
+    dataset_specs = {
+        "repo/dataset-a": (3, False),
+    }
+
+    class StubDataset:
+        def __init__(self, file_path: str) -> None:
+            self._file_path = file_path
+            self._size = dataset_specs[file_path][0]
+
+        def shuffle(self, *, seed: int) -> StubDataset:
+            shuffle_calls.append((self._file_path, seed))
+            return self
+
+        def select(self, indices: list[int]) -> StubDataset:
+            selected_indices_by_dataset.append((self._file_path, list(indices)))
+            return self
+
+        def __len__(self) -> int:
+            return self._size
+
+    class StubCustomDataset:
+        def __init__(self, file_path: str, dataset_type: DatasetType) -> None:
+            del dataset_type
+            self.file_path = file_path
+            self.has_stereotype = dataset_specs[file_path][1]
+
+        def preprocess(
+            self,
+            tokenizer: StubTokenizer | None,
+            _preprocess_config: object,
+            *,
+            trust_remote_code: bool,
+            max_answer_tokens: int | None,
+            reasoning: bool,
+            pass_max_answer_tokens: bool,
+            token: str | None = None,
+            raw_text_truncator: object = None,
+        ) -> StubDataset:
+            del tokenizer
+            del trust_remote_code
+            del max_answer_tokens
+            del reasoning
+            del pass_max_answer_tokens
+            del token
+            del raw_text_truncator
+            return StubDataset(self.file_path)
+
+    monkeypatch.setattr(base_evaluator_module, "CustomDataset", StubCustomDataset)
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: stub_tokenizer,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "empty_cuda_cache_if_available",
+        lambda: None,
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: EvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        model_tokenizer_path_or_repo_id=None,
+        judge_engine="transformers",
+        judge_tokenizer_path_or_repo_id="meta/judge-tokenizer",
+        results_dir=tmp_path,
+        max_samples=2,
+        sampling_config=SamplingConfig(seed=123),
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset-a",
+        dataset_type=DatasetType.BIAS,
+        seed=None,
+    )
+
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+    selected_indices = list(evaluator._selected_sample_indices)
+
+    with evaluator.get_grading_context():
+        pass
+
+    assert selected_indices == [0, 1]
+    assert ("repo/dataset-a", [0, 1]) in selected_indices_by_dataset
+    assert len(shuffle_calls) >= 2
+    assert all(seed == 123 for _, seed in shuffle_calls)
+
+
 def test_api_model_engine_uses_api_eval_engine(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -830,6 +1017,13 @@ def test_api_model_engine_uses_api_eval_engine(
             return None
 
         def ensure_test_model_ready(self) -> None:
+            return None
+
+        def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
+            del max_length, gt_max_length
+            return None
+
+        def get_raw_text_truncator(self):
             return None
 
     monkeypatch.setattr(

@@ -123,6 +123,18 @@ class BaseEvaluator(ABC):
     def _model_uses_raw_prompts(self) -> bool:
         return self.tokenizer is None
 
+    def _resolved_dataset_shuffle_seed(self) -> int:
+        """
+        Return the deterministic seed used when shuffling datasets for both
+        generation and judge rebuilding.
+        """
+        if self.dataset_config.seed is not None:
+            return self.dataset_config.seed
+        sampling_seed = self.eval_config.sampling_config.seed
+        if sampling_seed is not None:
+            return sampling_seed
+        return 0
+
     def __init__(
         self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
     ) -> None:
@@ -206,7 +218,7 @@ class BaseEvaluator(ABC):
         initializing the full judge pipeline. This keeps memory lower while
         constructing representative prompts used for batch-size probing.
         """
-        if self.judge_tokenizer is not None:
+        if getattr(self, "judge_tokenizer", None) is not None:
             return
         # Prompt-only provider engines do not need a local tokenizer.
         if self.judge_engine == "api":
@@ -292,17 +304,23 @@ class BaseEvaluator(ABC):
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
         tokenizer = self.tokenizer
+        preprocess_config = self.dataset_config.preprocess_config
+        self.eval_engine.set_preprocess_limits(
+            preprocess_config.max_length,
+            preprocess_config.gt_max_length,
+        )
         test_dataset = custom_dataset.preprocess(
             tokenizer,
-            self.dataset_config.preprocess_config,
+            preprocess_config,
             trust_remote_code=self.trust_remote_code,
             max_answer_tokens=self.eval_config.max_answer_tokens,
             reasoning=self.eval_config.reasoning,
             pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
             token=self.eval_config.model_token,
+            raw_text_truncator=self.eval_engine.get_raw_text_truncator(),
         )
         # Deterministic shuffle before sampling
-        test_dataset = test_dataset.shuffle(seed=self.dataset_config.seed)
+        test_dataset = test_dataset.shuffle(seed=self._resolved_dataset_shuffle_seed())
         self.num_samples = (
             min(len(test_dataset), self.eval_config.max_samples)
             if self.eval_config.max_samples
@@ -346,7 +364,9 @@ class BaseEvaluator(ABC):
             token=self.eval_config.judge_token,
         )
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
-        tokenized_dataset = tokenized_dataset.shuffle(seed=self.dataset_config.seed)
+        tokenized_dataset = tokenized_dataset.shuffle(
+            seed=self._resolved_dataset_shuffle_seed()
+        )
         selected_indices = list(self._selected_sample_indices)
         if not selected_indices:
             num_samples = (
@@ -984,7 +1004,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         if judge_engine is not None:
             judge_engine.free_model()
         if hasattr(self, "judge_tokenizer") and self.judge_tokenizer is not None:
-            del self.judge_tokenizer
+            self.judge_tokenizer = None
         empty_cuda_cache_if_available()
         gc.collect()
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sized
+from collections.abc import Callable, Sized
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -34,6 +34,23 @@ class EvalEngine(ABC):
     @abstractmethod
     def free_model(self) -> None:
         raise NotImplementedError("Subclasses must implement free_model().")
+
+    def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
+        """
+        Return an optional raw-text truncation callable for tokenizer-free paths.
+
+        Engines that do not provide model-aware truncation should return None.
+        """
+        return None
+
+    def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
+        """
+        Receive dataset preprocessing limits for optional engine-specific use.
+
+        Engines may ignore this information.
+        """
+        del max_length, gt_max_length
+        return None
 
     @staticmethod
     def _get_model_path_or_repo_id(

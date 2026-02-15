@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from llm_behavior_eval.evaluation_utils.api_eval_engine import ApiEvalEngine
@@ -209,3 +211,112 @@ def test_api_eval_engine_clamps_invalid_concurrency_for_batching(
 
     assert answers == ["ok", "ok"]
     assert len(fake_litellm.calls) == 2
+
+
+def test_api_eval_engine_raw_text_truncator_uses_model_tokenization(
+    tmp_path, monkeypatch
+) -> None:
+    class FakeLiteLLMWithTokenizer(FakeLiteLLM):
+        def __init__(self) -> None:
+            super().__init__()
+            self.encode_calls: list[dict[str, object]] = []
+            self.decode_calls: list[dict[str, object]] = []
+
+        def encode(self, **kwargs):
+            self.encode_calls.append(kwargs)
+            text = str(kwargs.get("text", ""))
+            return list(text)
+
+        def decode(self, **kwargs):
+            self.decode_calls.append(kwargs)
+            tokens = kwargs.get("tokens")
+            if not isinstance(tokens, list):
+                raise TypeError("tokens must be provided as list")
+            return "".join(str(token) for token in tokens)
+
+    fake_litellm = FakeLiteLLMWithTokenizer()
+    monkeypatch.setattr(
+        ApiEvalEngine, "_load_litellm", staticmethod(lambda: fake_litellm)
+    )
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    truncator = engine.get_raw_text_truncator()
+    assert truncator is not None
+    assert truncator("abcdef", 3) == "abc"
+    assert len(fake_litellm.encode_calls) == 1
+    assert len(fake_litellm.decode_calls) == 1
+
+
+def test_api_eval_engine_raw_text_truncator_warns_and_falls_back(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    fake_litellm = patch_litellm(monkeypatch)
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+    truncator = engine.get_raw_text_truncator()
+    assert truncator is not None
+
+    caplog.set_level(logging.WARNING)
+    assert truncator("one two three four", 2) == "one two"
+    assert truncator("five six seven", 2) == "five six"
+    warning_records = [
+        record
+        for record in caplog.records
+        if "Model-aware token truncation is unavailable" in record.message
+    ]
+    assert len(warning_records) == 1
+    assert len(fake_litellm.calls) == 0
+
+
+def test_api_eval_engine_applies_prompt_level_message_trimming(
+    tmp_path, monkeypatch
+) -> None:
+    class FakeLiteLLMWithTrim(FakeLiteLLM):
+        def __init__(self) -> None:
+            super().__init__()
+            self.trim_calls: list[dict[str, object]] = []
+
+        def trim_messages(self, **kwargs):
+            self.trim_calls.append(kwargs)
+            messages = kwargs["messages"]
+            max_tokens = int(kwargs.get("max_tokens", 0))
+            return [
+                {
+                    "role": message["role"],
+                    "content": str(message.get("content", ""))[:max_tokens],
+                }
+                for message in messages
+            ]
+
+    fake_litellm = FakeLiteLLMWithTrim()
+    monkeypatch.setattr(
+        ApiEvalEngine, "_load_litellm", staticmethod(lambda: fake_litellm)
+    )
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+    engine.set_preprocess_limits(max_length=3, gt_max_length=2)
+
+    prompts = [[{"role": "user", "content": "abcdef"}]]
+    answers = engine.generate_answers_from_prompts(
+        prompts, SamplingConfig(do_sample=False)
+    )
+
+    assert answers == ["ok"]
+    assert len(fake_litellm.trim_calls) == 1
+    assert len(fake_litellm.calls) == 1
+    first_request = fake_litellm.calls[0]
+    assert first_request["messages"] == [[{"role": "user", "content": "abc"}]]
