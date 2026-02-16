@@ -1,6 +1,7 @@
 import gc
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -49,6 +50,26 @@ DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
 DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
 DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
 DEFAULT_MAX_LORA_RANK = VllmConfig.model_fields["max_lora_rank"].default
+
+
+def _default_results_dir() -> Path:
+    if os.name == "nt":
+        base_dir = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if base_dir:
+            return Path(base_dir) / "llm-behavior-eval" / "results"
+        return Path.home() / "AppData" / "Local" / "llm-behavior-eval" / "results"
+    if sys.platform == "darwin":
+        return (
+            Path.home()
+            / "Library"
+            / "Application Support"
+            / "llm-behavior-eval"
+            / "results"
+        )
+    xdg_data_home = os.environ.get("XDG_DATA_HOME")
+    if xdg_data_home:
+        return Path(xdg_data_home) / "llm-behavior-eval" / "results"
+    return Path.home() / ".local" / "share" / "llm-behavior-eval" / "results"
 
 
 def _behavior_presets(behavior: str) -> list[str]:
@@ -129,9 +150,15 @@ def main(
         ),
     ],
     output_dir: Annotated[
-        str | None,
+        Path | None,
         typer.Option(
-            "--output-dir", help="Output directory for evaluation results (optional)"
+            "--output-dir",
+            help=(
+                "Output directory for evaluation results (optional). "
+                "Defaults to: macOS ~/Library/Application Support/llm-behavior-eval/results; "
+                "Linux $XDG_DATA_HOME/llm-behavior-eval/results (or ~/.local/share/llm-behavior-eval/results); "
+                "Windows %LOCALAPPDATA%\\llm-behavior-eval\\results."
+            ),
         ),
     ] = None,
     model_token: Annotated[
@@ -401,11 +428,7 @@ def main(
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
-    result_dir = (
-        Path(output_dir)
-        if output_dir is not None
-        else Path(__file__).parent / "results"
-    )
+    result_dir = output_dir if output_dir is not None else _default_results_dir()
     # Split behavior by commas and collect all file paths
     behaviors = [behavior.strip() for behavior in behavior.split(",")]
     file_paths = []
