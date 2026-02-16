@@ -150,7 +150,7 @@ def main(
         ),
     ],
     output_dir: Annotated[
-        str | None,
+        Path | None,
         typer.Option(
             "--output-dir",
             help=(
@@ -428,7 +428,7 @@ def main(
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
-    result_dir = Path(output_dir) if output_dir is not None else _default_results_dir()
+    result_dir = output_dir if output_dir is not None else _default_results_dir()
     # Split behavior by commas and collect all file paths
     behaviors = [behavior.strip() for behavior in behavior.split(",")]
     file_paths = []
