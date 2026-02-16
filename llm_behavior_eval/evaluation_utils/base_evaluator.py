@@ -340,7 +340,9 @@ class BaseEvaluator(ABC):
         Rebuild the dataset using the judge tokenizer.
 
         This keeps generation in API raw mode while ensuring the judge engine
-        receives tokenized fields such as `test_input_ids`.
+        receives tokenized fields such as `test_input_ids`. Tokenizer-based
+        judge engines probe executable batch size from dataset tensors, so
+        tokenizing only generated answers is insufficient for grading setup.
         """
         custom_dataset = CustomDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
@@ -360,13 +362,11 @@ class BaseEvaluator(ABC):
             seed=self._resolved_dataset_shuffle_seed()
         )
         selected_indices = list(self._selected_sample_indices)
-        if not selected_indices:
-            num_samples = (
-                min(len(tokenized_dataset), self.eval_config.max_samples)
-                if self.eval_config.max_samples
-                else len(tokenized_dataset)
+        if self.num_samples != len(selected_indices):
+            raise RuntimeError(
+                "Cached sampling metadata is inconsistent for judge grading. "
+                "Regenerate outputs for this dataset before grading."
             )
-            selected_indices = list(range(num_samples))
         if selected_indices and max(selected_indices) >= len(tokenized_dataset):
             raise RuntimeError(
                 "Selected sample indices are out of range for the current dataset. "
@@ -478,10 +478,9 @@ class BaseEvaluator(ABC):
         if getattr(
             self.eval_engine, "is_judge", False
         ) and self._judge_requires_tokenized_dataset(self.eval_engine):
-            # In judge context we skip prepare_dataloader, so restore the exact
-            # sampled metadata captured during generation for this dataset.
-            if not self._restore_dataset_sampling_state():
-                self._selected_sample_indices = []
+            # In judge context we skip prepare_dataloader, so we must restore
+            # the exact sampled metadata captured during generation.
+            self._restore_dataset_sampling_state_or_raise()
             self.eval_dataset = self._build_tokenized_dataset_for_judge()
             self._judge_dataset = self.eval_dataset
             self.eval_engine.set_dataset(self.eval_dataset)
@@ -528,6 +527,15 @@ class BaseEvaluator(ABC):
         self._selected_sample_indices = list(cached_state.selected_sample_indices)
         self.has_stereotype = cached_state.has_stereotype
         return True
+
+    def _restore_dataset_sampling_state_or_raise(self) -> None:
+        if self._restore_dataset_sampling_state():
+            return
+        raise RuntimeError(
+            "Cannot rebuild judge dataset because sampled indices for "
+            f"dataset '{self.dataset_config.file_path}' were not found. "
+            "Run generation for this dataset before grading."
+        )
 
     @abstractmethod
     def get_grading_context(self) -> AbstractContextManager:
@@ -1197,6 +1205,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                     # contain tokenized tensors required by tokenizer-based
                     # judge engines.
                     if self._judge_dataset is None:
+                        self._restore_dataset_sampling_state_or_raise()
                         self._judge_dataset = self._build_tokenized_dataset_for_judge()
                     judge_engine.set_dataset(self._judge_dataset)
                 else:

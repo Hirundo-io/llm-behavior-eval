@@ -574,6 +574,65 @@ def test_update_dataset_config_restores_dataset_state_in_judge_context(
     assert ("repo/dataset-b", [0, 1, 2, 3]) in selected_indices_by_dataset
 
 
+def test_update_dataset_config_in_judge_context_requires_cached_sampling_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_tokenizer: StubTokenizer,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: stub_tokenizer,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "empty_cuda_cache_if_available",
+        lambda: None,
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: EvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        judge_engine="transformers",
+        results_dir=tmp_path,
+        max_samples=2,
+    )
+    dataset_a = DatasetConfig(
+        file_path="repo/dataset-a",
+        dataset_type=DatasetType.BIAS,
+        seed=7,
+    )
+    dataset_c = DatasetConfig(
+        file_path="repo/dataset-c",
+        dataset_type=DatasetType.BIAS,
+        seed=7,
+    )
+
+    evaluator = StubEvaluator(evaluation_config, dataset_a)
+
+    with evaluator.get_grading_context():
+        with pytest.raises(
+            RuntimeError,
+            match="sampled indices.*not found",
+        ):
+            evaluator.update_dataset_config(dataset_c)
+
+
 def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> None:
     class StubJudgeTokenizer(PreTrainedTokenizerBase):
         def __call__(
