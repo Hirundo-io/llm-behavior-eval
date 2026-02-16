@@ -239,6 +239,9 @@ class BaseEvaluator(ABC):
     def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
         tokenizer = self.judge_tokenizer
         if tokenizer is None:
+            self.prepare_judge_tokenizer()
+            tokenizer = self.judge_tokenizer
+        if tokenizer is None:
             raise RuntimeError("Judge tokenizer is not initialized.")
         return tokenizer
 
@@ -289,6 +292,23 @@ class BaseEvaluator(ABC):
         to a maximum number of samples defined in the evaluation configuration. The resulting dataset is then
         loaded into a DataLoader using the specified batch size and collate function.
         """
+        if getattr(
+            self.eval_engine, "is_judge", False
+        ) and self._judge_requires_tokenized_dataset(self.eval_engine):
+            self._restore_dataset_sampling_state_or_raise()
+            self.eval_dataset = self._build_tokenized_dataset_for_judge()
+            self._judge_dataset = self.eval_dataset
+            self.eval_engine.set_dataset(self.eval_dataset)
+            self.eval_loader = DataLoader(
+                cast("TorchDataset", self.eval_dataset),
+                batch_size=self.eval_engine.get_batch_size(),
+                shuffle=False,
+                collate_fn=self._resolve_data_collator_for_tokenizer(
+                    getattr(self.eval_engine, "tokenizer", None)
+                ),
+            )
+            return
+
         custom_dataset = CustomDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
@@ -473,27 +493,7 @@ class BaseEvaluator(ABC):
         """
         self.dataset_config = dataset_config
         self._set_seed()
-        # If we are currently in the judge context and the judge needs tokenized
-        # inputs, rebuild a tokenized dataset for grading to avoid raw batches.
-        if getattr(
-            self.eval_engine, "is_judge", False
-        ) and self._judge_requires_tokenized_dataset(self.eval_engine):
-            # In judge context we skip prepare_dataloader, so we must restore
-            # the exact sampled metadata captured during generation.
-            self._restore_dataset_sampling_state_or_raise()
-            self.eval_dataset = self._build_tokenized_dataset_for_judge()
-            self._judge_dataset = self.eval_dataset
-            self.eval_engine.set_dataset(self.eval_dataset)
-            self.eval_loader = DataLoader(
-                cast("TorchDataset", self.eval_dataset),
-                batch_size=self.eval_engine.get_batch_size(),
-                shuffle=False,
-                collate_fn=self._resolve_data_collator_for_tokenizer(
-                    getattr(self.eval_engine, "tokenizer", None)
-                ),
-            )
-        else:
-            self.prepare_dataloader()
+        self.prepare_dataloader()
         self._ensure_run_configuration_allowed()
 
     def _dataset_state_key(self) -> tuple[str, str, int | None]:
@@ -1114,14 +1114,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
         if self._engine_supports_tensor_generation(judge_engine):
             tensor_judge_engine = cast("TensorEvalEngine", judge_engine)
-            judge_tokenizer = self.judge_tokenizer
-            if judge_tokenizer is None:
-                self.prepare_judge_tokenizer()
-                judge_tokenizer = self.judge_tokenizer
-            if judge_tokenizer is None:
-                raise RuntimeError(
-                    "Judge engine requires tokenization but no judge tokenizer is available."
-                )
+            judge_tokenizer = self._get_judge_tokenizer()
             string_prompts: list[str] = []
             for prompt in prompts:
                 if isinstance(prompt, str):
