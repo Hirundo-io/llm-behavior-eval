@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -463,3 +464,122 @@ def test_evaluate_flow_can_use_generate_then_grade_in_grading_context(
 
     assert capture_state.grade_generations_count == 1
     assert capture_state.grade_called_with_judge is True
+
+
+def test_save_results_drops_empty_metric_columns_and_uses_directional_headers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="hirundo-io/prompt-injection-purple-llama",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    evaluator.save_results(
+        responses=[{"prompt": "test", "response": "value"}],
+        accuracy=0.75,
+        stereotyped_bias=None,
+        empty_responses=0,
+    )
+
+    metrics_file_path = (
+        tmp_path / "model" / "prompt-injection-purple-llama" / "metrics.csv"
+    )
+    with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics_rows = list(csv.DictReader(metrics_file))
+
+    assert metrics_rows == [
+        {
+            "Attack success rate (%) ⬇️": "25.000",
+            "Empty Responses": "0",
+        }
+    ]
+
+    summary_full_path = tmp_path / "model" / "summary_full.csv"
+    with summary_full_path.open(newline="", encoding="utf-8") as summary_file:
+        summary_rows = list(csv.DictReader(summary_file))
+
+    assert summary_rows == [
+        {
+            "Model": "model",
+            "Dataset": "prompt-injection-purple-llama",
+            "Dataset Type": "DatasetType.BIAS",
+            "Text Format": "free_text",
+            "Attack success rate (%) ⬇️": "25.000",
+            "Empty Responses": "0",
+        }
+    ]
+
+
+def test_save_results_rewrites_summary_with_non_empty_columns_after_append(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="hirundo-io/bbq-gender-unbias-free-text",
+            dataset_type=DatasetType.UNBIAS,
+        ),
+    )
+
+    evaluator.save_results(
+        responses=[{"prompt": "test", "response": "value"}],
+        accuracy=0.80,
+        stereotyped_bias=None,
+        empty_responses=0,
+    )
+
+    evaluator.update_dataset_config(
+        DatasetConfig(
+            file_path="hirundo-io/bbq-gender-bias-free-text",
+            dataset_type=DatasetType.BIAS,
+        )
+    )
+    evaluator.save_results(
+        responses=[{"prompt": "test2", "response": "value2"}],
+        accuracy=0.60,
+        stereotyped_bias=None,
+        empty_responses=1,
+    )
+
+    summary_brief_path = tmp_path / "model" / "summary_brief.csv"
+    with summary_brief_path.open(newline="", encoding="utf-8") as summary_file:
+        summary_rows = list(csv.DictReader(summary_file))
+
+    assert len(summary_rows) == 2
+    assert summary_rows[0]["Accuracy (%) ⬆️"] == "80.000"
+    assert summary_rows[0]["Error (%) ⬇️"] == ""
+    assert summary_rows[1]["Accuracy (%) ⬆️"] == ""
+    assert summary_rows[1]["Error (%) ⬇️"] == "40.000"
+    assert "Attack success rate (%) ⬇️" not in summary_rows[0]
+    assert "Attack success rate (%) ⬇️" not in summary_rows[1]
