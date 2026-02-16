@@ -7,7 +7,7 @@ import shutil
 from contextlib import contextmanager
 from inspect import Parameter, signature
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
 
 import torch
@@ -45,6 +45,10 @@ if TYPE_CHECKING:
     from vllm import LLM
 
 DIGEST_SIZE_FOR_PEFT_PATHS = 8
+
+
+def raw_text_collator(batch: list[dict[str, Any]]) -> dict[str, list[Any]]:
+    return {key: [item[key] for item in batch] for key in batch[0]}
 
 
 def empty_cuda_cache_if_available() -> None:
@@ -379,7 +383,7 @@ def load_vllm_model(
             trust_remote_code=trust_remote_code,
             dtype=dtype_literal,
             enforce_eager=enforce_eager,
-            quantization=quantization,
+            quantization=cast("Any", quantization),
             tensor_parallel_size=tensor_parallel
             if tensor_parallel is not None
             else default_tensor_parallel,
@@ -417,6 +421,7 @@ def build_vllm_prompt_token_ids(
 
 def load_transformers_model_and_tokenizer(
     model_name: str,
+    tokenizer_name_or_path: str | None = None,
     token: str | None = None,
     use_4bit: bool = False,
     device_map: str | dict[str, int] | None = "auto",
@@ -431,6 +436,8 @@ def load_transformers_model_and_tokenizer(
 
     Args:
         model_name: The repo-id or local path of the model to load.
+        tokenizer_name_or_path: Optional tokenizer repo-id or local path.
+            Defaults to `model_name` when omitted.
         token: The HuggingFace token to use for the model.
         use_4bit: If True, load the model in 4-bit mode using bitsandbytes.
         device_map: The device map to use for the model.
@@ -445,8 +452,11 @@ def load_transformers_model_and_tokenizer(
     logging.info("Using dtype: %s", dtype)
 
     # Load tokenizer
+    resolved_tokenizer_name = tokenizer_name_or_path or model_name
     tokenizer = load_tokenizer_with_transformers(
-        model_name, token=token, trust_remote_code=trust_remote_code
+        resolved_tokenizer_name,
+        token=token,
+        trust_remote_code=trust_remote_code,
     )
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
         raise ValueError("Tokenizer is not supported!")

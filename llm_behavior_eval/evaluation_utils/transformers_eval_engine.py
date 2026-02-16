@@ -3,24 +3,24 @@ from typing import TYPE_CHECKING, cast
 
 import torch
 from accelerate.utils.memory import find_executable_batch_size
-from datasets import Dataset
 from torch.utils.data import DataLoader
 from transformers import set_seed
 from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
-from .eval_engine import EvalEngine
+from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine, TensorEvalEngine
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import (
     load_transformers_model_and_tokenizer,
+    safe_apply_chat_template,
 )
 
 if TYPE_CHECKING:
     from transformers.generation.utils import GenerationMixin
 
 
-class TransformersEvalEngine(EvalEngine):
+class TransformersEvalEngine(TensorEvalEngine, PromptEvalEngine):
     def __init__(
         self,
         data_collator: DataCollator,
@@ -28,10 +28,14 @@ class TransformersEvalEngine(EvalEngine):
         is_judge: bool = False,
     ) -> None:
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
+        tokenizer_path_or_repo_id = self._get_tokenizer_path_or_repo_id(
+            eval_config, is_judge
+        )
         model_token = self._get_model_token(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
         self.tokenizer, self.model = load_transformers_model_and_tokenizer(
             model_path_or_repo_id,
+            tokenizer_path_or_repo_id,
             model_token,
             use_4bit,
             eval_config.device_map,
@@ -41,7 +45,7 @@ class TransformersEvalEngine(EvalEngine):
         self.eval_config = eval_config
         self.is_judge = is_judge
 
-    def set_dataset(self, eval_dataset: Dataset) -> None:
+    def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset
 
     def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
@@ -69,7 +73,7 @@ class TransformersEvalEngine(EvalEngine):
             )
         return candidate_bs
 
-    def generate_answers(
+    def generate_answers_from_tensors(
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
@@ -133,3 +137,27 @@ class TransformersEvalEngine(EvalEngine):
     def free_model(self) -> None:
         self.model = self.model.cpu()
         del self.model
+
+    def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
+        """Apply chat template to format messages into a tokenized prompt string."""
+        return safe_apply_chat_template(self.tokenizer, messages)
+
+    def generate_answers_from_prompts(
+        self,
+        prompts: list[JudgePrompt],
+        sampling_config: SamplingConfig,
+    ) -> list[str]:
+        """Tokenize string prompts and generate answers."""
+        if not prompts:
+            return []
+        string_prompts = self.normalize_prompts_to_strings(prompts)
+        tokenized = self.tokenizer(
+            string_prompts,
+            return_tensors="pt",
+            padding=True,
+        )
+        input_ids = cast("torch.Tensor", tokenized["input_ids"])
+        attention_mask = cast("torch.Tensor", tokenized["attention_mask"])
+        return self.generate_answers_from_tensors(
+            input_ids, attention_mask, sampling_config
+        )

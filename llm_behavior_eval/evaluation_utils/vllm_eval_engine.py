@@ -2,40 +2,42 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import torch
 
-from .eval_engine import EvalEngine
+from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine, TensorEvalEngine
 from .util_functions import (
     build_vllm_prompt_token_ids,
     load_tokenizer_with_transformers,
     load_vllm_model,
     maybe_download_adapter,
     pick_best_dtype,
+    safe_apply_chat_template,
 )
 from .vllm_config import VllmConfig
 
 if TYPE_CHECKING:
-    from datasets import Dataset
     from vllm.inputs.data import PromptType
 
     from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
 
 
-class VllmEvalEngine(EvalEngine):
+class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
     def __init__(
         self,
         eval_config: EvaluationConfig,
         is_judge: bool = False,
-        max_model_len: int | None = None,
     ) -> None:
         self.eval_config = eval_config
         self.is_judge = is_judge
-        self.max_model_len = max_model_len
+        self.max_model_len = self._resolve_max_model_len(eval_config, is_judge)
 
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
+        tokenizer_path_or_repo_id = self._get_tokenizer_path_or_repo_id(
+            eval_config, is_judge
+        )
         lora_path_or_repo_id = (
             eval_config.lora_path_or_repo_id if not self.is_judge else None
         )
@@ -45,7 +47,7 @@ class VllmEvalEngine(EvalEngine):
         batch_size = batch_size_config or 256
 
         self.tokenizer = load_tokenizer_with_transformers(
-            model_path_or_repo_id,
+            tokenizer_path_or_repo_id,
             model_token,
             trust_remote_code=eval_config.trust_remote_code,
         )
@@ -71,7 +73,7 @@ class VllmEvalEngine(EvalEngine):
             model_token,
             enforce_eager=vllm_config.enforce_eager,
             quantization=quantization,
-            max_model_len=max_model_len,
+            max_model_len=self.max_model_len,
             tokenizer_mode=vllm_config.tokenizer_mode,
             config_format=vllm_config.config_format,
             load_format=vllm_config.load_format,
@@ -104,10 +106,25 @@ class VllmEvalEngine(EvalEngine):
         else:
             self.lora_request = None
 
-    def set_dataset(self, eval_dataset: Dataset) -> None:
+    @staticmethod
+    def _resolve_max_model_len(
+        eval_config: EvaluationConfig,
+        is_judge: bool,
+    ) -> int | None:
+        if not eval_config.vllm_config:
+            return None
+        if is_judge:
+            return (
+                eval_config.vllm_config.judge_max_model_len
+                if eval_config.vllm_config.judge_max_model_len is not None
+                else eval_config.vllm_config.max_model_len
+            )
+        return eval_config.vllm_config.max_model_len
+
+    def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset
 
-    def generate_answers(
+    def generate_answers_from_tensors(
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
@@ -202,3 +219,27 @@ class VllmEvalEngine(EvalEngine):
         del self.model
         with contextlib.suppress(AssertionError):
             torch.distributed.destroy_process_group()
+
+    def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
+        """Apply chat template to format messages into a tokenized prompt string."""
+        return safe_apply_chat_template(self.tokenizer, messages)
+
+    def generate_answers_from_prompts(
+        self,
+        prompts: list[JudgePrompt],
+        sampling_config: SamplingConfig,
+    ) -> list[str]:
+        """Tokenize string prompts and generate answers."""
+        if not prompts:
+            return []
+        string_prompts = self.normalize_prompts_to_strings(prompts)
+        tokenized = self.tokenizer(
+            string_prompts,
+            return_tensors="pt",
+            padding=True,
+        )
+        input_ids = cast("torch.Tensor", tokenized["input_ids"])
+        attention_mask = cast("torch.Tensor", tokenized["attention_mask"])
+        return self.generate_answers_from_tensors(
+            input_ids, attention_mask, sampling_config
+        )
