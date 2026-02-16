@@ -412,19 +412,7 @@ class BaseEvaluator(ABC):
         return self.eval_engine.generate_answers_from_tensors(
             input_ids,
             attention_mask,
-            sampling_config=SamplingConfig(
-                do_sample=(
-                    do_sample
-                    if do_sample is not None
-                    else self.eval_config.sampling_config.do_sample
-                    if self.eval_config.sampling_config.do_sample is not None
-                    else self.eval_config.sample
-                ),
-                temperature=self.eval_config.sampling_config.temperature,
-                top_p=self.eval_config.sampling_config.top_p,
-                top_k=self.eval_config.sampling_config.top_k,
-                seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
-            ),
+            sampling_config=self._build_model_sampling_config(do_sample),
         )
 
     def generate_answers_from_prompts(
@@ -439,19 +427,21 @@ class BaseEvaluator(ABC):
 
         return self.eval_engine.generate_answers_from_prompts(
             list(prompts),
-            sampling_config=SamplingConfig(
-                do_sample=(
-                    do_sample
-                    if do_sample is not None
-                    else self.eval_config.sampling_config.do_sample
-                    if self.eval_config.sampling_config.do_sample is not None
-                    else self.eval_config.sample
-                ),
-                temperature=self.eval_config.sampling_config.temperature,
-                top_p=self.eval_config.sampling_config.top_p,
-                top_k=self.eval_config.sampling_config.top_k,
-                seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
-            ),
+            sampling_config=self._build_model_sampling_config(do_sample),
+        )
+
+    def _build_model_sampling_config(self, do_sample: bool | None) -> SamplingConfig:
+        resolved_do_sample = do_sample
+        if resolved_do_sample is None:
+            resolved_do_sample = self.eval_config.sampling_config.do_sample
+        if resolved_do_sample is None:
+            resolved_do_sample = self.eval_config.sample
+        return SamplingConfig(
+            do_sample=resolved_do_sample,
+            temperature=self.eval_config.sampling_config.temperature,
+            top_p=self.eval_config.sampling_config.top_p,
+            top_k=self.eval_config.sampling_config.top_k,
+            seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
         )
 
     @abstractmethod
