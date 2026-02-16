@@ -29,11 +29,10 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
         self,
         eval_config: EvaluationConfig,
         is_judge: bool = False,
-        max_model_len: int | None = None,
     ) -> None:
         self.eval_config = eval_config
         self.is_judge = is_judge
-        self.max_model_len = max_model_len
+        self.max_model_len = self._resolve_max_model_len(eval_config, is_judge)
 
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
         tokenizer_path_or_repo_id = self._get_tokenizer_path_or_repo_id(
@@ -74,7 +73,7 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
             model_token,
             enforce_eager=vllm_config.enforce_eager,
             quantization=quantization,
-            max_model_len=max_model_len,
+            max_model_len=self.max_model_len,
             tokenizer_mode=vllm_config.tokenizer_mode,
             config_format=vllm_config.config_format,
             load_format=vllm_config.load_format,
@@ -106,6 +105,21 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
                 ) from e
         else:
             self.lora_request = None
+
+    @staticmethod
+    def _resolve_max_model_len(
+        eval_config: EvaluationConfig,
+        is_judge: bool,
+    ) -> int | None:
+        if not eval_config.vllm_config:
+            return None
+        if is_judge:
+            return (
+                eval_config.vllm_config.judge_max_model_len
+                if eval_config.vllm_config.judge_max_model_len is not None
+                else eval_config.vllm_config.max_model_len
+            )
+        return eval_config.vllm_config.max_model_len
 
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset

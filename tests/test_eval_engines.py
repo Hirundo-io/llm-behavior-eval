@@ -484,6 +484,8 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
         tokenizer_mode="slow",
         config_format="hf-torch",
         load_format="dummy",
+        max_model_len=8192,
+        judge_max_model_len=4096,
     )
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -498,6 +500,11 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
     assert last_call["tokenizer_mode"] == "slow"
     assert last_call["config_format"] == "hf-torch"
     assert last_call["load_format"] == "dummy"
+    assert last_call["max_model_len"] == 8192
+
+    VllmEvalEngine(config, is_judge=True)
+    judge_call = vllm_bundle.model_loader.calls[-1]["kwargs"]
+    assert judge_call["max_model_len"] == 4096
 
 
 @pytest.mark.transformers_engine_test

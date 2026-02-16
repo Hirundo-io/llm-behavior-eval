@@ -174,15 +174,7 @@ class BaseEvaluator(ABC):
         self.eval_engine: EvalEngine
         match self.model_engine:
             case "vllm":
-                max_model_len = (
-                    self.eval_config.vllm_config.max_model_len
-                    if self.eval_config.vllm_config
-                    else None
-                )
-                self.eval_engine = VllmEvalEngine(
-                    self.eval_config,
-                    max_model_len=max_model_len,
-                )
+                self.eval_engine = VllmEvalEngine(self.eval_config)
             case "api":
                 from .api_eval_engine import ApiEvalEngine
 
@@ -1189,15 +1181,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                             is_judge=True,
                         )
                     case "vllm":
-                        max_model_len = (
-                            self.eval_config.vllm_config.judge_max_model_len
-                            if self.eval_config.vllm_config
-                            else None
-                        )
                         judge_engine = VllmEvalEngine(
                             self.eval_config,
                             is_judge=True,
-                            max_model_len=max_model_len,
                         )
                     case _:
                         # transformers engine (default)
