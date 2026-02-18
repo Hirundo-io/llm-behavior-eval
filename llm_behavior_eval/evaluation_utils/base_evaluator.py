@@ -362,7 +362,9 @@ class BaseEvaluator(ABC):
         # Ensure both Accuracy and Error columns exist; populate only the relevant one
         full_acc = accuracy * 100.0 if (is_unbias or is_hallucination) else None
         full_err = (
-            attack_success_rate * 100.0 if not (is_unbias or is_hallucination) else None
+            attack_success_rate * 100.0
+            if not (is_unbias or is_hallucination or is_purple_llama_injection)
+            else None
         )
         full_attack_success_rate = (
             attack_success_rate * 100.0 if is_purple_llama_injection else None
@@ -371,7 +373,7 @@ class BaseEvaluator(ABC):
             {
                 "Model": [model_slug],
                 "Dataset": [dataset_slug],
-                "Dataset Type": [self.dataset_config.dataset_type],
+                "Dataset Type": [str(self.dataset_config.dataset_type)],
                 "Text Format": ["free_text"],
                 "Accuracy (%) ⬆️": [full_acc],
                 "Error (%) ⬇️": [full_err],
@@ -412,7 +414,9 @@ class BaseEvaluator(ABC):
         # Always include both Accuracy and Error columns; populate only the relevant one
         brief_acc = accuracy * 100.0 if (is_hallucination or is_unbias) else None
         brief_err = (
-            attack_success_rate * 100.0 if not (is_hallucination or is_unbias) else None
+            attack_success_rate * 100.0
+            if not (is_hallucination or is_unbias or is_purple_llama_injection)
+            else None
         )
         brief_attack_success_rate = (
             attack_success_rate * 100.0 if is_purple_llama_injection else None
