@@ -919,8 +919,13 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Yields:
             The judge eval engine instance.
         """
+        self.eval_engine = None
         try:
-            if not (hasattr(self, "eval_engine") and self.eval_engine.is_judge):
+            if not (
+                hasattr(self, "eval_engine")
+                and self.eval_engine
+                and self.eval_engine.is_judge
+            ):
                 judge_engine = None
 
                 self.prepare_judge_tokenizer()
