@@ -140,6 +140,10 @@ class SafeApplyChatTemplate:
             isinstance(tokenizer.chat_template, str)
             and "/no_think" in tokenizer.chat_template
         )
+        uses_think_delim = (
+            isinstance(tokenizer.chat_template, str)
+            and "/think" in tokenizer.chat_template
+        )
 
         if messages and messages[0]["role"] == "system":
             if pass_max_answer_tokens and max_answer_tokens is not None:
@@ -190,15 +194,19 @@ class SafeApplyChatTemplate:
                         "content": [{"type": "text", "text": str(current_content)}],
                     }
                 )
-            return str(_apply_chat_template(multimodal_chat_messages))
+            chat_template = str(_apply_chat_template(multimodal_chat_messages))
+        else:
+            # Unimodal: plain string content
+            chat_messages_text: list[dict[str, str]] = []
+            for message in messages:
+                chat_messages_text.append(
+                    {"role": message["role"], "content": str(message["content"])}
+                )
+            chat_template = str(_apply_chat_template(chat_messages_text))
+        if uses_think_delim and not reasoning and chat_template.endswith("<think>\n"):
+            chat_template = f"{chat_template}</think>\n"
 
-        # Unimodal: plain string content
-        chat_messages_text: list[dict[str, str]] = []
-        for message in messages:
-            chat_messages_text.append(
-                {"role": message["role"], "content": str(message["content"])}
-            )
-        return str(_apply_chat_template(chat_messages_text))
+        return chat_template
 
 
 safe_apply_chat_template = SafeApplyChatTemplate()
