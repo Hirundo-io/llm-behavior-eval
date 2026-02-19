@@ -7,7 +7,7 @@ llm-behavior-eval = "llm_behavior_eval.evaluate:app"
 
 [project]
 name = "llm-behavior-eval"
-version = "0.1.6b9"
+version = "0.1.6b10"
 description = "Evaluate large-language models for undesirable behaviors such as bias."
 authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
 readme = "README.md"
@@ -83,7 +83,7 @@ include = ["llm_behavior_eval*"]
 exclude = ["results*"]
 
 [tool.bumpver]
-current_version = "0.1.6b9"
+current_version = "0.1.6b10"
 version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
 
 [tool.bumpver.file_patterns]
