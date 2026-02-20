@@ -176,11 +176,13 @@ class SafeApplyChatTemplate:
                     tokenize=False,
                     add_generation_prompt=True,
                     reasoning=reasoning,
+                    enable_thinking=reasoning,
                 )
             return tokenizer.apply_chat_template(
                 messages_like,
                 tokenize=False,
                 add_generation_prompt=True,
+                enable_thinking=reasoning,
             )
 
         if is_multimodal:
@@ -204,7 +206,7 @@ class SafeApplyChatTemplate:
                 )
             chat_template = str(_apply_chat_template(chat_messages_text))
         if uses_think_delim and not reasoning and chat_template.endswith("<think>\n"):
-            chat_template = f"{chat_template}</think>\n"
+            chat_template = chat_template.replace("<think>\n", "<think></think>")
 
         return chat_template
 
