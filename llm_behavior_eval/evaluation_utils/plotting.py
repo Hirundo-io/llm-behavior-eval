@@ -15,6 +15,9 @@ def _validate_plot_args(
     categories: Sequence[str],
     colors: Sequence[str | None] | None,
 ) -> None:
+    if not value_lists:
+        raise ValueError("value_lists must not be empty")
+
     category_labels = list(categories)
     if not category_labels:
         raise ValueError("categories must not be empty")

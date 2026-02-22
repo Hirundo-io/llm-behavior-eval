@@ -85,6 +85,16 @@ def test_validate_plot_args_validates_lengths() -> None:
         )
 
 
+def test_validate_plot_args_rejects_empty_value_lists() -> None:
+    with pytest.raises(ValueError, match="value_lists must not be empty"):
+        plotting._validate_plot_args(
+            value_lists=[],
+            series_labels=[],
+            categories=["first", "second"],
+            colors=None,
+        )
+
+
 def test_draw_radar_chart_writes_html_and_closes_polygon(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
