@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 from typing import Annotated, Literal
 
-import pandas as pd
 import torch
 import typer
 
@@ -58,6 +57,8 @@ def _plot_metrics_from_summary(
     model_path_or_repo_id: str,
     save_plot_to_mlflow: bool,
 ) -> None:
+    import pandas as pd
+
     from llm_behavior_eval.evaluation_utils.plotting import draw_radar_chart
 
     model_slug = model_path_or_repo_id.split("/")[-1]
