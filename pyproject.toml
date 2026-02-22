@@ -30,21 +30,21 @@ keywords = [
 requires-python = ">=3.10.12,<3.14"
 # Please only install Python >=3.10.12 or >=3.11.4 or >=3.12 to avoid GHSA-4xh5-x5gv-qwph vulnerability
 dependencies = [
-  "datasets<4.0.0",
-  "numpy<3.0.0",
-  "pandas<3.0.0",
-  "pydantic<3.0.0",
-  "pydantic_settings<3.0.0",
-  "tqdm",
-  "torch<3.0.0",
-  "transformers<5.0.0",
-  "networkx<4.0.0",
-  "pytest<9.0.0",
-  "typer<1.0.0",
-  "accelerate<2.0.0",
-  "bitsandbytes<1.0.0; platform_system != \"Darwin\"",
-  "protobuf<7.0.0", # needed for Mistral models
-  "sentencepiece<1.0.0", # needed for Mistral models
+  "datasets>=3.0.0,<4.0.0",
+  "numpy>=2.0.0,<3.0.0",
+  "pandas>=2.0.0,<3.0.0",
+  "pydantic>=2.0.0,<3.0.0",
+  "pydantic_settings>=2.0.0,<3.0.0",
+  "tqdm>=4.0.0,<5.0.0",
+  "torch>=2.0.0,<3.0.0",
+  "transformers>=4.0.0,<5.0.0",
+  "networkx>=3.0,<4.0.0",
+  "pytest>=8.0.0,<9.0.0",
+  "typer>=0.19.0,<1.0.0",
+  "accelerate>=1.0.0,<2.0.0",
+  "bitsandbytes>=0.48.0,<1.0.0; platform_system != \"Darwin\"",
+  "protobuf>=6.0.0,<7.0.0", # needed for Mistral models
+  "sentencepiece>=0.2.0,<1.0.0", # needed for Mistral models
 ]
 
 [project.optional-dependencies]
@@ -59,7 +59,7 @@ vllm = [
   # ⬆️ Required to fix vulnerability with ID GHSA-mcmc-2m55-j8jj (vLLM introduced enhanced protection for CVE-2025-62164)
 ]
 gcs = [
-    "google-cloud-storage",
+    "google-cloud-storage>=3.0.0,<4.0.0",
 ]
 
 [dependency-groups]
