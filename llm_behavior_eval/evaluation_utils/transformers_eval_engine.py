@@ -27,12 +27,18 @@ class TransformersEvalEngine(TensorEvalEngine, PromptEvalEngine):
         eval_config: EvaluationConfig,
         is_judge: bool = False,
     ) -> None:
-        model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
-        tokenizer_path_or_repo_id = self._get_tokenizer_path_or_repo_id(
-            eval_config, is_judge
+        model_path_or_repo_id = (
+            eval_config.judge_path_or_repo_id
+            if is_judge
+            else eval_config.model_path_or_repo_id
         )
-        model_token = self._get_model_token(eval_config, is_judge)
-        use_4bit = self._get_use_4bit(eval_config, is_judge)
+        tokenizer_path_or_repo_id = (
+            eval_config.judge_tokenizer_path_or_repo_id or eval_config.judge_path_or_repo_id
+            if is_judge
+            else eval_config.model_tokenizer_path_or_repo_id or eval_config.model_path_or_repo_id
+        )
+        model_token = eval_config.judge_token if is_judge else eval_config.model_token
+        use_4bit = eval_config.use_4bit_judge if is_judge else eval_config.use_4bit
         self.tokenizer, self.model = load_transformers_model_and_tokenizer(
             model_path_or_repo_id,
             tokenizer_path_or_repo_id,
@@ -60,8 +66,8 @@ class TransformersEvalEngine(TensorEvalEngine, PromptEvalEngine):
         batch = next(it)
         input_ids = batch["test_input_ids"].to(self.model.device)
         attention_mask = batch["test_attention_mask"].to(self.model.device)
-        do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
-        max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
+        do_sample = self.eval_config.sample_judge if self.is_judge else self.eval_config.sample
+        max_new_tokens = self.eval_config.max_judge_tokens if self.is_judge else self.eval_config.max_answer_tokens
         with torch.inference_mode():
             cast("GenerationMixin", self.model).generate(
                 input_ids=input_ids,
@@ -80,10 +86,10 @@ class TransformersEvalEngine(TensorEvalEngine, PromptEvalEngine):
         sampling_config: SamplingConfig,
     ) -> list[str]:
         if sampling_config.do_sample is None:
-            do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
+            do_sample = self.eval_config.sample_judge if self.is_judge else self.eval_config.sample
         else:
             do_sample = sampling_config.do_sample
-        max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
+        max_new_tokens = self.eval_config.max_judge_tokens if self.is_judge else self.eval_config.max_answer_tokens
         temperature = sampling_config.temperature
         if temperature is None:
             temperature = 1.0 if do_sample else 0.0
@@ -114,7 +120,7 @@ class TransformersEvalEngine(TensorEvalEngine, PromptEvalEngine):
         self.model.eval()
 
     def get_batch_size(self) -> int:
-        batch_size = self._get_batch_size_from_config(self.eval_config, self.is_judge)
+        batch_size = self.eval_config.judge_batch_size if self.is_judge else self.eval_config.batch_size
 
         if batch_size is None:
             starting_bs = max(1, min(len(self.eval_dataset), MAX_BATCH_SIZE))

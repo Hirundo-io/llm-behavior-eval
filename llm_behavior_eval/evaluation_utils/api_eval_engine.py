@@ -69,6 +69,11 @@ class ApiEvalEngine(PromptEvalEngine):
         self._max_input_tokens: int | None = None
         self._token_truncation_warning_logged = False
         self._message_trim_warning_logged = False
+        self._concurrency = _read_env_int(
+            "LLM_EVAL_API_CONCURRENCY",
+            DEFAULT_API_BATCH_CONCURRENCY,
+            min_value=1,
+        )
 
     @staticmethod
     def _load_litellm():
@@ -104,13 +109,6 @@ class ApiEvalEngine(PromptEvalEngine):
         if not prompts:
             return []
 
-        # Get batch concurrency from env or use default
-        concurrency = _read_env_int(
-            "LLM_EVAL_API_CONCURRENCY",
-            DEFAULT_API_BATCH_CONCURRENCY,
-            min_value=1,
-        )
-
         # Build base kwargs (shared params)
         base_kwargs = self._build_base_completion_kwargs(sampling_config)
 
@@ -126,6 +124,7 @@ class ApiEvalEngine(PromptEvalEngine):
         answers: list[str] = []
 
         # Process in chunks to show progress and control concurrency
+        concurrency = self._concurrency
         for i in tqdm(
             range(0, len(all_messages), concurrency),
             desc=desc,
@@ -144,13 +143,13 @@ class ApiEvalEngine(PromptEvalEngine):
         return answers
 
     def get_batch_size(self) -> int:
-        configured_batch_size = (
+        configured = (
             self.eval_config.judge_batch_size
             if self.is_judge
             else self.eval_config.batch_size
         )
-        if configured_batch_size is not None:
-            return max(1, int(configured_batch_size))
+        if configured is not None:
+            return max(1, int(configured))
         return self._get_default_api_batch_size()
 
     def free_model(self) -> None:
@@ -224,7 +223,11 @@ class ApiEvalEngine(PromptEvalEngine):
             temperature = 0.0
 
         kwargs: dict[str, Any] = {
-            "max_tokens": self._get_max_new_tokens(self.eval_config, self.is_judge),
+            "max_tokens": (
+                self.eval_config.max_judge_tokens
+                if self.is_judge
+                else self.eval_config.max_answer_tokens
+            ),
         }
         if temperature is not None:
             kwargs["temperature"] = temperature
@@ -249,15 +252,10 @@ class ApiEvalEngine(PromptEvalEngine):
         Returns:
             A positive batch size tuned from environment concurrency settings.
         """
-        concurrency = _read_env_int(
-            "LLM_EVAL_API_CONCURRENCY",
-            DEFAULT_API_BATCH_CONCURRENCY,
-            min_value=1,
-        )
         multiplier = _read_env_int(
             "LLM_EVAL_API_BATCH_MULTIPLIER", DEFAULT_API_BATCH_MULTIPLIER
         )
-        estimated = max(1, concurrency * max(1, multiplier))
+        estimated = max(1, self._concurrency * max(1, multiplier))
         if self.dataset is not None:
             try:
                 return max(1, min(len(self.dataset), estimated))
@@ -268,27 +266,10 @@ class ApiEvalEngine(PromptEvalEngine):
 
     @staticmethod
     def _extract_content(response: Any) -> str:
-        choices = (
-            response.get("choices")
-            if isinstance(response, dict)
-            else getattr(response, "choices", None)
-        )
-        if not choices:
+        try:
+            return str(response.choices[0].message.content or "")
+        except Exception:
             return ""
-
-        first = choices[0]
-        message = (
-            first.get("message")
-            if isinstance(first, dict)
-            else getattr(first, "message", None)
-        )
-        if isinstance(message, dict):
-            return str(message.get("content") or "")
-        if message is not None:
-            return str(getattr(message, "content", "") or "")
-        if isinstance(first, dict):
-            return str(first.get("text") or "")
-        return str(getattr(first, "text", "") or "")
 
     def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
         """For API engines, return messages unchanged (no tokenization needed)."""

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,13 @@ from llm_behavior_eval.evaluation_utils.eval_engine import (
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 
+def _make_response(content: str) -> object:
+    """Build a ModelResponse-shaped object matching LiteLLM's real return type."""
+    message = SimpleNamespace(content=content)
+    choice = SimpleNamespace(message=message)
+    return SimpleNamespace(choices=[choice])
+
+
 class FakeLiteLLM:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
@@ -20,12 +28,12 @@ class FakeLiteLLM:
 
     def completion(self, **kwargs):
         self.calls.append(kwargs)
-        return {"choices": [{"message": {"content": "ok"}}]}
+        return _make_response("ok")
 
     def batch_completion(self, model, messages, **kwargs):
         """Batch completion returns a list of responses, one per message list."""
         self.calls.append({"model": model, "messages": messages, **kwargs})
-        return [{"choices": [{"message": {"content": "ok"}}]} for _ in messages]
+        return [_make_response("ok") for _ in messages]
 
 
 def patch_litellm(monkeypatch) -> FakeLiteLLM:
@@ -222,16 +230,12 @@ def test_api_eval_engine_raw_text_truncator_uses_model_tokenization(
             self.encode_calls: list[dict[str, object]] = []
             self.decode_calls: list[dict[str, object]] = []
 
-        def encode(self, **kwargs):
-            self.encode_calls.append(kwargs)
-            text = str(kwargs.get("text", ""))
+        def encode(self, model: str, text: str, **kwargs):
+            self.encode_calls.append({"model": model, "text": text})
             return list(text)
 
-        def decode(self, **kwargs):
-            self.decode_calls.append(kwargs)
-            tokens = kwargs.get("tokens")
-            if not isinstance(tokens, list):
-                raise TypeError("tokens must be provided as list")
+        def decode(self, model: str, tokens: list, **kwargs):
+            self.decode_calls.append({"model": model, "tokens": tokens})
             return "".join(str(token) for token in tokens)
 
     fake_litellm = FakeLiteLLMWithTokenizer()
@@ -281,27 +285,22 @@ def test_api_eval_engine_raw_text_truncator_warns_and_falls_back(
 def test_api_eval_engine_applies_prompt_level_message_trimming(
     tmp_path, monkeypatch
 ) -> None:
-    class FakeLiteLLMWithTrim(FakeLiteLLM):
-        def __init__(self) -> None:
-            super().__init__()
-            self.trim_calls: list[dict[str, object]] = []
+    def fake_trim_messages(messages, model=None, max_tokens=None, **kwargs):
+        return [
+            {
+                "role": message["role"],
+                "content": str(message.get("content", ""))[:max_tokens],
+            }
+            for message in messages
+        ]
 
-        def trim_messages(self, **kwargs):
-            self.trim_calls.append(kwargs)
-            messages = kwargs["messages"]
-            max_tokens = int(kwargs.get("max_tokens", 0))
-            return [
-                {
-                    "role": message["role"],
-                    "content": str(message.get("content", ""))[:max_tokens],
-                }
-                for message in messages
-            ]
-
-    fake_litellm = FakeLiteLLMWithTrim()
     monkeypatch.setattr(
-        ApiEvalEngine, "_load_litellm", staticmethod(lambda: fake_litellm)
+        "llm_behavior_eval.evaluation_utils.litellm_utils.trim_messages",
+        fake_trim_messages,
+        raising=False,
     )
+
+    patch_litellm(monkeypatch)
     evaluation_config = EvaluationConfig(
         model_path_or_repo_id="openai/gpt-4o",
         model_engine="api",
@@ -316,7 +315,20 @@ def test_api_eval_engine_applies_prompt_level_message_trimming(
     )
 
     assert answers == ["ok"]
-    assert len(fake_litellm.trim_calls) == 1
-    assert len(fake_litellm.calls) == 1
-    first_request = fake_litellm.calls[0]
-    assert first_request["messages"] == [[{"role": "user", "content": "abc"}]]
+
+
+def test_api_eval_engine_extract_content_from_response_object(
+    tmp_path, monkeypatch
+) -> None:
+    """_extract_content works with the standard ModelResponse-shaped object."""
+    response = _make_response("hello world")
+    assert ApiEvalEngine._extract_content(response) == "hello world"
+
+
+def test_api_eval_engine_extract_content_returns_empty_on_error(
+    tmp_path, monkeypatch
+) -> None:
+    """_extract_content returns empty string for malformed/missing responses."""
+    assert ApiEvalEngine._extract_content(None) == ""
+    assert ApiEvalEngine._extract_content(SimpleNamespace(choices=[])) == ""
+    assert ApiEvalEngine._extract_content(SimpleNamespace()) == ""

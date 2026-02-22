@@ -212,8 +212,9 @@ class BaseEvaluator(ABC):
         # Prompt-only provider engines do not need a local tokenizer.
         if self.judge_engine == "api":
             return
-        judge_tokenizer_path_or_repo_id = EvalEngine._get_tokenizer_path_or_repo_id(
-            self.eval_config, is_judge=True
+        judge_tokenizer_path_or_repo_id = (
+            self.eval_config.judge_tokenizer_path_or_repo_id
+            or self.eval_config.judge_path_or_repo_id
         )
         self.judge_tokenizer = load_tokenizer_with_transformers(
             judge_tokenizer_path_or_repo_id,

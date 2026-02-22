@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import torch
 
-    from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
 
 
@@ -59,61 +58,6 @@ class EvalEngine(ABC):
         API engines benefit from this to maximize provider-side batching.
         """
         return False
-
-    @staticmethod
-    def _get_model_path_or_repo_id(
-        eval_config: EvaluationConfig, is_judge: bool
-    ) -> str:
-        """Get the model path based on whether this is a judge model."""
-        return (
-            eval_config.judge_path_or_repo_id
-            if is_judge
-            else eval_config.model_path_or_repo_id
-        )
-
-    @staticmethod
-    def _get_tokenizer_path_or_repo_id(
-        eval_config: EvaluationConfig, is_judge: bool
-    ) -> str:
-        """Get the tokenizer path based on whether this is a judge model."""
-        if is_judge:
-            return (
-                eval_config.judge_tokenizer_path_or_repo_id
-                or eval_config.judge_path_or_repo_id
-            )
-        return (
-            eval_config.model_tokenizer_path_or_repo_id
-            or eval_config.model_path_or_repo_id
-        )
-
-    @staticmethod
-    def _get_model_token(eval_config: EvaluationConfig, is_judge: bool) -> str | None:
-        """Get the model token based on whether this is a judge model."""
-        return eval_config.judge_token if is_judge else eval_config.model_token
-
-    @staticmethod
-    def _get_use_4bit(eval_config: EvaluationConfig, is_judge: bool) -> bool:
-        """Get the 4-bit setting based on whether this is a judge model."""
-        return eval_config.use_4bit_judge if is_judge else eval_config.use_4bit
-
-    @staticmethod
-    def _get_batch_size_from_config(
-        eval_config: EvaluationConfig, is_judge: bool
-    ) -> int | None:
-        """Get the estimated batch size from config based on whether this is a judge model."""
-        return eval_config.judge_batch_size if is_judge else eval_config.batch_size
-
-    @staticmethod
-    def _get_sample_from_config(eval_config: EvaluationConfig, is_judge: bool) -> bool:
-        """Get the sample setting from config based on whether this is a judge model."""
-        return eval_config.sample_judge if is_judge else eval_config.sample
-
-    @staticmethod
-    def _get_max_new_tokens(eval_config: EvaluationConfig, is_judge: bool) -> int:
-        """Get the max new tokens setting from config based on whether this is a judge model."""
-        return (
-            eval_config.max_judge_tokens if is_judge else eval_config.max_answer_tokens
-        )
 
 
 class TensorEvalEngine(EvalEngine, ABC):
