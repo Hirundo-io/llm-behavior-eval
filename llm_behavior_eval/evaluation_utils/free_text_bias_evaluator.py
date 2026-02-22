@@ -428,7 +428,7 @@ candidate_uncertain: "<yes|no>"
                     "flagged_as_unknown": is_unknown,
                 }
                 if self.has_stereotype:
-                    resp["stereotyped_answer"] = stereotyped_answer  # type: ignore[index]
+                    resp["stereotyped_answer"] = stereotyped_answer
                 responses.append(resp)
 
         # normalise

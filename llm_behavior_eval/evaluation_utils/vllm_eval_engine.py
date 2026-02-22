@@ -200,5 +200,6 @@ class VllmEvalEngine(EvalEngine):
         destroy_distributed_environment()
         self.model.llm_engine.engine_core.shutdown()
         del self.model
-        with contextlib.suppress(AssertionError):
-            torch.distributed.destroy_process_group()
+        if hasattr(torch.distributed, "destroy_process_group"):
+            with contextlib.suppress(AssertionError):
+                torch.distributed.destroy_process_group()
