@@ -109,10 +109,6 @@ def _get_mlflow_client() -> MlflowModuleProtocol:
     return cast("MlflowModuleProtocol", mlflow)
 
 
-def _get_run_status() -> MlflowRunStatusProtocol | None:
-    return cast("MlflowRunStatusProtocol | None", RunStatus)
-
-
 def custom_collator(batch):
     return {
         key: torch.nn.utils.rnn.pad_sequence(
@@ -531,8 +527,8 @@ class BaseEvaluator(ABC):
             active_run = mlflow_client.active_run()
             if active_run is None:
                 return
-            run_id = active_run.info.run_id if active_run else None
-            run_status = _get_run_status()
+            run_id = active_run.info.run_id
+            run_status = cast("MlflowRunStatusProtocol | None", RunStatus)
             if run_status is not None:
                 status = (
                     run_status.to_string(run_status.FAILED)
