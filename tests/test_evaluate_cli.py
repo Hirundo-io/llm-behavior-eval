@@ -399,3 +399,101 @@ def test_main_defaults_output_dir_to_data_dir(
     evaluate.main("fake/model", "hallu")
     eval_config = capture_eval_config[-1]
     assert eval_config.results_dir == expected
+
+
+def test_main_rejects_save_plot_to_mlflow_without_plot() -> None:
+    with pytest.raises(ValueError, match="requires --plot"):
+        evaluate.main(
+            "fake/model",
+            "hallu",
+            save_plot_to_mlflow=True,
+            plot=False,
+            use_mlflow=True,
+        )
+
+
+def test_main_rejects_save_plot_to_mlflow_without_mlflow() -> None:
+    with pytest.raises(ValueError, match="requires --use-mlflow"):
+        evaluate.main(
+            "fake/model",
+            "hallu",
+            save_plot_to_mlflow=True,
+            plot=True,
+            use_mlflow=False,
+        )
+
+
+def test_main_calls_plotting_when_enabled(
+    capture_eval_config: list[EvaluationConfig],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    captured_plot_calls: list[tuple[str, bool]] = []
+
+    def fake_plot_metrics_from_summary(
+        result_dir,
+        model_path_or_repo_id: str,
+        save_plot_to_mlflow: bool,
+    ) -> None:
+        captured_plot_calls.append((model_path_or_repo_id, save_plot_to_mlflow))
+
+    monkeypatch.setattr(
+        evaluate, "_plot_metrics_from_summary", fake_plot_metrics_from_summary
+    )
+
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        output_dir=tmp_path,
+        plot=True,
+        save_plot_to_mlflow=False,
+    )
+
+    assert capture_eval_config
+    assert captured_plot_calls == [("fake/model", False)]
+
+
+def test_main_keeps_success_when_plotting_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cleanup_calls: list[bool] = []
+
+    class CleanupTrackingEvaluator(_StubEvaluator):
+        def cleanup(self, error: bool = False) -> None:
+            cleanup_calls.append(error)
+
+    def _fake_create(
+        eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> CleanupTrackingEvaluator:
+        return CleanupTrackingEvaluator()
+
+    def fake_plot_metrics_from_summary(
+        result_dir,
+        model_path_or_repo_id: str,
+        save_plot_to_mlflow: bool,
+    ) -> None:
+        raise RuntimeError("plotting exploded")
+
+    monkeypatch.setattr(
+        evaluate.EvaluateFactory,
+        "create_evaluator",
+        staticmethod(_fake_create),
+    )
+    monkeypatch.setattr(
+        evaluate, "_plot_metrics_from_summary", fake_plot_metrics_from_summary
+    )
+
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        output_dir=tmp_path,
+        plot=True,
+        save_plot_to_mlflow=False,
+    )
+
+    assert cleanup_calls == [False]
+    assert "Plot generation failed after successful evaluation; skipping plots." in (
+        caplog.text
+    )
