@@ -1,7 +1,9 @@
+import builtins
 import importlib.util
 import sys
 import types
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -29,7 +31,9 @@ class ScatterPolarStub:
 class FigureStub:
     def __init__(self) -> None:
         self.data: list[ScatterPolarStub] = []
-        self.layout = type("Layout", (), {"title": type("Title", (), {"text": ""})()})()
+        self.layout = _LayoutStub()
+        self.showlegend = False
+        self.polar: dict[str, Any] = {}
 
     def add_trace(self, trace: ScatterPolarStub) -> None:
         self.data.append(trace)
@@ -51,6 +55,26 @@ class GraphObjectsStub:
     Scatterpolar = ScatterPolarStub
 
 
+class _TitleStub:
+    def __init__(self) -> None:
+        self.text = ""
+
+
+class _LayoutStub:
+    def __init__(self) -> None:
+        self.title = _TitleStub()
+
+
+def _install_plotly_stubs(monkeypatch: pytest.MonkeyPatch) -> None:
+    plotly_module: Any = types.ModuleType("plotly")
+    graph_objects_module: Any = types.ModuleType("plotly.graph_objects")
+    graph_objects_module.Figure = FigureStub
+    graph_objects_module.Scatterpolar = ScatterPolarStub
+    plotly_module.graph_objects = graph_objects_module
+    monkeypatch.setitem(sys.modules, "plotly", plotly_module)
+    monkeypatch.setitem(sys.modules, "plotly.graph_objects", graph_objects_module)
+
+
 def test_validate_plot_args_validates_lengths() -> None:
     with pytest.raises(ValueError, match="categories length"):
         plotting._validate_plot_args(
@@ -64,13 +88,7 @@ def test_validate_plot_args_validates_lengths() -> None:
 def test_draw_radar_chart_writes_html_and_closes_polygon(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    plotly_module = types.ModuleType("plotly")
-    graph_objects_module = types.ModuleType("plotly.graph_objects")
-    graph_objects_module.Figure = FigureStub
-    graph_objects_module.Scatterpolar = ScatterPolarStub
-    plotly_module.graph_objects = graph_objects_module
-    monkeypatch.setitem(sys.modules, "plotly", plotly_module)
-    monkeypatch.setitem(sys.modules, "plotly.graph_objects", graph_objects_module)
+    _install_plotly_stubs(monkeypatch)
     output_path = tmp_path / "radar.html"
 
     figure_object = plotting.draw_radar_chart(
@@ -90,13 +108,7 @@ def test_draw_radar_chart_writes_html_and_closes_polygon(
 def test_draw_radar_chart_uses_metric_name_mapping(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    plotly_module = types.ModuleType("plotly")
-    graph_objects_module = types.ModuleType("plotly.graph_objects")
-    graph_objects_module.Figure = FigureStub
-    graph_objects_module.Scatterpolar = ScatterPolarStub
-    plotly_module.graph_objects = graph_objects_module
-    monkeypatch.setitem(sys.modules, "plotly", plotly_module)
-    monkeypatch.setitem(sys.modules, "plotly.graph_objects", graph_objects_module)
+    _install_plotly_stubs(monkeypatch)
     output_path = tmp_path / "mapped_title.html"
 
     figure_object = plotting.draw_radar_chart(
@@ -114,8 +126,14 @@ def test_draw_radar_chart_uses_metric_name_mapping(
 def test_draw_radar_chart_raises_clear_error_when_plotly_missing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.delitem(sys.modules, "plotly", raising=False)
-    monkeypatch.delitem(sys.modules, "plotly.graph_objects", raising=False)
+    original_import = builtins.__import__
+
+    def import_without_plotly(name, *args, **kwargs):
+        if name == "plotly" or name.startswith("plotly."):
+            raise ImportError("No module named 'plotly'")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_plotly)
 
     with pytest.raises(ImportError, match="Plotly is required"):
         plotting.draw_radar_chart(

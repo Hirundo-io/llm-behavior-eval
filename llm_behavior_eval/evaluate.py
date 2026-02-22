@@ -79,16 +79,18 @@ def _plot_metrics_from_summary(
         )
         return
 
-    metric_columns = [
-        column_name
-        for column_name in [
-            "Accuracy (%) ⬆️",
-            "Error (%) ⬇️",
-            "Attack success rate (%) ⬇️",
-        ]
-        if column_name in summary_dataframe.columns
-        and not summary_dataframe[column_name].isna().all()
-    ]
+    metric_columns: list[str] = []
+    for column_name in [
+        "Accuracy (%) ⬆️",
+        "Error (%) ⬇️",
+        "Attack success rate (%) ⬇️",
+    ]:
+        if column_name not in summary_dataframe.columns:
+            continue
+        column_values = summary_dataframe[column_name].dropna()
+        if column_values.empty:
+            continue
+        metric_columns.append(column_name)
 
     for metric_column_name in metric_columns:
         metric_values = (
@@ -639,13 +641,20 @@ def main(
                 evaluator.update_dataset_config(dataset_config)
                 with evaluator.dataset_mlflow_run():
                     evaluator.grade(generations, judge)
-        if plot:
-            _plot_metrics_from_summary(
-                result_dir=result_dir,
-                model_path_or_repo_id=model_path_or_repo_id,
-                save_plot_to_mlflow=save_plot_to_mlflow,
-            )
         evaluation_error = False
+
+        if plot:
+            try:
+                _plot_metrics_from_summary(
+                    result_dir=result_dir,
+                    model_path_or_repo_id=model_path_or_repo_id,
+                    save_plot_to_mlflow=save_plot_to_mlflow,
+                )
+            except Exception:
+                logging.warning(
+                    "Plot generation failed after successful evaluation; skipping plots.",
+                    exc_info=True,
+                )
     finally:
         if evaluator is not None:
             evaluator.cleanup(error=evaluation_error)
