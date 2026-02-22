@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -11,6 +13,7 @@ from llm_behavior_eval import DatasetConfig, EvaluationConfig
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from pathlib import Path
 
     from llm_behavior_eval.evaluation_utils.base_evaluator import (
         _GenerationRecord,
@@ -31,11 +34,17 @@ class _StubEvaluator:
     def get_grading_context(self) -> AbstractContextManager:
         return nullcontext()
 
+    def dataset_mlflow_run(self, run_name: str | None = None) -> AbstractContextManager:
+        return nullcontext()
+
     def grade(
         self,
         generations: Sequence[_GenerationRecord],
         judge_engine: EvalEngine | None = None,
     ) -> None:
+        return None
+
+    def cleanup(self, error: bool = False) -> None:
         return None
 
 
@@ -102,6 +111,19 @@ def test_main_passes_judge_quantization_flag(
 ) -> None:
     evaluate.main("fake/model", "hallu", use_4bit_judge=True)
     assert capture_eval_config[-1].use_4bit_judge is True
+
+
+def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
+    capture_eval_config: list[EvaluationConfig],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://tracking.from.env")
+    evaluate.main("fake/model", "hallu", use_mlflow=True)
+    assert capture_eval_config[-1].mlflow_config is not None
+    assert (
+        capture_eval_config[-1].mlflow_config.mlflow_tracking_uri
+        == "http://tracking.from.env"
+    )
 
 
 def test_main_sets_inference_engine_and_sampling(
@@ -197,6 +219,103 @@ def test_main_validates_vllm_config_only_with_vllm(
         )
 
 
+def test_eval_config_validates_lora_only_with_vllm() -> None:
+    """Test that lora_path_or_repo_id can only be used when vLLM is enabled."""
+    from pathlib import Path
+
+    from llm_behavior_eval.evaluation_utils.eval_config import (
+        EvaluationConfig,
+    )
+
+    # Should raise error when LoRA is specified but not using vLLM
+    with pytest.raises(
+        ValueError,
+        match="LoRA usage currently only supported with vLLM",
+    ):
+        EvaluationConfig(
+            model_path_or_repo_id="fake/model",
+            results_dir=Path("/tmp"),
+            lora_path_or_repo_id="/path/to/lora",
+            model_engine="transformers",  # Not using vLLM
+        )
+
+
+def test_eval_config_allows_lora_with_vllm_inference_engine() -> None:
+    """Test that lora_path_or_repo_id is allowed when inference_engine is vllm."""
+    from pathlib import Path
+
+    from llm_behavior_eval.evaluation_utils.eval_config import (
+        EvaluationConfig,
+    )
+
+    # Should not raise error when LoRA is specified and using vLLM via inference_engine
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=Path("/tmp"),
+        lora_path_or_repo_id="/path/to/lora",
+        inference_engine="vllm",
+    )
+    assert config.lora_path_or_repo_id == "/path/to/lora"
+
+
+def test_eval_config_allows_lora_with_vllm_model_engine() -> None:
+    """Test that lora_path_or_repo_id is allowed when model_engine is vllm."""
+    from pathlib import Path
+
+    from llm_behavior_eval.evaluation_utils.eval_config import (
+        EvaluationConfig,
+    )
+
+    # Should not raise error when LoRA is specified and using vLLM via model_engine
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=Path("/tmp"),
+        lora_path_or_repo_id="/path/to/lora",
+        model_engine="vllm",
+    )
+    assert config.lora_path_or_repo_id == "/path/to/lora"
+
+
+def test_eval_config_allows_lora_with_vllm_config() -> None:
+    """Test that lora_path_or_repo_id is allowed when vllm_config is provided."""
+    from pathlib import Path
+
+    from llm_behavior_eval.evaluation_utils.eval_config import (
+        EvaluationConfig,
+    )
+    from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+
+    vllm_config = VllmConfig(max_model_len=8192)
+
+    # Should not raise error when LoRA is specified and vllm_config is provided
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=Path("/tmp"),
+        lora_path_or_repo_id="/path/to/lora",
+        vllm_config=vllm_config,
+        model_engine="vllm",
+    )
+    assert config.lora_path_or_repo_id == "/path/to/lora"
+
+
+def test_eval_config_allows_none_lora_path() -> None:
+    """Test that lora_path_or_repo_id can be None."""
+    from pathlib import Path
+
+    from llm_behavior_eval.evaluation_utils.eval_config import (
+        EvaluationConfig,
+    )
+
+    # Should not raise error when LoRA is None
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=Path("/tmp"),
+        lora_path_or_repo_id=None,
+        model_engine="transformers",
+    )
+    assert config.lora_path_or_repo_id is None
+
+
 def test_main_passes_answer_tokens_and_judge_tokens_via_cli(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
@@ -284,3 +403,31 @@ def test_main_accepts_uppercase_cbbq_bias_type(
 
     assert captured.dataset_config.file_path == "hirundo-io/cbbq-SES-bias-free-text"
     assert captured.dataset_config.dataset_type.value == "bias"
+
+
+def test_main_defaults_output_dir_to_data_dir(
+    capture_eval_config: list[EvaluationConfig],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if os.name == "nt":
+        base_dir = tmp_path / "localapp"
+        monkeypatch.setenv("LOCALAPPDATA", str(base_dir))
+        expected = base_dir / "llm-behavior-eval" / "results"
+    elif sys.platform == "darwin":
+        monkeypatch.setenv("HOME", str(tmp_path))
+        expected = (
+            tmp_path
+            / "Library"
+            / "Application Support"
+            / "llm-behavior-eval"
+            / "results"
+        )
+    else:
+        base_dir = tmp_path / "xdg"
+        monkeypatch.setenv("XDG_DATA_HOME", str(base_dir))
+        expected = base_dir / "llm-behavior-eval" / "results"
+
+    evaluate.main("fake/model", "hallu")
+    eval_config = capture_eval_config[-1]
+    assert eval_config.results_dir == expected

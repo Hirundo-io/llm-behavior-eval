@@ -138,25 +138,25 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         return self._map_judge_outputs(raw)
 
     def generate(self) -> Sequence[_GenerationRecord]:
-        try:
-            with torch.inference_mode():
-                generations = self._collect_generations()
-            return generations
-        except Exception as e:
-            self.cleanup(e)
-            raise
+        with torch.inference_mode():
+            generations = self._collect_generations()
+        return generations
 
     def evaluate(self) -> None:
+        error = True
         try:
             generations = self.generate()
 
             # free task model
             self.free_test_model()
-            with self.get_judge_engine_context() as judge_engine:
+            with (
+                self.dataset_mlflow_run(),
+                self.get_judge_engine_context() as judge_engine,
+            ):
                 self.grade(generations, judge_engine)
-        except Exception as e:
-            self.cleanup(e)
-            raise
+            error = False
+        finally:
+            self.cleanup(error)
 
     def grade(
         self,
@@ -168,49 +168,45 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                 "FreeTextHalluEvaluator.grade() must be called with a judge engine."
             )
 
-        try:
-            counts = {k: 0 for k in CHOICE_STRINGS}
-            responses: list[dict] = []
+        counts = {k: 0 for k in CHOICE_STRINGS}
+        responses: list[dict] = []
 
-            for generation in tqdm(
-                cast("Sequence[_HalluGenerationRecord]", generations),
-                desc="Grading responses",
-                unit="batch",
-            ):
-                with torch.inference_mode():
-                    labels = self._grade_batch(
-                        judge_engine,
-                        generation.input_texts,
-                        generation.gt_answers,
-                        generation.answers,
-                    )
-                for question, gt_answer, generated_answer, label in zip(
+        for generation in tqdm(
+            cast("Sequence[_HalluGenerationRecord]", generations),
+            desc="Grading responses",
+            unit="batch",
+        ):
+            with torch.inference_mode():
+                labels = self._grade_batch(
+                    judge_engine,
                     generation.input_texts,
                     generation.gt_answers,
                     generation.answers,
-                    labels,
-                    strict=True,
-                ):
-                    counts[label] += 1
-                    responses.append(
-                        {
-                            "question": question,
-                            "gt_answer": gt_answer,
-                            "llm_answer": generated_answer,
-                            "grade": label,
-                        }
-                    )
+                )
+            for question, gt_answer, generated_answer, label in zip(
+                generation.input_texts,
+                generation.gt_answers,
+                generation.answers,
+                labels,
+                strict=True,
+            ):
+                counts[label] += 1
+                responses.append(
+                    {
+                        "question": question,
+                        "gt_answer": gt_answer,
+                        "llm_answer": generated_answer,
+                        "grade": label,
+                    }
+                )
 
-            total = sum(counts.values()) if counts else 1
-            incorrect = counts.get("INCORRECT", 0)
-            error_rate = incorrect / total
+        total = sum(counts.values()) if counts else 1
+        incorrect = counts.get("INCORRECT", 0)
+        error_rate = incorrect / total
 
-            self.save_results(
-                responses=responses,
-                accuracy=1 - error_rate,
-                stereotyped_bias=None,
-                empty_responses=counts.get("NOT_ATTEMPTED", 0),
-            )
-            self.cleanup()
-        except Exception as e:
-            self.cleanup(e)
+        self.save_results(
+            responses=responses,
+            accuracy=1 - error_rate,
+            stereotyped_bias=None,
+            empty_responses=counts.get("NOT_ATTEMPTED", 0),
+        )

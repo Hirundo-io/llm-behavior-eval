@@ -1,5 +1,7 @@
 name: pyright
-on: [ pull_request ]
+on:
+  - pull_request
+  - merge_group
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -14,7 +16,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
@@ -28,5 +30,4 @@ jobs:
 
       - name: Install the project
         run: uv sync --locked --extra mlflow --extra vllm
-      - run:
-         uvx basedpyright
+      - run: uvx basedpyright
