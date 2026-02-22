@@ -33,9 +33,9 @@ class TransformersEvalEngine(TensorEvalEngine, PromptEvalEngine):
             else eval_config.model_path_or_repo_id
         )
         tokenizer_path_or_repo_id = (
-            eval_config.judge_tokenizer_path_or_repo_id or eval_config.judge_path_or_repo_id
+            (eval_config.judge_tokenizer_path_or_repo_id or eval_config.judge_path_or_repo_id)
             if is_judge
-            else eval_config.model_tokenizer_path_or_repo_id or eval_config.model_path_or_repo_id
+            else (eval_config.model_tokenizer_path_or_repo_id or eval_config.model_path_or_repo_id)
         )
         model_token = eval_config.judge_token if is_judge else eval_config.model_token
         use_4bit = eval_config.use_4bit_judge if is_judge else eval_config.use_4bit

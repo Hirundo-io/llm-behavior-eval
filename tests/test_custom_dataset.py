@@ -62,6 +62,18 @@ def test_custom_dataset_falls_back_to_hub_tabular_on_not_implemented(
     assert calls["fallback_called"] is True
 
 
+def test_select_preferred_tabular_file_prefers_train_shards() -> None:
+    files = [
+        "validation/validation-00000-of-00001.parquet",
+        "test/test-00000-of-00001.parquet",
+        "train/train-00000-of-00001.parquet",
+    ]
+
+    preferred = CustomDataset._select_preferred_tabular_file(files)
+
+    assert preferred == "train/train-00000-of-00001.parquet"
+
+
 def test_free_text_preprocess_raw_function_truncates_to_limits() -> None:
     batch = {
         "question": ["one two three four five six"],

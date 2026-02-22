@@ -40,9 +40,9 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
             else eval_config.model_path_or_repo_id
         )
         tokenizer_path_or_repo_id = (
-            eval_config.judge_tokenizer_path_or_repo_id or eval_config.judge_path_or_repo_id
+            (eval_config.judge_tokenizer_path_or_repo_id or eval_config.judge_path_or_repo_id)
             if is_judge
-            else eval_config.model_tokenizer_path_or_repo_id or eval_config.model_path_or_repo_id
+            else (eval_config.model_tokenizer_path_or_repo_id or eval_config.model_path_or_repo_id)
         )
         lora_path_or_repo_id = (
             eval_config.lora_path_or_repo_id if not self.is_judge else None

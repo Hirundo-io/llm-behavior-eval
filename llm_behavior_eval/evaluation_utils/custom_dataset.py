@@ -255,6 +255,33 @@ class CustomDataset:
             raise ValueError(f"Expected DatasetDict or Dataset, got {type(raw)}")
         self.has_stereotype: bool = "stereotyped_answer" in self.ds.column_names
 
+    @staticmethod
+    def _select_preferred_tabular_file(tabular_files: list[str]) -> str:
+        """Pick the most likely training split file from dataset repo files."""
+        if not tabular_files:
+            raise ValueError("tabular_files must not be empty")
+
+        exact_train_names = {"train.csv", "train.parquet", "train.json", "train.jsonl"}
+
+        def rank(path: str) -> tuple[int, str]:
+            file_name = Path(path).name.lower()
+            stem = Path(path).stem.lower()
+            parts = [part.lower() for part in Path(path).parts]
+
+            if file_name in exact_train_names:
+                return (0, file_name)
+            if file_name.startswith(("train-", "train_", "train.")):
+                return (1, file_name)
+            if stem == "train" or "train" in parts:
+                return (2, file_name)
+            if file_name.startswith(("validation", "valid", "dev")):
+                return (4, file_name)
+            if file_name.startswith("test"):
+                return (5, file_name)
+            return (3, file_name)
+
+        return min(tabular_files, key=rank)
+
     def _load_dataset_hub_tabular_fallback(self, original_exc: Exception) -> Dataset:
         """
         Fallback for environments where `datasets.load_dataset` cannot read
@@ -284,14 +311,7 @@ class CustomDataset:
                 raise RuntimeError(
                     f"No supported dataset files found in dataset repository '{dataset_ref}'."
                 )
-            preferred_file = next(
-                (
-                    f
-                    for f in tabular_files
-                    if Path(f).name in {"train.csv", "train.parquet", "train.json"}
-                ),
-                tabular_files[0],
-            )
+            preferred_file = self._select_preferred_tabular_file(tabular_files)
             local_file_path = hf_hub_download(
                 repo_id=dataset_ref,
                 filename=preferred_file,

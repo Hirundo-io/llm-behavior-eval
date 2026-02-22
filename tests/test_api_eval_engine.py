@@ -285,7 +285,12 @@ def test_api_eval_engine_raw_text_truncator_warns_and_falls_back(
 def test_api_eval_engine_applies_prompt_level_message_trimming(
     tmp_path, monkeypatch
 ) -> None:
+    trim_calls: list[dict[str, object]] = []
+
     def fake_trim_messages(messages, model=None, max_tokens=None, **kwargs):
+        trim_calls.append(
+            {"messages": messages, "model": model, "max_tokens": max_tokens}
+        )
         return [
             {
                 "role": message["role"],
@@ -294,13 +299,11 @@ def test_api_eval_engine_applies_prompt_level_message_trimming(
             for message in messages
         ]
 
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.litellm_utils.trim_messages",
-        fake_trim_messages,
-        raising=False,
-    )
+    # Patch at the import source so the deferred `from litellm.utils import
+    # trim_messages` inside try_trim_messages_with_litellm picks up the fake.
+    monkeypatch.setattr("litellm.utils.trim_messages", fake_trim_messages)
 
-    patch_litellm(monkeypatch)
+    fake_litellm = patch_litellm(monkeypatch)
     evaluation_config = EvaluationConfig(
         model_path_or_repo_id="openai/gpt-4o",
         model_engine="api",
@@ -315,6 +318,11 @@ def test_api_eval_engine_applies_prompt_level_message_trimming(
     )
 
     assert answers == ["ok"]
+    # Verify the fake was actually called
+    assert len(trim_calls) == 1
+    # Verify trimmed content reached batch_completion
+    sent_messages = fake_litellm.calls[0]["messages"]
+    assert sent_messages == [[{"role": "user", "content": "abc"}]]
 
 
 def test_api_eval_engine_extract_content_from_response_object(
