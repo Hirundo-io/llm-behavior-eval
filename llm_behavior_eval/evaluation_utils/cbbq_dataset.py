@@ -1,6 +1,5 @@
 import logging
 from pathlib import Path
-from typing import cast
 
 import torch
 from datasets import Dataset, DatasetDict, load_dataset
@@ -18,7 +17,50 @@ CBBQ_PROMPT_PREFIX = (
 )
 
 
+def _build_cbbq_prompt(
+    *,
+    context: str,
+    question: str,
+    option_a: str,
+    option_b: str,
+    option_c: str,
+) -> str:
+    """Build one CBBQ multiple-choice prompt in the dataset's native language.
+
+    Args:
+        context: Context passage.
+        question: Question text.
+        option_a: Option A text.
+        option_b: Option B text.
+        option_c: Option C text.
+
+    Returns:
+        Fully formatted prompt string ending with answer prefix.
+    """
+    return (
+        CBBQ_PROMPT_PREFIX
+        + context
+        + "\n问题："
+        + question
+        + "\n选项：A."
+        + option_a
+        + " B."
+        + option_b
+        + " C."
+        + option_c
+        + "\n答案："
+    )
+
+
 def validate_cbbq_columns(hf_dataset: Dataset) -> None:
+    """Validate required CBBQ columns.
+
+    Args:
+        hf_dataset: Loaded CBBQ dataset split.
+
+    Returns:
+        None
+    """
     required = {
         "context",
         "question",
@@ -37,6 +79,14 @@ def validate_cbbq_columns(hf_dataset: Dataset) -> None:
 
 
 def _normalize_cbbq_label(label_value: int | str) -> int:
+    """Normalize raw CBBQ label value to integer label id.
+
+    Args:
+        label_value: Raw dataset label value.
+
+    Returns:
+        Label id in ``{0, 1, 2}``.
+    """
     if isinstance(label_value, str) and label_value in {"0", "1", "2"}:
         return int(label_value)
     if isinstance(label_value, int) and label_value in (0, 1, 2):
@@ -45,6 +95,14 @@ def _normalize_cbbq_label(label_value: int | str) -> int:
 
 
 def _normalize_cbbq_polarity(polarity_value: str) -> int:
+    """Normalize CBBQ polarity token to numeric code.
+
+    Args:
+        polarity_value: Raw polarity token from dataset.
+
+    Returns:
+        ``0`` for ``neg`` and ``1`` for ``non_neg``.
+    """
     if polarity_value == "neg":
         return 0
     if polarity_value == "non_neg":
@@ -61,6 +119,20 @@ def cbbq_preprocess_function(
     reasoning: bool = False,
     pass_max_answer_tokens: bool = False,
 ) -> dict[str, torch.Tensor]:
+    """Tokenize one CBBQ batch into evaluator-ready tensors.
+
+    Args:
+        examples_batch: Batched raw examples from HuggingFace dataset map.
+        tokenizer: Tokenizer for model input construction.
+        max_length: Max sequence length.
+        is_multimodal: Whether tokenizer/model expects multimodal prompt format.
+        max_answer_tokens: Optional max answer token hint.
+        reasoning: Whether reasoning mode is enabled.
+        pass_max_answer_tokens: Whether to pass max answer tokens into template.
+
+    Returns:
+        Dictionary containing model inputs plus CBBQ labels/polarities.
+    """
     row_entries = [
         dict(zip(examples_batch.keys(), values, strict=True))
         for values in zip(*examples_batch.values(), strict=True)
@@ -76,18 +148,12 @@ def cbbq_preprocess_function(
         answer_option_c = row_entry["ans2"]
         label_values.append(_normalize_cbbq_label(row_entry["label"]))
         polarity_values.append(_normalize_cbbq_polarity(row_entry["question_polarity"]))
-        prompt = (
-            CBBQ_PROMPT_PREFIX
-            + context_text
-            + "\n问题："
-            + question_text
-            + "\n选项：A."
-            + answer_option_a
-            + " B."
-            + answer_option_b
-            + " C."
-            + answer_option_c
-            + "\n答案："
+        prompt = _build_cbbq_prompt(
+            context=context_text,
+            question=question_text,
+            option_a=answer_option_a,
+            option_b=answer_option_b,
+            option_c=answer_option_c,
         )
         system_message = {"role": "system", "content": SYSTEM_PROMPT_DICT["content"]}
         user_message = {"role": "user", "content": prompt}
@@ -116,15 +182,22 @@ def cbbq_preprocess_function(
 
 
 class CbbqDataset:
-    """
-    Dataset loader for CBBQ multiple-choice prompts.
-    """
+    """Dataset loader for CBBQ multiple-choice prompts."""
 
     def __init__(
         self,
         file_path: Path | str,
         dataset_type: DatasetType,
     ) -> None:
+        """Initialize CBBQ dataset loader.
+
+        Args:
+            file_path: HuggingFace dataset repo id or path.
+            dataset_type: Dataset split type.
+
+        Returns:
+            None
+        """
         self.file_path = file_path
         self.dataset_type = dataset_type
         try:
@@ -136,7 +209,13 @@ class CbbqDataset:
             ) from exc
         if not isinstance(raw, DatasetDict):
             raise ValueError(f"Expected DatasetDict, got {type(raw)}")
-        self.ds = cast("Dataset", raw["train"])
+
+        train_split = raw["train"]
+        if not isinstance(train_split, Dataset):
+            raise ValueError(
+                f"Expected Dataset for train split, got {type(train_split)}"
+            )
+        self.ds = train_split
         self.has_stereotype = False
 
     def preprocess(
@@ -149,6 +228,20 @@ class CbbqDataset:
         pass_max_answer_tokens: bool = False,
         token: str | None = None,
     ) -> Dataset:
+        """Preprocess CBBQ dataset into model-ready tensors.
+
+        Args:
+            tokenizer: Tokenizer to build model inputs.
+            preprocess_config: Preprocessing configuration.
+            trust_remote_code: Whether remote code is trusted for multimodal detection.
+            max_answer_tokens: Optional max answer token hint.
+            reasoning: Whether reasoning mode is enabled.
+            pass_max_answer_tokens: Whether to pass max-answer hint to template.
+            token: Optional auth token for model metadata lookup.
+
+        Returns:
+            Preprocessed HuggingFace dataset with tensor columns.
+        """
         validate_cbbq_columns(self.ds)
         old_columns = self.ds.column_names
         is_multimodal = is_model_multimodal(

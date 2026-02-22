@@ -14,6 +14,8 @@ Core library code lives in `llm_behavior_eval/`, with behavior-specific helpers 
 
 ## Coding Style & Naming Conventions
 Follow PEP 8 defaults with 4-space indentation. Prefer `snake_case` for modules, functions, and variables; reserve `PascalCase` for classes and `UPPER_SNAKE_CASE` for constants. Keep public CLI options descriptive and aligned with existing Typer command names. Avoid 1-3 letter variable names; use descriptive names even in small scopes. Let `ruff` fix spacing and import order; avoid disabling rules unless there is a clear justification. Type hints are expected on new public functions—match the patterns in `evaluation_utils/`.
+- Any usage of `typing.cast(...)` must include an inline code comment that justifies why the cast is safe at runtime.
+- New or modified non-trivial functions/methods should include docstrings with explicit `Args` and `Returns` sections.
 
 ## Testing Guidelines
 Add or update `tests/test_*.py` files alongside any new feature. Use `pytest` assertions, fixtures, and `monkeypatch` for mocking (avoid `unittest.mock`). Parametrization keeps dataset scenarios readable. Cover both CLI flows (`llm_behavior_eval/__main__.py`) and factory utilities when behavior changes. Keep simulated model outputs deterministic so runs remain reproducible. When adding evaluation datasets, include at least one regression test that exercises parsing and scoring logic. Use pytest's `monkeypatch` fixture for patching module attributes and dependencies; create custom fixtures for reusable test setup.

@@ -175,14 +175,14 @@ class BaseEvaluator(ABC):
         to a maximum number of samples defined in the evaluation configuration. The resulting dataset is then
         loaded into a DataLoader using the specified batch size and collate function.
         """
-        uses_cbbq_dataset = "cbbq" in self.dataset_config.file_path
-        dataset_loader = (
-            CbbqDataset(self.dataset_config.file_path, self.dataset_config.dataset_type)
-            if uses_cbbq_dataset
-            else CustomDataset(
+        if "cbbq" in self.dataset_config.file_path:
+            dataset_loader = CbbqDataset(
                 self.dataset_config.file_path, self.dataset_config.dataset_type
             )
-        )
+        else:
+            dataset_loader = CustomDataset(
+                self.dataset_config.file_path, self.dataset_config.dataset_type
+            )
         test_dataset = dataset_loader.preprocess(
             self.tokenizer,
             self.dataset_config.preprocess_config,
@@ -203,6 +203,7 @@ class BaseEvaluator(ABC):
         self.eval_engine.set_dataset(self.eval_dataset)
 
         self.eval_loader = DataLoader(
+            # `datasets.Dataset` satisfies torch's dataset protocol at runtime.
             cast("Dataset", self.eval_dataset),
             batch_size=self.eval_engine.get_batch_size(),
             shuffle=False,
@@ -890,8 +891,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             return_tensors="pt",
             padding=True,
         )
-        # transformers' tokenizer classes don't have the correct type hints for the return_tensors argument
+        # `return_tensors="pt"` produces torch tensors, but tokenizer types are too broad.
         input_ids = cast("Tensor", tokenized["input_ids"])
+        # Same as above: runtime tensor type is correct, static type is not.
         attention_mask = cast("Tensor", tokenized["attention_mask"])
 
         # Generate answers using judge engine for deterministic judging

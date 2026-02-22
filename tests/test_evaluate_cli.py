@@ -10,6 +10,7 @@ import pytest
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
+from llm_behavior_eval.evaluation_utils.enums import AnswerFormat
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -76,13 +77,25 @@ def capture_eval_config(monkeypatch: pytest.MonkeyPatch) -> list[EvaluationConfi
 def capture_configs(monkeypatch: pytest.MonkeyPatch) -> list[CapturedConfigs]:
     captured: list[CapturedConfigs] = []
 
+    class _CapturingStubEvaluator(_StubEvaluator):
+        def __init__(self, eval_config: EvaluationConfig) -> None:
+            self._eval_config = eval_config
+
+        def update_dataset_config(self, dataset_config: DatasetConfig) -> None:
+            captured.append(
+                CapturedConfigs(
+                    eval_config=self._eval_config,
+                    dataset_config=dataset_config,
+                )
+            )
+
     def _fake_create(
         eval_config: EvaluationConfig, dataset_config: DatasetConfig
     ) -> _StubEvaluator:
         captured.append(
             CapturedConfigs(eval_config=eval_config, dataset_config=dataset_config)
         )
-        return _StubEvaluator()
+        return _CapturingStubEvaluator(eval_config)
 
     monkeypatch.setattr(
         evaluate.EvaluateFactory,
@@ -381,6 +394,7 @@ def test_main_maps_cbbq_bias_behavior_to_dataset_config(
 
     assert captured.dataset_config.file_path == "hirundo-io/cbbq-gender-bias-free-text"
     assert captured.dataset_config.dataset_type.value == "bias"
+    assert captured.dataset_config.answer_format == AnswerFormat.MULTIPLE_CHOICE
 
 
 def test_main_maps_cbbq_unbias_behavior_to_dataset_config(
@@ -393,6 +407,7 @@ def test_main_maps_cbbq_unbias_behavior_to_dataset_config(
         captured.dataset_config.file_path == "hirundo-io/cbbq-gender-unbias-free-text"
     )
     assert captured.dataset_config.dataset_type.value == "unbias"
+    assert captured.dataset_config.answer_format == AnswerFormat.MULTIPLE_CHOICE
 
 
 def test_main_accepts_uppercase_cbbq_bias_type(
@@ -403,6 +418,48 @@ def test_main_accepts_uppercase_cbbq_bias_type(
 
     assert captured.dataset_config.file_path == "hirundo-io/cbbq-SES-bias-free-text"
     assert captured.dataset_config.dataset_type.value == "bias"
+
+
+def test_main_maps_cbbq_bias_basic_behavior_to_multiple_datasets(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "cbbq:bias_basic")
+
+    file_paths = [entry.dataset_config.file_path for entry in capture_configs]
+    unique_paths = list(dict.fromkeys(file_paths))
+    assert unique_paths == [
+        "hirundo-io/cbbq-gender-bias-free-text",
+        "hirundo-io/cbbq-age-bias-free-text",
+        "hirundo-io/cbbq-disability-bias-free-text",
+        "hirundo-io/cbbq-SES-bias-free-text",
+    ]
+    assert all(
+        entry.dataset_config.answer_format == AnswerFormat.MULTIPLE_CHOICE
+        for entry in capture_configs
+    )
+
+
+def test_main_maps_cbbq_unbias_basic_behavior_to_multiple_datasets(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "cbbq:unbias_basic")
+
+    file_paths = [entry.dataset_config.file_path for entry in capture_configs]
+    unique_paths = list(dict.fromkeys(file_paths))
+    assert unique_paths == [
+        "hirundo-io/cbbq-gender-unbias-free-text",
+        "hirundo-io/cbbq-age-unbias-free-text",
+        "hirundo-io/cbbq-disability-unbias-free-text",
+        "hirundo-io/cbbq-SES-unbias-free-text",
+    ]
+
+
+def test_main_rejects_cbbq_disamb_basic_behavior(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    with pytest.raises(ValueError, match="cbbq:unbias_basic"):
+        evaluate.main("fake/model", "cbbq:disamb_basic")
+    assert capture_configs == []
 
 
 def test_main_defaults_output_dir_to_data_dir(
@@ -431,3 +488,11 @@ def test_main_defaults_output_dir_to_data_dir(
     evaluate.main("fake/model", "hallu")
     eval_config = capture_eval_config[-1]
     assert eval_config.results_dir == expected
+
+
+def test_main_uses_free_text_answer_format_for_non_cbbq(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "hallu")
+    captured = capture_configs[-1]
+    assert captured.dataset_config.answer_format == AnswerFormat.FREE_TEXT

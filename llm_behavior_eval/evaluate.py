@@ -18,6 +18,7 @@ from llm_behavior_eval import (
     PreprocessConfig,
     SamplingConfig,
 )
+from llm_behavior_eval.evaluation_utils.enums import AnswerFormat
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
 )
@@ -74,11 +75,12 @@ def _default_results_dir() -> Path:
 
 def _behavior_presets(behavior: str) -> list[str]:
     """
-    Map behavior presets to dataset identifiers (free‑text only).
+    Map behavior presets to dataset identifiers.
 
     New formats:
     - BBQ: "bias:<bias_type>" or "unbias:<bias_type>"
-    - CBBQ: "cbbq:bias:<bias_type>" or "cbbq:unbias:<bias_type>"
+    - CBBQ short presets: "cbbq:bias_basic" | "cbbq:bias_all" | "cbbq:unbias_basic" | "cbbq:unbias_all"
+    - CBBQ explicit: "cbbq:bias:<bias_type>" or "cbbq:unbias:<bias_type>"
     - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
     - Hallucinations: "hallu" or "hallu-med"
     - Prompt injection: "prompt-injection"
@@ -94,12 +96,30 @@ def _behavior_presets(behavior: str) -> list[str]:
         return ["hirundo-io/prompt-injection-purple-llama"]
 
     # Expected structures:
+    # ["cbbq", <bias_basic|bias_all|unbias_basic|unbias_all>] for CBBQ short presets
     # [kind, bias_type] for BBQ, where kind in {bias, unbias}
     #   - bias_type can be a concrete type or 'all'
     # ["cbbq", kind, bias_type] for CBBQ, where kind in {bias, unbias}
     #   - bias_type can be a concrete type or 'all'
     # ["unqover", kind, bias_type] for UNQOVER (kind must be 'bias')
     #   - bias_type can be a concrete type or 'all'
+    if len(behavior_parts) == 2 and behavior_parts[0] == "cbbq":
+        from llm_behavior_eval.evaluation_utils.enums import (
+            CBBQ_ALL_TYPES,
+            CBBQ_BASIC_TYPES,
+        )
+
+        _, preset = behavior_parts
+        if preset not in {"bias_basic", "bias_all", "unbias_basic", "unbias_all"}:
+            raise ValueError(
+                "For CBBQ short presets use one of: 'cbbq:bias_basic', 'cbbq:bias_all', 'cbbq:unbias_basic', 'cbbq:unbias_all'"
+            )
+        kind = "unbias" if preset.startswith("unbias") else "bias"
+        bias_types = CBBQ_BASIC_TYPES if preset.endswith("basic") else CBBQ_ALL_TYPES
+        return [
+            f"hirundo-io/cbbq-{bias_type}-{kind}-free-text" for bias_type in bias_types
+        ]
+
     if len(behavior_parts) == 2:
         kind, bias_type = behavior_parts
         if kind not in BIAS_KINDS:
@@ -158,12 +178,12 @@ def _behavior_presets(behavior: str) -> list[str]:
         return [f"hirundo-io/unqover-{bias_type}-{kind}-free-text"]
 
     raise ValueError(
-        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'cbbq:bias:<type|all>' | 'cbbq:unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
+        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'cbbq:bias_basic|bias_all|unbias_basic|unbias_all' | 'cbbq:bias:<type|all>' | 'cbbq:unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
     )
 
 
 def _infer_dataset_type(file_path: str) -> DatasetType:
-    if "-unbias-" in file_path or "-disamb-" in file_path:
+    if "-unbias-" in file_path:
         return DatasetType.UNBIAS
     return DatasetType.BIAS
 
@@ -178,7 +198,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; CBBQ: 'cbbq:bias:<type>' or 'cbbq:unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; CBBQ short: 'cbbq:bias_basic'|'cbbq:bias_all'|'cbbq:unbias_basic'|'cbbq:unbias_all'; CBBQ explicit: 'cbbq:bias:<type>' or 'cbbq:unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
         ),
     ],
     output_dir: Annotated[
@@ -562,6 +582,11 @@ def main(
                     file_path=file_path,
                     dataset_type=_infer_dataset_type(file_path),
                     preprocess_config=PreprocessConfig(),
+                    answer_format=(
+                        AnswerFormat.MULTIPLE_CHOICE
+                        if "/cbbq-" in file_path
+                        else AnswerFormat.FREE_TEXT
+                    ),
                     seed=seed,
                 )
                 if evaluator is None:
