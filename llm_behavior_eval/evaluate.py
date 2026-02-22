@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 from typing import Annotated, Literal
 
+import pandas as pd
 import torch
 import typer
 
@@ -50,6 +51,65 @@ DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
 DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
 DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
 DEFAULT_MAX_LORA_RANK = VllmConfig.model_fields["max_lora_rank"].default
+
+
+def _plot_metrics_from_summary(
+    result_dir: Path,
+    model_path_or_repo_id: str,
+    save_plot_to_mlflow: bool,
+) -> None:
+    from llm_behavior_eval.evaluation_utils.plotting import draw_radar_chart
+
+    model_slug = model_path_or_repo_id.split("/")[-1]
+    summary_file_path = result_dir / model_slug / "summary_full.csv"
+    if not summary_file_path.exists():
+        logging.warning(
+            "Summary file not found at %s; skipping chart creation.", summary_file_path
+        )
+        return
+
+    summary_dataframe = pd.read_csv(summary_file_path)
+    categories = [
+        str(dataset_name) for dataset_name in summary_dataframe["Dataset"].tolist()
+    ]
+    if not categories:
+        logging.warning(
+            "No datasets in summary file %s; skipping chart creation.",
+            summary_file_path,
+        )
+        return
+
+    metric_columns = [
+        column_name
+        for column_name in [
+            "Accuracy (%) ⬆️",
+            "Error (%) ⬇️",
+            "Attack success rate (%) ⬇️",
+        ]
+        if column_name in summary_dataframe.columns
+        and not summary_dataframe[column_name].isna().all()
+    ]
+
+    for metric_column_name in metric_columns:
+        metric_values = (
+            summary_dataframe[metric_column_name].fillna(0).astype(float).tolist()
+        )
+        output_chart_path = (
+            summary_file_path.parent
+            / f"radar_{metric_column_name.replace(' ', '_').replace('%', 'pct').replace('⬆️', 'up').replace('⬇️', 'down')}.html"
+        )
+        draw_radar_chart(
+            value_lists=[metric_values],
+            series_labels=[model_slug],
+            metric_name=metric_column_name,
+            categories=categories,
+            save_path=output_chart_path,
+            chart_title=f"{metric_column_name} by Dataset",
+        )
+        if save_plot_to_mlflow:
+            import mlflow
+
+            mlflow.log_artifact(str(output_chart_path), artifact_path="plots")
 
 
 def _default_results_dir() -> Path:
@@ -425,6 +485,20 @@ def main(
             show_default=str(DEFAULT_MAX_JUDGE_TOKENS),
         ),
     ] = DEFAULT_MAX_JUDGE_TOKENS,
+    plot: Annotated[
+        bool,
+        typer.Option(
+            "--plot/--no-plot",
+            help="Generate Plotly radar charts from summary metrics.",
+        ),
+    ] = False,
+    save_plot_to_mlflow: Annotated[
+        bool,
+        typer.Option(
+            "--save-plot-to-mlflow/--no-save-plot-to-mlflow",
+            help="Upload generated charts to MLflow artifacts.",
+        ),
+    ] = False,
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
@@ -440,6 +514,11 @@ def main(
         format="%(asctime)s %(levelname)-8s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+    if save_plot_to_mlflow and not plot:
+        raise ValueError("--save-plot-to-mlflow requires --plot.")
+    if save_plot_to_mlflow and not use_mlflow:
+        raise ValueError("--save-plot-to-mlflow requires --use-mlflow.")
 
     # Compose MLflow config separately
     if use_mlflow or mlflow_tracking_uri or mlflow_experiment_name or mlflow_run_name:
@@ -560,6 +639,12 @@ def main(
                 evaluator.update_dataset_config(dataset_config)
                 with evaluator.dataset_mlflow_run():
                     evaluator.grade(generations, judge)
+        if plot:
+            _plot_metrics_from_summary(
+                result_dir=result_dir,
+                model_path_or_repo_id=model_path_or_repo_id,
+                save_plot_to_mlflow=save_plot_to_mlflow,
+            )
         evaluation_error = False
     finally:
         if evaluator is not None:

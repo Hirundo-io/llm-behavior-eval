@@ -24,7 +24,7 @@ jobs:
           cache-dependency-glob: "uv.lock"
 
       - name: Install the project
-        run: uv sync --locked
+        run: uv sync --group dev --locked
 
       - name: Set up Python
         uses: actions/setup-python@v5
