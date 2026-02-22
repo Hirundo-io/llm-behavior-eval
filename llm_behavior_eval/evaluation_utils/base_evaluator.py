@@ -97,16 +97,44 @@ class BaseEvaluator(ABC):
     ):
         return default_data_collator if tokenizer is not None else raw_text_collator
 
+    def _resolve_data_collator_for_engine(self, engine: object):
+        return self._resolve_data_collator_for_tokenizer(
+            self._resolve_dataset_tokenizer_for_engine(engine)
+        )
+
+    @staticmethod
+    def _resolve_dataset_tokenizer_for_engine(
+        engine: object,
+    ) -> PreTrainedTokenizerBase | None:
+        if not BaseEvaluator._engine_requires_tokenized_dataset(engine):
+            return None
+        tokenizer = getattr(engine, "tokenizer", None)
+        return cast("PreTrainedTokenizerBase | None", tokenizer)
+
+    @staticmethod
+    def _engine_requires_tokenized_dataset(engine: object) -> bool:
+        if isinstance(engine, EvalEngine):
+            return engine.requires_tokenized_dataset()
+        requires = getattr(engine, "requires_tokenized_dataset", None)
+        if callable(requires):
+            try:
+                return bool(requires())
+            except TypeError:
+                return False
+        return getattr(engine, "tokenizer", None) is not None
+
     @staticmethod
     def _engine_supports_tensor_generation(engine: object) -> bool:
-        return (
-            isinstance(engine, TensorEvalEngine)
-            or callable(getattr(engine, "generate_answers_from_tensors", None))
-            or getattr(engine, "tokenizer", None) is not None
+        if isinstance(engine, EvalEngine) and engine.supports_tensor_generation():
+            return True
+        return isinstance(engine, TensorEvalEngine) or callable(
+            getattr(engine, "generate_answers_from_tensors", None)
         )
 
     @staticmethod
     def _engine_supports_prompt_generation(engine: object) -> bool:
+        if isinstance(engine, EvalEngine) and engine.supports_prompt_generation():
+            return True
         return isinstance(engine, PromptEvalEngine) or callable(
             getattr(engine, "generate_answers_from_prompts", None)
         )
@@ -114,11 +142,16 @@ class BaseEvaluator(ABC):
     def _judge_requires_tokenized_dataset(self, judge_engine: object) -> bool:
         return (
             self._model_uses_raw_prompts()
-            and self._engine_supports_tensor_generation(judge_engine)
+            and self._engine_requires_tokenized_dataset(judge_engine)
         )
 
     def _model_uses_raw_prompts(self) -> bool:
-        return self.tokenizer is None
+        model_requires_tokenized = getattr(
+            self, "_model_requires_tokenized_dataset", None
+        )
+        if model_requires_tokenized is None:
+            return getattr(self, "tokenizer", None) is None
+        return not model_requires_tokenized
 
     def _resolved_dataset_shuffle_seed(self) -> int:
         """
@@ -187,8 +220,11 @@ class BaseEvaluator(ABC):
                     default_data_collator,
                     self.eval_config,
                 )
-        self.tokenizer = self.eval_engine.tokenizer
-        self.data_collator = self._resolve_data_collator_for_tokenizer(self.tokenizer)
+        self._model_requires_tokenized_dataset = (
+            self._engine_requires_tokenized_dataset(self.eval_engine)
+        )
+        self.tokenizer = self._resolve_dataset_tokenizer_for_engine(self.eval_engine)
+        self.data_collator = self._resolve_data_collator_for_engine(self.eval_engine)
         self.trust_remote_code = self.eval_config.trust_remote_code
         self.prepare_dataloader()
         self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
@@ -304,16 +340,15 @@ class BaseEvaluator(ABC):
                 cast("TorchDataset", self.eval_dataset),
                 batch_size=self.eval_engine.get_batch_size(),
                 shuffle=False,
-                collate_fn=self._resolve_data_collator_for_tokenizer(
-                    getattr(self.eval_engine, "tokenizer", None)
-                ),
+                collate_fn=self._resolve_data_collator_for_engine(self.eval_engine),
             )
             return
 
         custom_dataset = CustomDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
-        tokenizer = self.tokenizer
+        tokenizer = self._resolve_dataset_tokenizer_for_engine(self.eval_engine)
+        self.data_collator = self._resolve_data_collator_for_engine(self.eval_engine)
         preprocess_config = self.dataset_config.preprocess_config
         raw_text_truncator = None
         if not getattr(self.eval_engine, "is_judge", False):
@@ -405,12 +440,13 @@ class BaseEvaluator(ABC):
         attention_mask: torch.Tensor,
         do_sample: bool | None = None,
     ) -> list[str]:
-        if not isinstance(self.eval_engine, TensorEvalEngine):
+        if not self._engine_supports_tensor_generation(self.eval_engine):
             raise RuntimeError(
                 "Current evaluation engine does not support tensor-based generation."
             )
+        tensor_engine = cast("TensorEvalEngine", self.eval_engine)
 
-        return self.eval_engine.generate_answers_from_tensors(
+        return tensor_engine.generate_answers_from_tensors(
             input_ids,
             attention_mask,
             sampling_config=self._build_model_sampling_config(do_sample),
@@ -421,12 +457,13 @@ class BaseEvaluator(ABC):
         prompts: Sequence[JudgePrompt],
         do_sample: bool | None = None,
     ) -> list[str]:
-        if not isinstance(self.eval_engine, PromptEvalEngine):
+        if not self._engine_supports_prompt_generation(self.eval_engine):
             raise RuntimeError(
                 "Current evaluation engine does not support prompt-based generation."
             )
+        prompt_engine = cast("PromptEvalEngine", self.eval_engine)
 
-        return self.eval_engine.generate_answers_from_prompts(
+        return prompt_engine.generate_answers_from_prompts(
             list(prompts),
             sampling_config=self._build_model_sampling_config(do_sample),
         )
@@ -1015,7 +1052,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Returns:
             List of judge outputs in format [{"generated_text": ...}, ...] per prompt.
         """
-        if not isinstance(judge_engine, PromptEvalEngine):
+        if not self._engine_supports_prompt_generation(judge_engine):
             raise RuntimeError("Judge engine does not support prompt-based generation.")
 
         # If a fixed judge batch size is provided, run regularly with that size (no backoff)
@@ -1103,7 +1140,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
         )
 
-        if self._engine_supports_tensor_generation(judge_engine):
+        if self._engine_requires_tokenized_dataset(judge_engine):
             tensor_judge_engine = cast("TensorEvalEngine", judge_engine)
             judge_tokenizer = self._get_judge_tokenizer()
             string_prompts: list[str] = []

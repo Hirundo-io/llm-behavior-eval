@@ -6,7 +6,13 @@ from typing import TYPE_CHECKING, cast
 
 import torch
 
-from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine, TensorEvalEngine
+from .eval_engine import (
+    EngineInputMode,
+    EvalDataset,
+    JudgePrompt,
+    PromptEvalEngine,
+    TensorEvalEngine,
+)
 from .util_functions import (
     build_vllm_prompt_token_ids,
     load_tokenizer_with_transformers,
@@ -25,6 +31,10 @@ if TYPE_CHECKING:
 
 
 class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
+    def generation_input_mode(self) -> EngineInputMode:
+        # Local vLLM now follows prompt/message preprocessing like API engines.
+        return "prompt"
+
     def __init__(
         self,
         eval_config: EvaluationConfig,
@@ -40,16 +50,24 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
             else eval_config.model_path_or_repo_id
         )
         tokenizer_path_or_repo_id = (
-            (eval_config.judge_tokenizer_path_or_repo_id or eval_config.judge_path_or_repo_id)
+            (
+                eval_config.judge_tokenizer_path_or_repo_id
+                or eval_config.judge_path_or_repo_id
+            )
             if is_judge
-            else (eval_config.model_tokenizer_path_or_repo_id or eval_config.model_path_or_repo_id)
+            else (
+                eval_config.model_tokenizer_path_or_repo_id
+                or eval_config.model_path_or_repo_id
+            )
         )
         lora_path_or_repo_id = (
             eval_config.lora_path_or_repo_id if not self.is_judge else None
         )
         model_token = eval_config.judge_token if is_judge else eval_config.model_token
         use_4bit = eval_config.use_4bit_judge if is_judge else eval_config.use_4bit
-        batch_size = (eval_config.judge_batch_size if is_judge else eval_config.batch_size) or 256
+        batch_size = (
+            eval_config.judge_batch_size if is_judge else eval_config.batch_size
+        ) or 256
 
         self.tokenizer = load_tokenizer_with_transformers(
             tokenizer_path_or_repo_id,
@@ -176,10 +194,18 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
         from vllm import SamplingParams
 
         if sampling_config.do_sample is None:
-            do_sample = self.eval_config.sample_judge if self.is_judge else self.eval_config.sample
+            do_sample = (
+                self.eval_config.sample_judge
+                if self.is_judge
+                else self.eval_config.sample
+            )
         else:
             do_sample = sampling_config.do_sample
-        max_new_tokens = self.eval_config.max_judge_tokens if self.is_judge else self.eval_config.max_answer_tokens
+        max_new_tokens = (
+            self.eval_config.max_judge_tokens
+            if self.is_judge
+            else self.eval_config.max_answer_tokens
+        )
         if sampling_config.temperature is None:
             temperature = 1.0 if do_sample else 0.0
         else:
@@ -205,7 +231,11 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
         return [int(eos_token_id)]
 
     def get_batch_size(self) -> int:
-        batch_size = self.eval_config.judge_batch_size if self.is_judge else self.eval_config.batch_size
+        batch_size = (
+            self.eval_config.judge_batch_size
+            if self.is_judge
+            else self.eval_config.batch_size
+        )
 
         if batch_size is None:
             batch_size = max(1, min(len(self.eval_dataset), 8))
