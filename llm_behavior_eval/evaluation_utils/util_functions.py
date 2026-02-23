@@ -33,10 +33,10 @@ if TYPE_CHECKING:
 VLLMDType = Literal["bfloat16", "float16", "float32"]
 VLLMQuantization = Literal[
     "awq",
-    "deepspeedfp",
-    "tpu_int8",
     "fp8",
     "ptpc_fp8",
+    "fbgemm_fp8",
+    "fp_quant",
     "bitsandbytes",
 ]
 
