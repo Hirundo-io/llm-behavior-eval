@@ -32,12 +32,6 @@ class EvalEngine(ABC):
     def free_model(self) -> None:
         raise NotImplementedError("Subclasses must implement free_model().")
 
-    def supports_prompt_generation(self) -> bool:
-        return True
-
-    def requires_tokenized_dataset(self) -> bool:
-        return False
-
     def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
         """
         Return an optional raw-text truncation callable for tokenizer-free paths.

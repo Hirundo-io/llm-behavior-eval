@@ -11,7 +11,7 @@ from llm_behavior_eval.evaluation_utils.prompts import UNKNOWN_ANSWERS
 
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .enums import DatasetType
-from .eval_engine import EvalEngine, JudgePrompt
+from .eval_engine import JudgePrompt, PromptEvalEngine
 
 # Matches both lines irrespective of quote style, capitalisation, or line breaks.
 _JUDGE_OUTPUT_RE = re.compile(
@@ -219,7 +219,7 @@ candidate_uncertain: "<yes|no>"
 
     def _match_llm_answers(
         self,
-        judge_engine: EvalEngine,
+        judge_engine: PromptEvalEngine,
         llm_answers: list[str],
         correct_answers: list[str],
         stereotyped_answers: list[str] | None,
@@ -368,7 +368,7 @@ candidate_uncertain: "<yes|no>"
     def grade(
         self,
         generations: Sequence[_GenerationRecord],
-        judge_engine: EvalEngine | None = None,
+        judge_engine: PromptEvalEngine | None = None,
     ) -> None:
         if judge_engine is None:
             raise ValueError(

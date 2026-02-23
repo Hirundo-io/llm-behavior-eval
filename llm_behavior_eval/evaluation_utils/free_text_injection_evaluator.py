@@ -7,7 +7,7 @@ import torch
 from tqdm import tqdm
 
 from .base_evaluator import _GenerationRecord
-from .eval_engine import EvalEngine
+from .eval_engine import PromptEvalEngine
 from .free_text_hallu_evaluator import FreeTextHaluEvaluator, _HalluGenerationRecord
 
 
@@ -50,7 +50,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
 
     def _grade_batch(
         self,
-        judge_engine: EvalEngine,
+        judge_engine: PromptEvalEngine,
         questions: list[str],
         gt_answers: list[str],  # unused but kept for signature compatibility
         generated_answers: list[str],
@@ -160,7 +160,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
     def grade(
         self,
         generations: Sequence[_GenerationRecord],
-        judge_engine: EvalEngine | None = None,
+        judge_engine: PromptEvalEngine | None = None,
     ) -> None:
         if judge_engine is None:
             raise ValueError(

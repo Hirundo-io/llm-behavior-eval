@@ -26,7 +26,6 @@ from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
 
 from .custom_dataset import CustomDataset
 from .enums import DatasetType
-from .eval_engine import EvalEngine, JudgePrompt, PromptEvalEngine
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import (
@@ -44,6 +43,7 @@ if TYPE_CHECKING:
 
     from .dataset_config import DatasetConfig
     from .eval_config import EvaluationConfig, MlflowConfig
+    from .eval_engine import JudgePrompt, PromptEvalEngine
 
 
 class SamplingParamsProtocol(Protocol):
@@ -90,14 +90,6 @@ class _DatasetSamplingState:
 
 
 class BaseEvaluator(ABC):
-    @staticmethod
-    def _engine_supports_prompt_generation(engine: object) -> bool:
-        if isinstance(engine, EvalEngine):
-            return engine.supports_prompt_generation()
-        return isinstance(engine, PromptEvalEngine) or callable(
-            getattr(engine, "generate_answers_from_prompts", None)
-        )
-
     def _resolved_dataset_shuffle_seed(self) -> int:
         """
         Return the deterministic seed used when shuffling datasets for both
@@ -148,7 +140,7 @@ class BaseEvaluator(ABC):
         if self.mlflow_config:
             self._init_mlflow()
 
-        self.eval_engine: EvalEngine
+        self.eval_engine: PromptEvalEngine
         match self.model_engine:
             case "vllm":
                 self.eval_engine = VllmEvalEngine(self.eval_config)
@@ -306,13 +298,7 @@ class BaseEvaluator(ABC):
         prompts: Sequence[JudgePrompt],
         do_sample: bool | None = None,
     ) -> list[str]:
-        if not self._engine_supports_prompt_generation(self.eval_engine):
-            raise RuntimeError(
-                "Current evaluation engine does not support prompt-based generation."
-            )
-        prompt_engine = cast("PromptEvalEngine", self.eval_engine)
-
-        return prompt_engine.generate_answers_from_prompts(
+        return self.eval_engine.generate_answers_from_prompts(
             list(prompts),
             sampling_config=self._build_model_sampling_config(do_sample),
         )
@@ -353,7 +339,7 @@ class BaseEvaluator(ABC):
     def grade(
         self,
         generations: Sequence[_GenerationRecord],
-        judge_engine: EvalEngine | None = None,
+        judge_engine: PromptEvalEngine | None = None,
     ) -> None:
         """
         Grade the answers for the evaluation.
@@ -901,7 +887,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         )
         return existing_generations
 
-    def free_judge(self, judge_engine: EvalEngine | None = None) -> None:
+    def free_judge(self, judge_engine: PromptEvalEngine | None = None) -> None:
         if judge_engine is not None:
             judge_engine.free_model()
         if hasattr(self, "judge_tokenizer") and self.judge_tokenizer is not None:
@@ -912,7 +898,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     @torch.no_grad()
     def run_judge_with_backoff(
         self,
-        judge_engine: EvalEngine,
+        judge_engine: PromptEvalEngine,
         prompts: Sequence[JudgePrompt],
     ) -> list[list[dict[str, str]]]:
         """
@@ -927,9 +913,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Returns:
             List of judge outputs in format [{"generated_text": ...}, ...] per prompt.
         """
-        if not self._engine_supports_prompt_generation(judge_engine):
-            raise RuntimeError("Judge engine does not support prompt-based generation.")
-
         # If a fixed judge batch size is provided, run regularly with that size (no backoff)
         if self.eval_config.judge_batch_size is not None:
             fixed_batch_size = max(1, int(self.eval_config.judge_batch_size))
@@ -984,7 +967,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
     def _process_judge_prompts_batch(
         self,
-        judge_engine: EvalEngine,
+        judge_engine: PromptEvalEngine,
         prompts: Sequence[JudgePrompt],
         batch_size: int | None = None,
         do_sample: bool | None = None,
@@ -1015,10 +998,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
         )
 
-        if not self._engine_supports_prompt_generation(judge_engine):
-            raise RuntimeError("Judge engine does not support prompt-based generation.")
-        prompt_judge_engine = cast("PromptEvalEngine", judge_engine)
-        answers = prompt_judge_engine.generate_answers_from_prompts(
+        answers = judge_engine.generate_answers_from_prompts(
             list(prompts),
             sampling_config=sampling_config,
         )
@@ -1026,14 +1006,14 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         # Format output to match pipeline format: [{"generated_text": answer}, ...] per prompt
         return [[{"generated_text": answer}] for answer in answers]
 
-    def get_grading_context(self) -> AbstractContextManager[EvalEngine]:
+    def get_grading_context(self) -> AbstractContextManager[PromptEvalEngine]:
         """
         Context manager for the grading process.
         """
         return self.get_judge_engine_context()
 
     @contextmanager
-    def get_judge_engine_context(self) -> Generator[EvalEngine, None, None]:
+    def get_judge_engine_context(self) -> Generator[PromptEvalEngine, None, None]:
         """
         Context manager for the judge engine. Creates an eval engine instance
         (either VllmEvalEngine, TransformersEvalEngine, or ApiEvalEngine) based on configuration.
@@ -1041,7 +1021,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Yields:
             The judge eval engine instance.
         """
-        judge_engine: EvalEngine | None = None
+        judge_engine: PromptEvalEngine | None = None
         try:
             if not (hasattr(self, "eval_engine") and self.eval_engine.is_judge):
                 self.prepare_judge_tokenizer()

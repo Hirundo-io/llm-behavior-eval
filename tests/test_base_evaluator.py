@@ -23,7 +23,7 @@ from llm_behavior_eval.evaluation_utils.base_evaluator import (
 from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
-from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine, PromptEvalEngine
+from llm_behavior_eval.evaluation_utils.eval_engine import PromptEvalEngine
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 if TYPE_CHECKING:
@@ -91,7 +91,7 @@ def patch_eval_engine(
     stub_tokenizer: StubTokenizer,
     capture_state: CaptureState,
 ) -> None:
-    class StubEvalEngine:
+    class StubEvalEngine(PromptEvalEngine):
         def __init__(
             self,
             data_collator: Callable[[Any], Any],
@@ -134,6 +134,17 @@ def patch_eval_engine(
 
         def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
             return None
+
+        def format_prompt(self, messages: list[dict[str, str]]) -> str:
+            return messages[0]["content"] if messages else ""
+
+        def generate_answers_from_prompts(
+            self,
+            prompts: list[str | list[dict[str, str]]],
+            sampling_config: SamplingConfig,
+        ) -> list[str]:
+            del sampling_config
+            return [str(prompt) for prompt in prompts]
 
     monkeypatch.setattr(base_evaluator_module, "TransformersEvalEngine", StubEvalEngine)
 
@@ -391,7 +402,7 @@ def test_api_model_reuses_eval_dataset_for_judge_with_prompt_pipeline(
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             del generations, judge_engine
             return None
@@ -503,7 +514,7 @@ def test_update_dataset_config_restores_dataset_state_in_judge_context(
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             del generations, judge_engine
             return None
@@ -576,7 +587,7 @@ def test_update_dataset_config_in_judge_context_does_not_require_rebuild_state(
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             del generations, judge_engine
             return None
@@ -751,7 +762,7 @@ def test_run_judge_with_backoff_uses_fixed_batch_size_without_probing(
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             del generations, judge_engine
             return None
@@ -780,13 +791,27 @@ def test_run_judge_with_backoff_uses_fixed_batch_size_without_probing(
         chunks.append(prompts_list)
         return [[{"generated_text": prompt}] for prompt in prompts_list]
 
-    class StubJudge:
+    class StubJudge(PromptEvalEngine):
+        def set_dataset(self, eval_dataset: Sized) -> None:
+            del eval_dataset
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def free_model(self) -> None:
+            return None
+
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
+
         def generate_answers_from_prompts(self, prompts, sampling_config):
             del prompts, sampling_config
             return []
 
     monkeypatch.setattr(evaluator, "_process_judge_prompts_batch", fake_process)
-    outputs = evaluator.run_judge_with_backoff(cast("EvalEngine", StubJudge()), prompts)
+    outputs = evaluator.run_judge_with_backoff(
+        cast("PromptEvalEngine", StubJudge()), prompts
+    )
 
     assert chunks == [["p1", "p2"], ["p3", "p4"], ["p5"]]
     assert outputs == [
@@ -812,7 +837,7 @@ def test_run_judge_with_backoff_retries_and_clears_partial_outputs(
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             del generations, judge_engine
             return None
@@ -866,7 +891,19 @@ def test_run_judge_with_backoff_retries_and_clears_partial_outputs(
             raise RuntimeError("simulated OOM")
         return [[{"generated_text": prompt}] for prompt in prompts_list]
 
-    class StubJudge:
+    class StubJudge(PromptEvalEngine):
+        def set_dataset(self, eval_dataset: Sized) -> None:
+            del eval_dataset
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def free_model(self) -> None:
+            return None
+
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
+
         def generate_answers_from_prompts(self, prompts, sampling_config):
             del prompts, sampling_config
             return []
@@ -881,7 +918,9 @@ def test_run_judge_with_backoff_retries_and_clears_partial_outputs(
     )
     monkeypatch.setattr(evaluator, "_process_judge_prompts_batch", fake_process)
 
-    outputs = evaluator.run_judge_with_backoff(cast("EvalEngine", StubJudge()), prompts)
+    outputs = evaluator.run_judge_with_backoff(
+        cast("PromptEvalEngine", StubJudge()), prompts
+    )
 
     assert calls == [
         (4, ["p1", "p2", "p3", "p4"]),
@@ -990,7 +1029,7 @@ def test_get_grading_context_creates_and_frees_judge_engine(
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             del generations, judge_engine
             return None
@@ -1022,7 +1061,7 @@ def test_get_grading_context_supports_api_judge_engine(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class StubApiJudgeEngine:
+    class StubApiJudgeEngine(PromptEvalEngine):
         def __init__(self, _eval_config, *, is_judge: bool = False) -> None:
             self.is_judge = is_judge
             self.dataset = None
@@ -1036,6 +1075,13 @@ def test_get_grading_context_supports_api_judge_engine(
         def free_model(self) -> None:
             return None
 
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
+
+        def generate_answers_from_prompts(self, prompts, sampling_config):
+            del prompts, sampling_config
+            return []
+
     # Need to use a FreeTextSharedEvaluator subclass to test get_judge_engine_context
     class StubApiEvaluator(FreeTextSharedEvaluator):
         def evaluate(self) -> None:
@@ -1047,7 +1093,7 @@ def test_get_grading_context_supports_api_judge_engine(
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             del generations, judge_engine
             return None
@@ -1103,7 +1149,7 @@ def test_update_dataset_config_in_api_judge_context_sets_judge_preprocess_limits
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             del generations, judge_engine
             return None
@@ -1165,7 +1211,7 @@ def test_prepare_judge_tokenizer_after_free_judge_does_not_raise(
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             del generations, judge_engine
             return None
@@ -1267,7 +1313,7 @@ def test_grading_context_preserves_sampling_seed_without_dataset_rebuild(
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             del generations, judge_engine
             return None
@@ -1380,7 +1426,7 @@ def test_evaluate_flow_can_use_generate_then_grade_in_grading_context(
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             capture_state.grade_generations_count = len(generations)
             capture_state.grade_called_with_judge = (

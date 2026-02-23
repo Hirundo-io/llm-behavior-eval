@@ -7,7 +7,7 @@ import torch
 from tqdm import tqdm
 
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
-from .eval_engine import EvalEngine
+from .eval_engine import PromptEvalEngine
 
 CHOICE_LETTERS: list[str] = ["A", "B", "C"]
 CHOICE_STRINGS: list[str] = ["CORRECT", "INCORRECT", "NOT_ATTEMPTED"]
@@ -102,7 +102,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
 
     def _grade_batch(
         self,
-        judge_engine: EvalEngine,
+        judge_engine: PromptEvalEngine,
         questions: list[str],
         gt_answers: list[str],
         generated_answers: list[str],
@@ -152,7 +152,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
     def grade(
         self,
         generations: Sequence[_GenerationRecord],
-        judge_engine: EvalEngine | None = None,
+        judge_engine: PromptEvalEngine | None = None,
     ) -> None:
         if judge_engine is None:
             raise ValueError(

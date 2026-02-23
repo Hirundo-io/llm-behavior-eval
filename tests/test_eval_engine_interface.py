@@ -32,11 +32,10 @@ class _DummyPromptEngine(PromptEvalEngine):
         return [str(prompt) for prompt in prompts]
 
 
-def test_prompt_engine_capabilities_and_dataset_requirements() -> None:
+def test_prompt_engine_default_eval_engine_behavior() -> None:
     engine = _DummyPromptEngine()
 
-    assert engine.supports_prompt_generation() is True
-    assert engine.requires_tokenized_dataset() is False
+    assert engine.should_combine_judge_prompt_groups() is False
 
 
 def test_prompt_engine_normalizes_mixed_prompts_to_strings() -> None:

@@ -7,14 +7,14 @@ import pytest
 
 pytest.importorskip("torch")
 
-from llm_behavior_eval.evaluation_utils.eval_engine import EvalDataset, EvalEngine
+from llm_behavior_eval.evaluation_utils.eval_engine import EvalDataset, PromptEvalEngine
 from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
     Agreement,
     FreeTextBiasEvaluator,
 )
 
 
-class StubJudgeEngine(EvalEngine):
+class StubJudgeEngine(PromptEvalEngine):
     def __init__(self, combine_prompt_groups: bool) -> None:
         self.combine_prompt_groups = combine_prompt_groups
 
@@ -30,6 +30,13 @@ class StubJudgeEngine(EvalEngine):
 
     def should_combine_judge_prompt_groups(self) -> bool:
         return self.combine_prompt_groups
+
+    def format_prompt(self, messages: list[dict[str, str]]) -> str:
+        return messages[0]["content"] if messages else ""
+
+    def generate_answers_from_prompts(self, prompts, sampling_config):
+        del prompts, sampling_config
+        raise AssertionError("Test should monkeypatch run_judge_with_backoff.")
 
 
 def _build_judge_response(prompt: object) -> list[dict[str, str]]:
