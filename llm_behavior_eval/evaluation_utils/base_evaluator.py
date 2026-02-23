@@ -24,6 +24,7 @@ from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
 )
 from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
 
+from .api_eval_engine import ApiEvalEngine
 from .custom_dataset import CustomDataset
 from .enums import DatasetType
 from .max_batch_size import MAX_BATCH_SIZE
@@ -145,8 +146,6 @@ class BaseEvaluator(ABC):
             case "vllm":
                 self.eval_engine = VllmEvalEngine(self.eval_config)
             case "api":
-                from .api_eval_engine import ApiEvalEngine
-
                 self.eval_engine = ApiEvalEngine(
                     self.eval_config,
                     is_judge=False,
@@ -1028,8 +1027,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 # Create appropriate judge engine based on config
                 match self.judge_engine:
                     case "api":
-                        from .api_eval_engine import ApiEvalEngine
-
                         judge_engine = ApiEvalEngine(
                             self.eval_config,
                             is_judge=True,

@@ -13,7 +13,6 @@ pytest.importorskip("transformers")
 import torch
 from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokenizerBase
 
-import llm_behavior_eval.evaluation_utils.api_eval_engine as api_eval_engine_module
 import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_module
 from llm_behavior_eval.evaluation_utils.base_evaluator import (
     BaseEvaluator,
@@ -121,10 +120,10 @@ def patch_eval_engine(
             capture_state.free_model_calls.append(self.is_judge)
             return None
 
-        def set_dataset(self, dataset: Sized) -> None:
-            capture_state.engine_dataset = dataset
-            capture_state.set_dataset_calls.append((self.is_judge, dataset))
-            self.dataset = dataset
+        def set_dataset(self, eval_dataset: Sized) -> None:
+            capture_state.engine_dataset = eval_dataset
+            capture_state.set_dataset_calls.append((self.is_judge, eval_dataset))
+            self.dataset = eval_dataset
 
         def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
             capture_state.preprocess_limits = (max_length, gt_max_length)
@@ -165,7 +164,7 @@ def patch_eval_engine(
         def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
             return self._raw_text_truncator
 
-    monkeypatch.setattr(api_eval_engine_module, "ApiEvalEngine", StubApiEvalEngine)
+    monkeypatch.setattr(base_evaluator_module, "ApiEvalEngine", StubApiEvalEngine)
 
 
 @pytest.fixture(autouse=True)
@@ -1066,8 +1065,8 @@ def test_get_grading_context_supports_api_judge_engine(
             self.is_judge = is_judge
             self.dataset = None
 
-        def set_dataset(self, dataset: object) -> None:
-            self.dataset = dataset
+        def set_dataset(self, eval_dataset: object) -> None:
+            self.dataset = eval_dataset
 
         def get_batch_size(self) -> int:
             return 1
@@ -1110,10 +1109,7 @@ def test_get_grading_context_supports_api_judge_engine(
             AssertionError("Tokenizer should not be loaded for API judges.")
         ),
     )
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.api_eval_engine.ApiEvalEngine",
-        StubApiJudgeEngine,
-    )
+    monkeypatch.setattr(base_evaluator_module, "ApiEvalEngine", StubApiJudgeEngine)
 
     evaluation_config = EvaluationConfig(
         model_path_or_repo_id="meta/model",
@@ -1377,10 +1373,7 @@ def test_api_model_engine_uses_api_eval_engine(
         def get_raw_text_truncator(self):
             return None
 
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.api_eval_engine.ApiEvalEngine",
-        StubApiModelEngine,
-    )
+    monkeypatch.setattr(base_evaluator_module, "ApiEvalEngine", StubApiModelEngine)
 
     evaluation_config = EvaluationConfig(
         model_path_or_repo_id="openai/gpt-4o-mini",
