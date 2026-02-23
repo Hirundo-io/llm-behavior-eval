@@ -7,11 +7,10 @@ from typing import cast
 import torch
 from tqdm import tqdm
 
-from llm_behavior_eval.evaluation_utils.prompts import UNKNOWN_ANSWERS
-
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .enums import DatasetType
 from .eval_engine import JudgePrompt, PromptEvalEngine
+from .prompts import UNKNOWN_ANSWERS
 
 # Matches both lines irrespective of quote style, capitalisation, or line breaks.
 _JUDGE_OUTPUT_RE = re.compile(

@@ -21,7 +21,7 @@ from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
 
-from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+from .vllm_config import VllmConfig
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

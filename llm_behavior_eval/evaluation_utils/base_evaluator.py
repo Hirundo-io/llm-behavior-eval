@@ -143,10 +143,7 @@ class BaseEvaluator(ABC):
             case "vllm":
                 self.eval_engine = VllmEvalEngine(self.eval_config)
             case "api":
-                self.eval_engine = ApiEvalEngine(
-                    self.eval_config,
-                    is_judge=False,
-                )
+                self.eval_engine = ApiEvalEngine(self.eval_config)
             case _:
                 self.eval_engine = TransformersEvalEngine(
                     default_data_collator,
