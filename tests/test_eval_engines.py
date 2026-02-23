@@ -13,6 +13,7 @@ from datasets import Dataset
 
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
 from llm_behavior_eval.evaluation_utils.eval_engine import (
+    EngineInputMode,
     PromptEvalEngine,
     TensorEvalEngine,
 )
@@ -111,18 +112,6 @@ class DummyTransformersModel:
     def cpu(self):
         self.cpu_called = True
         return self
-
-
-class BuildPromptRecorder:
-    def __init__(self) -> None:
-        self.last_input_ids: torch.Tensor | None = None
-        self.last_attention_mask: torch.Tensor | None = None
-        self.return_value = [[101], [102]]
-
-    def __call__(self, input_ids: torch.Tensor, attention_mask: torch.Tensor):
-        self.last_input_ids = input_ids
-        self.last_attention_mask = attention_mask
-        return self.return_value
 
 
 class SamplingParamsRecorder:
@@ -232,7 +221,6 @@ class CandidateRecorder:
 @dataclass
 class VllmPatchBundle:
     tokenizer: RecordingVllmTokenizer
-    build_recorder: BuildPromptRecorder
     sampling_recorder: SamplingParamsRecorder
     outputs_log: list[object]
     tokenizer_loader: TokenizerLoaderStub
@@ -252,13 +240,11 @@ class TransformersPatchBundle:
 @pytest.fixture
 def vllm_bundle() -> VllmPatchBundle:
     tokenizer = RecordingVllmTokenizer()
-    build_recorder = BuildPromptRecorder()
     sampling_recorder = SamplingParamsRecorder()
     outputs_log: list[object] = []
     model = DummyVllmModel(outputs_log)
     return VllmPatchBundle(
         tokenizer=tokenizer,
-        build_recorder=build_recorder,
         sampling_recorder=sampling_recorder,
         outputs_log=outputs_log,
         tokenizer_loader=TokenizerLoaderStub(tokenizer),
@@ -292,10 +278,6 @@ def _apply_vllm_patching(request, monkeypatch):
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.vllm_eval_engine.load_tokenizer_with_transformers",
         bundle.tokenizer_loader,
-    )
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.vllm_eval_engine.build_vllm_prompt_token_ids",
-        bundle.build_recorder,
     )
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.vllm_eval_engine.torch.cuda.is_available",
@@ -333,7 +315,7 @@ def _apply_transformers_patching(request, monkeypatch):
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_implements_prompt_and_tensor_interfaces(tmp_path) -> None:
+def test_vllm_eval_engine_implements_prompt_interface(tmp_path) -> None:
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
@@ -342,7 +324,8 @@ def test_vllm_eval_engine_implements_prompt_and_tensor_interfaces(tmp_path) -> N
     engine = VllmEvalEngine(config)
 
     assert isinstance(engine, PromptEvalEngine)
-    assert isinstance(engine, TensorEvalEngine)
+    assert not isinstance(engine, TensorEvalEngine)
+    assert engine.generation_input_mode() == EngineInputMode.PROMPT
 
 
 @pytest.mark.vllm_engine_test
@@ -373,7 +356,7 @@ def test_vllm_judge_engine_uses_judge_tokenizer_override(vllm_bundle, tmp_path) 
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_generate_answers_from_tensors(vllm_bundle, tmp_path) -> None:
+def test_vllm_eval_engine_generate_answers_from_prompts(vllm_bundle, tmp_path) -> None:
     dataset = Dataset.from_dict({"question": ["q1", "q2"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -386,12 +369,8 @@ def test_vllm_eval_engine_generate_answers_from_tensors(vllm_bundle, tmp_path) -
     engine = VllmEvalEngine(config)
     engine.set_dataset(dataset)
 
-    input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
-    attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]])
-
-    responses = engine.generate_answers_from_tensors(
-        input_ids,
-        attention_mask,
+    responses = engine.generate_answers_from_prompts(
+        ["prompt-1", "prompt-2"],
         sampling_config=SamplingConfig(
             do_sample=config.sample,
             temperature=config.sampling_config.temperature,
@@ -401,18 +380,19 @@ def test_vllm_eval_engine_generate_answers_from_tensors(vllm_bundle, tmp_path) -
         ),
     )
     assert responses == ["first", ""]
-    assert vllm_bundle.build_recorder.last_input_ids is input_ids
-    assert vllm_bundle.build_recorder.last_attention_mask is attention_mask
     call_kwargs = vllm_bundle.sampling_recorder.calls[0]
     assert call_kwargs["max_tokens"] == config.max_answer_tokens
     assert call_kwargs["temperature"] == 0.0
     assert call_kwargs["stop_token_ids"] == [vllm_bundle.tokenizer.eos_token_id]
+    model_call = vllm_bundle.outputs_log[-1]
+    assert isinstance(model_call, dict)
+    assert model_call["prompts"] == ["prompt-1", "prompt-2"]
     assert vllm_bundle.tokenizer.pad_token == vllm_bundle.tokenizer.eos_token
     assert engine.get_batch_size() == len(dataset)
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_formats_message_prompts_before_tokenization(
+def test_vllm_eval_engine_formats_message_prompts_before_generation(
     vllm_bundle, tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr(
@@ -434,10 +414,9 @@ def test_vllm_eval_engine_formats_message_prompts_before_tokenization(
     )
 
     assert answers == ["first", ""]
-    assert vllm_bundle.tokenizer.encode_calls[-1]["texts"] == [
-        "templated::hello",
-        "already-formatted",
-    ]
+    model_call = vllm_bundle.outputs_log[-1]
+    assert isinstance(model_call, dict)
+    assert model_call["prompts"] == ["templated::hello", "already-formatted"]
 
 
 @pytest.mark.vllm_engine_test
@@ -454,12 +433,8 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
     engine = VllmEvalEngine(config)
     engine.set_dataset(dataset)
 
-    input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
-    attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]])
-
-    responses = engine.generate_answers_from_tensors(
-        input_ids,
-        attention_mask,
+    responses = engine.generate_answers_from_prompts(
+        ["prompt-1", "prompt-2"],
         sampling_config=SamplingConfig(
             do_sample=True,
             temperature=None,

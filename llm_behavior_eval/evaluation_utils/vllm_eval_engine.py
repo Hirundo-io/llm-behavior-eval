@@ -11,10 +11,8 @@ from .eval_engine import (
     EvalDataset,
     JudgePrompt,
     PromptEvalEngine,
-    TensorEvalEngine,
 )
 from .util_functions import (
-    build_vllm_prompt_token_ids,
     load_tokenizer_with_transformers,
     load_vllm_model,
     maybe_download_adapter,
@@ -24,16 +22,17 @@ from .util_functions import (
 from .vllm_config import VllmConfig
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from vllm.inputs.data import PromptType
 
     from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
 
 
-class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
+class VllmEvalEngine(PromptEvalEngine):
     def generation_input_mode(self) -> EngineInputMode:
-        # Local vLLM now follows prompt/message preprocessing like API engines.
-        return "prompt"
+        return EngineInputMode.PROMPT
 
     def __init__(
         self,
@@ -147,33 +146,6 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset
 
-    def generate_answers_from_tensors(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        sampling_config: SamplingConfig,
-    ) -> list[str]:
-        prompt_token_ids = build_vllm_prompt_token_ids(input_ids, attention_mask)
-        prompts: list[PromptType] = [
-            {"prompt_token_ids": tokens} for tokens in prompt_token_ids
-        ]
-        sampling_params = self._get_vllm_sampling_params(sampling_config)
-        outputs = self.model.generate(
-            prompts=prompts,
-            sampling_params=sampling_params,
-            use_tqdm=False,
-            lora_request=self.lora_request,
-        )
-        responses: list[str] = []
-        for output in outputs:
-            candidates = getattr(output, "outputs", [])
-            if not candidates:
-                responses.append("")
-                continue
-            first_candidate = candidates[0]
-            responses.append(getattr(first_candidate, "text", ""))
-        return responses
-
     def _get_vllm_sampling_params(
         self,
         sampling_config: SamplingConfig,
@@ -264,17 +236,23 @@ class VllmEvalEngine(TensorEvalEngine, PromptEvalEngine):
         prompts: list[JudgePrompt],
         sampling_config: SamplingConfig,
     ) -> list[str]:
-        """Tokenize string prompts and generate answers."""
+        """Generate from preformatted string prompts."""
         if not prompts:
             return []
         string_prompts = self.normalize_prompts_to_strings(prompts)
-        tokenized = self.tokenizer(
-            string_prompts,
-            return_tensors="pt",
-            padding=True,
+        sampling_params = self._get_vllm_sampling_params(sampling_config)
+        outputs = self.model.generate(
+            prompts=cast("Sequence[PromptType]", string_prompts),
+            sampling_params=sampling_params,
+            use_tqdm=False,
+            lora_request=self.lora_request,
         )
-        input_ids = cast("torch.Tensor", tokenized["input_ids"])
-        attention_mask = cast("torch.Tensor", tokenized["attention_mask"])
-        return self.generate_answers_from_tensors(
-            input_ids, attention_mask, sampling_config
-        )
+        responses: list[str] = []
+        for output in outputs:
+            candidates = getattr(output, "outputs", [])
+            if not candidates:
+                responses.append("")
+                continue
+            first_candidate = candidates[0]
+            responses.append(getattr(first_candidate, "text", ""))
+        return responses

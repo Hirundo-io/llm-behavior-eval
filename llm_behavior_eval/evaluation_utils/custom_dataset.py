@@ -12,7 +12,11 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from .dataset_config import PreprocessConfig
 from .enums import DatasetType
 from .prompts import SYSTEM_PROMPT_DICT
-from .util_functions import is_model_multimodal, safe_apply_chat_template
+from .util_functions import (
+    is_model_multimodal,
+    safe_apply_chat_template,
+    truncate_text_by_whitespace,
+)
 
 
 def validate_dataset_columns(hf_dataset: Dataset) -> None:
@@ -154,15 +158,7 @@ def free_text_preprocess_raw_function(
     limiting whitespace-delimited tokens.
     """
 
-    def fallback_truncate_text(text: str, max_tokens: int) -> str:
-        if max_tokens <= 0:
-            return ""
-        tokens = text.split()
-        if len(tokens) <= max_tokens:
-            return text
-        return " ".join(tokens[:max_tokens])
-
-    truncate_text = text_truncator or fallback_truncate_text
+    truncate_text = text_truncator or truncate_text_by_whitespace
 
     rows = [
         dict(zip(examples_batch.keys(), vals, strict=True))

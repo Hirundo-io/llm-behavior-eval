@@ -8,7 +8,13 @@ from transformers import set_seed
 from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
-from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine, TensorEvalEngine
+from .eval_engine import (
+    EngineInputMode,
+    EvalDataset,
+    JudgePrompt,
+    PromptEvalEngine,
+    TensorEvalEngine,
+)
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import (
@@ -21,6 +27,9 @@ if TYPE_CHECKING:
 
 
 class TransformersEvalEngine(TensorEvalEngine, PromptEvalEngine):
+    def generation_input_mode(self) -> EngineInputMode:
+        return EngineInputMode.HYBRID
+
     def __init__(
         self,
         data_collator: DataCollator,

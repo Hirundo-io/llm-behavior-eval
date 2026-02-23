@@ -13,6 +13,7 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
     pick_best_dtype,
     safe_apply_chat_template,
     torch_dtype_to_str,
+    truncate_text_by_whitespace,
 )
 
 if TYPE_CHECKING:
@@ -111,6 +112,19 @@ def test_torch_dtype_to_str_supported() -> None:
 def test_torch_dtype_to_str_unsupported() -> None:
     with pytest.raises(ValueError):
         torch_dtype_to_str(torch.float64)
+
+
+def test_truncate_text_by_whitespace_within_limit_returns_original_text() -> None:
+    assert truncate_text_by_whitespace("one two", 3) == "one two"
+
+
+def test_truncate_text_by_whitespace_truncates_on_token_limit() -> None:
+    assert truncate_text_by_whitespace("one two three", 2) == "one two"
+
+
+def test_truncate_text_by_whitespace_handles_nonpositive_limit() -> None:
+    assert truncate_text_by_whitespace("one two", 0) == ""
+    assert truncate_text_by_whitespace("one two", -1) == ""
 
 
 def test_build_vllm_prompt_token_ids_strips_padding() -> None:

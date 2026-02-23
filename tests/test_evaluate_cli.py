@@ -154,6 +154,21 @@ def test_main_sets_inference_engine_and_sampling(
     assert dataset_config.seed == 123
 
 
+def test_main_preserves_explicit_zero_vllm_judge_max_model_len(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        inference_engine="vllm",
+        vllm_max_model_len=8192,
+        vllm_judge_max_model_len=0,
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.vllm_config is not None
+    assert eval_config.vllm_config.judge_max_model_len == 0
+
+
 def test_main_allows_api_inference_engine(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:

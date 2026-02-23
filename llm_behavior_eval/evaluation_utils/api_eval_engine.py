@@ -13,6 +13,7 @@ from .litellm_utils import (
     suppress_litellm_logging,
     try_trim_messages_with_litellm,
 )
+from .util_functions import truncate_text_by_whitespace
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -38,15 +39,6 @@ def _read_env_int(name: str, default: int, *, min_value: int | None = None) -> i
     if min_value is not None:
         return max(min_value, parsed)
     return parsed
-
-
-def _truncate_text_by_whitespace(text: str, max_tokens: int) -> str:
-    if max_tokens <= 0:
-        return ""
-    tokens = text.split()
-    if len(tokens) <= max_tokens:
-        return text
-    return " ".join(tokens[:max_tokens])
 
 
 class ApiEvalEngine(PromptEvalEngine):
@@ -174,7 +166,7 @@ class ApiEvalEngine(PromptEvalEngine):
                 self.model_name,
             )
             self._token_truncation_warning_logged = True
-        return _truncate_text_by_whitespace(text, max_tokens)
+        return truncate_text_by_whitespace(text, max_tokens)
 
     def _try_truncate_text_with_litellm(self, text: str, max_tokens: int) -> str | None:
         tokens = call_litellm_encode(self._litellm, self.model_name, text)

@@ -125,16 +125,16 @@ class BaseEvaluator(ABC):
 
     @staticmethod
     def _engine_supports_tensor_generation(engine: object) -> bool:
-        if isinstance(engine, EvalEngine) and engine.supports_tensor_generation():
-            return True
+        if isinstance(engine, EvalEngine):
+            return engine.supports_tensor_generation()
         return isinstance(engine, TensorEvalEngine) or callable(
             getattr(engine, "generate_answers_from_tensors", None)
         )
 
     @staticmethod
     def _engine_supports_prompt_generation(engine: object) -> bool:
-        if isinstance(engine, EvalEngine) and engine.supports_prompt_generation():
-            return True
+        if isinstance(engine, EvalEngine):
+            return engine.supports_prompt_generation()
         return isinstance(engine, PromptEvalEngine) or callable(
             getattr(engine, "generate_answers_from_prompts", None)
         )

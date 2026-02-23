@@ -51,6 +51,16 @@ def raw_text_collator(batch: list[dict[str, Any]]) -> dict[str, list[Any]]:
     return {key: [item[key] for item in batch] for key in batch[0]}
 
 
+def truncate_text_by_whitespace(text: str, max_tokens: int) -> str:
+    """Approximate token truncation by splitting on whitespace."""
+    if max_tokens <= 0:
+        return ""
+    tokens = text.split()
+    if len(tokens) <= max_tokens:
+        return text
+    return " ".join(tokens[:max_tokens])
+
+
 def empty_cuda_cache_if_available() -> None:
     """Free CUDA cache if GPUs are available."""
 
