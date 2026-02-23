@@ -184,3 +184,5 @@ act-events/pr.secrets
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+./results/*

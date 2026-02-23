@@ -323,6 +323,51 @@ def test_eval_config_allows_none_lora_path() -> None:
     assert config.lora_path_or_repo_id is None
 
 
+def test_eval_config_allows_relative_model_output_dir() -> None:
+    from pathlib import Path
+
+    from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=Path("/tmp"),
+        model_output_dir="team-a/model-v1",
+        model_engine="transformers",
+    )
+    assert config.model_output_dir == "team-a/model-v1"
+
+
+def test_eval_config_rejects_absolute_model_output_dir() -> None:
+    from pathlib import Path
+
+    from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+
+    with pytest.raises(ValueError, match="model_output_dir must be a relative path"):
+        EvaluationConfig(
+            model_path_or_repo_id="fake/model",
+            results_dir=Path("/tmp"),
+            model_output_dir="/tmp/escape",
+            model_engine="transformers",
+        )
+
+
+def test_eval_config_rejects_parent_traversal_in_model_output_dir() -> None:
+    from pathlib import Path
+
+    from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+
+    with pytest.raises(
+        ValueError,
+        match="model_output_dir cannot contain '\\.\\.' and must stay under base output directory",
+    ):
+        EvaluationConfig(
+            model_path_or_repo_id="fake/model",
+            results_dir=Path("/tmp"),
+            model_output_dir="../escape",
+            model_engine="transformers",
+        )
+
+
 def test_main_passes_answer_tokens_and_judge_tokens_via_cli(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
