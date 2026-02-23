@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 from accelerate.utils.memory import find_executable_batch_size
@@ -61,6 +61,7 @@ class TransformersEvalEngine(PromptEvalEngine):
             model_path_or_repo_id,
             eval_config.trust_remote_code,
             model_token,
+            allow_remote_lookup=False,
         )
 
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
@@ -71,14 +72,15 @@ class TransformersEvalEngine(PromptEvalEngine):
         if not hasattr(self.eval_dataset, "__getitem__"):
             return candidate_bs
 
-        first_sample = self.eval_dataset[0]
+        dataset_with_getitem = cast("Any", self.eval_dataset)
+        first_sample = dataset_with_getitem[0]
         if "test_messages" not in first_sample:
             # Some tests and legacy datasets are tokenized differently; skip probing.
             return candidate_bs
 
         prompt_count = min(candidate_bs, len(self.eval_dataset))
         prompts = [
-            cast("JudgePrompt", self.eval_dataset[index]["test_messages"])
+            cast("JudgePrompt", dataset_with_getitem[index]["test_messages"])
             for index in range(prompt_count)
         ]
 

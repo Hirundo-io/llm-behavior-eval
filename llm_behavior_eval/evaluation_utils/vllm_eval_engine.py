@@ -64,6 +64,7 @@ class VllmEvalEngine(PromptEvalEngine):
             model_path_or_repo_id,
             eval_config.trust_remote_code,
             model_token,
+            allow_remote_lookup=False,
         )
 
         self.tokenizer = load_tokenizer_with_transformers(

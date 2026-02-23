@@ -273,7 +273,11 @@ def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
 
 
 def is_model_multimodal(
-    repo_id: str, trust_remote_code: bool = False, token: str | None = None
+    repo_id: str,
+    trust_remote_code: bool = False,
+    token: str | None = None,
+    *,
+    allow_remote_lookup: bool = True,
 ) -> bool:
     """
     Decide whether the model should be loaded with a vision-capable architecture.
@@ -285,6 +289,8 @@ def is_model_multimodal(
         repo_id: The repo-id or local path of the model to load.
         trust_remote_code: Whether to trust remote code.
         token: The HuggingFace token to use for accessing gated models.
+        allow_remote_lookup: Whether to fall back to a remote config lookup when
+            local cache resolution fails.
 
     Returns:
         True if the model should be loaded with a vision-capable architecture, False otherwise.
@@ -298,6 +304,8 @@ def is_model_multimodal(
             token=token,
         )
     except Exception:
+        if not allow_remote_lookup:
+            return False
         # Fallback to remote if not cached locally
         config = AutoConfig.from_pretrained(
             repo_id, trust_remote_code=trust_remote_code, token=token
