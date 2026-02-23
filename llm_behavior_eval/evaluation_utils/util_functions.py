@@ -687,5 +687,44 @@ def maybe_download_adapter(
     return str(digest_path)
 
 
+def get_lora_slug(adapter_ref: str, mlflow_tracking_uri: str | None = None) -> str:
+    """
+    Create a stable LoRA slug from an adapter reference.
+
+    If `adapter_ref` is an MLflow run reference (either `mlflow://<run_id>` or an
+    HTTP(S) URL whose scheme+netloc matches the MLflow tracking URI), return:
+      `adapter_<run_id>`
+
+    Otherwise, return:
+      `adapter_<hash_of_adapter_ref>`
+    """
+    adapter_ref = adapter_ref.strip()
+    if not adapter_ref:
+        raise ValueError("adapter_ref must be a non-empty string")
+
+    parsed_url = urlparse(adapter_ref, allow_fragments=False)
+    scheme = parsed_url.scheme.lower()
+
+    tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
+    is_mlflow_url = scheme == "mlflow"
+    if not is_mlflow_url and tracking_uri:
+        tracking_parsed = urlparse(tracking_uri)
+        adapter_scheme_netloc = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        tracking_scheme_netloc = f"{tracking_parsed.scheme}://{tracking_parsed.netloc}"
+        is_mlflow_url = adapter_scheme_netloc == tracking_scheme_netloc
+
+    if is_mlflow_url:
+        run_id = (
+            parsed_url.netloc if scheme == "mlflow" else parsed_url.path.split("/")[-1]
+        )
+        if run_id:
+            return f"adapter_{run_id}"
+
+    digest = hashlib.blake2b(
+        adapter_ref.encode("utf-8"), digest_size=DIGEST_SIZE_FOR_PEFT_PATHS
+    ).hexdigest()
+    return f"adapter_{digest}"
+
+
 def config_to_dict(obj_to_convert: BaseModel, keys: list[str]) -> dict[str, Any]:
     return {key: getattr(obj_to_convert, key) for key in keys}

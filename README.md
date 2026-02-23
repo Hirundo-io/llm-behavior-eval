@@ -171,7 +171,7 @@ Evaluation reports are saved as metrics CSV and full responses JSON formats in t
 - Linux/Ubuntu: `$XDG_DATA_HOME/llm-behavior-eval/results` (or `~/.local/share/llm-behavior-eval/results` if `XDG_DATA_HOME` is unset)
 - Windows: `%LOCALAPPDATA%\llm-behavior-eval\results` (fallback: `%APPDATA%\llm-behavior-eval\results`)
 
-Override the default with `--output-dir` when you need a different path.
+Override the default with `--base-output-dir` when you need a different path. You can also use `--model-output-dir` to explicitly override the name of the model under that base bath; otherwise, the model path or repo ID will be used, with an added stub if using a LoRA adapter.
 
 Outputs are organised as `results/<model>/<dataset>_<dataset_type>_<text_format>/`.
 Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metrics) and `results/<model>/summary_brief.csv`.

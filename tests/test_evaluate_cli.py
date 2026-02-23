@@ -113,6 +113,13 @@ def test_main_passes_judge_quantization_flag(
     assert capture_eval_config[-1].use_4bit_judge is True
 
 
+def test_main_passes_model_output_dir_override(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main("fake/model", "hallu", model_output_dir="custom-model-dir")
+    assert capture_eval_config[-1].model_output_dir == "custom-model-dir"
+
+
 def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
     capture_eval_config: list[EvaluationConfig],
     monkeypatch: pytest.MonkeyPatch,
