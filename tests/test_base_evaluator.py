@@ -432,7 +432,7 @@ def test_api_model_reuses_eval_dataset_for_judge_with_prompt_pipeline(
 
     assert capture_state.tokenizer is None
     assert capture_state.token == "model-token"
-    assert load_calls[-1] == "meta/judge-tokenizer"
+    assert load_calls == []
 
 
 def test_update_dataset_config_restores_dataset_state_in_judge_context(
@@ -1193,6 +1193,123 @@ def test_update_dataset_config_in_api_judge_context_uses_model_preprocess_limits
             dataset_b.preprocess_config.gt_max_length,
         ),
     ]
+
+
+def test_format_judge_messages_defaults_to_eval_config_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: list[dict[str, object]] = []
+
+    def fake_apply_chat_template(_tokenizer, _messages, **kwargs):
+        captured_kwargs.append(kwargs)
+        return "formatted"
+
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "safe_apply_chat_template",
+        fake_apply_chat_template,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        judge_path_or_repo_id="meta/judge",
+        results_dir=tmp_path,
+        max_samples=1,
+        reasoning=True,
+        pass_max_answer_tokens=True,
+        max_judge_tokens=77,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+
+    formatted = evaluator.format_judge_messages([{"role": "user", "content": "ping"}])
+
+    assert formatted == "formatted"
+    assert captured_kwargs[-1]["reasoning"] is True
+    assert captured_kwargs[-1]["pass_max_answer_tokens"] is True
+    assert captured_kwargs[-1]["max_answer_tokens"] == 77
+
+
+def test_get_judge_engine_context_reuses_judge_engine_tokenizer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tokenizer_load_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def fake_load_tokenizer(*args, **kwargs):
+        tokenizer_load_calls.append((args, kwargs))
+        return StubTokenizer()
+
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        fake_load_tokenizer,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "safe_apply_chat_template",
+        lambda *_args, **_kwargs: "formatted",
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        judge_path_or_repo_id="meta/judge",
+        judge_engine="transformers",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+
+    with evaluator.get_judge_engine_context():
+        formatted = evaluator.format_judge_messages(
+            [{"role": "user", "content": "ping"}]
+        )
+
+    assert formatted == "formatted"
+    assert tokenizer_load_calls == []
 
 
 def test_prepare_judge_tokenizer_after_free_judge_does_not_raise(

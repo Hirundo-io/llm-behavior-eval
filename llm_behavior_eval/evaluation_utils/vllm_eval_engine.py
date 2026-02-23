@@ -8,6 +8,7 @@ import torch
 
 from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine
 from .util_functions import (
+    is_model_multimodal,
     load_tokenizer_with_transformers,
     load_vllm_model,
     maybe_download_adapter,
@@ -59,6 +60,11 @@ class VllmEvalEngine(PromptEvalEngine):
         batch_size = (
             eval_config.judge_batch_size if is_judge else eval_config.batch_size
         ) or 256
+        self.is_multimodal = is_model_multimodal(
+            model_path_or_repo_id,
+            eval_config.trust_remote_code,
+            model_token,
+        )
 
         self.tokenizer = load_tokenizer_with_transformers(
             tokenizer_path_or_repo_id,
@@ -221,7 +227,19 @@ class VllmEvalEngine(PromptEvalEngine):
 
     def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
         """Apply chat template to format messages into a tokenized prompt string."""
-        return safe_apply_chat_template(self.tokenizer, messages)
+        max_answer_tokens = (
+            self.eval_config.max_judge_tokens
+            if self.is_judge
+            else self.eval_config.max_answer_tokens
+        )
+        return safe_apply_chat_template(
+            self.tokenizer,
+            messages,
+            is_multimodal=self.is_multimodal,
+            max_answer_tokens=max_answer_tokens,
+            reasoning=self.eval_config.reasoning,
+            pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
+        )
 
     def generate_answers_from_prompts(
         self,

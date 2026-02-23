@@ -11,6 +11,7 @@ from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import (
+    is_model_multimodal,
     load_transformers_model_and_tokenizer,
     safe_apply_chat_template,
 )
@@ -46,15 +47,21 @@ class TransformersEvalEngine(PromptEvalEngine):
         use_4bit = eval_config.use_4bit_judge if is_judge else eval_config.use_4bit
         self.tokenizer, self.model = load_transformers_model_and_tokenizer(
             model_path_or_repo_id,
-            tokenizer_path_or_repo_id,
             model_token,
             use_4bit,
             eval_config.device_map,
             eval_config.trust_remote_code,
+            tokenizer_name_or_path=tokenizer_path_or_repo_id,
         )
+        self.tokenizer.padding_side = "left"
         self.data_collator = data_collator
         self.eval_config = eval_config
         self.is_judge = is_judge
+        self.is_multimodal = is_model_multimodal(
+            model_path_or_repo_id,
+            eval_config.trust_remote_code,
+            model_token,
+        )
 
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset
@@ -62,6 +69,11 @@ class TransformersEvalEngine(PromptEvalEngine):
     def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
         logging.info("Trying batch size: %s", candidate_bs)
         if not hasattr(self.eval_dataset, "__getitem__"):
+            return candidate_bs
+
+        first_sample = self.eval_dataset[0]
+        if "test_messages" not in first_sample:
+            # Some tests and legacy datasets are tokenized differently; skip probing.
             return candidate_bs
 
         prompt_count = min(candidate_bs, len(self.eval_dataset))
@@ -120,7 +132,19 @@ class TransformersEvalEngine(PromptEvalEngine):
 
     def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
         """Apply chat template to format messages into a tokenized prompt string."""
-        return safe_apply_chat_template(self.tokenizer, messages)
+        max_answer_tokens = (
+            self.eval_config.max_judge_tokens
+            if self.is_judge
+            else self.eval_config.max_answer_tokens
+        )
+        return safe_apply_chat_template(
+            self.tokenizer,
+            messages,
+            is_multimodal=self.is_multimodal,
+            max_answer_tokens=max_answer_tokens,
+            reasoning=self.eval_config.reasoning,
+            pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
+        )
 
     def generate_answers_from_prompts(
         self,

@@ -286,6 +286,10 @@ def _apply_vllm_patching(request, monkeypatch):
         "llm_behavior_eval.evaluation_utils.vllm_eval_engine.load_vllm_model",
         bundle.model_loader,
     )
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.vllm_eval_engine.is_model_multimodal",
+        lambda *_args, **_kwargs: False,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -296,6 +300,10 @@ def _apply_transformers_patching(request, monkeypatch):
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.transformers_eval_engine.load_transformers_model_and_tokenizer",
         bundle.loader_stub,
+    )
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.transformers_eval_engine.is_model_multimodal",
+        lambda *_args, **_kwargs: False,
     )
 
 
@@ -378,13 +386,22 @@ def test_vllm_eval_engine_generate_answers_from_prompts(vllm_bundle, tmp_path) -
 def test_vllm_eval_engine_formats_message_prompts_before_generation(
     vllm_bundle, tmp_path, monkeypatch
 ) -> None:
+    captured_kwargs: list[dict[str, object]] = []
+
+    def fake_safe_apply_chat_template(_tokenizer, messages, **kwargs):
+        captured_kwargs.append(kwargs)
+        return f"templated::{messages[0]['content']}"
+
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.vllm_eval_engine.safe_apply_chat_template",
-        lambda _tokenizer, messages: f"templated::{messages[0]['content']}",
+        fake_safe_apply_chat_template,
     )
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
+        max_answer_tokens=77,
+        pass_max_answer_tokens=True,
+        reasoning=True,
     )
     engine = VllmEvalEngine(config)
 
@@ -400,6 +417,10 @@ def test_vllm_eval_engine_formats_message_prompts_before_generation(
     model_call = vllm_bundle.outputs_log[-1]
     assert isinstance(model_call, dict)
     assert model_call["prompts"] == ["templated::hello", "already-formatted"]
+    assert captured_kwargs[-1]["is_multimodal"] is False
+    assert captured_kwargs[-1]["max_answer_tokens"] == 77
+    assert captured_kwargs[-1]["reasoning"] is True
+    assert captured_kwargs[-1]["pass_max_answer_tokens"] is True
 
 
 @pytest.mark.vllm_engine_test
@@ -480,6 +501,7 @@ def test_transformers_eval_engine_implements_prompt_interface(
     )
 
     assert isinstance(engine, PromptEvalEngine)
+    assert engine.tokenizer.padding_side == "left"
 
 
 @pytest.mark.transformers_engine_test
@@ -497,7 +519,10 @@ def test_transformers_eval_engine_uses_model_tokenizer_override(
         config,
     )
 
-    assert transformers_bundle.loader_stub.calls[-1]["args"][1] == "fake/tokenizer"
+    assert (
+        transformers_bundle.loader_stub.calls[-1]["kwargs"]["tokenizer_name_or_path"]
+        == "fake/tokenizer"
+    )
 
 
 @pytest.mark.transformers_engine_test
@@ -518,7 +543,8 @@ def test_transformers_judge_engine_uses_judge_tokenizer_override(
     )
 
     assert (
-        transformers_bundle.loader_stub.calls[-1]["args"][1] == "fake/judge-tokenizer"
+        transformers_bundle.loader_stub.calls[-1]["kwargs"]["tokenizer_name_or_path"]
+        == "fake/judge-tokenizer"
     )
 
 
@@ -578,13 +604,22 @@ def test_transformers_eval_engine_generate_answers_from_prompts(
 def test_transformers_eval_engine_formats_message_prompts_before_tokenization(
     transformers_bundle, tmp_path, monkeypatch
 ) -> None:
+    captured_kwargs: list[dict[str, object]] = []
+
+    def fake_safe_apply_chat_template(_tokenizer, messages, **kwargs):
+        captured_kwargs.append(kwargs)
+        return f"templated::{messages[0]['content']}"
+
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.transformers_eval_engine.safe_apply_chat_template",
-        lambda _tokenizer, messages: f"templated::{messages[0]['content']}",
+        fake_safe_apply_chat_template,
     )
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
+        max_answer_tokens=99,
+        pass_max_answer_tokens=True,
+        reasoning=True,
     )
     engine = TransformersEvalEngine(
         transformers_bundle.data_collator,
@@ -604,6 +639,10 @@ def test_transformers_eval_engine_formats_message_prompts_before_tokenization(
         "templated::hello",
         "already-formatted",
     ]
+    assert captured_kwargs[-1]["is_multimodal"] is False
+    assert captured_kwargs[-1]["max_answer_tokens"] == 99
+    assert captured_kwargs[-1]["reasoning"] is True
+    assert captured_kwargs[-1]["pass_max_answer_tokens"] is True
 
 
 @pytest.mark.transformers_engine_test

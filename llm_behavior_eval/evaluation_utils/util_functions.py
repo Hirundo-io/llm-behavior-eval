@@ -431,11 +431,12 @@ def build_vllm_prompt_token_ids(
 
 def load_transformers_model_and_tokenizer(
     model_name: str,
-    tokenizer_name_or_path: str | None = None,
     token: str | None = None,
     use_4bit: bool = False,
     device_map: str | dict[str, int] | None = "auto",
     trust_remote_code: bool = False,
+    *,
+    tokenizer_name_or_path: str | None = None,
 ) -> tuple[PreTrainedTokenizerBase, PreTrainedModel]:
     """
     Load a tokenizer and a causal language model based on the model name/path,
@@ -446,12 +447,12 @@ def load_transformers_model_and_tokenizer(
 
     Args:
         model_name: The repo-id or local path of the model to load.
-        tokenizer_name_or_path: Optional tokenizer repo-id or local path.
-            Defaults to `model_name` when omitted.
         token: The HuggingFace token to use for the model.
         use_4bit: If True, load the model in 4-bit mode using bitsandbytes.
         device_map: The device map to use for the model.
         trust_remote_code: Whether to trust remote code.
+        tokenizer_name_or_path: Optional tokenizer repo-id or local path.
+            Defaults to `model_name` when omitted.
 
     Returns:
         A tuple containing the loaded tokenizer and model.

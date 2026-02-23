@@ -138,6 +138,7 @@ class BaseEvaluator(ABC):
         self.model_engine = eval_config.inference_engine or eval_config.model_engine
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
+        self._active_judge_engine: PromptEvalEngine | None = None
         self._selected_sample_indices: list[int] = []
         self._dataset_sampling_state_by_key: dict[
             tuple[str, str, int | None], _DatasetSamplingState
@@ -203,21 +204,38 @@ class BaseEvaluator(ABC):
         *,
         is_multimodal: bool = False,
         max_answer_tokens: int | None = None,
-        reasoning: bool = False,
-        pass_max_answer_tokens: bool = False,
+        reasoning: bool | None = None,
+        pass_max_answer_tokens: bool | None = None,
     ) -> JudgePrompt:
-        self.prepare_judge_tokenizer()
-        judge_tokenizer = self.judge_tokenizer
+        judge_tokenizer = None
+        if self._active_judge_engine is not None:
+            judge_tokenizer = getattr(self._active_judge_engine, "tokenizer", None)
+        if judge_tokenizer is None:
+            self.prepare_judge_tokenizer()
+            judge_tokenizer = self.judge_tokenizer
         if judge_tokenizer is None:
             # Provider-backed engines (e.g., API) consume raw messages.
             return messages
+        resolved_reasoning = (
+            self.eval_config.reasoning if reasoning is None else reasoning
+        )
+        resolved_pass_max_answer_tokens = (
+            self.eval_config.pass_max_answer_tokens
+            if pass_max_answer_tokens is None
+            else pass_max_answer_tokens
+        )
+        resolved_max_answer_tokens = (
+            self.eval_config.max_judge_tokens
+            if max_answer_tokens is None
+            else max_answer_tokens
+        )
         return safe_apply_chat_template(
             judge_tokenizer,
             messages,
             is_multimodal=is_multimodal,
-            max_answer_tokens=max_answer_tokens,
-            reasoning=reasoning,
-            pass_max_answer_tokens=pass_max_answer_tokens,
+            max_answer_tokens=resolved_max_answer_tokens,
+            reasoning=resolved_reasoning,
+            pass_max_answer_tokens=resolved_pass_max_answer_tokens,
         )
 
     def get_output_dir(self) -> Path:
@@ -298,11 +316,21 @@ class BaseEvaluator(ABC):
         )
 
     def _build_model_sampling_config(self, do_sample: bool | None) -> SamplingConfig:
+        return self._build_sampling_config(do_sample, is_judge=False)
+
+    def _build_sampling_config(
+        self,
+        do_sample: bool | None,
+        *,
+        is_judge: bool,
+    ) -> SamplingConfig:
         resolved_do_sample = do_sample
         if resolved_do_sample is None:
             resolved_do_sample = self.eval_config.sampling_config.do_sample
         if resolved_do_sample is None:
-            resolved_do_sample = self.eval_config.sample
+            resolved_do_sample = (
+                self.eval_config.sample_judge if is_judge else self.eval_config.sample
+            )
         return SamplingConfig(
             do_sample=resolved_do_sample,
             temperature=self.eval_config.sampling_config.temperature,
@@ -993,15 +1021,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 f"({len(prompts)} > {expected_batch_size})."
             )
 
-        resolved_do_sample = (
-            self.eval_config.sample_judge if do_sample is None else do_sample
-        )
-        sampling_config = SamplingConfig(
-            do_sample=resolved_do_sample,
-            temperature=self.eval_config.sampling_config.temperature,
-            top_p=self.eval_config.sampling_config.top_p,
-            top_k=self.eval_config.sampling_config.top_k,
-            seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
+        sampling_config = self._build_sampling_config(
+            do_sample,
+            is_judge=True,
         )
 
         answers = judge_engine.generate_answers_from_prompts(
@@ -1031,9 +1053,10 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             self.judge_engine,
             is_judge=True,
         )
-        self.prepare_judge_tokenizer()
         judge_engine.set_dataset(self.eval_dataset)
+        self._active_judge_engine = judge_engine
         try:
             yield judge_engine
         finally:
+            self._active_judge_engine = None
             self.free_judge(judge_engine)
