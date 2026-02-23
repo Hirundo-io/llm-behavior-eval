@@ -19,16 +19,12 @@ from torch.utils.data import Dataset as TorchDataset
 from transformers.data.data_collator import default_data_collator
 from transformers.trainer_utils import set_seed
 
-from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
-    TransformersEvalEngine,
-)
-from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
-
 from .api_eval_engine import ApiEvalEngine
 from .custom_dataset import CustomDataset
 from .enums import DatasetType
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
+from .transformers_eval_engine import TransformersEvalEngine
 from .util_functions import (
     config_to_dict,
     empty_cuda_cache_if_available,
@@ -36,6 +32,7 @@ from .util_functions import (
     raw_text_collator,
     safe_apply_chat_template,
 )
+from .vllm_eval_engine import VllmEvalEngine
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator, Sequence
