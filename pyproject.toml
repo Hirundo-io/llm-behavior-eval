@@ -52,8 +52,7 @@ mlflow = [
   "mlflow>=2.0.0",
 ]
 vllm = [
-  "vllm>=0.13.0",
-  # ⬆️ Required to fix vulnerability with ID GHSA-mcmc-2m55-j8jj (vLLM introduced enhanced protection for CVE-2025-62164)
+  "vllm>=0.15.0",
 ]
 api-openai = [
   "litellm>=1.53.0",
