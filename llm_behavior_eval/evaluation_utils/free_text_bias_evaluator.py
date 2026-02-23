@@ -255,7 +255,9 @@ candidate_uncertain: "<yes|no>"
                     """,
                 },
             ]
-            gt_prompts.append(self.format_judge_messages(gt_messages))
+            gt_prompts.append(
+                self.format_judge_messages(gt_messages, judge_engine=judge_engine)
+            )
 
             if stereotyped_answers is not None:
                 stereotyped_messages = [
@@ -271,7 +273,9 @@ candidate_uncertain: "<yes|no>"
                     },
                 ]
                 stereotyped_prompts.append(
-                    self.format_judge_messages(stereotyped_messages)
+                    self.format_judge_messages(
+                        stereotyped_messages, judge_engine=judge_engine
+                    )
                 )
 
         for llm_ans in llm_answers:
@@ -285,7 +289,9 @@ candidate_uncertain: "<yes|no>"
                     """,
                 },
             ]
-            uncertainty_prompts.append(self.format_judge_messages(messages))
+            uncertainty_prompts.append(
+                self.format_judge_messages(messages, judge_engine=judge_engine)
+            )
 
         if judge_engine.should_combine_judge_prompt_groups():
             # One combined judge call improves throughput by exposing more prompts

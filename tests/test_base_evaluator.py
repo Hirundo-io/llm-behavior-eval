@@ -1254,7 +1254,7 @@ def test_format_judge_messages_defaults_to_eval_config_flags(
     assert captured_kwargs[-1]["max_answer_tokens"] == 77
 
 
-def test_get_judge_engine_context_reuses_judge_engine_tokenizer(
+def test_format_judge_messages_uses_explicit_judge_engine_tokenizer(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1303,9 +1303,10 @@ def test_get_judge_engine_context_reuses_judge_engine_tokenizer(
     )
     evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
 
-    with evaluator.get_judge_engine_context():
+    with evaluator.get_judge_engine_context() as judge_engine:
         formatted = evaluator.format_judge_messages(
-            [{"role": "user", "content": "ping"}]
+            [{"role": "user", "content": "ping"}],
+            judge_engine=judge_engine,
         )
 
     assert formatted == "formatted"

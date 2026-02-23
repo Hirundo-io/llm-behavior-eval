@@ -69,6 +69,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                             ),
                         }
                     ],
+                    judge_engine=judge_engine,
                 )
             )
         raw = self.run_judge_with_backoff(judge_engine, prompts)

@@ -138,7 +138,6 @@ class BaseEvaluator(ABC):
         self.model_engine = eval_config.inference_engine or eval_config.model_engine
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
-        self._active_judge_engine: PromptEvalEngine | None = None
         self._selected_sample_indices: list[int] = []
         self._dataset_sampling_state_by_key: dict[
             tuple[str, str, int | None], _DatasetSamplingState
@@ -202,14 +201,13 @@ class BaseEvaluator(ABC):
         self,
         messages: list[dict[str, str]],
         *,
+        judge_engine: PromptEvalEngine | None = None,
         is_multimodal: bool = False,
         max_answer_tokens: int | None = None,
         reasoning: bool | None = None,
         pass_max_answer_tokens: bool | None = None,
     ) -> JudgePrompt:
-        judge_tokenizer = None
-        if self._active_judge_engine is not None:
-            judge_tokenizer = getattr(self._active_judge_engine, "tokenizer", None)
+        judge_tokenizer = getattr(judge_engine, "tokenizer", None)
         if judge_tokenizer is None:
             self.prepare_judge_tokenizer()
             judge_tokenizer = self.judge_tokenizer
@@ -1054,9 +1052,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             is_judge=True,
         )
         judge_engine.set_dataset(self.eval_dataset)
-        self._active_judge_engine = judge_engine
         try:
             yield judge_engine
         finally:
-            self._active_judge_engine = None
             self.free_judge(judge_engine)
