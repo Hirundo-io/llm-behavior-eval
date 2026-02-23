@@ -2,6 +2,7 @@ import logging
 from typing import TYPE_CHECKING, cast
 
 import torch
+from accelerate.utils.memory import find_executable_batch_size
 from transformers import set_seed
 from transformers.data.data_collator import DataCollator
 
@@ -58,6 +59,33 @@ class TransformersEvalEngine(PromptEvalEngine):
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset
 
+    def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
+        logging.info("Trying batch size: %s", candidate_bs)
+        if not hasattr(self.eval_dataset, "__getitem__"):
+            return candidate_bs
+
+        prompt_count = min(candidate_bs, len(self.eval_dataset))
+        prompts = [
+            cast("JudgePrompt", self.eval_dataset[index]["test_messages"])
+            for index in range(prompt_count)
+        ]
+
+        self.generate_answers_from_prompts(
+            prompts,
+            sampling_config=SamplingConfig(
+                do_sample=(
+                    self.eval_config.sample_judge
+                    if self.is_judge
+                    else self.eval_config.sample
+                ),
+                temperature=self.eval_config.sampling_config.temperature,
+                top_p=self.eval_config.sampling_config.top_p,
+                top_k=self.eval_config.sampling_config.top_k,
+                seed=self.eval_config.sampling_config.seed,
+            ),
+        )
+        return candidate_bs
+
     def ensure_test_model_ready(self) -> None:
         self.model.eval()
 
@@ -69,10 +97,21 @@ class TransformersEvalEngine(PromptEvalEngine):
         )
 
         if batch_size is None:
-            batch_size = max(1, min(len(self.eval_dataset), MAX_BATCH_SIZE))
-            logging.info(
-                "Defaulting to batch size %s for transformers backend", batch_size
+            starting_bs = max(1, min(len(self.eval_dataset), MAX_BATCH_SIZE))
+            current_bs = starting_bs
+
+            def halve_reducer():
+                nonlocal current_bs
+                current_bs = max(1, current_bs // 2)
+                return current_bs
+
+            wrapper = find_executable_batch_size(
+                self._get_first_non_oom_batch_size,
+                starting_batch_size=starting_bs,
+                reduce_batch_size_fn=halve_reducer,
             )
+            batch_size = cast("int", wrapper())
+            logging.info("Selected batch size: %s", batch_size)
         return batch_size
 
     def free_model(self) -> None:
