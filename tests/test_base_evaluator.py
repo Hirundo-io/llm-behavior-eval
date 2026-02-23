@@ -1131,7 +1131,7 @@ def test_get_grading_context_supports_api_judge_engine(
         assert judge_engine.dataset is evaluator.eval_dataset
 
 
-def test_update_dataset_config_in_api_judge_context_sets_judge_preprocess_limits(
+def test_update_dataset_config_in_api_judge_context_uses_model_preprocess_limits(
     tmp_path: Path,
     capture_state: CaptureState,
 ) -> None:
@@ -1180,8 +1180,19 @@ def test_update_dataset_config_in_api_judge_context_sets_judge_preprocess_limits
     with evaluator.get_grading_context():
         evaluator.update_dataset_config(dataset_b)
 
-    # In prompt-only mode, judge engines also receive preprocessing limits.
-    assert any(is_judge for is_judge, _, _ in capture_state.preprocess_limit_calls)
+    # Updating dataset config keeps preprocessing owned by the model engine.
+    assert capture_state.preprocess_limit_calls == [
+        (
+            False,
+            dataset_a.preprocess_config.max_length,
+            dataset_a.preprocess_config.gt_max_length,
+        ),
+        (
+            False,
+            dataset_b.preprocess_config.max_length,
+            dataset_b.preprocess_config.gt_max_length,
+        ),
+    ]
 
 
 def test_prepare_judge_tokenizer_after_free_judge_does_not_raise(

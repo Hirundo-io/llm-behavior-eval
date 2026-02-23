@@ -88,6 +88,24 @@ class _DatasetSamplingState:
 
 
 class BaseEvaluator(ABC):
+    def _build_eval_engine(
+        self,
+        engine_name: str,
+        *,
+        is_judge: bool,
+    ) -> PromptEvalEngine:
+        match engine_name:
+            case "vllm":
+                return VllmEvalEngine(self.eval_config, is_judge=is_judge)
+            case "api":
+                return ApiEvalEngine(self.eval_config, is_judge=is_judge)
+            case _:
+                return TransformersEvalEngine(
+                    default_data_collator,
+                    self.eval_config,
+                    is_judge=is_judge,
+                )
+
     def _resolved_dataset_shuffle_seed(self) -> int:
         """
         Return the deterministic seed used when shuffling datasets for both
@@ -138,17 +156,9 @@ class BaseEvaluator(ABC):
         if self.mlflow_config:
             self._init_mlflow()
 
-        self.eval_engine: PromptEvalEngine
-        match self.model_engine:
-            case "vllm":
-                self.eval_engine = VllmEvalEngine(self.eval_config)
-            case "api":
-                self.eval_engine = ApiEvalEngine(self.eval_config)
-            case _:
-                self.eval_engine = TransformersEvalEngine(
-                    default_data_collator,
-                    self.eval_config,
-                )
+        self.eval_engine: PromptEvalEngine = self._build_eval_engine(
+            self.model_engine, is_judge=False
+        )
         self.tokenizer: PreTrainedTokenizerBase | None = None
         self.data_collator = raw_text_collator
         self.trust_remote_code = self.eval_config.trust_remote_code
@@ -186,15 +196,6 @@ class BaseEvaluator(ABC):
         # ensure we have a pad token for the judge model as not all models have it
         if not self.judge_tokenizer.pad_token:
             self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
-
-    def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
-        tokenizer = self.judge_tokenizer
-        if tokenizer is None:
-            self.prepare_judge_tokenizer()
-            tokenizer = self.judge_tokenizer
-        if tokenizer is None:
-            raise RuntimeError("Judge tokenizer is not initialized.")
-        return tokenizer
 
     def format_judge_messages(
         self,
@@ -912,7 +913,11 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             outputs_fixed: list[list[dict[str, str]]] = []
             for start in range(0, len(prompts), fixed_batch_size):
                 chunk = list(prompts[start : start + fixed_batch_size])
-                result = self._process_judge_prompts_batch(judge_engine, chunk)
+                result = self._process_judge_prompts_batch(
+                    judge_engine,
+                    chunk,
+                    fixed_batch_size,
+                )
                 outputs_fixed.extend(result)
             return outputs_fixed
 
@@ -939,7 +944,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 for start in range(0, len(prompts), candidate_batch_size):
                     chunk = list(prompts[start : start + candidate_batch_size])
                     res = self._process_judge_prompts_batch(
-                        judge_engine, chunk, candidate_batch_size
+                        judge_engine,
+                        chunk,
+                        candidate_batch_size,
                     )
                     outputs.extend(res)
                 return candidate_batch_size
@@ -962,7 +969,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         self,
         judge_engine: PromptEvalEngine,
         prompts: Sequence[JudgePrompt],
-        batch_size: int | None = None,
+        expected_batch_size: int | None = None,
         do_sample: bool | None = None,
     ) -> list[list[dict[str, str]]]:
         """
@@ -971,7 +978,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Args:
             judge_engine: The judge eval engine to use.
             prompts: List of prompts (strings for tokenizer engines, messages for API).
-            batch_size: Optional batch size override for the engine (used during backoff).
+            expected_batch_size: Optional expected chunk size used to validate
+                backoff/fixed-batch chunking behavior.
             do_sample: Whether to sample from the model.
 
         Returns:
@@ -979,6 +987,11 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         """
         if not prompts:
             return []
+        if expected_batch_size is not None and len(prompts) > expected_batch_size:
+            raise ValueError(
+                "Judge prompt chunk exceeded expected batch size "
+                f"({len(prompts)} > {expected_batch_size})."
+            )
 
         resolved_do_sample = (
             self.eval_config.sample_judge if do_sample is None else do_sample
@@ -1014,34 +1027,13 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Yields:
             The judge eval engine instance.
         """
-        judge_engine: PromptEvalEngine | None = None
+        judge_engine: PromptEvalEngine = self._build_eval_engine(
+            self.judge_engine,
+            is_judge=True,
+        )
+        self.prepare_judge_tokenizer()
+        judge_engine.set_dataset(self.eval_dataset)
         try:
-            if not (hasattr(self, "eval_engine") and self.eval_engine.is_judge):
-                self.prepare_judge_tokenizer()
-                # Create appropriate judge engine based on config
-                match self.judge_engine:
-                    case "api":
-                        judge_engine = ApiEvalEngine(
-                            self.eval_config,
-                            is_judge=True,
-                        )
-                    case "vllm":
-                        judge_engine = VllmEvalEngine(
-                            self.eval_config,
-                            is_judge=True,
-                        )
-                    case _:
-                        # transformers engine (default)
-                        judge_engine = TransformersEvalEngine(
-                            default_data_collator,
-                            self.eval_config,
-                            is_judge=True,
-                        )
-                judge_engine.set_dataset(self.eval_dataset)
-                self.eval_engine = judge_engine
-            yield self.eval_engine
+            yield judge_engine
         finally:
-            if judge_engine is not None:
-                self.free_judge(judge_engine)
-            elif hasattr(self, "eval_engine") and self.eval_engine.is_judge:
-                self.free_judge(self.eval_engine)
+            self.free_judge(judge_engine)
