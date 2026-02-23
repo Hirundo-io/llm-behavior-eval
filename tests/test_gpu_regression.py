@@ -153,9 +153,27 @@ def _read_metrics(output_dir: Path, model: str) -> dict[str, tuple[str, float]]:
             rows = list(csv.DictReader(file_handle))
         assert rows, f"Expected non-empty metrics file: {metrics_file}"
         first_row = rows[0]
-        metric_key = "Error (%)" if "Error (%)" in first_row else "Accuracy (%)"
+        metric_key = _resolve_primary_metric_key(first_row, metrics_file)
         metrics[metrics_file.parent.name] = (metric_key, float(first_row[metric_key]))
     return metrics
+
+
+def _resolve_primary_metric_key(
+    row: dict[str, str],
+    metrics_file: Path,
+) -> str:
+    preferred_prefixes = (
+        "Error (%)",
+        "Accuracy (%)",
+        "Attack success rate (%)",
+    )
+    for prefix in preferred_prefixes:
+        for key in row:
+            if key.startswith(prefix):
+                return key
+    raise AssertionError(
+        f"Could not find a primary metric column in {metrics_file}: {sorted(row.keys())}"
+    )
 
 
 def _read_effective_tolerance(
@@ -185,7 +203,7 @@ def _run_gpu_regression_eval(
     run_evaluation(
         model=model,
         behavior=behavior,
-        output_dir=str(output_dir),
+        output_dir=output_dir,
         model_token=model_token,
         judge_token=judge_token,
         judge_model=judge_model,
@@ -296,7 +314,7 @@ def test_gpu_local_local_regression(
             rows = list(csv.DictReader(file_handle))
         assert rows, f"Expected non-empty metrics file: {metrics_file}"
         first_row = rows[0]
-        metric_key = "Error (%)" if "Error (%)" in first_row else "Accuracy (%)"
+        metric_key = _resolve_primary_metric_key(first_row, metrics_file)
         score = float(first_row[metric_key])
         assert 0.0 <= score <= 100.0
 

@@ -311,7 +311,13 @@ Programmatic example: see [`examples/mlflow_example.py`](./examples/mlflow_examp
 
 ## Output
 
-Evaluation reports will be saved as metrics CSV and full responses JSON formats in the desired results directory.
+Evaluation reports are saved as metrics CSV and full responses JSON formats in the results directory. By default, the CLI writes to:
+
+- macOS: `~/Library/Application Support/llm-behavior-eval/results`
+- Linux/Ubuntu: `$XDG_DATA_HOME/llm-behavior-eval/results` (or `~/.local/share/llm-behavior-eval/results` if `XDG_DATA_HOME` is unset)
+- Windows: `%LOCALAPPDATA%\llm-behavior-eval\results` (fallback: `%APPDATA%\llm-behavior-eval\results`)
+
+Override the default with `--output-dir` when you need a different path.
 
 Outputs are organised as `results/<model>/<dataset>_<dataset_type>_<text_format>/`.
 Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metrics) and `results/<model>/summary_brief.csv`.

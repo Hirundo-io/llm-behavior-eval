@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import sys
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -11,6 +13,7 @@ from llm_behavior_eval import DatasetConfig, EvaluationConfig
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from pathlib import Path
 
     from llm_behavior_eval.evaluation_utils.base_evaluator import (
         _GenerationRecord,
@@ -420,3 +423,31 @@ def test_main_passes_judge_inference_config_options(
     eval_config = capture_eval_config[-1]
     assert eval_config.judge_batch_size == 32
     assert eval_config.sample_judge is True
+
+
+def test_main_defaults_output_dir_to_data_dir(
+    capture_eval_config: list[EvaluationConfig],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    if os.name == "nt":
+        base_dir = tmp_path / "localapp"
+        monkeypatch.setenv("LOCALAPPDATA", str(base_dir))
+        expected = base_dir / "llm-behavior-eval" / "results"
+    elif sys.platform == "darwin":
+        monkeypatch.setenv("HOME", str(tmp_path))
+        expected = (
+            tmp_path
+            / "Library"
+            / "Application Support"
+            / "llm-behavior-eval"
+            / "results"
+        )
+    else:
+        base_dir = tmp_path / "xdg"
+        monkeypatch.setenv("XDG_DATA_HOME", str(base_dir))
+        expected = base_dir / "llm-behavior-eval" / "results"
+
+    evaluate.main("fake/model", "hallu")
+    eval_config = capture_eval_config[-1]
+    assert eval_config.results_dir == expected
