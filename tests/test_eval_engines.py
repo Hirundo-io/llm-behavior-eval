@@ -13,9 +13,7 @@ from datasets import Dataset
 
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
 from llm_behavior_eval.evaluation_utils.eval_engine import (
-    EngineInputMode,
     PromptEvalEngine,
-    TensorEvalEngine,
 )
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
@@ -43,12 +41,14 @@ class RecordingTokenizer:
         self,
         texts: list[str],
         *,
+        truncation: bool = False,
         return_tensors: str = "pt",
         padding: bool = True,
     ) -> dict[str, torch.Tensor]:
         self.encode_calls.append(
             {
                 "texts": list(texts),
+                "truncation": truncation,
                 "return_tensors": return_tensors,
                 "padding": padding,
             }
@@ -233,8 +233,6 @@ class TransformersPatchBundle:
     model: DummyTransformersModel
     loader_stub: TransformModelLoaderStub
     data_collator: ConstantCollator
-    find_recorder: FindExecutableBatchSizeRecorder
-    candidate_recorder: CandidateRecorder
 
 
 @pytest.fixture
@@ -258,15 +256,11 @@ def transformers_bundle() -> TransformersPatchBundle:
     model = DummyTransformersModel()
     loader_stub = TransformModelLoaderStub(tokenizer, model)
     data_collator = ConstantCollator()
-    find_recorder = FindExecutableBatchSizeRecorder()
-    candidate_recorder = CandidateRecorder()
     return TransformersPatchBundle(
         tokenizer=tokenizer,
         model=model,
         loader_stub=loader_stub,
         data_collator=data_collator,
-        find_recorder=find_recorder,
-        candidate_recorder=candidate_recorder,
     )
 
 
@@ -303,15 +297,6 @@ def _apply_transformers_patching(request, monkeypatch):
         "llm_behavior_eval.evaluation_utils.transformers_eval_engine.load_transformers_model_and_tokenizer",
         bundle.loader_stub,
     )
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.transformers_eval_engine.find_executable_batch_size",
-        bundle.find_recorder,
-    )
-    monkeypatch.setattr(
-        TransformersEvalEngine,
-        "_get_first_non_oom_batch_size",
-        bundle.candidate_recorder.record,
-    )
 
 
 @pytest.mark.vllm_engine_test
@@ -324,8 +309,6 @@ def test_vllm_eval_engine_implements_prompt_interface(tmp_path) -> None:
     engine = VllmEvalEngine(config)
 
     assert isinstance(engine, PromptEvalEngine)
-    assert not isinstance(engine, TensorEvalEngine)
-    assert engine.generation_input_mode() == EngineInputMode.PROMPT
 
 
 @pytest.mark.vllm_engine_test
@@ -483,7 +466,7 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
 
 
 @pytest.mark.transformers_engine_test
-def test_transformers_eval_engine_implements_prompt_and_tensor_interfaces(
+def test_transformers_eval_engine_implements_prompt_interface(
     transformers_bundle, tmp_path
 ) -> None:
     config = EvaluationConfig(
@@ -497,7 +480,6 @@ def test_transformers_eval_engine_implements_prompt_and_tensor_interfaces(
     )
 
     assert isinstance(engine, PromptEvalEngine)
-    assert isinstance(engine, TensorEvalEngine)
 
 
 @pytest.mark.transformers_engine_test
@@ -541,10 +523,9 @@ def test_transformers_judge_engine_uses_judge_tokenizer_override(
 
 
 @pytest.mark.transformers_engine_test
-def test_transformers_eval_engine_generate_answers_from_tensors(
+def test_transformers_eval_engine_generate_answers_from_prompts(
     transformers_bundle, tmp_path
 ) -> None:
-    dataset = Dataset.from_dict({"prompt": ["hi"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
@@ -557,10 +538,6 @@ def test_transformers_eval_engine_generate_answers_from_tensors(
         transformers_bundle.data_collator,
         config,
     )
-    engine.set_dataset(dataset)
-
-    input_ids = torch.tensor([[5, 6]])
-    attention_mask = torch.tensor([[1, 1]])
     sampling_config = SamplingConfig(
         do_sample=config.sample,
         temperature=0.7,
@@ -568,9 +545,8 @@ def test_transformers_eval_engine_generate_answers_from_tensors(
         top_k=5,
         seed=123,
     )
-    answers = engine.generate_answers_from_tensors(
-        input_ids,
-        attention_mask,
+    answers = engine.generate_answers_from_prompts(
+        ["prompt-a"],
         sampling_config=sampling_config,
     )
 
@@ -634,7 +610,6 @@ def test_transformers_eval_engine_formats_message_prompts_before_tokenization(
 def test_transformers_eval_engine_sampling_config_overrides_defaults(
     transformers_bundle, tmp_path
 ) -> None:
-    dataset = Dataset.from_dict({"prompt": ["hi"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
@@ -647,10 +622,6 @@ def test_transformers_eval_engine_sampling_config_overrides_defaults(
         transformers_bundle.data_collator,
         config,
     )
-    engine.set_dataset(dataset)
-
-    input_ids = torch.tensor([[7, 8]])
-    attention_mask = torch.tensor([[1, 1]])
     sampling_config = SamplingConfig(
         do_sample=True,
         temperature=None,
@@ -658,9 +629,8 @@ def test_transformers_eval_engine_sampling_config_overrides_defaults(
         top_k=None,
         seed=321,
     )
-    engine.generate_answers_from_tensors(
-        input_ids,
-        attention_mask,
+    engine.generate_answers_from_prompts(
+        ["prompt-a"],
         sampling_config=sampling_config,
     )
     generate_call = transformers_bundle.model.generate_calls[-1]
@@ -691,5 +661,3 @@ def test_transformers_eval_engine_get_batch_size_autotune(
     batch_size = engine.get_batch_size()
 
     assert batch_size == len(dataset)
-    assert transformers_bundle.find_recorder.calls == [len(dataset)]
-    assert transformers_bundle.candidate_recorder.calls == [len(dataset)]

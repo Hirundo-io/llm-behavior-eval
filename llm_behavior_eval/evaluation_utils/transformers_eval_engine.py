@@ -2,19 +2,11 @@ import logging
 from typing import TYPE_CHECKING, cast
 
 import torch
-from accelerate.utils.memory import find_executable_batch_size
-from torch.utils.data import DataLoader
 from transformers import set_seed
 from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
-from .eval_engine import (
-    EngineInputMode,
-    EvalDataset,
-    JudgePrompt,
-    PromptEvalEngine,
-    TensorEvalEngine,
-)
+from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import (
@@ -26,10 +18,7 @@ if TYPE_CHECKING:
     from transformers.generation.utils import GenerationMixin
 
 
-class TransformersEvalEngine(TensorEvalEngine, PromptEvalEngine):
-    def generation_input_mode(self) -> EngineInputMode:
-        return EngineInputMode.HYBRID
-
+class TransformersEvalEngine(PromptEvalEngine):
     def __init__(
         self,
         data_collator: DataCollator,
@@ -69,43 +58,46 @@ class TransformersEvalEngine(TensorEvalEngine, PromptEvalEngine):
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset
 
-    def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
-        logging.info(f"Trying batch size: {candidate_bs}")
-        dl = DataLoader(
-            cast("torch.utils.data.Dataset", self.eval_dataset),
-            batch_size=candidate_bs,
-            shuffle=False,
-            collate_fn=self.data_collator,
-        )
-        it = iter(dl)
-        batch = next(it)
-        input_ids = batch["test_input_ids"].to(self.model.device)
-        attention_mask = batch["test_attention_mask"].to(self.model.device)
-        do_sample = (
-            self.eval_config.sample_judge if self.is_judge else self.eval_config.sample
-        )
-        max_new_tokens = (
-            self.eval_config.max_judge_tokens
-            if self.is_judge
-            else self.eval_config.max_answer_tokens
-        )
-        with torch.inference_mode():
-            cast("GenerationMixin", self.model).generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=max_new_tokens,
-                do_sample=do_sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-            )
-        return candidate_bs
+    def ensure_test_model_ready(self) -> None:
+        self.model.eval()
 
-    def generate_answers_from_tensors(
+    def get_batch_size(self) -> int:
+        batch_size = (
+            self.eval_config.judge_batch_size
+            if self.is_judge
+            else self.eval_config.batch_size
+        )
+
+        if batch_size is None:
+            batch_size = max(1, min(len(self.eval_dataset), MAX_BATCH_SIZE))
+            logging.info(
+                "Defaulting to batch size %s for transformers backend", batch_size
+            )
+        return batch_size
+
+    def free_model(self) -> None:
+        self.model = self.model.cpu()
+        del self.model
+
+    def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
+        """Apply chat template to format messages into a tokenized prompt string."""
+        return safe_apply_chat_template(self.tokenizer, messages)
+
+    def generate_answers_from_prompts(
         self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
+        prompts: list[JudgePrompt],
         sampling_config: SamplingConfig,
     ) -> list[str]:
+        """Tokenize prompts and generate responses with the local transformers model."""
+        if not prompts:
+            return []
+        string_prompts = self.normalize_prompts_to_strings(prompts)
+        tokenized = self.tokenizer(
+            string_prompts,
+            truncation=True,
+            return_tensors="pt",
+            padding=True,
+        )
         if sampling_config.do_sample is None:
             do_sample = (
                 self.eval_config.sample_judge
@@ -127,13 +119,15 @@ class TransformersEvalEngine(TensorEvalEngine, PromptEvalEngine):
         seed = sampling_config.seed
         if seed is not None:
             set_seed(seed)
-        device = self.model.device
-        model_input_ids = input_ids.to(device)
-        model_attention = attention_mask.to(device)
+
+        input_ids = cast("torch.Tensor", tokenized["input_ids"]).to(self.model.device)
+        attention_mask = cast("torch.Tensor", tokenized["attention_mask"]).to(
+            self.model.device
+        )
         with torch.inference_mode():
             outputs = cast("GenerationMixin", self.model).generate(
-                input_ids=model_input_ids,
-                attention_mask=model_attention,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
                 max_new_tokens=max_new_tokens,
                 do_sample=do_sample,
                 pad_token_id=self.tokenizer.pad_token_id,
@@ -142,61 +136,5 @@ class TransformersEvalEngine(TensorEvalEngine, PromptEvalEngine):
                 top_p=top_p,
                 top_k=top_k,
             )
-        generated_tokens = outputs[:, model_input_ids.shape[1] :].detach().cpu()
+        generated_tokens = outputs[:, input_ids.shape[1] :].detach().cpu()
         return self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
-
-    def ensure_test_model_ready(self) -> None:
-        self.model.eval()
-
-    def get_batch_size(self) -> int:
-        batch_size = (
-            self.eval_config.judge_batch_size
-            if self.is_judge
-            else self.eval_config.batch_size
-        )
-
-        if batch_size is None:
-            starting_bs = max(1, min(len(self.eval_dataset), MAX_BATCH_SIZE))
-            current_bs = starting_bs
-
-            def halve_reducer():
-                nonlocal current_bs
-                current_bs = max(1, current_bs // 2)
-                return current_bs
-
-            wrapper = find_executable_batch_size(
-                self._get_first_non_oom_batch_size,
-                starting_batch_size=starting_bs,
-                reduce_batch_size_fn=halve_reducer,
-            )
-            batch_size = cast("int", wrapper())
-            logging.info("Selected batch size: %s", batch_size)
-        return batch_size
-
-    def free_model(self) -> None:
-        self.model = self.model.cpu()
-        del self.model
-
-    def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
-        """Apply chat template to format messages into a tokenized prompt string."""
-        return safe_apply_chat_template(self.tokenizer, messages)
-
-    def generate_answers_from_prompts(
-        self,
-        prompts: list[JudgePrompt],
-        sampling_config: SamplingConfig,
-    ) -> list[str]:
-        """Tokenize string prompts and generate answers."""
-        if not prompts:
-            return []
-        string_prompts = self.normalize_prompts_to_strings(prompts)
-        tokenized = self.tokenizer(
-            string_prompts,
-            return_tensors="pt",
-            padding=True,
-        )
-        input_ids = cast("torch.Tensor", tokenized["input_ids"])
-        attention_mask = cast("torch.Tensor", tokenized["attention_mask"])
-        return self.generate_answers_from_tensors(
-            input_ids, attention_mask, sampling_config
-        )

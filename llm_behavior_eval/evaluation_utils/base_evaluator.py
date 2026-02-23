@@ -26,7 +26,7 @@ from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
 
 from .custom_dataset import CustomDataset
 from .enums import DatasetType
-from .eval_engine import EvalEngine, JudgePrompt, PromptEvalEngine, TensorEvalEngine
+from .eval_engine import EvalEngine, JudgePrompt, PromptEvalEngine
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import (
@@ -40,7 +40,6 @@ from .util_functions import (
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator, Sequence
 
-    from datasets import Dataset as HFDataset
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
     from .dataset_config import DatasetConfig
@@ -92,66 +91,12 @@ class _DatasetSamplingState:
 
 class BaseEvaluator(ABC):
     @staticmethod
-    def _resolve_data_collator_for_tokenizer(
-        tokenizer: PreTrainedTokenizerBase | None,
-    ):
-        return default_data_collator if tokenizer is not None else raw_text_collator
-
-    def _resolve_data_collator_for_engine(self, engine: object):
-        return self._resolve_data_collator_for_tokenizer(
-            self._resolve_dataset_tokenizer_for_engine(engine)
-        )
-
-    @staticmethod
-    def _resolve_dataset_tokenizer_for_engine(
-        engine: object,
-    ) -> PreTrainedTokenizerBase | None:
-        if not BaseEvaluator._engine_requires_tokenized_dataset(engine):
-            return None
-        tokenizer = getattr(engine, "tokenizer", None)
-        return cast("PreTrainedTokenizerBase | None", tokenizer)
-
-    @staticmethod
-    def _engine_requires_tokenized_dataset(engine: object) -> bool:
-        if isinstance(engine, EvalEngine):
-            return engine.requires_tokenized_dataset()
-        requires = getattr(engine, "requires_tokenized_dataset", None)
-        if callable(requires):
-            try:
-                return bool(requires())
-            except TypeError:
-                return False
-        return getattr(engine, "tokenizer", None) is not None
-
-    @staticmethod
-    def _engine_supports_tensor_generation(engine: object) -> bool:
-        if isinstance(engine, EvalEngine):
-            return engine.supports_tensor_generation()
-        return isinstance(engine, TensorEvalEngine) or callable(
-            getattr(engine, "generate_answers_from_tensors", None)
-        )
-
-    @staticmethod
     def _engine_supports_prompt_generation(engine: object) -> bool:
         if isinstance(engine, EvalEngine):
             return engine.supports_prompt_generation()
         return isinstance(engine, PromptEvalEngine) or callable(
             getattr(engine, "generate_answers_from_prompts", None)
         )
-
-    def _judge_requires_tokenized_dataset(self, judge_engine: object) -> bool:
-        return (
-            self._model_uses_raw_prompts()
-            and self._engine_requires_tokenized_dataset(judge_engine)
-        )
-
-    def _model_uses_raw_prompts(self) -> bool:
-        model_requires_tokenized = getattr(
-            self, "_model_requires_tokenized_dataset", None
-        )
-        if model_requires_tokenized is None:
-            return getattr(self, "tokenizer", None) is None
-        return not model_requires_tokenized
 
     def _resolved_dataset_shuffle_seed(self) -> int:
         """
@@ -185,7 +130,6 @@ class BaseEvaluator(ABC):
         self.model_engine = eval_config.inference_engine or eval_config.model_engine
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
-        self._judge_dataset: HFDataset | None = None
         self._selected_sample_indices: list[int] = []
         self._dataset_sampling_state_by_key: dict[
             tuple[str, str, int | None], _DatasetSamplingState
@@ -220,16 +164,11 @@ class BaseEvaluator(ABC):
                     default_data_collator,
                     self.eval_config,
                 )
-        self._model_requires_tokenized_dataset = (
-            self._engine_requires_tokenized_dataset(self.eval_engine)
-        )
-        self.tokenizer = self._resolve_dataset_tokenizer_for_engine(self.eval_engine)
-        self.data_collator = self._resolve_data_collator_for_engine(self.eval_engine)
+        self.tokenizer: PreTrainedTokenizerBase | None = None
+        self.data_collator = raw_text_collator
         self.trust_remote_code = self.eval_config.trust_remote_code
         self.prepare_dataloader()
         self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
-        if self.tokenizer is not None:
-            self.tokenizer.padding_side = "left"
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
         if self.eval_config.mlflow_config and mlflow:
@@ -262,16 +201,6 @@ class BaseEvaluator(ABC):
         # ensure we have a pad token for the judge model as not all models have it
         if not self.judge_tokenizer.pad_token:
             self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
-
-    def _get_tokenizer(self) -> PreTrainedTokenizerBase:
-        """Get the model tokenizer, raising an error if not initialized."""
-        tokenizer = self.tokenizer
-        if tokenizer is None:
-            raise RuntimeError(
-                "Model tokenizer is not initialized. "
-                "API models do not provide a tokenizer."
-            )
-        return tokenizer
 
     def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
         tokenizer = self.judge_tokenizer
@@ -329,34 +258,18 @@ class BaseEvaluator(ABC):
         to a maximum number of samples defined in the evaluation configuration. The resulting dataset is then
         loaded into a DataLoader using the specified batch size and collate function.
         """
-        if getattr(
-            self.eval_engine, "is_judge", False
-        ) and self._judge_requires_tokenized_dataset(self.eval_engine):
-            self._restore_dataset_sampling_state_or_raise()
-            self.eval_dataset = self._build_tokenized_dataset_for_judge()
-            self._judge_dataset = self.eval_dataset
-            self.eval_engine.set_dataset(self.eval_dataset)
-            self.eval_loader = DataLoader(
-                cast("TorchDataset", self.eval_dataset),
-                batch_size=self.eval_engine.get_batch_size(),
-                shuffle=False,
-                collate_fn=self._resolve_data_collator_for_engine(self.eval_engine),
-            )
-            return
-
         custom_dataset = CustomDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
-        tokenizer = self._resolve_dataset_tokenizer_for_engine(self.eval_engine)
-        self.data_collator = self._resolve_data_collator_for_engine(self.eval_engine)
+        tokenizer = None
+        self.data_collator = raw_text_collator
         preprocess_config = self.dataset_config.preprocess_config
         raw_text_truncator = None
-        if not getattr(self.eval_engine, "is_judge", False):
-            self.eval_engine.set_preprocess_limits(
-                preprocess_config.max_length,
-                preprocess_config.gt_max_length,
-            )
-            raw_text_truncator = self.eval_engine.get_raw_text_truncator()
+        self.eval_engine.set_preprocess_limits(
+            preprocess_config.max_length,
+            preprocess_config.gt_max_length,
+        )
+        raw_text_truncator = self.eval_engine.get_raw_text_truncator()
         test_dataset = custom_dataset.preprocess(
             tokenizer,
             preprocess_config,
@@ -387,70 +300,6 @@ class BaseEvaluator(ABC):
         # propagate flag
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
         self._store_current_dataset_sampling_state()
-
-        # Invalidate cached judge dataset whenever evaluation dataset changes.
-        self._judge_dataset = None
-
-    def _build_tokenized_dataset_for_judge(self) -> HFDataset:
-        """
-        Rebuild the dataset using the judge tokenizer.
-
-        This keeps generation in API raw mode while ensuring the judge engine
-        receives tokenized fields such as `test_input_ids`. Tokenizer-based
-        judge engines probe executable batch size from dataset tensors, so
-        tokenizing only generated answers is insufficient for grading setup.
-        """
-        custom_dataset = CustomDataset(
-            self.dataset_config.file_path, self.dataset_config.dataset_type
-        )
-        judge_tokenizer = self._get_judge_tokenizer()
-        tokenized_dataset = custom_dataset.preprocess(
-            judge_tokenizer,
-            self.dataset_config.preprocess_config,
-            trust_remote_code=self.trust_remote_code,
-            max_answer_tokens=self.eval_config.max_answer_tokens,
-            reasoning=self.eval_config.reasoning,
-            pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
-            token=self.eval_config.judge_token,
-        )
-        self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
-        tokenized_dataset = tokenized_dataset.shuffle(
-            seed=self._resolved_dataset_shuffle_seed()
-        )
-        selected_indices = list(self._selected_sample_indices)
-        if self.num_samples != len(selected_indices):
-            raise RuntimeError(
-                "Cached sampling metadata is inconsistent for judge grading. "
-                "Regenerate outputs for this dataset before grading."
-            )
-        if selected_indices and max(selected_indices) >= len(tokenized_dataset):
-            raise RuntimeError(
-                "Selected sample indices are out of range for the current dataset. "
-                "Regenerate outputs for this dataset to refresh sampled indices."
-            )
-        self.num_samples = len(selected_indices)
-        self._selected_sample_indices = selected_indices
-        self._store_current_dataset_sampling_state()
-        # Reuse the exact sampled indices from generation to keep judge/model alignment.
-        return tokenized_dataset.select(selected_indices)
-
-    def generate_answers_from_tensors(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        do_sample: bool | None = None,
-    ) -> list[str]:
-        if not self._engine_supports_tensor_generation(self.eval_engine):
-            raise RuntimeError(
-                "Current evaluation engine does not support tensor-based generation."
-            )
-        tensor_engine = cast("TensorEvalEngine", self.eval_engine)
-
-        return tensor_engine.generate_answers_from_tensors(
-            input_ids,
-            attention_mask,
-            sampling_config=self._build_model_sampling_config(do_sample),
-        )
 
     def generate_answers_from_prompts(
         self,
@@ -1140,43 +989,13 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
         )
 
-        if self._engine_requires_tokenized_dataset(judge_engine):
-            tensor_judge_engine = cast("TensorEvalEngine", judge_engine)
-            judge_tokenizer = self._get_judge_tokenizer()
-            string_prompts: list[str] = []
-            for prompt in prompts:
-                if isinstance(prompt, str):
-                    string_prompts.append(prompt)
-                else:
-                    formatted_prompt = self.format_judge_messages(prompt)
-                    if not isinstance(formatted_prompt, str):
-                        raise TypeError(
-                            "Tokenizer-backed judge engines require string prompts."
-                        )
-                    string_prompts.append(formatted_prompt)
-
-            tokenized = judge_tokenizer(
-                string_prompts,
-                return_tensors="pt",
-                padding=True,
-            )
-            input_ids = cast("torch.Tensor", tokenized["input_ids"])
-            attention_mask = cast("torch.Tensor", tokenized["attention_mask"])
-            answers = tensor_judge_engine.generate_answers_from_tensors(
-                input_ids,
-                attention_mask,
-                sampling_config=sampling_config,
-            )
-        else:
-            if not self._engine_supports_prompt_generation(judge_engine):
-                raise RuntimeError(
-                    "Judge engine does not support prompt-based generation."
-                )
-            prompt_judge_engine = cast("PromptEvalEngine", judge_engine)
-            answers = prompt_judge_engine.generate_answers_from_prompts(
-                list(prompts),
-                sampling_config=sampling_config,
-            )
+        if not self._engine_supports_prompt_generation(judge_engine):
+            raise RuntimeError("Judge engine does not support prompt-based generation.")
+        prompt_judge_engine = cast("PromptEvalEngine", judge_engine)
+        answers = prompt_judge_engine.generate_answers_from_prompts(
+            list(prompts),
+            sampling_config=sampling_config,
+        )
 
         # Format output to match pipeline format: [{"generated_text": answer}, ...] per prompt
         return [[{"generated_text": answer}] for answer in answers]
@@ -1221,16 +1040,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                             self.eval_config,
                             is_judge=True,
                         )
-                if self._judge_requires_tokenized_dataset(judge_engine):
-                    # The generation dataset is raw (API mode) and does not
-                    # contain tokenized tensors required by tokenizer-based
-                    # judge engines.
-                    if self._judge_dataset is None:
-                        self._restore_dataset_sampling_state_or_raise()
-                        self._judge_dataset = self._build_tokenized_dataset_for_judge()
-                    judge_engine.set_dataset(self._judge_dataset)
-                else:
-                    judge_engine.set_dataset(self.eval_dataset)
+                judge_engine.set_dataset(self.eval_dataset)
                 self.eval_engine = judge_engine
             yield self.eval_engine
         finally:

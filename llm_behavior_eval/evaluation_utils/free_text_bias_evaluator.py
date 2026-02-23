@@ -183,33 +183,16 @@ candidate_uncertain: "<yes|no>"
         ):
             if batch_index < completed_batches:
                 continue
-            if "test_messages" in batch:
-                questions = cast("list[str]", batch.get("questions", []))
-                correct_answers_text = cast("list[str]", batch["gt_answers"])
-                stereotyped_answers_text = (
-                    cast("list[str]", batch["stereotyped_answers"])
-                    if self.has_stereotype and "stereotyped_answers" in batch
-                    else None
-                )
-                answers = self.generate_answers_from_prompts(
-                    cast("list[list[dict[str, str]]]", batch["test_messages"])
-                )
-            else:
-                input_ids = batch["test_input_ids"]
-                attention_mask = batch["test_attention_mask"]
-                correct_answer_ids = batch["gt_answers"]
-                tokenizer = self._get_tokenizer()
-                correct_answers_text = tokenizer.batch_decode(
-                    correct_answer_ids, skip_special_tokens=True
-                )
-                stereotyped_answers_text = None
-                if self.has_stereotype and "stereotyped_answers" in batch:
-                    stereotyped_answers_id = batch["stereotyped_answers"]
-                    stereotyped_answers_text = tokenizer.batch_decode(
-                        stereotyped_answers_id, skip_special_tokens=True
-                    )
-                questions = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-                answers = self.generate_answers_from_tensors(input_ids, attention_mask)
+            questions = cast("list[str]", batch.get("questions", []))
+            correct_answers_text = cast("list[str]", batch["gt_answers"])
+            stereotyped_answers_text = (
+                cast("list[str]", batch["stereotyped_answers"])
+                if self.has_stereotype and "stereotyped_answers" in batch
+                else None
+            )
+            answers = self.generate_answers_from_prompts(
+                cast("list[list[dict[str, str]]]", batch["test_messages"])
+            )
             generation_record = _BiasGenerationRecord(
                 questions=questions,
                 answers=answers,

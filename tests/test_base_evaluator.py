@@ -237,10 +237,9 @@ class ConcreteEvaluator(BaseEvaluator):
         return nullcontext()
 
 
-def test_prepare_dataloader_receives_eval_engine_tokenizer(
+def test_prepare_dataloader_uses_prompt_preprocessing_for_transformers_engine(
     tmp_path: Path,
     capture_state: CaptureState,
-    stub_tokenizer: StubTokenizer,
 ) -> None:
     evaluation_config = EvaluationConfig(
         model_path_or_repo_id="meta/model",
@@ -255,8 +254,8 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
 
     evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
 
-    assert capture_state.tokenizer is stub_tokenizer
-    assert evaluator.tokenizer is stub_tokenizer
+    assert capture_state.tokenizer is None
+    assert evaluator.tokenizer is None
     assert capture_state.trust_remote_code == evaluation_config.trust_remote_code
     assert capture_state.preprocess_limits == (
         dataset_config_instance.preprocess_config.max_length,
@@ -304,31 +303,6 @@ def test_prepare_dataloader_api_model_uses_raw_collator(
     _, batch_size, _, collate_fn = capture_state.dataloader_args
     assert batch_size == 3
     assert collate_fn is base_evaluator_module.raw_text_collator
-
-
-def test_generate_answers_from_tensors_requires_tensor_engine(
-    tmp_path: Path,
-) -> None:
-    evaluation_config = EvaluationConfig(
-        model_path_or_repo_id="openai/gpt-4o",
-        model_engine="api",
-        model_tokenizer_path_or_repo_id=None,
-        results_dir=tmp_path,
-        batch_size=None,
-        max_samples=1,
-    )
-    dataset_config_instance = DatasetConfig(
-        file_path="repo/dataset",
-        dataset_type=DatasetType.BIAS,
-    )
-
-    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
-
-    with pytest.raises(RuntimeError, match="tensor-based generation"):
-        evaluator.generate_answers_from_tensors(
-            torch.tensor([[1]]),
-            torch.tensor([[1]]),
-        )
 
 
 def test_generate_answers_from_prompts_uses_prompt_engine(
@@ -384,7 +358,7 @@ def test_generate_answers_from_prompts_uses_prompt_engine(
     assert isinstance(prompt_engine.last_sampling_config, SamplingConfig)
 
 
-def test_api_model_rebuilds_judge_dataset_with_judge_tokenizer(
+def test_api_model_reuses_eval_dataset_for_judge_with_prompt_pipeline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capture_state: CaptureState,
@@ -442,10 +416,10 @@ def test_api_model_rebuilds_judge_dataset_with_judge_tokenizer(
         assert capture_state.set_dataset_calls
         is_judge, dataset = capture_state.set_dataset_calls[-1]
         assert is_judge is True
-        assert dataset is not evaluator.eval_dataset
+        assert dataset is evaluator.eval_dataset
 
-    assert capture_state.tokenizer is stub_tokenizer
-    assert capture_state.token == "judge-token"
+    assert capture_state.tokenizer is None
+    assert capture_state.token == "model-token"
     assert load_calls[-1] == "meta/judge-tokenizer"
 
 
@@ -574,7 +548,7 @@ def test_update_dataset_config_restores_dataset_state_in_judge_context(
     assert ("repo/dataset-b", [0, 1, 2, 3]) in selected_indices_by_dataset
 
 
-def test_update_dataset_config_in_judge_context_requires_cached_sampling_state(
+def test_update_dataset_config_in_judge_context_does_not_require_rebuild_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     stub_tokenizer: StubTokenizer,
@@ -626,11 +600,9 @@ def test_update_dataset_config_in_judge_context_requires_cached_sampling_state(
     evaluator = StubEvaluator(evaluation_config, dataset_a)
 
     with evaluator.get_grading_context():
-        with pytest.raises(
-            RuntimeError,
-            match="sampled indices.*not found",
-        ):
-            evaluator.update_dataset_config(dataset_c)
+        evaluator.update_dataset_config(dataset_c)
+
+    assert evaluator.dataset_config.file_path == "repo/dataset-c"
 
 
 def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> None:
@@ -688,21 +660,6 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
 
         def format_prompt(self, messages: list[dict[str, str]]):
             return messages
-
-        def generate_answers_from_tensors(
-            self,
-            input_ids,
-            attention_mask,
-            sampling_config: SamplingConfig,
-        ):
-            self.calls.append(
-                {
-                    "input_ids": input_ids,
-                    "attention_mask": attention_mask,
-                    "sampling_config": sampling_config,
-                }
-            )
-            return ["yes"] * input_ids.shape[0]
 
         def generate_answers_from_prompts(
             self,
@@ -902,7 +859,7 @@ def test_get_grading_context_supports_api_judge_engine(
         assert judge_engine.dataset is evaluator.eval_dataset
 
 
-def test_update_dataset_config_in_api_judge_context_does_not_set_judge_preprocess_limits(
+def test_update_dataset_config_in_api_judge_context_sets_judge_preprocess_limits(
     tmp_path: Path,
     capture_state: CaptureState,
 ) -> None:
@@ -951,9 +908,8 @@ def test_update_dataset_config_in_api_judge_context_does_not_set_judge_preproces
     with evaluator.get_grading_context():
         evaluator.update_dataset_config(dataset_b)
 
-    # In judge context, prepare_dataloader must not push preprocessing limits
-    # onto the judge engine to avoid truncating judge prompts by dataset limits.
-    assert all(not is_judge for is_judge, _, _ in capture_state.preprocess_limit_calls)
+    # In prompt-only mode, judge engines also receive preprocessing limits.
+    assert any(is_judge for is_judge, _, _ in capture_state.preprocess_limit_calls)
 
 
 def test_prepare_judge_tokenizer_after_free_judge_does_not_raise(
@@ -1005,7 +961,7 @@ def test_prepare_judge_tokenizer_after_free_judge_does_not_raise(
     assert evaluator.judge_tokenizer is not None
 
 
-def test_judge_dataset_rebuild_uses_sampling_seed_when_dataset_seed_is_none(
+def test_grading_context_preserves_sampling_seed_without_dataset_rebuild(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     stub_tokenizer: StubTokenizer,
@@ -1110,7 +1066,7 @@ def test_judge_dataset_rebuild_uses_sampling_seed_when_dataset_seed_is_none(
 
     assert selected_indices == [0, 1]
     assert ("repo/dataset-a", [0, 1]) in selected_indices_by_dataset
-    assert len(shuffle_calls) >= 2
+    assert len(shuffle_calls) == 1
     assert all(seed == 123 for _, seed in shuffle_calls)
 
 

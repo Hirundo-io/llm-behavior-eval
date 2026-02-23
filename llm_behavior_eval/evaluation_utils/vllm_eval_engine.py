@@ -6,12 +6,7 @@ from typing import TYPE_CHECKING, cast
 
 import torch
 
-from .eval_engine import (
-    EngineInputMode,
-    EvalDataset,
-    JudgePrompt,
-    PromptEvalEngine,
-)
+from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine
 from .util_functions import (
     load_tokenizer_with_transformers,
     load_vllm_model,
@@ -31,9 +26,6 @@ if TYPE_CHECKING:
 
 
 class VllmEvalEngine(PromptEvalEngine):
-    def generation_input_mode(self) -> EngineInputMode:
-        return EngineInputMode.PROMPT
-
     def __init__(
         self,
         eval_config: EvaluationConfig,

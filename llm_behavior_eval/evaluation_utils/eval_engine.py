@@ -2,25 +2,16 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sized
-from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import torch
-
     from .sampling_config import SamplingConfig
 
 
 EvalDataset = Sized
 
-# Canonical type for judge prompts: either a tokenized string or raw messages for API
+# Canonical type for prompts: either preformatted text or raw messages.
 JudgePrompt = str | list[dict[str, str]]
-
-
-class EngineInputMode(StrEnum):
-    TENSOR = "tensor"
-    PROMPT = "prompt"
-    HYBRID = "hybrid"
 
 
 class EvalEngine(ABC):
@@ -41,26 +32,11 @@ class EvalEngine(ABC):
     def free_model(self) -> None:
         raise NotImplementedError("Subclasses must implement free_model().")
 
-    def generation_input_mode(self) -> EngineInputMode:
-        """Declare the primary input mode used for generation."""
-        return EngineInputMode.TENSOR
-
-    def supports_tensor_generation(self) -> bool:
-        mode = self.generation_input_mode()
-        return mode in {EngineInputMode.TENSOR, EngineInputMode.HYBRID}
-
     def supports_prompt_generation(self) -> bool:
-        mode = self.generation_input_mode()
-        return mode in {EngineInputMode.PROMPT, EngineInputMode.HYBRID}
+        return True
 
     def requires_tokenized_dataset(self) -> bool:
-        """
-        Whether dataset preprocessing must produce tokenized tensor columns.
-
-        Prompt-only engines (e.g., API-backed) can operate on raw prompts/messages
-        and therefore do not require tokenized datasets.
-        """
-        return self.generation_input_mode() != EngineInputMode.PROMPT
+        return False
 
     def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
         """
@@ -88,27 +64,7 @@ class EvalEngine(ABC):
         return False
 
 
-class TensorEvalEngine(EvalEngine, ABC):
-    def generation_input_mode(self) -> EngineInputMode:
-        return EngineInputMode.TENSOR
-
-    @abstractmethod
-    def generate_answers_from_tensors(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        sampling_config: SamplingConfig,
-    ) -> list[str]:
-        """Generate answers from pre-tokenized tensor inputs."""
-        raise NotImplementedError(
-            "Subclasses must implement generate_answers_from_tensors()."
-        )
-
-
 class PromptEvalEngine(EvalEngine, ABC):
-    def generation_input_mode(self) -> EngineInputMode:
-        return EngineInputMode.PROMPT
-
     @abstractmethod
     def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
         """Format messages into a prompt suitable for this engine."""

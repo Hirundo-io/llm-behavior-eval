@@ -7,10 +7,7 @@ import pytest
 
 from llm_behavior_eval.evaluation_utils.api_eval_engine import ApiEvalEngine
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
-from llm_behavior_eval.evaluation_utils.eval_engine import (
-    PromptEvalEngine,
-    TensorEvalEngine,
-)
+from llm_behavior_eval.evaluation_utils.eval_engine import PromptEvalEngine
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 
@@ -134,7 +131,6 @@ def test_api_eval_engine_implements_prompt_interface(tmp_path, monkeypatch) -> N
     engine = ApiEvalEngine(evaluation_config, is_judge=False)
 
     assert isinstance(engine, PromptEvalEngine)
-    assert not isinstance(engine, TensorEvalEngine)
 
     assert engine.tokenizer is None
 
