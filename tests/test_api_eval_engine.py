@@ -336,3 +336,46 @@ def test_api_eval_engine_extract_content_returns_empty_on_error(
     assert ApiEvalEngine._extract_content(None) == ""
     assert ApiEvalEngine._extract_content(SimpleNamespace(choices=[])) == ""
     assert ApiEvalEngine._extract_content(SimpleNamespace()) == ""
+
+
+def test_api_eval_engine_normalizes_string_prompts(tmp_path, monkeypatch) -> None:
+    fake_litellm = patch_litellm(monkeypatch)
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    answers = engine.generate_answers_from_prompts(
+        ["Explain this."],
+        SamplingConfig(do_sample=False),
+    )
+
+    assert answers == ["ok"]
+    assert fake_litellm.calls[0]["messages"] == [
+        [{"role": "user", "content": "Explain this."}]
+    ]
+
+
+@pytest.mark.parametrize("top_k", [0, -5])
+def test_api_eval_engine_omits_nonpositive_top_k(
+    tmp_path, monkeypatch, top_k: int
+) -> None:
+    fake_litellm = patch_litellm(monkeypatch)
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    answers = engine.generate_answers_from_prompts(
+        [[{"role": "user", "content": "hello"}]],
+        SamplingConfig(do_sample=True, temperature=0.2, top_p=0.8, top_k=top_k),
+    )
+
+    assert answers == ["ok"]
+    call_kwargs = fake_litellm.calls[0]
+    assert call_kwargs["top_p"] == 0.8
+    assert "top_k" not in call_kwargs

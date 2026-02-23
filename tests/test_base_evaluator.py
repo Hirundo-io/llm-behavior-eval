@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
@@ -733,6 +734,234 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.top_p == 0.9
     assert sampling_config.top_k == 4
     assert sampling_config.seed == evaluator.dataset_config.seed
+
+
+def test_run_judge_with_backoff_uses_fixed_batch_size_without_probing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: EvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        judge_batch_size=2,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+    prompts = ["p1", "p2", "p3", "p4", "p5"]
+    chunks: list[list[str]] = []
+
+    def fake_process(
+        _judge_engine: object,
+        prompts_batch: Sequence[str],
+        batch_size: int | None = None,
+        do_sample: bool | None = None,
+    ) -> list[list[dict[str, str]]]:
+        del batch_size, do_sample
+        prompts_list = list(prompts_batch)
+        chunks.append(prompts_list)
+        return [[{"generated_text": prompt}] for prompt in prompts_list]
+
+    class StubJudge:
+        def generate_answers_from_prompts(self, prompts, sampling_config):
+            del prompts, sampling_config
+            return []
+
+    monkeypatch.setattr(evaluator, "_process_judge_prompts_batch", fake_process)
+    outputs = evaluator.run_judge_with_backoff(cast("EvalEngine", StubJudge()), prompts)
+
+    assert chunks == [["p1", "p2"], ["p3", "p4"], ["p5"]]
+    assert outputs == [
+        [{"generated_text": "p1"}],
+        [{"generated_text": "p2"}],
+        [{"generated_text": "p3"}],
+        [{"generated_text": "p4"}],
+        [{"generated_text": "p5"}],
+    ]
+
+
+def test_run_judge_with_backoff_retries_and_clears_partial_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: EvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        judge_batch_size=None,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+    prompts = ["p1", "p2", "p3", "p4", "p5"]
+    cache_clear_calls = 0
+    calls: list[tuple[int | None, list[str]]] = []
+
+    def fake_clear_cache() -> None:
+        nonlocal cache_clear_calls
+        cache_clear_calls += 1
+
+    def fake_find_executable_batch_size(
+        fn,
+        *,
+        starting_batch_size: int,
+        reduce_batch_size_fn,
+    ):
+        del starting_batch_size
+
+        def wrapper():
+            candidate_batch_size = 4
+            while True:
+                try:
+                    return fn(candidate_batch_size)
+                except RuntimeError:
+                    candidate_batch_size = reduce_batch_size_fn()
+
+        return wrapper
+
+    def fake_process(
+        _judge_engine: object,
+        prompts_batch: Sequence[str],
+        batch_size: int | None = None,
+        do_sample: bool | None = None,
+    ) -> list[list[dict[str, str]]]:
+        del do_sample
+        prompts_list = list(prompts_batch)
+        calls.append((batch_size, prompts_list))
+        if batch_size == 4 and len(prompts_list) == 1:
+            raise RuntimeError("simulated OOM")
+        return [[{"generated_text": prompt}] for prompt in prompts_list]
+
+    class StubJudge:
+        def generate_answers_from_prompts(self, prompts, sampling_config):
+            del prompts, sampling_config
+            return []
+
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", fake_clear_cache
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "find_executable_batch_size",
+        fake_find_executable_batch_size,
+    )
+    monkeypatch.setattr(evaluator, "_process_judge_prompts_batch", fake_process)
+
+    outputs = evaluator.run_judge_with_backoff(cast("EvalEngine", StubJudge()), prompts)
+
+    assert calls == [
+        (4, ["p1", "p2", "p3", "p4"]),
+        (4, ["p5"]),
+        (2, ["p1", "p2"]),
+        (2, ["p3", "p4"]),
+        (2, ["p5"]),
+    ]
+    assert cache_clear_calls == 1
+    assert outputs == [
+        [{"generated_text": "p1"}],
+        [{"generated_text": "p2"}],
+        [{"generated_text": "p3"}],
+        [{"generated_text": "p4"}],
+        [{"generated_text": "p5"}],
+    ]
+
+
+def test_ensure_run_configuration_allowed_raises_on_mismatch_without_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return False
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        replace_existing_output=False,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+    with open(evaluator.run_config_path(), "w") as file_handle:
+        json.dump(
+            {"evaluation_config": {"mismatch": True}, "dataset_config": {}}, file_handle
+        )
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", StubStdin())
+
+    with pytest.raises(
+        RuntimeError,
+        match="Existing evaluation outputs were produced with a different configuration",
+    ):
+        evaluator._ensure_run_configuration_allowed()
+
+
+def test_ensure_run_configuration_allowed_replaces_outputs_when_flag_enabled(
+    tmp_path: Path,
+) -> None:
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        replace_existing_output=True,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+    with open(evaluator.run_config_path(), "w") as file_handle:
+        json.dump(
+            {"evaluation_config": {"mismatch": True}, "dataset_config": {}}, file_handle
+        )
+
+    for filename in ["responses.json", "metrics.csv", "generations.jsonl"]:
+        with open(evaluator.get_output_dir() / filename, "w") as file_handle:
+            file_handle.write("old")
+
+    evaluator._ensure_run_configuration_allowed()
+
+    for filename in ["responses.json", "metrics.csv", "generations.jsonl"]:
+        assert not (evaluator.get_output_dir() / filename).exists()
+
+    with open(evaluator.run_config_path()) as file_handle:
+        rewritten = json.load(file_handle)
+    assert rewritten == evaluator._current_run_config()
 
 
 def test_get_grading_context_creates_and_frees_judge_engine(
