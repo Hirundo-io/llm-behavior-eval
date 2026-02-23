@@ -5,7 +5,7 @@ import logging
 import os
 import shutil
 from contextlib import contextmanager
-from inspect import Parameter, signature
+from inspect import signature
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
@@ -76,7 +76,7 @@ def _hf_token(token: str | None) -> Iterator[None]:
 
 
 class SafeApplyChatTemplate:
-    _CHAT_TEMPLATE_SUPPORTS_REASONING: dict[int, bool] = {}
+    _CHAT_TEMPLATE_SUPPORTS_THINKING: dict[int, bool] = {}
 
     def __call__(
         self,
@@ -106,29 +106,30 @@ class SafeApplyChatTemplate:
             The formatted string after applying the chat template.
         """
 
-        # Cache for checking whether a given tokenizer's apply_chat_template supports
-        # the `reasoning` kwarg. Keyed by id(tokenizer) to avoid holding strong refs.
-        # This avoids repeated try/except in hot paths.
-        def _supports_reasoning_kwarg(tokenizer: PreTrainedTokenizerBase) -> bool:
+        def _supports_thinking_kwarg(tokenizer: PreTrainedTokenizerBase, name: str) -> bool:
+            """
+            Check if the tokenizer's apply_chat_template supports the `thinking` kwarg.
+
+            Args:
+                tokenizer: The tokenizer to check.
+                name: The name of the kwarg to check.
+
+            Returns:
+                True if the tokenizer's apply_chat_template supports the `thinking` kwarg, False otherwise.
+            """
+            # Cache for checking whether a given tokenizer's apply_chat_template supports
+            # the `thinking` kwarg. Keyed by id(tokenizer) to avoid holding strong refs.
+            # This avoids repeated try/except in hot paths.
             cache_key = id(tokenizer)
-            cached = self._CHAT_TEMPLATE_SUPPORTS_REASONING.get(cache_key)
+            cached = self._CHAT_TEMPLATE_SUPPORTS_THINKING.get(cache_key)
             if cached is not None:
                 return cached
+            supports = (
+                isinstance(tokenizer.chat_template, str)
+                and name in tokenizer.chat_template
+            )
+            self._CHAT_TEMPLATE_SUPPORTS_THINKING[cache_key] = supports
 
-            apply_fn = getattr(tokenizer, "apply_chat_template", None)
-            supports = False
-            if apply_fn is not None:
-                try:
-                    sig = signature(apply_fn)
-                    has_kwargs = any(
-                        p.kind == Parameter.VAR_KEYWORD for p in sig.parameters.values()
-                    )
-                    supports = has_kwargs or ("reasoning" in sig.parameters)
-                except (TypeError, ValueError):
-                    # Some callables may not expose a Python signature; fall back to False
-                    supports = False
-
-            self._CHAT_TEMPLATE_SUPPORTS_REASONING[cache_key] = supports
             return supports
 
         is_gemma_v1 = (
@@ -139,6 +140,10 @@ class SafeApplyChatTemplate:
         uses_nothink = (
             isinstance(tokenizer.chat_template, str)
             and "/no_think" in tokenizer.chat_template
+        )
+        uses_think_delim = (
+            isinstance(tokenizer.chat_template, str)
+            and "</think>" in tokenizer.chat_template
         )
 
         if messages and messages[0]["role"] == "system":
@@ -166,17 +171,18 @@ class SafeApplyChatTemplate:
             Call tokenizer.apply_chat_template while remaining compatible with
             tokenizers that don't support the `reasoning` kwarg.
             """
-            if _supports_reasoning_kwarg(tokenizer):
-                return tokenizer.apply_chat_template(
-                    messages_like,
-                    tokenize=False,
-                    add_generation_prompt=True,
-                    reasoning=reasoning,
-                )
+            if _supports_thinking_kwarg(tokenizer, "reasoning"):
+                thinking_kwarg_name = "reasoning"
+            elif _supports_thinking_kwarg(tokenizer, "enable_thinking"):
+                thinking_kwarg_name = "enable_thinking"
+            else:
+                thinking_kwarg_name = None
+            thinking_kwarg: dict = {thinking_kwarg_name: reasoning} if thinking_kwarg_name else {}
             return tokenizer.apply_chat_template(
                 messages_like,
                 tokenize=False,
                 add_generation_prompt=True,
+                **thinking_kwarg,
             )
 
         if is_multimodal:
@@ -190,15 +196,19 @@ class SafeApplyChatTemplate:
                         "content": [{"type": "text", "text": str(current_content)}],
                     }
                 )
-            return str(_apply_chat_template(multimodal_chat_messages))
+            chat_template = str(_apply_chat_template(multimodal_chat_messages))
+        else:
+            # Unimodal: plain string content
+            chat_messages_text: list[dict[str, str]] = []
+            for message in messages:
+                chat_messages_text.append(
+                    {"role": message["role"], "content": str(message["content"])}
+                )
+            chat_template = str(_apply_chat_template(chat_messages_text))
+        if uses_think_delim and not reasoning and chat_template.endswith("<think>\n"):
+            chat_template = chat_template.replace("<think>\n", "<think></think>")
 
-        # Unimodal: plain string content
-        chat_messages_text: list[dict[str, str]] = []
-        for message in messages:
-            chat_messages_text.append(
-                {"role": message["role"], "content": str(message["content"])}
-            )
-        return str(_apply_chat_template(chat_messages_text))
+        return chat_template
 
 
 safe_apply_chat_template = SafeApplyChatTemplate()
