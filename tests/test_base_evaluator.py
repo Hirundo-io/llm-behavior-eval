@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -196,7 +197,7 @@ class ConcreteEvaluator(BaseEvaluator):
     def generate(self) -> Sequence[_GenerationRecord]:
         return []
 
-    def grade(self, generations: object, judge_engine: object = None) -> None:
+    def _grade_impl(self, generations: object, judge_engine: object = None) -> None:
         del generations, judge_engine
         return None
 
@@ -318,7 +319,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(self, generations: object, judge_engine: object = None) -> None:
+        def _grade_impl(self, generations: object, judge_engine: object = None) -> None:
             del generations, judge_engine
             return None
 
@@ -384,7 +385,7 @@ def test_get_grading_context_creates_and_frees_judge_engine(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: EvalEngine | None = None,
@@ -438,7 +439,7 @@ def test_evaluate_flow_can_use_generate_then_grade_in_grading_context(
         def generate(self) -> Sequence[_GenerationRecord]:
             return [_GenerationRecord(answers=["a"])]
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: EvalEngine | None = None,
@@ -583,3 +584,219 @@ def test_save_results_rewrites_summary_with_non_empty_columns_after_append(
     assert summary_rows[1]["Error (%) ⬇️"] == "40.000"
     assert "Attack success rate (%) ⬇️" not in summary_rows[0]
     assert "Attack success rate (%) ⬇️" not in summary_rows[1]
+
+
+def test_run_config_mismatch_allows_skip_reusing_existing_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_dir = tmp_path / "model" / "dataset"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    run_config_path = output_dir / "run_config.json"
+    run_config_path.write_text(
+        json.dumps(
+            {
+                "evaluation_config": {"model_path_or_repo_id": "different/model"},
+                "dataset_config": {"file_path": "repo/other-dataset"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    responses_path = output_dir / "responses.json"
+    responses_path.write_text('{"preserved": true}', encoding="utf-8")
+
+    class _StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return True
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", _StubStdin())
+    monkeypatch.setattr(base_evaluator_module.typer, "prompt", lambda *_a, **_k: "s")
+    monkeypatch.setattr(base_evaluator_module.typer, "confirm", lambda *_a, **_k: False)
+
+    ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="repo/dataset",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    assert responses_path.read_text(encoding="utf-8") == '{"preserved": true}'
+    with run_config_path.open(encoding="utf-8") as file_handle:
+        persisted_config = json.load(file_handle)
+    assert persisted_config["evaluation_config"]["model_path_or_repo_id"] == (
+        "different/model"
+    )
+
+
+def test_run_config_mismatch_cancel_still_raises_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_dir = tmp_path / "model" / "dataset"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    run_config_path = output_dir / "run_config.json"
+    run_config_path.write_text(
+        json.dumps(
+            {
+                "evaluation_config": {"model_path_or_repo_id": "different/model"},
+                "dataset_config": {"file_path": "repo/other-dataset"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class _StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return True
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", _StubStdin())
+    monkeypatch.setattr(base_evaluator_module.typer, "prompt", lambda *_a, **_k: "c")
+    monkeypatch.setattr(base_evaluator_module.typer, "confirm", lambda *_a, **_k: False)
+
+    with pytest.raises(RuntimeError, match="--replace-existing-output"):
+        ConcreteEvaluator(
+            EvaluationConfig(
+                model_path_or_repo_id="meta/model",
+                results_dir=tmp_path,
+                max_samples=1,
+            ),
+            DatasetConfig(
+                file_path="repo/dataset",
+                dataset_type=DatasetType.BIAS,
+            ),
+        )
+
+
+def test_run_config_choice_remembered_for_rest_of_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_output_dir = tmp_path / "model" / "dataset-first"
+    second_output_dir = tmp_path / "model" / "dataset-second"
+    first_output_dir.mkdir(parents=True, exist_ok=True)
+    second_output_dir.mkdir(parents=True, exist_ok=True)
+
+    run_config_payload = json.dumps(
+        {
+            "evaluation_config": {"model_path_or_repo_id": "different/model"},
+            "dataset_config": {"file_path": "repo/other-dataset"},
+        }
+    )
+    (first_output_dir / "run_config.json").write_text(
+        run_config_payload, encoding="utf-8"
+    )
+    (second_output_dir / "run_config.json").write_text(
+        run_config_payload, encoding="utf-8"
+    )
+
+    class _StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return True
+
+    prompt_calls = {"count": 0}
+    confirm_calls = {"count": 0}
+
+    def _prompt(*_args: object, **_kwargs: object) -> str:
+        prompt_calls["count"] += 1
+        return "s"
+
+    def _confirm(*_args: object, **_kwargs: object) -> bool:
+        confirm_calls["count"] += 1
+        return True
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", _StubStdin())
+    monkeypatch.setattr(base_evaluator_module.typer, "prompt", _prompt)
+    monkeypatch.setattr(base_evaluator_module.typer, "confirm", _confirm)
+
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="repo/dataset-first",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    evaluator.update_dataset_config(
+        DatasetConfig(
+            file_path="repo/dataset-second",
+            dataset_type=DatasetType.BIAS,
+        )
+    )
+
+    assert prompt_calls["count"] == 1
+    assert confirm_calls["count"] == 1
+
+
+def test_run_config_choice_not_remembered_prompts_again_without_second_remember_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_output_dir = tmp_path / "model" / "dataset-first"
+    second_output_dir = tmp_path / "model" / "dataset-second"
+    first_output_dir.mkdir(parents=True, exist_ok=True)
+    second_output_dir.mkdir(parents=True, exist_ok=True)
+
+    run_config_payload = json.dumps(
+        {
+            "evaluation_config": {"model_path_or_repo_id": "different/model"},
+            "dataset_config": {"file_path": "repo/other-dataset"},
+        }
+    )
+    (first_output_dir / "run_config.json").write_text(
+        run_config_payload, encoding="utf-8"
+    )
+    (second_output_dir / "run_config.json").write_text(
+        run_config_payload, encoding="utf-8"
+    )
+
+    class _StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return True
+
+    prompt_calls = {"count": 0}
+    confirm_calls = {"count": 0}
+
+    def _prompt(*_args: object, **_kwargs: object) -> str:
+        prompt_calls["count"] += 1
+        return "s"
+
+    def _confirm(*_args: object, **_kwargs: object) -> bool:
+        confirm_calls["count"] += 1
+        return False
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", _StubStdin())
+    monkeypatch.setattr(base_evaluator_module.typer, "prompt", _prompt)
+    monkeypatch.setattr(base_evaluator_module.typer, "confirm", _confirm)
+
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="repo/dataset-first",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    evaluator.update_dataset_config(
+        DatasetConfig(
+            file_path="repo/dataset-second",
+            dataset_type=DatasetType.BIAS,
+        )
+    )
+
+    assert prompt_calls["count"] == 2
+    assert confirm_calls["count"] == 1
