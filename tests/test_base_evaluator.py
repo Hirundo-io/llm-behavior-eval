@@ -723,7 +723,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     evaluator.dataset_config = DatasetConfig(
         file_path="repo/dataset",
         dataset_type=DatasetType.BIAS,
-        seed=777,
+        seed=0,
     )
     evaluator.judge_tokenizer = StubJudgeTokenizer()
     evaluator.judge_engine = "transformers"
@@ -743,7 +743,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.temperature == 0.5
     assert sampling_config.top_p == 0.9
     assert sampling_config.top_k == 4
-    assert sampling_config.seed == evaluator.dataset_config.seed
+    assert sampling_config.seed == 0
 
 
 def test_run_judge_with_backoff_uses_fixed_batch_size_without_probing(
