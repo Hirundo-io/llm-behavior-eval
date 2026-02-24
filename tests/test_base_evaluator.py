@@ -1063,9 +1063,13 @@ def test_get_grading_context_supports_api_judge_engine(
         def __init__(self, _eval_config, *, is_judge: bool = False) -> None:
             self.is_judge = is_judge
             self.dataset = None
+            self.preprocess_limits: tuple[int, int] | None = None
 
         def set_dataset(self, eval_dataset: object) -> None:
             self.dataset = eval_dataset
+
+        def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
+            self.preprocess_limits = (max_length, gt_max_length)
 
         def get_batch_size(self) -> int:
             return 1
@@ -1128,6 +1132,10 @@ def test_get_grading_context_supports_api_judge_engine(
         assert isinstance(judge_engine, StubApiJudgeEngine)
         assert judge_engine.is_judge is True
         assert judge_engine.dataset is evaluator.eval_dataset
+        assert judge_engine.preprocess_limits == (
+            dataset_config_instance.preprocess_config.max_length,
+            dataset_config_instance.preprocess_config.gt_max_length,
+        )
 
 
 def test_update_dataset_config_in_api_judge_context_uses_model_preprocess_limits(
@@ -1179,10 +1187,16 @@ def test_update_dataset_config_in_api_judge_context_uses_model_preprocess_limits
     with evaluator.get_grading_context():
         evaluator.update_dataset_config(dataset_b)
 
-    # Updating dataset config keeps preprocessing owned by the model engine.
+    # Updating dataset config keeps model preprocessing on the model engine, while
+    # entering grading context configures preprocessing on the judge engine once.
     assert capture_state.preprocess_limit_calls == [
         (
             False,
+            dataset_a.preprocess_config.max_length,
+            dataset_a.preprocess_config.gt_max_length,
+        ),
+        (
+            True,
             dataset_a.preprocess_config.max_length,
             dataset_a.preprocess_config.gt_max_length,
         ),

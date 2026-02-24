@@ -995,6 +995,11 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             is_judge=True,
         )
         judge_engine.set_dataset(self.eval_dataset)
+        preprocess_config = self.dataset_config.preprocess_config
+        judge_engine.set_preprocess_limits(
+            preprocess_config.max_length,
+            preprocess_config.gt_max_length,
+        )
         try:
             yield judge_engine
         finally:

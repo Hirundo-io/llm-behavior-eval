@@ -11,6 +11,7 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
     is_model_multimodal,
     maybe_download_adapter,
     pick_best_dtype,
+    raw_text_collator,
     safe_apply_chat_template,
     torch_dtype_to_str,
     truncate_text_by_whitespace,
@@ -125,6 +126,10 @@ def test_truncate_text_by_whitespace_truncates_on_token_limit() -> None:
 def test_truncate_text_by_whitespace_handles_nonpositive_limit() -> None:
     assert truncate_text_by_whitespace("one two", 0) == ""
     assert truncate_text_by_whitespace("one two", -1) == ""
+
+
+def test_raw_text_collator_handles_empty_batch() -> None:
+    assert raw_text_collator([]) == {}
 
 
 def test_build_vllm_prompt_token_ids_strips_padding() -> None:
