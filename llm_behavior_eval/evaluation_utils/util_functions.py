@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from inspect import Parameter, signature
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 import torch
 from transformers.models.auto.configuration_auto import AutoConfig
@@ -549,13 +549,7 @@ def maybe_download_adapter(
     digest_path.mkdir(parents=True, exist_ok=True)
 
     tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
-    is_mlflow_url = scheme == "mlflow"
-    if not is_mlflow_url and tracking_uri:
-        # Check if scheme+netloc match the MLflow tracking URI
-        tracking_parsed = urlparse(tracking_uri)
-        adapter_scheme_netloc = f"{parsed_url.scheme}://{parsed_url.netloc}"
-        tracking_scheme_netloc = f"{tracking_parsed.scheme}://{tracking_parsed.netloc}"
-        is_mlflow_url = adapter_scheme_netloc == tracking_scheme_netloc
+    is_mlflow_url, run_id = check_mlflow_url(parsed_url, tracking_uri)
 
     if is_mlflow_url:
         try:
@@ -566,9 +560,6 @@ def maybe_download_adapter(
                 "mlflow is required for mlflow:// refs. Install: [uv] pip install mlflow"
             ) from mlflow_exception
 
-        run_id = (
-            parsed_url.netloc if scheme == "mlflow" else parsed_url.path.split("/")[-1]
-        )
         if not run_id:
             raise ValueError(f"Invalid mlflow ref (missing run id): {adapter_ref!r}")
 
@@ -687,6 +678,27 @@ def maybe_download_adapter(
     return str(digest_path)
 
 
+def check_mlflow_url(
+    parsed_url: ParseResult, mlflow_tracking_uri: str | None
+) -> tuple[bool, str | None]:
+    tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
+    is_mlflow_url = parsed_url.scheme.lower() == "mlflow"
+    if not is_mlflow_url and tracking_uri:
+        tracking_parsed = urlparse(tracking_uri)
+        adapter_scheme_netloc = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        tracking_scheme_netloc = f"{tracking_parsed.scheme}://{tracking_parsed.netloc}"
+        is_mlflow_url = adapter_scheme_netloc == tracking_scheme_netloc
+
+    run_id = None
+    if is_mlflow_url:
+        run_id = (
+            parsed_url.netloc
+            if parsed_url.scheme.lower() == "mlflow"
+            else parsed_url.path.split("/")[-1]
+        )
+    return is_mlflow_url, run_id
+
+
 def get_lora_slug(adapter_ref: str, mlflow_tracking_uri: str | None = None) -> str:
     """
     Create a stable LoRA slug from an adapter reference.
@@ -703,22 +715,11 @@ def get_lora_slug(adapter_ref: str, mlflow_tracking_uri: str | None = None) -> s
         raise ValueError("adapter_ref must be a non-empty string")
 
     parsed_url = urlparse(adapter_ref, allow_fragments=False)
-    scheme = parsed_url.scheme.lower()
 
-    tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
-    is_mlflow_url = scheme == "mlflow"
-    if not is_mlflow_url and tracking_uri:
-        tracking_parsed = urlparse(tracking_uri)
-        adapter_scheme_netloc = f"{parsed_url.scheme}://{parsed_url.netloc}"
-        tracking_scheme_netloc = f"{tracking_parsed.scheme}://{tracking_parsed.netloc}"
-        is_mlflow_url = adapter_scheme_netloc == tracking_scheme_netloc
+    is_mlflow_url, run_id = check_mlflow_url(parsed_url, mlflow_tracking_uri)
 
-    if is_mlflow_url:
-        run_id = (
-            parsed_url.netloc if scheme == "mlflow" else parsed_url.path.split("/")[-1]
-        )
-        if run_id:
-            return f"adapter_{run_id}"
+    if is_mlflow_url and run_id:
+        return f"adapter_{run_id}"
 
     digest = hashlib.blake2b(
         adapter_ref.encode("utf-8"), digest_size=DIGEST_SIZE_FOR_PEFT_PATHS
