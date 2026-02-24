@@ -96,8 +96,7 @@ class BaseEvaluator(ABC):
 
     def _resolved_dataset_shuffle_seed(self) -> int:
         """
-        Return the deterministic seed used when shuffling datasets for both
-        generation and judge rebuilding.
+        Return the deterministic seed used when shuffling datasets.
         """
         if self.dataset_config.seed is not None:
             return self.dataset_config.seed
@@ -105,6 +104,18 @@ class BaseEvaluator(ABC):
         if sampling_seed is not None:
             return sampling_seed
         return 0
+
+    def _resolved_sampling_seed(self) -> int | None:
+        """
+        Return the seed used for generation sampling.
+
+        Sampling seed precedence is explicit dataset seed first, then the
+        configured sampling seed. Unlike dataset shuffling, this intentionally
+        does not force a fallback 0.
+        """
+        if self.dataset_config.seed is not None:
+            return self.dataset_config.seed
+        return self.eval_config.sampling_config.seed
 
     def __init__(
         self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
@@ -318,7 +329,7 @@ class BaseEvaluator(ABC):
             temperature=self.eval_config.sampling_config.temperature,
             top_p=self.eval_config.sampling_config.top_p,
             top_k=self.eval_config.sampling_config.top_k,
-            seed=self._resolved_dataset_shuffle_seed(),
+            seed=self._resolved_sampling_seed(),
         )
 
     @abstractmethod

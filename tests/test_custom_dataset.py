@@ -4,6 +4,7 @@ from llm_behavior_eval.evaluation_utils.custom_dataset import (
     CustomDataset,
     free_text_preprocess_raw_function,
 )
+from llm_behavior_eval.evaluation_utils.dataset_config import PreprocessConfig
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 
 
@@ -131,3 +132,38 @@ def test_free_text_preprocess_raw_function_uses_custom_text_truncator() -> None:
     assert ("stereotype text", 3) in calls
     assert ("judge text", 3) in calls
     assert ("system text", 10) in calls
+
+
+def test_custom_dataset_preprocess_uses_raw_path_even_with_tokenizer(
+    monkeypatch,
+) -> None:
+    dataset = _make_dataset()
+
+    def mock_load_dataset(*args, **kwargs):
+        return DatasetDict({"train": dataset})
+
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.custom_dataset.load_dataset",
+        mock_load_dataset,
+    )
+
+    custom_dataset = CustomDataset("dummy", DatasetType.BIAS)
+    processed = custom_dataset.preprocess(
+        tokenizer=object(),
+        preprocess_config=PreprocessConfig(max_length=3, gt_max_length=2),
+        trust_remote_code=True,
+        max_answer_tokens=17,
+        reasoning=True,
+        pass_max_answer_tokens=True,
+        token="token",
+    )
+
+    assert processed.column_names == [
+        "test_messages",
+        "questions",
+        "input_texts",
+        "gt_answers",
+        "judge_questions",
+    ]
+    assert processed["questions"] == ["q1"]
+    assert processed["gt_answers"] == ["a1"]

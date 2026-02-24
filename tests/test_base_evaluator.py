@@ -746,6 +746,39 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.seed == 0
 
 
+def test_build_sampling_config_keeps_none_when_no_seed_is_configured(
+    tmp_path: Path,
+) -> None:
+    class StubFreeTextEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(self, generations: object, judge_engine: object = None) -> None:
+            del generations, judge_engine
+            return None
+
+        def get_grading_context(self) -> AbstractContextManager:
+            return nullcontext()
+
+    evaluator = StubFreeTextEvaluator.__new__(StubFreeTextEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        sampling_config=SamplingConfig(seed=None),
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+        seed=None,
+    )
+
+    sampling_config = evaluator._build_sampling_config(do_sample=None, is_judge=False)
+    assert sampling_config.seed is None
+
+
 def test_run_judge_with_backoff_uses_fixed_batch_size_without_probing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
