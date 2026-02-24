@@ -149,7 +149,7 @@ def test_custom_dataset_preprocess_uses_raw_path_even_with_tokenizer(
 
     custom_dataset = CustomDataset("dummy", DatasetType.BIAS)
     processed = custom_dataset.preprocess(
-        tokenizer=object(),
+        tokenizer=None,
         preprocess_config=PreprocessConfig(max_length=3, gt_max_length=2),
         trust_remote_code=True,
         max_answer_tokens=17,
