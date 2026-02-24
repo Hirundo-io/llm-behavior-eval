@@ -710,8 +710,8 @@ class BaseEvaluator(ABC):
             self._write_run_config(run_config)
             return
 
+        self._skip_current_run = False
         if hasattr(self, "eval_engine") and self.eval_engine.is_judge:
-            self._skip_current_run = False
             if not self.metrics_path().exists():
                 logging.info(
                     "No metrics file found at %s; grading cached generations.",
