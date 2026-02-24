@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any, cast
 import torch
 from accelerate.utils.memory import find_executable_batch_size
 from transformers import set_seed
-from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
 from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine
@@ -23,7 +22,6 @@ if TYPE_CHECKING:
 class TransformersEvalEngine(PromptEvalEngine):
     def __init__(
         self,
-        data_collator: DataCollator,
         eval_config: EvaluationConfig,
         is_judge: bool = False,
     ) -> None:
@@ -54,7 +52,6 @@ class TransformersEvalEngine(PromptEvalEngine):
             tokenizer_name_or_path=tokenizer_path_or_repo_id,
         )
         self.tokenizer.padding_side = "left"
-        self.data_collator = data_collator
         self.eval_config = eval_config
         self.is_judge = is_judge
         self.is_multimodal = is_model_multimodal(

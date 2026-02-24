@@ -16,7 +16,6 @@ import typer
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset as TorchDataset
-from transformers.data.data_collator import default_data_collator
 from transformers.trainer_utils import set_seed
 
 from .api_eval_engine import ApiEvalEngine
@@ -80,13 +79,6 @@ class _GenerationRecord:
     answers: list[str]
 
 
-@dataclass
-class _DatasetSamplingState:
-    num_samples: int
-    selected_sample_indices: list[int]
-    has_stereotype: bool
-
-
 class BaseEvaluator(ABC):
     def _build_eval_engine(
         self,
@@ -100,11 +92,7 @@ class BaseEvaluator(ABC):
             case "api":
                 return ApiEvalEngine(self.eval_config, is_judge=is_judge)
             case _:
-                return TransformersEvalEngine(
-                    default_data_collator,
-                    self.eval_config,
-                    is_judge=is_judge,
-                )
+                return TransformersEvalEngine(self.eval_config, is_judge=is_judge)
 
     def _resolved_dataset_shuffle_seed(self) -> int:
         """
@@ -139,9 +127,6 @@ class BaseEvaluator(ABC):
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
         self._selected_sample_indices: list[int] = []
-        self._dataset_sampling_state_by_key: dict[
-            tuple[str, str, int | None], _DatasetSamplingState
-        ] = {}
 
         self._set_seed()
 
@@ -301,7 +286,6 @@ class BaseEvaluator(ABC):
         )
         # propagate flag
         self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
-        self._store_current_dataset_sampling_state()
 
     def generate_answers_from_prompts(
         self,
@@ -378,47 +362,6 @@ class BaseEvaluator(ABC):
         self._set_seed()
         self.prepare_dataloader()
         self._ensure_run_configuration_allowed()
-
-    def _dataset_state_key(self) -> tuple[str, str, int | None]:
-        dataset_type = (
-            self.dataset_config.dataset_type.value
-            if hasattr(self.dataset_config.dataset_type, "value")
-            else str(self.dataset_config.dataset_type)
-        )
-        return (
-            self.dataset_config.file_path,
-            dataset_type,
-            self.dataset_config.seed,
-        )
-
-    def _store_current_dataset_sampling_state(self) -> None:
-        self._dataset_sampling_state_by_key[self._dataset_state_key()] = (
-            _DatasetSamplingState(
-                num_samples=self.num_samples,
-                selected_sample_indices=list(self._selected_sample_indices),
-                has_stereotype=self.has_stereotype,
-            )
-        )
-
-    def _restore_dataset_sampling_state(self) -> bool:
-        cached_state = self._dataset_sampling_state_by_key.get(
-            self._dataset_state_key()
-        )
-        if cached_state is None:
-            return False
-        self.num_samples = cached_state.num_samples
-        self._selected_sample_indices = list(cached_state.selected_sample_indices)
-        self.has_stereotype = cached_state.has_stereotype
-        return True
-
-    def _restore_dataset_sampling_state_or_raise(self) -> None:
-        if self._restore_dataset_sampling_state():
-            return
-        raise RuntimeError(
-            "Cannot rebuild judge dataset because sampled indices for "
-            f"dataset '{self.dataset_config.file_path}' were not found. "
-            "Run generation for this dataset before grading."
-        )
 
     @abstractmethod
     def get_grading_context(self) -> AbstractContextManager:

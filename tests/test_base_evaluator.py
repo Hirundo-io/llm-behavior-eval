@@ -4,7 +4,7 @@ import csv
 import json
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -93,7 +93,6 @@ def patch_eval_engine(
     class StubEvalEngine(PromptEvalEngine):
         def __init__(
             self,
-            data_collator: Callable[[Any], Any],
             eval_config: EvaluationConfig,
             *,
             is_judge: bool = False,
@@ -103,7 +102,7 @@ def patch_eval_engine(
             self._explicit_batch_size = eval_config.batch_size
             self.dataset: Sized | None = None
             self.is_judge = is_judge
-            capture_state.data_collator = data_collator
+            capture_state.data_collator = None
             capture_state.engine_inits.append(is_judge)
 
         def get_batch_size(self) -> int:

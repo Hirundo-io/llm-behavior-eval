@@ -232,7 +232,6 @@ class TransformersPatchBundle:
     tokenizer: RecordingTokenizer
     model: DummyTransformersModel
     loader_stub: TransformModelLoaderStub
-    data_collator: ConstantCollator
 
 
 @pytest.fixture
@@ -255,12 +254,10 @@ def transformers_bundle() -> TransformersPatchBundle:
     tokenizer = RecordingTokenizer()
     model = DummyTransformersModel()
     loader_stub = TransformModelLoaderStub(tokenizer, model)
-    data_collator = ConstantCollator()
     return TransformersPatchBundle(
         tokenizer=tokenizer,
         model=model,
         loader_stub=loader_stub,
-        data_collator=data_collator,
     )
 
 
@@ -496,7 +493,6 @@ def test_transformers_eval_engine_implements_prompt_interface(
     )
 
     engine = TransformersEvalEngine(
-        transformers_bundle.data_collator,
         config,
     )
 
@@ -515,7 +511,6 @@ def test_transformers_eval_engine_uses_model_tokenizer_override(
     )
 
     TransformersEvalEngine(
-        transformers_bundle.data_collator,
         config,
     )
 
@@ -537,7 +532,6 @@ def test_transformers_judge_engine_uses_judge_tokenizer_override(
     )
 
     TransformersEvalEngine(
-        transformers_bundle.data_collator,
         config,
         is_judge=True,
     )
@@ -561,7 +555,6 @@ def test_transformers_eval_engine_generate_answers_from_prompts(
     )
 
     engine = TransformersEvalEngine(
-        transformers_bundle.data_collator,
         config,
     )
     sampling_config = SamplingConfig(
@@ -622,7 +615,6 @@ def test_transformers_eval_engine_formats_message_prompts_before_tokenization(
         reasoning=True,
     )
     engine = TransformersEvalEngine(
-        transformers_bundle.data_collator,
         config,
     )
 
@@ -658,7 +650,6 @@ def test_transformers_eval_engine_sampling_config_overrides_defaults(
     )
 
     engine = TransformersEvalEngine(
-        transformers_bundle.data_collator,
         config,
     )
     sampling_config = SamplingConfig(
@@ -693,7 +684,6 @@ def test_transformers_eval_engine_get_batch_size_autotune(
     )
 
     engine = TransformersEvalEngine(
-        transformers_bundle.data_collator,
         config,
     )
     engine.set_dataset(dataset)
