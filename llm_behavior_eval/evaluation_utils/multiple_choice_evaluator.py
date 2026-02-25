@@ -21,7 +21,11 @@ if TYPE_CHECKING:
 MetadataT = TypeVar("MetadataT", bound=Mapping[str, object])
 AccumulatorT = TypeVar("AccumulatorT")
 
-_FIRST_CHOICE_RE = re.compile(r"^\s*([A-C])", re.IGNORECASE)
+_LEADING_CHOICE_RE = re.compile(r"^\s*([A-C])(?=\s|$|[).:：,\-])", re.IGNORECASE)
+_PREFIXED_CHOICE_RE = re.compile(
+    r"^\s*(?:answer|ans|option|choice|答案)\s*[:：]\s*([A-C])(?=\s|$|[).:：,\-])",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -47,7 +51,9 @@ class MultipleChoiceEvaluator(BaseEvaluator, ABC, Generic[MetadataT, Accumulator
             Label id in ``{0, 1, 2}`` when the first non-whitespace character is
             ``A``, ``B``, or ``C``. Otherwise ``None``.
         """
-        match_result = _FIRST_CHOICE_RE.search(generated_text)
+        match_result = _LEADING_CHOICE_RE.match(generated_text)
+        if not match_result:
+            match_result = _PREFIXED_CHOICE_RE.match(generated_text)
         if not match_result:
             return None
         label_key = match_result.group(1).upper()
@@ -74,6 +80,7 @@ class MultipleChoiceEvaluator(BaseEvaluator, ABC, Generic[MetadataT, Accumulator
         except Exception:
             self.cleanup(error=True)
             raise
+        self.cleanup(error=False)
 
     def generate(self) -> Sequence[_GenerationRecord]:
         """Generate answers and capture per-sample metadata for each batch.

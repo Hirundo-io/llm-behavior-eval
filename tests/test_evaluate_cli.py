@@ -392,7 +392,9 @@ def test_main_maps_cbbq_bias_behavior_to_dataset_config(
     evaluate.main("fake/model", "cbbq:bias:gender")
     captured = capture_configs[-1]
 
-    assert captured.dataset_config.file_path == "hirundo-io/cbbq-gender-bias-multi-choice"
+    assert (
+        captured.dataset_config.file_path == "hirundo-io/cbbq-gender-bias-multi-choice"
+    )
     assert captured.dataset_config.dataset_type.value == "bias"
     assert captured.dataset_config.answer_format == AnswerFormat.MULTIPLE_CHOICE
 
@@ -403,7 +405,10 @@ def test_main_maps_cbbq_unbias_behavior_to_dataset_config(
     evaluate.main("fake/model", "cbbq:unbias:gender")
     captured = capture_configs[-1]
 
-    assert captured.dataset_config.file_path == "hirundo-io/cbbq-gender-unbias-multi-choice"
+    assert (
+        captured.dataset_config.file_path
+        == "hirundo-io/cbbq-gender-unbias-multi-choice"
+    )
     assert captured.dataset_config.dataset_type.value == "unbias"
     assert captured.dataset_config.answer_format == AnswerFormat.MULTIPLE_CHOICE
 
@@ -450,6 +455,39 @@ def test_main_maps_cbbq_unbias_basic_behavior_to_multiple_datasets(
         "hirundo-io/cbbq-disability-unbias-multi-choice",
         "hirundo-io/cbbq-SES-unbias-multi-choice",
     ]
+
+
+def test_main_uses_separate_evaluators_for_mixed_cbbq_and_non_cbbq(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_keys: list[str] = []
+
+    class _FamilyAwareStubEvaluator(_StubEvaluator):
+        def __init__(self, evaluator_key: str) -> None:
+            self._evaluator_key = evaluator_key
+
+        def update_dataset_config(self, dataset_config: DatasetConfig) -> None:
+            is_cbbq = "cbbq" in dataset_config.file_path
+            if self._evaluator_key == "cbbq":
+                assert is_cbbq
+            else:
+                assert not is_cbbq
+
+    def _fake_create(
+        eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> _StubEvaluator:
+        _ = eval_config
+        evaluator_key = "cbbq" if "cbbq" in dataset_config.file_path else "non_cbbq"
+        created_keys.append(evaluator_key)
+        return _FamilyAwareStubEvaluator(evaluator_key)
+
+    monkeypatch.setattr(
+        evaluate.EvaluateFactory,
+        "create_evaluator",
+        staticmethod(_fake_create),
+    )
+    evaluate.main("fake/model", "cbbq:bias:gender,hallu")
+    assert sorted(created_keys) == ["cbbq", "non_cbbq"]
 
 
 def test_main_rejects_cbbq_disamb_basic_behavior(

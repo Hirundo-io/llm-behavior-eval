@@ -211,9 +211,10 @@ class CbbqEvaluator(MultipleChoiceEvaluator[CbbqSampleMetadata, CbbqCounts]):
             None
         """
         # Keep CBBQ deterministic and short-form for strict A/B/C grading.
-        eval_config.max_answer_tokens = 2
-        eval_config.sampling_config.do_sample = False
-        super().__init__(eval_config, dataset_config)
+        cbbq_eval_config = eval_config.model_copy(deep=True)
+        cbbq_eval_config.max_answer_tokens = 2
+        cbbq_eval_config.sampling_config.do_sample = False
+        super().__init__(cbbq_eval_config, dataset_config)
 
     def should_include_dataset_type_in_output_dir(self) -> bool:
         """Include dataset type suffix in output folder names for CBBQ.
@@ -339,18 +340,11 @@ class CbbqEvaluator(MultipleChoiceEvaluator[CbbqSampleMetadata, CbbqCounts]):
         Returns:
             Flat metrics dictionary including split, dimension id/label, and counters.
         """
-        if isinstance(metrics_accumulator, CbbqBiasCounts):
-            metrics = metrics_accumulator.metrics(total_samples=self.num_samples)
-            total_responses = (
-                metrics_accumulator.total_examples - metrics_accumulator.invalid_responses
-            )
-            invalid_responses = metrics_accumulator.invalid_responses
-        else:
-            metrics = metrics_accumulator.metrics(total_samples=self.num_samples)
-            total_responses = (
-                metrics_accumulator.total_examples - metrics_accumulator.invalid_responses
-            )
-            invalid_responses = metrics_accumulator.invalid_responses
+        metrics = metrics_accumulator.metrics(total_samples=self.num_samples)
+        total_responses = (
+            metrics_accumulator.total_examples - metrics_accumulator.invalid_responses
+        )
+        invalid_responses = metrics_accumulator.invalid_responses
 
         dimension_id = self._extract_dimension_id()
         dimension_label = self._extract_dimension_label(dimension_id)
@@ -407,7 +401,20 @@ class CbbqEvaluator(MultipleChoiceEvaluator[CbbqSampleMetadata, CbbqCounts]):
             .mean()
             .reset_index()
         )
-        grouped["num_dimensions"] = combined.groupby("dataset_type").size().values
+        grouped["num_dimensions"] = (
+            combined.groupby("dataset_type", dropna=False).size().values
+        )
+        grouped["Dataset"] = grouped["dataset_type"].map(
+            lambda dataset_type: f"CBBQ: {dataset_type}"
+        )
+        if "disambiguated_accuracy" in grouped:
+            accuracy_series = grouped["disambiguated_accuracy"]
+        elif "neutrality_rate" in grouped:
+            accuracy_series = grouped["neutrality_rate"]
+        else:
+            accuracy_series = pd.Series(0.0, index=grouped.index)
+        grouped["Accuracy (%)"] = accuracy_series * 100
+        grouped["Error (%)"] = 100 - grouped["Accuracy (%)"]
         grouped.to_csv(
             model_results_dir / "summary_brief.csv",
             index=False,

@@ -2,9 +2,10 @@ import logging
 from pathlib import Path
 
 import torch
-from datasets import Dataset, DatasetDict, load_dataset
+from datasets import Dataset
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
+from .custom_dataset import load_dataset_train_split
 from .dataset_config import PreprocessConfig
 from .enums import DatasetType
 from .prompts import SYSTEM_PROMPT_DICT
@@ -200,22 +201,7 @@ class CbbqDataset:
         """
         self.file_path = file_path
         self.dataset_type = dataset_type
-        try:
-            raw = load_dataset(str(self.file_path))
-        except (OSError, ValueError) as exc:
-            raise RuntimeError(
-                f"Failed to load dataset '{self.file_path}'. "
-                "Check that the identifier is correct."
-            ) from exc
-        if not isinstance(raw, DatasetDict):
-            raise ValueError(f"Expected DatasetDict, got {type(raw)}")
-
-        train_split = raw["train"]
-        if not isinstance(train_split, Dataset):
-            raise ValueError(
-                f"Expected Dataset for train split, got {type(train_split)}"
-            )
-        self.ds = train_split
+        self.ds = load_dataset_train_split(self.file_path)
         self.has_stereotype = False
 
     def preprocess(
@@ -265,5 +251,8 @@ class CbbqDataset:
         text_preview = tokenizer.batch_decode(
             processed_dataset["test_input_ids"], skip_special_tokens=True
         )
-        logging.info("Validation text: %s", text_preview[0])
+        if text_preview:
+            logging.info("Validation text: %s", text_preview[0])
+        else:
+            logging.info("Validation text: <empty dataset>")
         return processed_dataset

@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from llm_behavior_eval.evaluation_utils.cbbq_evaluator import (
     CBBQ_NEUTRAL_LABEL,
@@ -11,7 +12,16 @@ from llm_behavior_eval.evaluation_utils.cbbq_evaluator import (
     CbbqUnbiasCounts,
     extract_cbbq_prediction,
 )
+from llm_behavior_eval.evaluation_utils.dataset_config import (
+    DatasetConfig,
+    PreprocessConfig,
+)
+from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.multiple_choice_evaluator import (
+    MultipleChoiceEvaluator,
+)
+from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 
 def test_extract_cbbq_prediction_matches_choices() -> None:
@@ -132,5 +142,32 @@ def test_cbbq_finalize_artifacts_writes_summary_contract(tmp_path) -> None:
     assert "accuracy" not in summary_df.columns
     overall_df = pd.read_csv(overall_summary_path)
     assert {"dataset_type", "num_dimensions"} <= set(overall_df.columns)
+    assert {"Dataset", "Accuracy (%)", "Error (%)"} <= set(overall_df.columns)
     assert "disambiguated_accuracy" in overall_df.columns
     assert "accuracy" not in overall_df.columns
+
+
+def test_cbbq_evaluator_does_not_mutate_input_eval_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    def _fake_init(self, eval_config, dataset_config) -> None:
+        self.eval_config = eval_config
+        self.dataset_config = dataset_config
+
+    monkeypatch.setattr(MultipleChoiceEvaluator, "__init__", _fake_init)
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="fake-org/fake-model",
+        results_dir=tmp_path,
+        max_answer_tokens=128,
+        sampling_config=SamplingConfig(do_sample=True),
+    )
+    dataset_config = DatasetConfig(
+        file_path="hirundo-io/cbbq-gender-bias-multi-choice",
+        dataset_type=DatasetType.BIAS,
+        preprocess_config=PreprocessConfig(),
+    )
+    evaluator = CbbqEvaluator(eval_config, dataset_config)
+    assert eval_config.max_answer_tokens == 128
+    assert eval_config.sampling_config.do_sample is True
+    assert evaluator.eval_config.max_answer_tokens == 2
+    assert evaluator.eval_config.sampling_config.do_sample is False

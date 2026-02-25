@@ -160,7 +160,9 @@ def _behavior_presets(behavior: str) -> list[str]:
             allowed = ", ".join(sorted(list(CBBQ_BIAS_TYPES)) + ["all"])
             raise ValueError(f"CBBQ supports: {allowed}")
         canonical_bias_type = normalized_bias_types[bias_type]
-        return [f"hirundo-io/cbbq-{canonical_bias_type}-{kind}-{MULTIPLE_CHOICE_SUFFIX}"]
+        return [
+            f"hirundo-io/cbbq-{canonical_bias_type}-{kind}-{MULTIPLE_CHOICE_SUFFIX}"
+        ]
 
     if len(behavior_parts) == 3 and behavior_parts[0] == "unqover":
         _, kind, bias_type = behavior_parts
@@ -189,6 +191,26 @@ def _infer_dataset_type(file_path: str) -> DatasetType:
     if "-unbias-" in file_path:
         return DatasetType.UNBIAS
     return DatasetType.BIAS
+
+
+def _evaluator_key(file_path: str) -> str:
+    """Return a stable evaluator-family key for a dataset id.
+
+    Args:
+        file_path: Dataset identifier/path.
+
+    Returns:
+        Key representing the evaluator family selected by ``EvaluateFactory``.
+    """
+    if file_path in {"hirundo-io/halueval", "hirundo-io/medhallu"}:
+        return "hallu"
+    if file_path == "hirundo-io/prompt-injection-purple-llama":
+        return "prompt-injection"
+    if "cbbq" in file_path:
+        return "cbbq"
+    if "bbq" in file_path or "unqover" in file_path:
+        return "bias"
+    raise ValueError(f"Unknown dataset: {file_path}")
 
 
 def main(
@@ -565,9 +587,8 @@ def main(
         ),
     )
 
-    evaluator = None
-    generation_lists = []
-    dataset_configs = []
+    evaluators_by_key = {}
+    generation_jobs = []
     evaluation_error = True
     try:
         # generation loop
@@ -592,37 +613,43 @@ def main(
                     ),
                     seed=seed,
                 )
+                evaluator_key = _evaluator_key(file_path)
+                evaluator = evaluators_by_key.get(evaluator_key)
                 if evaluator is None:
                     evaluator = EvaluateFactory.create_evaluator(
                         eval_config, dataset_config
                     )
+                    evaluators_by_key[evaluator_key] = evaluator
                 else:
                     evaluator.update_dataset_config(dataset_config)
 
-                dataset_configs.append(dataset_config)
-                generation_lists.append(evaluator.generate())
+                generation_jobs.append(
+                    (
+                        evaluator_key,
+                        evaluator.generate(),
+                        dataset_config,
+                        file_path,
+                    )
+                )
         finally:
-            if evaluator is not None:
+            for evaluator in evaluators_by_key.values():
                 evaluator.free_test_model()
 
-        if evaluator is None:
-            # Type-checking hint
+        if not generation_jobs:
             raise ValueError("Evaluator does not exist.")
 
         # Grading loop
-        with evaluator.get_grading_context() as judge:
-            for generations, dataset_config, file_path in zip(
-                generation_lists, dataset_configs, file_paths, strict=True
-            ):
+        for evaluator_key, generations, dataset_config, file_path in generation_jobs:
+            evaluator = evaluators_by_key[evaluator_key]
+            evaluator.update_dataset_config(dataset_config)
+            with evaluator.get_grading_context() as judge:
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
-                evaluator.update_dataset_config(dataset_config)
                 with evaluator.dataset_mlflow_run():
                     evaluator.grade(generations, judge)
         evaluation_error = False
     finally:
-        if evaluator is not None:
+        for evaluator in evaluators_by_key.values():
             evaluator.cleanup(error=evaluation_error)
-        del evaluator
         gc.collect()
         empty_cuda_cache_if_available()
 

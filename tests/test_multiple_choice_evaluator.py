@@ -108,9 +108,14 @@ def test_parse_multiple_choice_answer_is_strict() -> None:
     assert _DummyMultipleChoiceEvaluator.parse_multiple_choice_answer("  b") == 1
     assert _DummyMultipleChoiceEvaluator.parse_multiple_choice_answer("\nC") == 2
     assert _DummyMultipleChoiceEvaluator.parse_multiple_choice_answer("answer: A") == 0
+    assert _DummyMultipleChoiceEvaluator.parse_multiple_choice_answer("answer: B") == 1
+    assert _DummyMultipleChoiceEvaluator.parse_multiple_choice_answer("answer: C") == 2
     assert (
         _DummyMultipleChoiceEvaluator.parse_multiple_choice_answer("the answer is A")
         is None
+    )
+    assert (
+        _DummyMultipleChoiceEvaluator.parse_multiple_choice_answer("Aardvark") is None
     )
 
 

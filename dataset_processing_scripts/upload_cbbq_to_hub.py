@@ -41,7 +41,11 @@ CBBQ_REQUIRED_COLUMNS_LIST: list[str] = list(CBBQ_REQUIRED_COLUMNS)
 
 def _build_empty_cbbq_frame() -> pd.DataFrame:
     """Build an empty CBBQ dataframe with all required columns."""
-    return pd.DataFrame({column: pd.Series(dtype="object") for column in CBBQ_REQUIRED_COLUMNS_LIST})
+    return pd.DataFrame(
+        {column: pd.Series(dtype="object") for column in CBBQ_REQUIRED_COLUMNS_LIST}
+    )
+
+
 CBBQ_RAW_BASE = "https://raw.githubusercontent.com/YFHuangxxxx/CBBQ/master/data"
 
 ValidationErrors: TypeAlias = list[str]
@@ -91,7 +95,9 @@ def normalize_bias_types(requested_types: list[str] | None) -> tuple[str, ...]:
         Canonicalized tuple of bias type identifiers.
     """
 
-    canonical_map = {bias_type.lower(): bias_type for bias_type in sorted(CBBQ_BIAS_TYPES)}
+    canonical_map = {
+        bias_type.lower(): bias_type for bias_type in sorted(CBBQ_BIAS_TYPES)
+    }
     if not requested_types:
         return tuple(sorted(CBBQ_BIAS_TYPES, key=str.lower))
 
@@ -194,7 +200,7 @@ def validate_and_project_cbbq_dataframe(
     )
     normalized_polarity: pd.Series = cast(
         "pd.Series",
-        projected["question_polarity"].astype("string").str.strip().str.lower()
+        projected["question_polarity"].astype("string").str.strip().str.lower(),
     )
 
     valid_labels = normalized_labels.isin(pd.Index([0, 1, 2]))
@@ -218,13 +224,16 @@ def validate_and_project_cbbq_dataframe(
         )
 
     for text_column in ("context", "question", "ans0", "ans1", "ans2"):
+        raw_text_series: pd.Series = cast("pd.Series", projected[text_column])
         text_series: pd.Series = cast(
-        "pd.Series",
-            projected[text_column].astype("string"),
+            "pd.Series",
+            raw_text_series.astype("string"),
         )
         invalid_text: pd.Series = cast(
-        "pd.Series",
-            text_series.isna() | text_series.str.strip().eq(""),
+            "pd.Series",
+            raw_text_series.isna()
+            | text_series.str.strip().eq("")
+            | text_series.str.strip().str.lower().isin(pd.Index(["nan", "<na>"])),
         )
         if invalid_text.any():
             errors.append(
@@ -240,7 +249,9 @@ def validate_and_project_cbbq_dataframe(
     return projected.reset_index(drop=True), errors
 
 
-def validate_all(cbbq_root: Path | None, types: tuple[str, ...]) -> list[CbbqValidatedSplit]:
+def validate_all(
+    cbbq_root: Path | None, types: tuple[str, ...]
+) -> list[CbbqValidatedSplit]:
     """Validate all selected CBBQ splits and return ready-to-upload tables."""
 
     plans = build_conversion_plan(cbbq_root, types)
@@ -345,7 +356,19 @@ def _run_with_root(
     skip_existing: bool,
     token: str | None,
 ) -> None:
-    """Run validation and optional push using an existing CBBQ root or remote mode."""
+    """Run validation and optional push using an existing CBBQ root or remote mode.
+
+    Args:
+        cbbq_root: Local CBBQ root path, or ``None`` for remote mode.
+        selected_types: Bias types selected for validation/upload.
+        dry_run: Whether to only validate and print the plan.
+        overwrite: Whether existing repos may be overwritten.
+        skip_existing: Whether existing repos should be skipped.
+        token: Optional HuggingFace token.
+
+    Returns:
+        None
+    """
 
     validated = validate_all(cbbq_root, selected_types)
     print("Planned upload targets:")
@@ -356,14 +379,16 @@ def _run_with_root(
         print("Dry-run complete; no datasets were pushed.")
         return
 
-    if not overwrite and any(
-        repo_exists(item.plan.target_repo_id, token) for item in validated
-    ):
+    existing_repo_map = {
+        item.plan.target_repo_id: repo_exists(item.plan.target_repo_id, token)
+        for item in validated
+    }
+    if not overwrite and any(existing_repo_map.values()):
         if not skip_existing:
             existing = [
                 item.plan.target_repo_id
                 for item in validated
-                if repo_exists(item.plan.target_repo_id, token)
+                if existing_repo_map[item.plan.target_repo_id]
             ]
             raise RuntimeError(
                 "Refusing to overwrite existing repos. Use --overwrite or --skip-existing. "
@@ -371,7 +396,7 @@ def _run_with_root(
             )
 
     for item in validated:
-        if repo_exists(item.plan.target_repo_id, token) and skip_existing:
+        if existing_repo_map[item.plan.target_repo_id] and skip_existing:
             print(f"Skipping existing repo: {item.plan.target_repo_id}")
             continue
 
@@ -390,7 +415,9 @@ def _run_with_root(
 def main(
     cbbq_dir: Annotated[
         Path | None,
-        typer.Option("--cbbq-dir", help="Path to local CBBQ checkout (skips remote fetch)."),
+        typer.Option(
+            "--cbbq-dir", help="Path to local CBBQ checkout (skips remote fetch)."
+        ),
     ] = None,
     token: Annotated[
         str | None,

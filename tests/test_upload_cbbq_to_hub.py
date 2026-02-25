@@ -8,6 +8,9 @@ import pytest
 from dataset_processing_scripts.upload_cbbq_to_hub import (
     CBBQ_SOURCE_ROOT,
     CBBQ_SOURCE_SPLITS,
+    CbbqConversionPlan,
+    CbbqValidatedSplit,
+    _run_with_root,
     build_conversion_plan,
     build_repo_id,
     normalize_bias_types,
@@ -89,6 +92,70 @@ def test_validate_and_project_cbbq_dataframe_reports_row_level_errors() -> None:
     assert any("invalid label values" in error for error in errors)
     assert any("invalid question_polarity" in error for error in errors)
     assert any("empty required values" in error for error in errors)
+
+
+def test_validate_and_project_cbbq_dataframe_rejects_nan_like_text() -> None:
+    source = pd.DataFrame(
+        {
+            "context": [pd.NA],
+            "question": ["q"],
+            "ans0": ["a0"],
+            "ans1": ["a1"],
+            "ans2": ["a2"],
+            "label": ["1"],
+            "question_polarity": ["non_neg"],
+        }
+    )
+
+    projected, errors = validate_and_project_cbbq_dataframe(
+        source,
+        bias_type="gender",
+        source_split="ambiguous",
+    )
+    assert projected.empty
+    assert any("empty required values" in error for error in errors)
+
+
+def test_run_with_root_checks_repo_existence_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    validated = [
+        CbbqValidatedSplit(
+            plan=CbbqConversionPlan(
+                bias_type="gender",
+                source_split="ambiguous",
+                target_split="bias",
+                source_csv="unused.csv",
+                target_repo_id="hirundo-io/cbbq-gender-bias-multi-choice",
+            ),
+            df=pd.DataFrame(),
+            row_count=0,
+        )
+    ]
+    monkeypatch.setattr(
+        "dataset_processing_scripts.upload_cbbq_to_hub.validate_all",
+        lambda cbbq_root, types: validated,
+    )
+    calls: list[str] = []
+
+    def _fake_repo_exists(repo_id: str, token: str | None) -> bool:
+        _ = token
+        calls.append(repo_id)
+        return True
+
+    monkeypatch.setattr(
+        "dataset_processing_scripts.upload_cbbq_to_hub.repo_exists",
+        _fake_repo_exists,
+    )
+    _run_with_root(
+        cbbq_root=None,
+        selected_types=("gender",),
+        dry_run=False,
+        overwrite=False,
+        skip_existing=True,
+        token=None,
+    )
+    assert calls == ["hirundo-io/cbbq-gender-bias-multi-choice"]
 
 
 def _build_minimal_cbbq_root(tmp_path: Path, bias_type: str) -> Path:
