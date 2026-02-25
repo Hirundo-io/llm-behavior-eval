@@ -10,10 +10,12 @@ All evaluations are compatible with Transformers instruct models. Tested with mu
 
 This toolkit evaluates three classes of behaviors:
 
-- **Bias (BBQ, UNQOVER)**
+- **Bias (BBQ, CBBQ, UNQOVER)**
   - **BBQ** (Bias Benchmark for QA): hand‑crafted questions that probe stereotypes across protected dimensions. Supports paired splits:
     - **bias** (ambiguous) and **unbias** (disambiguated) for: `gender`, `race`, `nationality`, `physical`, `age`, `religion`.
     - Only BBQ provides both ambiguous and disambiguated versions.
+  - **CBBQ** (Contextual Bias Benchmark in Chinese): multiple-choice stereotype benchmark with paired splits for:
+    `SES`, `age`, `disability`, `disease`, `educational_qualification`, `ethnicity`, `gender`, `household_registration`, `nationality`, `physical_appearance`, `race`, `region`, `religion`, and `sexual_orientation`.
   - **UNQOVER**: crowd‑sourced templates probing stereotypes; provides only the ambiguous/bias split for: `religion`, `gender`, `race`, `nationality`.
 
 - **Hallucinations (HaluEval, Med‑Hallu)**
@@ -31,6 +33,7 @@ Ground‑truth answer (unbias version): cannot determine
 Dataset identifiers:
 
 - BBQ: `hirundo-io/bbq-<bias_type>-<bias|unbias>-free-text`
+- CBBQ: `hirundo-io/cbbq-<bias_type>-<bias|unbias>-multi-choice`
 - UNQOVER: `unqover/unqover-<bias_type>-bias-free-text`
 - HaluEval: `hirundo-io/halueval`
 - Med‑Hallu: `hirundo-io/medhallu`
@@ -39,6 +42,9 @@ Dataset identifiers:
 How to select behaviors in the CLI (`evaluate.py`):
 
 - BBQ: `--behavior bias:<bias_type>` or `--behavior unbias:<bias_type>`
+- CBBQ:
+  - Short forms: `--behavior cbbq:bias_basic` | `--behavior cbbq:bias_all` | `--behavior cbbq:unbias_basic` | `--behavior cbbq:unbias_all`
+  - Explicit: `--behavior cbbq:bias:<bias_type>` | `--behavior cbbq:unbias:<bias_type>`
 - UNQOVER: `--behavior unqover:bias:<bias_type>`
 - Hallucinations:
   - HaluEval: `--behavior hallu`
@@ -50,7 +56,11 @@ You can also run across all supported bias types using `all`:
 
 - BBQ (all ambiguous/bias splits): `--behavior bias:all`
 - BBQ (all unambiguous/unbias splits): `--behavior unbias:all`
+- CBBQ (all ambiguous/bias splits): `--behavior cbbq:bias_all`
+- CBBQ (all disambiguated/unbias splits): `--behavior cbbq:unbias_all`
 - UNQOVER (all bias splits): `--behavior unqover:bias:all`
+
+Note: CBBQ is multiple-choice only and uses `-multi-choice` repository suffixes.
 ---
 
 ## Requirements
@@ -104,6 +114,16 @@ llm-behavior-eval google/gemma-2b-it bias:gender
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct unbias:race
 ```
 
+- **CBBQ (bias, multiple-choice)** — evaluate a model on a Chinese bias split:
+```bash
+llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct cbbq:bias:gender
+```
+
+- **CBBQ (unbias, multiple-choice)** — evaluate a model on a Chinese disambiguated split:
+```bash
+llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct cbbq:unbias:gender
+```
+
 - **UNQOVER (bias)** — use UNQOVER source datasets (UNQOVER does not support 'unbias'):
 ```bash
 llm-behavior-eval google/gemma-2b-it unqover:bias:gender
@@ -133,6 +153,21 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 ```bash
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
+
+### CBBQ dataset conversion utility
+
+If you need to recreate the CBBQ HuggingFace repos from source CSVs:
+
+```bash
+python dataset_processing_scripts/upload_cbbq_to_hub.py --dry-run
+python dataset_processing_scripts/upload_cbbq_to_hub.py --types gender age disability --overwrite
+python dataset_processing_scripts/upload_cbbq_to_hub.py --types gender --skip-existing --dry-run
+```
+
+Notes:
+- default source is the official CBBQ GitHub repository (`https://github.com/YFHuangxxxx/CBBQ`);
+- default source mode reads raw GitHub CSV files directly; use `--cbbq-dir` to point at a local checkout instead;
+- every target is named `hirundo-io/cbbq-<bias_type>-<kind>-multi-choice`.
 
 ### CLI options
 
@@ -179,6 +214,7 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 `summary_brief.csv` contains two columns: `Bias Type` and `Error` (1 − accuracy). Labels are inferred as follows:
 
 - BBQ: `BBQ: <gender|race|nationality|physical|age|religion> <bias|unbias>`
+- CBBQ: `CBBQ: <SES|age|disability|disease|educational_qualification|ethnicity|gender|household_registration|nationality|physical_appearance|race|region|religion|sexual_orientation> <bias|unbias>`
 - UNQOVER: `UNQOVER: <religion|gender|race|nationality> <bias>`
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`

@@ -28,6 +28,8 @@ from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 torch.set_float32_matmul_precision("high")
 
 BIAS_KINDS = {"bias", "unbias"}
+FREE_TEXT_SUFFIX = "free-text"
+MULTIPLE_CHOICE_SUFFIX = "multi-choice"
 HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
@@ -117,7 +119,8 @@ def _behavior_presets(behavior: str) -> list[str]:
         kind = "unbias" if preset.startswith("unbias") else "bias"
         bias_types = CBBQ_BASIC_TYPES if preset.endswith("basic") else CBBQ_ALL_TYPES
         return [
-            f"hirundo-io/cbbq-{bias_type}-{kind}-free-text" for bias_type in bias_types
+            f"hirundo-io/cbbq-{bias_type}-{kind}-{MULTIPLE_CHOICE_SUFFIX}"
+            for bias_type in bias_types
         ]
 
     if len(behavior_parts) == 2:
@@ -128,13 +131,13 @@ def _behavior_presets(behavior: str) -> list[str]:
 
         if bias_type == "all":
             return [
-                f"hirundo-io/bbq-{bias_type}-{kind}-free-text"
+                f"hirundo-io/bbq-{bias_type}-{kind}-{FREE_TEXT_SUFFIX}"
                 for bias_type in sorted(BBQ_BIAS_TYPES)
             ]
         if bias_type not in BBQ_BIAS_TYPES:
             allowed = ", ".join(sorted(list(BBQ_BIAS_TYPES)) + ["all"])
             raise ValueError(f"BBQ supports: {allowed}")
-        return [f"hirundo-io/bbq-{bias_type}-{kind}-free-text"]
+        return [f"hirundo-io/bbq-{bias_type}-{kind}-{FREE_TEXT_SUFFIX}"]
 
     if len(behavior_parts) == 3 and behavior_parts[0] == "cbbq":
         _, kind, bias_type = behavior_parts
@@ -150,14 +153,14 @@ def _behavior_presets(behavior: str) -> list[str]:
         }
         if bias_type == "all":
             return [
-                f"hirundo-io/cbbq-{bias_type_value}-{kind}-free-text"
+                f"hirundo-io/cbbq-{bias_type_value}-{kind}-{MULTIPLE_CHOICE_SUFFIX}"
                 for bias_type_value in sorted(CBBQ_BIAS_TYPES, key=str.lower)
             ]
         if bias_type not in normalized_bias_types:
             allowed = ", ".join(sorted(list(CBBQ_BIAS_TYPES)) + ["all"])
             raise ValueError(f"CBBQ supports: {allowed}")
         canonical_bias_type = normalized_bias_types[bias_type]
-        return [f"hirundo-io/cbbq-{canonical_bias_type}-{kind}-free-text"]
+        return [f"hirundo-io/cbbq-{canonical_bias_type}-{kind}-{MULTIPLE_CHOICE_SUFFIX}"]
 
     if len(behavior_parts) == 3 and behavior_parts[0] == "unqover":
         _, kind, bias_type = behavior_parts
@@ -169,13 +172,13 @@ def _behavior_presets(behavior: str) -> list[str]:
 
         if bias_type == "all":
             return [
-                f"hirundo-io/unqover-{bt}-{kind}-free-text"
+                f"hirundo-io/unqover-{bt}-{kind}-{FREE_TEXT_SUFFIX}"
                 for bt in sorted(UNQOVER_BIAS_TYPES)
             ]
         if bias_type not in UNQOVER_BIAS_TYPES:
             allowed = ", ".join(sorted(list(UNQOVER_BIAS_TYPES)) + ["all"])
             raise ValueError(f"UNQOVER supports: {allowed}")
-        return [f"hirundo-io/unqover-{bias_type}-{kind}-free-text"]
+        return [f"hirundo-io/unqover-{bias_type}-{kind}-{FREE_TEXT_SUFFIX}"]
 
     raise ValueError(
         "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'cbbq:bias_basic|bias_all|unbias_basic|unbias_all' | 'cbbq:bias:<type|all>' | 'cbbq:unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"

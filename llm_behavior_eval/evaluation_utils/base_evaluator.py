@@ -406,7 +406,7 @@ class BaseEvaluator(ABC):
             # BBQ: bbq-<bias_type>-<kind>-free-text
             if parts[0] == "bbq" and len(parts) >= 2:
                 return f"BBQ: {parts[1]} {dataset_type_label}"
-            # CBBQ: cbbq-<bias_type>-<kind>-free-text
+            # CBBQ: cbbq-<bias_type>-<kind>-multi-choice
             if parts[0] == "cbbq" and len(parts) >= 2:
                 return f"CBBQ: {parts[1]} {dataset_type_label}"
             # UNQOVER: unqover-<bias_type>-bias-free-text

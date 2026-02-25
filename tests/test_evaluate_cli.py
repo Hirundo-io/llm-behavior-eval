@@ -392,7 +392,7 @@ def test_main_maps_cbbq_bias_behavior_to_dataset_config(
     evaluate.main("fake/model", "cbbq:bias:gender")
     captured = capture_configs[-1]
 
-    assert captured.dataset_config.file_path == "hirundo-io/cbbq-gender-bias-free-text"
+    assert captured.dataset_config.file_path == "hirundo-io/cbbq-gender-bias-multi-choice"
     assert captured.dataset_config.dataset_type.value == "bias"
     assert captured.dataset_config.answer_format == AnswerFormat.MULTIPLE_CHOICE
 
@@ -403,9 +403,7 @@ def test_main_maps_cbbq_unbias_behavior_to_dataset_config(
     evaluate.main("fake/model", "cbbq:unbias:gender")
     captured = capture_configs[-1]
 
-    assert (
-        captured.dataset_config.file_path == "hirundo-io/cbbq-gender-unbias-free-text"
-    )
+    assert captured.dataset_config.file_path == "hirundo-io/cbbq-gender-unbias-multi-choice"
     assert captured.dataset_config.dataset_type.value == "unbias"
     assert captured.dataset_config.answer_format == AnswerFormat.MULTIPLE_CHOICE
 
@@ -416,7 +414,7 @@ def test_main_accepts_uppercase_cbbq_bias_type(
     evaluate.main("fake/model", "cbbq:bias:SES")
     captured = capture_configs[-1]
 
-    assert captured.dataset_config.file_path == "hirundo-io/cbbq-SES-bias-free-text"
+    assert captured.dataset_config.file_path == "hirundo-io/cbbq-SES-bias-multi-choice"
     assert captured.dataset_config.dataset_type.value == "bias"
 
 
@@ -428,10 +426,10 @@ def test_main_maps_cbbq_bias_basic_behavior_to_multiple_datasets(
     file_paths = [entry.dataset_config.file_path for entry in capture_configs]
     unique_paths = list(dict.fromkeys(file_paths))
     assert unique_paths == [
-        "hirundo-io/cbbq-gender-bias-free-text",
-        "hirundo-io/cbbq-age-bias-free-text",
-        "hirundo-io/cbbq-disability-bias-free-text",
-        "hirundo-io/cbbq-SES-bias-free-text",
+        "hirundo-io/cbbq-gender-bias-multi-choice",
+        "hirundo-io/cbbq-age-bias-multi-choice",
+        "hirundo-io/cbbq-disability-bias-multi-choice",
+        "hirundo-io/cbbq-SES-bias-multi-choice",
     ]
     assert all(
         entry.dataset_config.answer_format == AnswerFormat.MULTIPLE_CHOICE
@@ -447,10 +445,10 @@ def test_main_maps_cbbq_unbias_basic_behavior_to_multiple_datasets(
     file_paths = [entry.dataset_config.file_path for entry in capture_configs]
     unique_paths = list(dict.fromkeys(file_paths))
     assert unique_paths == [
-        "hirundo-io/cbbq-gender-unbias-free-text",
-        "hirundo-io/cbbq-age-unbias-free-text",
-        "hirundo-io/cbbq-disability-unbias-free-text",
-        "hirundo-io/cbbq-SES-unbias-free-text",
+        "hirundo-io/cbbq-gender-unbias-multi-choice",
+        "hirundo-io/cbbq-age-unbias-multi-choice",
+        "hirundo-io/cbbq-disability-unbias-multi-choice",
+        "hirundo-io/cbbq-SES-unbias-multi-choice",
     ]
 
 
