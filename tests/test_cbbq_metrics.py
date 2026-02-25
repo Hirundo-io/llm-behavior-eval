@@ -119,8 +119,8 @@ def test_cbbq_finalize_artifacts_writes_summary_contract(tmp_path) -> None:
     )
 
     model_dir = tmp_path / "fake-model"
-    summary_path = model_dir / "summary_cbbq.csv"
-    overall_summary_path = model_dir / "cbbq_overall_summary.csv"
+    summary_path = model_dir / "summary_full.csv"
+    overall_summary_path = model_dir / "summary_brief.csv"
     assert summary_path.exists()
     assert overall_summary_path.exists()
 

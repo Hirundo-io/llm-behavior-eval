@@ -245,7 +245,7 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 
 The metrics are composed of error (1 − accuracy), stereotype bias (when available) and the ratio of empty responses (i.e. the model generating empty string).
 
-For CBBQ-specific aggregate artifacts (`summary_cbbq.csv` and `cbbq_overall_summary.csv`), the canonical metric keys are:
+For CBBQ-specific aggregate artifacts (written into `summary_full.csv` and `summary_brief.csv`), the canonical metric keys are:
 `bias_score`, `reverse_bias_score`, `neutrality_rate`, `neutrality_error_rate`, `disambiguated_accuracy`, `disambiguated_bias_score`, and `invalid_answer_rate`.
 
 See the original papers for the explanation on accuracy. See the BBQ paper for the explanation of the stereotype bias.

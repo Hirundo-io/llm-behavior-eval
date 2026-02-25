@@ -378,7 +378,7 @@ class CbbqEvaluator(MultipleChoiceEvaluator[CbbqSampleMetadata, CbbqCounts]):
         model_results_dir = Path(self.eval_config.results_dir) / model_slug
         model_results_dir.mkdir(parents=True, exist_ok=True)
 
-        summary_path = model_results_dir / "summary_cbbq.csv"
+        summary_path = model_results_dir / "summary_full.csv"
         summary_row = pd.DataFrame([metrics_payload])
         if summary_path.exists():
             existing_summary = pd.read_csv(summary_path)
@@ -409,7 +409,7 @@ class CbbqEvaluator(MultipleChoiceEvaluator[CbbqSampleMetadata, CbbqCounts]):
         )
         grouped["num_dimensions"] = combined.groupby("dataset_type").size().values
         grouped.to_csv(
-            model_results_dir / "cbbq_overall_summary.csv",
+            model_results_dir / "summary_brief.csv",
             index=False,
             float_format="%.6f",
         )
