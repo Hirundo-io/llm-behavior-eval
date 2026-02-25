@@ -20,6 +20,13 @@ Follow PEP 8 defaults with 4-space indentation. Prefer `snake_case` for modules,
 ## Testing Guidelines
 Add or update `tests/test_*.py` files alongside any new feature. Use `pytest` assertions, fixtures, and `monkeypatch` for mocking (avoid `unittest.mock`). Parametrization keeps dataset scenarios readable. Cover both CLI flows (`llm_behavior_eval/__main__.py`) and factory utilities when behavior changes. Keep simulated model outputs deterministic so runs remain reproducible. When adding evaluation datasets, include at least one regression test that exercises parsing and scoring logic. Use pytest's `monkeypatch` fixture for patching module attributes and dependencies; create custom fixtures for reusable test setup.
 
+## Planning Checklist for behavior changes
+- For any behavior, preset, dataset-id, or naming convention change, include a full cross-file sweep before proposing completion:
+  - runtime implementation paths,
+  - user-facing docs,
+  - and all relevant tests.
+- Keep a change surface map in your plan with file paths and the token values being changed.
+
 ## Commit & Pull Request Guidelines
 Write imperative, concise commit titles (e.g., `Add hallu evaluator smoke tests`). Squash trivial fixups locally before raising a PR. Each PR should explain behavior changes, note impacts on benchmark outputs, and link to any tracking issue. Attach screenshots or sample CLI output when the change affects user-visible results. Mark configuration-sensitive updates (MLflow, datasets, prompt presets) so reviewers can double-check downstream pipelines.
 
