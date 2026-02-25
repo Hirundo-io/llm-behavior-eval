@@ -634,7 +634,6 @@ class BaseEvaluator(ABC):
 
     def free_test_model(self) -> None:
         self.eval_engine.free_model()
-        del self.eval_engine
         empty_cuda_cache_if_available()
         gc.collect()
         print(
