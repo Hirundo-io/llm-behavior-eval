@@ -1,3 +1,4 @@
+import builtins
 import sys
 import types
 from pathlib import Path
@@ -249,6 +250,8 @@ def test_maybe_download_adapter_mlflow_scheme_missing_mlflow(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Test that mlflow:// scheme raises ImportError when mlflow is not available."""
+    original_import = builtins.__import__
+
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.util_functions.mlflow",
         None,
@@ -258,7 +261,7 @@ def test_maybe_download_adapter_mlflow_scheme_missing_mlflow(
     def mock_import(name, *args, **kwargs):
         if name == "mlflow":
             raise ImportError("No module named 'mlflow'")
-        raise ImportError(f"No module named '{name}'")
+        return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", mock_import)
 
@@ -473,11 +476,12 @@ def test_maybe_download_adapter_git_scheme_missing_gitpython(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Test that git:// scheme raises ImportError when gitpython is not available."""
+    original_import = builtins.__import__
 
     def mock_import(name, *args, **kwargs):
         if name == "git":
             raise ImportError("No module named 'git'")
-        raise ImportError(f"No module named '{name}'")
+        return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", mock_import)
 
@@ -595,11 +599,12 @@ def test_maybe_download_adapter_s3_scheme_missing_fsspec(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Test that s3:// scheme raises ImportError when fsspec is not available."""
+    original_import = builtins.__import__
 
     def mock_import(name, *args, **kwargs):
         if name == "fsspec":
             raise ImportError("No module named 'fsspec'")
-        raise ImportError(f"No module named '{name}'")
+        return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", mock_import)
 

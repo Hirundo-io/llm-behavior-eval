@@ -18,6 +18,7 @@ from llm_behavior_eval import (
     PreprocessConfig,
     SamplingConfig,
 )
+from llm_behavior_eval.evaluation_utils.enums import AnswerFormat
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
 )
@@ -27,6 +28,8 @@ from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 torch.set_float32_matmul_precision("high")
 
 BIAS_KINDS = {"bias", "unbias"}
+FREE_TEXT_SUFFIX = "free-text"
+MULTIPLE_CHOICE_SUFFIX = "multi-choice"
 HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
@@ -74,10 +77,12 @@ def _default_results_dir() -> Path:
 
 def _behavior_presets(behavior: str) -> list[str]:
     """
-    Map behavior presets to dataset identifiers (free‑text only).
+    Map behavior presets to dataset identifiers.
 
     New formats:
     - BBQ: "bias:<bias_type>" or "unbias:<bias_type>"
+    - CBBQ short presets: "cbbq:bias_basic" | "cbbq:bias_all" | "cbbq:unbias_basic" | "cbbq:unbias_all"
+    - CBBQ explicit: "cbbq:bias:<bias_type>" or "cbbq:unbias:<bias_type>"
     - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
     - Hallucinations: "hallu" or "hallu-med"
     - Prompt injection: "prompt-injection"
@@ -93,10 +98,31 @@ def _behavior_presets(behavior: str) -> list[str]:
         return ["hirundo-io/prompt-injection-purple-llama"]
 
     # Expected structures:
+    # ["cbbq", <bias_basic|bias_all|unbias_basic|unbias_all>] for CBBQ short presets
     # [kind, bias_type] for BBQ, where kind in {bias, unbias}
+    #   - bias_type can be a concrete type or 'all'
+    # ["cbbq", kind, bias_type] for CBBQ, where kind in {bias, unbias}
     #   - bias_type can be a concrete type or 'all'
     # ["unqover", kind, bias_type] for UNQOVER (kind must be 'bias')
     #   - bias_type can be a concrete type or 'all'
+    if len(behavior_parts) == 2 and behavior_parts[0] == "cbbq":
+        from llm_behavior_eval.evaluation_utils.enums import (
+            CBBQ_ALL_TYPES,
+            CBBQ_BASIC_TYPES,
+        )
+
+        _, preset = behavior_parts
+        if preset not in {"bias_basic", "bias_all", "unbias_basic", "unbias_all"}:
+            raise ValueError(
+                "For CBBQ short presets use one of: 'cbbq:bias_basic', 'cbbq:bias_all', 'cbbq:unbias_basic', 'cbbq:unbias_all'"
+            )
+        kind = "unbias" if preset.startswith("unbias") else "bias"
+        bias_types = CBBQ_BASIC_TYPES if preset.endswith("basic") else CBBQ_ALL_TYPES
+        return [
+            f"hirundo-io/cbbq-{bias_type}-{kind}-{MULTIPLE_CHOICE_SUFFIX}"
+            for bias_type in bias_types
+        ]
+
     if len(behavior_parts) == 2:
         kind, bias_type = behavior_parts
         if kind not in BIAS_KINDS:
@@ -105,13 +131,38 @@ def _behavior_presets(behavior: str) -> list[str]:
 
         if bias_type == "all":
             return [
-                f"hirundo-io/bbq-{bias_type}-{kind}-free-text"
+                f"hirundo-io/bbq-{bias_type}-{kind}-{FREE_TEXT_SUFFIX}"
                 for bias_type in sorted(BBQ_BIAS_TYPES)
             ]
         if bias_type not in BBQ_BIAS_TYPES:
             allowed = ", ".join(sorted(list(BBQ_BIAS_TYPES)) + ["all"])
             raise ValueError(f"BBQ supports: {allowed}")
-        return [f"hirundo-io/bbq-{bias_type}-{kind}-free-text"]
+        return [f"hirundo-io/bbq-{bias_type}-{kind}-{FREE_TEXT_SUFFIX}"]
+
+    if len(behavior_parts) == 3 and behavior_parts[0] == "cbbq":
+        _, kind, bias_type = behavior_parts
+        if kind not in BIAS_KINDS:
+            raise ValueError(
+                "For CBBQ use 'cbbq:bias:<bias_type>' or 'cbbq:unbias:<bias_type>'"
+            )
+        from llm_behavior_eval.evaluation_utils.enums import CBBQ_BIAS_TYPES
+
+        normalized_bias_types = {
+            bias_type_value.lower(): bias_type_value
+            for bias_type_value in CBBQ_BIAS_TYPES
+        }
+        if bias_type == "all":
+            return [
+                f"hirundo-io/cbbq-{bias_type_value}-{kind}-{MULTIPLE_CHOICE_SUFFIX}"
+                for bias_type_value in sorted(CBBQ_BIAS_TYPES, key=str.lower)
+            ]
+        if bias_type not in normalized_bias_types:
+            allowed = ", ".join(sorted(list(CBBQ_BIAS_TYPES)) + ["all"])
+            raise ValueError(f"CBBQ supports: {allowed}")
+        canonical_bias_type = normalized_bias_types[bias_type]
+        return [
+            f"hirundo-io/cbbq-{canonical_bias_type}-{kind}-{MULTIPLE_CHOICE_SUFFIX}"
+        ]
 
     if len(behavior_parts) == 3 and behavior_parts[0] == "unqover":
         _, kind, bias_type = behavior_parts
@@ -123,17 +174,43 @@ def _behavior_presets(behavior: str) -> list[str]:
 
         if bias_type == "all":
             return [
-                f"hirundo-io/unqover-{bt}-{kind}-free-text"
+                f"hirundo-io/unqover-{bt}-{kind}-{FREE_TEXT_SUFFIX}"
                 for bt in sorted(UNQOVER_BIAS_TYPES)
             ]
         if bias_type not in UNQOVER_BIAS_TYPES:
             allowed = ", ".join(sorted(list(UNQOVER_BIAS_TYPES)) + ["all"])
             raise ValueError(f"UNQOVER supports: {allowed}")
-        return [f"hirundo-io/unqover-{bias_type}-{kind}-free-text"]
+        return [f"hirundo-io/unqover-{bias_type}-{kind}-{FREE_TEXT_SUFFIX}"]
 
     raise ValueError(
-        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
+        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'cbbq:bias_basic|bias_all|unbias_basic|unbias_all' | 'cbbq:bias:<type|all>' | 'cbbq:unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
     )
+
+
+def _infer_dataset_type(file_path: str) -> DatasetType:
+    if "-unbias-" in file_path:
+        return DatasetType.UNBIAS
+    return DatasetType.BIAS
+
+
+def _evaluator_key(file_path: str) -> str:
+    """Return a stable evaluator-family key for a dataset id.
+
+    Args:
+        file_path: Dataset identifier/path.
+
+    Returns:
+        Key representing the evaluator family selected by ``EvaluateFactory``.
+    """
+    if file_path in {"hirundo-io/halueval", "hirundo-io/medhallu"}:
+        return "hallu"
+    if file_path == "hirundo-io/prompt-injection-purple-llama":
+        return "prompt-injection"
+    if "cbbq" in file_path:
+        return "cbbq"
+    if "bbq" in file_path or "unqover" in file_path:
+        return "bias"
+    raise ValueError(f"Unknown dataset: {file_path}")
 
 
 def main(
@@ -146,7 +223,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; CBBQ short: 'cbbq:bias_basic'|'cbbq:bias_all'|'cbbq:unbias_basic'|'cbbq:unbias_all'; CBBQ explicit: 'cbbq:bias:<type>' or 'cbbq:unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
         ),
     ],
     output_dir: Annotated[
@@ -510,9 +587,8 @@ def main(
         ),
     )
 
-    evaluator = None
-    generation_lists = []
-    dataset_configs = []
+    evaluators_by_key = {}
+    generation_jobs = []
     evaluation_error = True
     try:
         # generation loop
@@ -528,43 +604,52 @@ def main(
                 )
                 dataset_config = DatasetConfig(
                     file_path=file_path,
-                    dataset_type=DatasetType.UNBIAS
-                    if "-unbias-" in file_path
-                    else DatasetType.BIAS,
+                    dataset_type=_infer_dataset_type(file_path),
                     preprocess_config=PreprocessConfig(),
+                    answer_format=(
+                        AnswerFormat.MULTIPLE_CHOICE
+                        if "/cbbq-" in file_path
+                        else AnswerFormat.FREE_TEXT
+                    ),
                     seed=seed,
                 )
+                evaluator_key = _evaluator_key(file_path)
+                evaluator = evaluators_by_key.get(evaluator_key)
                 if evaluator is None:
                     evaluator = EvaluateFactory.create_evaluator(
                         eval_config, dataset_config
                     )
+                    evaluators_by_key[evaluator_key] = evaluator
                 else:
                     evaluator.update_dataset_config(dataset_config)
 
-                dataset_configs.append(dataset_config)
-                generation_lists.append(evaluator.generate())
+                generation_jobs.append(
+                    (
+                        evaluator_key,
+                        evaluator.generate(),
+                        dataset_config,
+                        file_path,
+                    )
+                )
         finally:
-            if evaluator is not None:
+            for evaluator in evaluators_by_key.values():
                 evaluator.free_test_model()
 
-        if evaluator is None:
-            # Type-checking hint
+        if not generation_jobs:
             raise ValueError("Evaluator does not exist.")
 
         # Grading loop
-        with evaluator.get_grading_context() as judge:
-            for generations, dataset_config, file_path in zip(
-                generation_lists, dataset_configs, file_paths, strict=True
-            ):
+        for evaluator_key, generations, dataset_config, file_path in generation_jobs:
+            evaluator = evaluators_by_key[evaluator_key]
+            evaluator.update_dataset_config(dataset_config)
+            with evaluator.get_grading_context() as judge:
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
-                evaluator.update_dataset_config(dataset_config)
                 with evaluator.dataset_mlflow_run():
                     evaluator.grade(generations, judge)
         evaluation_error = False
     finally:
-        if evaluator is not None:
+        for evaluator in evaluators_by_key.values():
             evaluator.cleanup(error=evaluation_error)
-        del evaluator
         gc.collect()
         empty_cuda_cache_if_available()
 

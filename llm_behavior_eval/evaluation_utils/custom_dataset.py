@@ -2,7 +2,6 @@ import logging
 from copy import copy
 from functools import partial
 from pathlib import Path
-from typing import cast
 
 import torch
 from datasets import Dataset, DatasetDict, load_dataset
@@ -27,6 +26,30 @@ def validate_dataset_columns(hf_dataset: Dataset) -> None:
         raise ValueError(
             f"Dataset is missing required columns: {missing}; found {hf_dataset.column_names}"
         )
+
+
+def load_dataset_train_split(file_path: Path | str) -> Dataset:
+    """Load and validate the ``train`` split from a dataset identifier/path.
+
+    Args:
+        file_path: Local path or HuggingFace dataset identifier.
+
+    Returns:
+        The validated ``train`` split as a ``datasets.Dataset``.
+    """
+    try:
+        raw = load_dataset(str(file_path))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(
+            f"Failed to load dataset '{file_path}'. "
+            "Check that the identifier is correct."
+        ) from exc
+    if not isinstance(raw, DatasetDict):
+        raise ValueError(f"Expected DatasetDict, got {type(raw)}")
+    train_split = raw["train"]
+    if not isinstance(train_split, Dataset):
+        raise ValueError(f"Expected Dataset for train split, got {type(train_split)}")
+    return train_split
 
 
 def free_text_preprocess_function(
@@ -157,16 +180,7 @@ class CustomDataset:
         """
         self.file_path = file_path
         self.dataset_type = dataset_type
-        try:
-            raw = load_dataset(str(self.file_path))
-        except (OSError, ValueError) as exc:
-            raise RuntimeError(
-                f"Failed to load dataset '{self.file_path}'. "
-                "Check that the identifier is correct."
-            ) from exc
-        if not isinstance(raw, DatasetDict):
-            raise ValueError(f"Expected DatasetDict, got {type(raw)}")
-        self.ds = cast("Dataset", raw["train"])
+        self.ds = load_dataset_train_split(self.file_path)
         self.has_stereotype: bool = "stereotyped_answer" in self.ds.column_names
 
     def preprocess(

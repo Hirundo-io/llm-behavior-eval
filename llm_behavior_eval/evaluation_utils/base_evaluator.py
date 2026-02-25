@@ -23,6 +23,7 @@ from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
 )
 from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
 
+from .cbbq_dataset import CbbqDataset
 from .custom_dataset import CustomDataset
 from .enums import DatasetType
 from .max_batch_size import MAX_BATCH_SIZE
@@ -174,10 +175,15 @@ class BaseEvaluator(ABC):
         to a maximum number of samples defined in the evaluation configuration. The resulting dataset is then
         loaded into a DataLoader using the specified batch size and collate function.
         """
-        custom_dataset = CustomDataset(
-            self.dataset_config.file_path, self.dataset_config.dataset_type
-        )
-        test_dataset = custom_dataset.preprocess(
+        if "cbbq" in self.dataset_config.file_path:
+            dataset_loader = CbbqDataset(
+                self.dataset_config.file_path, self.dataset_config.dataset_type
+            )
+        else:
+            dataset_loader = CustomDataset(
+                self.dataset_config.file_path, self.dataset_config.dataset_type
+            )
+        test_dataset = dataset_loader.preprocess(
             self.tokenizer,
             self.dataset_config.preprocess_config,
             trust_remote_code=self.trust_remote_code,
@@ -197,13 +203,14 @@ class BaseEvaluator(ABC):
         self.eval_engine.set_dataset(self.eval_dataset)
 
         self.eval_loader = DataLoader(
+            # `datasets.Dataset` satisfies torch's dataset protocol at runtime.
             cast("Dataset", self.eval_dataset),
             batch_size=self.eval_engine.get_batch_size(),
             shuffle=False,
             collate_fn=self.data_collator,
         )
         # propagate flag
-        self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
+        self.has_stereotype = getattr(dataset_loader, "has_stereotype", False)
 
     def generate_answers(
         self,
@@ -399,6 +406,9 @@ class BaseEvaluator(ABC):
             # BBQ: bbq-<bias_type>-<kind>-free-text
             if parts[0] == "bbq" and len(parts) >= 2:
                 return f"BBQ: {parts[1]} {dataset_type_label}"
+            # CBBQ: cbbq-<bias_type>-<kind>-multi-choice
+            if parts[0] == "cbbq" and len(parts) >= 2:
+                return f"CBBQ: {parts[1]} {dataset_type_label}"
             # UNQOVER: unqover-<bias_type>-bias-free-text
             if parts[0] == "unqover" and len(parts) >= 2:
                 return f"UNQOVER: {parts[1]} {dataset_type_label}"
@@ -624,7 +634,6 @@ class BaseEvaluator(ABC):
 
     def free_test_model(self) -> None:
         self.eval_engine.free_model()
-        del self.eval_engine
         empty_cuda_cache_if_available()
         gc.collect()
         print(
@@ -881,8 +890,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             return_tensors="pt",
             padding=True,
         )
-        # transformers' tokenizer classes don't have the correct type hints for the return_tensors argument
+        # `return_tensors="pt"` produces torch tensors, but tokenizer types are too broad.
         input_ids = cast("Tensor", tokenized["input_ids"])
+        # Same as above: runtime tensor type is correct, static type is not.
         attention_mask = cast("Tensor", tokenized["attention_mask"])
 
         # Generate answers using judge engine for deterministic judging
