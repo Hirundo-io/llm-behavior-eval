@@ -746,6 +746,74 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.seed == 0
 
 
+def test_process_judge_prompts_batch_prefers_sample_judge_over_shared_do_sample(
+    tmp_path: Path,
+) -> None:
+    class RecordingJudgeEngine(PromptEvalEngine):
+        def __init__(self) -> None:
+            self.sampling_configs: list[SamplingConfig] = []
+
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
+
+        def generate_answers_from_prompts(
+            self,
+            prompts,
+            sampling_config: SamplingConfig,
+        ):
+            self.sampling_configs.append(sampling_config)
+            return ["ok"] * len(prompts)
+
+        def free_model(self) -> None:
+            return None
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def set_dataset(self, eval_dataset: Sized) -> None:
+            del eval_dataset
+            return None
+
+    class StubFreeTextEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(self, generations: object, judge_engine: object = None) -> None:
+            del generations, judge_engine
+            return None
+
+        def get_grading_context(self) -> AbstractContextManager:
+            return nullcontext()
+
+    evaluator = StubFreeTextEvaluator.__new__(StubFreeTextEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        sample_judge=True,
+        sample=False,
+        sampling_config=SamplingConfig(do_sample=False, seed=11),
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+        seed=None,
+    )
+    evaluator.judge_engine = "transformers"
+
+    judge_engine = RecordingJudgeEngine()
+    evaluator._process_judge_prompts_batch(
+        judge_engine,
+        ["prompt-a"],
+        do_sample=None,
+    )
+
+    assert len(judge_engine.sampling_configs) == 1
+    assert judge_engine.sampling_configs[0].do_sample is True
+
+
 def test_build_sampling_config_keeps_none_when_no_seed_is_configured(
     tmp_path: Path,
 ) -> None:

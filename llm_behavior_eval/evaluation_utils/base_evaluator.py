@@ -317,13 +317,14 @@ class BaseEvaluator(ABC):
         *,
         is_judge: bool,
     ) -> SamplingConfig:
-        resolved_do_sample = do_sample
-        if resolved_do_sample is None:
+        if do_sample is not None:
+            resolved_do_sample = do_sample
+        elif is_judge:
+            resolved_do_sample = self.eval_config.sample_judge
+        else:
             resolved_do_sample = self.eval_config.sampling_config.do_sample
-        if resolved_do_sample is None:
-            resolved_do_sample = (
-                self.eval_config.sample_judge if is_judge else self.eval_config.sample
-            )
+            if resolved_do_sample is None:
+                resolved_do_sample = self.eval_config.sample
         return SamplingConfig(
             do_sample=resolved_do_sample,
             temperature=self.eval_config.sampling_config.temperature,
