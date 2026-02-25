@@ -11,11 +11,13 @@ Core library code lives in `llm_behavior_eval/`, with behavior-specific helpers 
 - `pytest`: run the full test suite; pass `-k pattern` to scope to a module while iterating.
 - Run `ruff format .` (or `ruff format --check --diff` to verify) before committing to ensure consistent styling, followed by `ruff check .` for linting.
 - `basedpyright`: run static type checks (CI uses the same configuration).
+- Before finishing any change, run `ruff check` and `basedpyright` on all touched Python files and confirm there are no new issues.
 
 ## Coding Style & Naming Conventions
 Follow PEP 8 defaults with 4-space indentation. Prefer `snake_case` for modules, functions, and variables; reserve `PascalCase` for classes and `UPPER_SNAKE_CASE` for constants. Keep public CLI options descriptive and aligned with existing Typer command names. Avoid 1-3 letter variable names; use descriptive names even in small scopes. Let `ruff` fix spacing and import order; avoid disabling rules unless there is a clear justification. Type hints are expected on new public functions—match the patterns in `evaluation_utils/`.
 - Any usage of `typing.cast(...)` must include an inline code comment that justifies why the cast is safe at runtime.
 - New or modified non-trivial functions/methods should include docstrings with explicit `Args` and `Returns` sections.
+- For scripts that fetch remote datasets or metadata, prefer Python-native reads or API clients over shelling out to external CLIs (for example, avoid `subprocess` for GitHub downloads when direct HTTP fetch is straightforward).
 
 ## Testing Guidelines
 Add or update `tests/test_*.py` files alongside any new feature. Use `pytest` assertions, fixtures, and `monkeypatch` for mocking (avoid `unittest.mock`). Parametrization keeps dataset scenarios readable. Cover both CLI flows (`llm_behavior_eval/__main__.py`) and factory utilities when behavior changes. Keep simulated model outputs deterministic so runs remain reproducible. When adding evaluation datasets, include at least one regression test that exercises parsing and scoring logic. Use pytest's `monkeypatch` fixture for patching module attributes and dependencies; create custom fixtures for reusable test setup.
@@ -26,6 +28,10 @@ Add or update `tests/test_*.py` files alongside any new feature. Use `pytest` as
   - user-facing docs,
   - and all relevant tests.
 - Keep a change surface map in your plan with file paths and the token values being changed.
+- Add a final pass confirming:
+  - all imports still resolve after file moves,
+  - import path references are updated in docs/examples,
+  - static check/lint passes are clean on edited files.
 
 ## Commit & Pull Request Guidelines
 Write imperative, concise commit titles (e.g., `Add hallu evaluator smoke tests`). Squash trivial fixups locally before raising a PR. Each PR should explain behavior changes, note impacts on benchmark outputs, and link to any tracking issue. Attach screenshots or sample CLI output when the change affects user-visible results. Mark configuration-sensitive updates (MLflow, datasets, prompt presets) so reviewers can double-check downstream pipelines.
