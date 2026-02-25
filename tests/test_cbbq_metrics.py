@@ -30,10 +30,10 @@ def test_cbbq_bias_counts_metrics() -> None:
     counts.record_prediction(None, CBBQ_POLARITY_NEG)
 
     metrics_result = counts.metrics(total_samples=4)
-    assert metrics_result["bias_score"] == 1 / 3
-    assert metrics_result["reverse_bias_score"] == 1 / 3
-    assert metrics_result["neutrality_rate"] == 1 / 3
-    assert metrics_result["neutrality_error_rate"] == 2 / 3
+    assert metrics_result["bias_score"] == 1 / 4
+    assert metrics_result["reverse_bias_score"] == 1 / 4
+    assert metrics_result["neutrality_rate"] == 1 / 4
+    assert metrics_result["neutrality_error_rate"] == 2 / 4
     assert metrics_result["invalid_answer_rate"] == 1 / 4
     assert counts.invalid_responses == 1
 
@@ -50,12 +50,36 @@ def test_cbbq_unbias_counts_metrics() -> None:
         gold_label=CBBQ_NON_TARGET_LABEL,
         polarity_value=CBBQ_POLARITY_NON_NEG,
     )
+    counts.record_prediction(
+        None,
+        gold_label=CBBQ_NON_TARGET_LABEL,
+        polarity_value=CBBQ_POLARITY_NON_NEG,
+    )
+
+    metrics_result = counts.metrics(total_samples=3)
+    assert metrics_result["disambiguated_accuracy"] == 1 / 3
+    assert metrics_result["disambiguated_bias_score"] == 1.0
+    assert metrics_result["invalid_answer_rate"] == 1 / 3
+    assert counts.invalid_responses == 1
+
+
+def test_cbbq_unbias_counts_disambiguated_bias_zero_when_all_neutral() -> None:
+    counts = CbbqUnbiasCounts()
+    counts.record_prediction(
+        CBBQ_NEUTRAL_LABEL,
+        gold_label=CBBQ_NEUTRAL_LABEL,
+        polarity_value=CBBQ_POLARITY_NEG,
+    )
+    counts.record_prediction(
+        None,
+        gold_label=CBBQ_TARGET_LABEL,
+        polarity_value=CBBQ_POLARITY_NEG,
+    )
 
     metrics_result = counts.metrics(total_samples=2)
-    assert metrics_result["accuracy"] == 0.5
-    assert metrics_result["disambiguated_bias_score"] == 1.0
-    assert metrics_result["invalid_answer_rate"] == 0.0
-    assert counts.invalid_responses == 0
+    assert metrics_result["disambiguated_accuracy"] == 0.5
+    assert metrics_result["disambiguated_bias_score"] == 0.0
+    assert metrics_result["invalid_answer_rate"] == 0.5
 
 
 def test_cbbq_finalize_artifacts_writes_summary_contract(tmp_path) -> None:
@@ -85,7 +109,7 @@ def test_cbbq_finalize_artifacts_writes_summary_contract(tmp_path) -> None:
             "dimension_id": "SES",
             "dimension_label": "Socio-Economic Status (SES)",
             "dataset_type": "unbias",
-            "accuracy": 0.7,
+            "disambiguated_accuracy": 0.7,
             "disambiguated_bias_score": 0.4,
             "invalid_answer_rate": 0.1,
             "invalid_responses": 1.0,
@@ -104,5 +128,9 @@ def test_cbbq_finalize_artifacts_writes_summary_contract(tmp_path) -> None:
     assert {"dimension_id", "dimension_label", "dataset_type"} <= set(
         summary_df.columns
     )
+    assert "disambiguated_accuracy" in summary_df.columns
+    assert "accuracy" not in summary_df.columns
     overall_df = pd.read_csv(overall_summary_path)
     assert {"dataset_type", "num_dimensions"} <= set(overall_df.columns)
+    assert "disambiguated_accuracy" in overall_df.columns
+    assert "accuracy" not in overall_df.columns
