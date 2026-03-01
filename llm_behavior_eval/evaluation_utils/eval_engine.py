@@ -14,7 +14,7 @@ EvalDataset = Sized
 JudgePrompt = str | list[dict[str, str]]
 
 
-class EvalEngine(ABC):
+class PromptEvalEngine(ABC):
     is_judge: bool = False
 
     @abstractmethod
@@ -57,8 +57,6 @@ class EvalEngine(ABC):
         """
         return False
 
-
-class PromptEvalEngine(EvalEngine, ABC):
     @abstractmethod
     def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
         """Format messages into a prompt suitable for this engine."""
@@ -95,3 +93,7 @@ class PromptEvalEngine(EvalEngine, ABC):
         raise NotImplementedError(
             "Subclasses must implement generate_answers_from_prompts()."
         )
+
+
+# Backward-compatible alias for existing imports.
+EvalEngine = PromptEvalEngine
