@@ -27,8 +27,9 @@ class VllmConfig(BaseModel):
     max_model_len: int | None = None
     judge_max_model_len: int | None = None
     tokenizer_mode: TokenizerModeOption | None = None
-    config_format: str | None = None
-    load_format: str | None = None
+    # vLLM expects string values for these fields. Default to "auto".
+    config_format: str = "auto"
+    load_format: str = "auto"
     gpu_memory_utilization: float = 0.9
     enable_lora: bool = False
     max_lora_rank: int = 128

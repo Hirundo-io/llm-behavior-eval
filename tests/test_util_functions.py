@@ -11,8 +11,10 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
     is_model_multimodal,
     maybe_download_adapter,
     pick_best_dtype,
+    raw_text_collator,
     safe_apply_chat_template,
     torch_dtype_to_str,
+    truncate_text_by_whitespace,
 )
 
 if TYPE_CHECKING:
@@ -111,6 +113,23 @@ def test_torch_dtype_to_str_supported() -> None:
 def test_torch_dtype_to_str_unsupported() -> None:
     with pytest.raises(ValueError):
         torch_dtype_to_str(torch.float64)
+
+
+def test_truncate_text_by_whitespace_within_limit_returns_original_text() -> None:
+    assert truncate_text_by_whitespace("one two", 3) == "one two"
+
+
+def test_truncate_text_by_whitespace_truncates_on_token_limit() -> None:
+    assert truncate_text_by_whitespace("one two three", 2) == "one two"
+
+
+def test_truncate_text_by_whitespace_handles_nonpositive_limit() -> None:
+    assert truncate_text_by_whitespace("one two", 0) == ""
+    assert truncate_text_by_whitespace("one two", -1) == ""
+
+
+def test_raw_text_collator_handles_empty_batch() -> None:
+    assert raw_text_collator([]) == {}
 
 
 def test_build_vllm_prompt_token_ids_strips_padding() -> None:
@@ -255,10 +274,12 @@ def test_maybe_download_adapter_mlflow_scheme_missing_mlflow(
         raising=False,
     )
 
+    real_import = __import__
+
     def mock_import(name, *args, **kwargs):
-        if name == "mlflow":
+        if name == "mlflow" or name.startswith("mlflow."):
             raise ImportError("No module named 'mlflow'")
-        raise ImportError(f"No module named '{name}'")
+        return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", mock_import)
 
@@ -474,10 +495,12 @@ def test_maybe_download_adapter_git_scheme_missing_gitpython(
 ) -> None:
     """Test that git:// scheme raises ImportError when gitpython is not available."""
 
+    real_import = __import__
+
     def mock_import(name, *args, **kwargs):
-        if name == "git":
+        if name == "git" or name.startswith("git."):
             raise ImportError("No module named 'git'")
-        raise ImportError(f"No module named '{name}'")
+        return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", mock_import)
 
@@ -596,10 +619,12 @@ def test_maybe_download_adapter_s3_scheme_missing_fsspec(
 ) -> None:
     """Test that s3:// scheme raises ImportError when fsspec is not available."""
 
+    real_import = __import__
+
     def mock_import(name, *args, **kwargs):
-        if name == "fsspec":
+        if name == "fsspec" or name.startswith("fsspec."):
             raise ImportError("No module named 'fsspec'")
-        raise ImportError(f"No module named '{name}'")
+        return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", mock_import)
 

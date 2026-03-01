@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import csv
+import json
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -21,14 +22,13 @@ from llm_behavior_eval.evaluation_utils.base_evaluator import (
 from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
-from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
+from llm_behavior_eval.evaluation_utils.eval_engine import PromptEvalEngine
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence, Sized
     from pathlib import Path
 
-    from datasets import Dataset
     from transformers.tokenization_utils_base import TruncationStrategy
     from transformers.utils.generic import PaddingStrategy, TensorType
 
@@ -54,6 +54,9 @@ class CaptureState:
     reasoning: bool | None = None
     pass_max_answer_tokens: bool | None = None
     token: str | None = None
+    preprocess_limits: tuple[int, int] | None = None
+    preprocess_limit_calls: list[tuple[bool, int, int]] = field(default_factory=list)
+    raw_text_truncator: object | None = None
     init_args: tuple[str, DatasetType] | None = None
     engine_inits: list[bool] = field(default_factory=list)
     set_dataset_calls: list[tuple[bool, Sized]] = field(default_factory=list)
@@ -87,10 +90,9 @@ def patch_eval_engine(
     stub_tokenizer: StubTokenizer,
     capture_state: CaptureState,
 ) -> None:
-    class StubEvalEngine:
+    class StubEvalEngine(PromptEvalEngine):
         def __init__(
             self,
-            data_collator: Callable[[Any], Any],
             eval_config: EvaluationConfig,
             *,
             is_judge: bool = False,
@@ -100,7 +102,7 @@ def patch_eval_engine(
             self._explicit_batch_size = eval_config.batch_size
             self.dataset: Sized | None = None
             self.is_judge = is_judge
-            capture_state.data_collator = data_collator
+            capture_state.data_collator = None
             capture_state.engine_inits.append(is_judge)
 
         def get_batch_size(self) -> int:
@@ -117,12 +119,51 @@ def patch_eval_engine(
             capture_state.free_model_calls.append(self.is_judge)
             return None
 
-        def set_dataset(self, dataset: Sized) -> None:
-            capture_state.engine_dataset = dataset
-            capture_state.set_dataset_calls.append((self.is_judge, dataset))
-            self.dataset = dataset
+        def set_dataset(self, eval_dataset: Sized) -> None:
+            capture_state.engine_dataset = eval_dataset
+            capture_state.set_dataset_calls.append((self.is_judge, eval_dataset))
+            self.dataset = eval_dataset
+
+        def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
+            capture_state.preprocess_limits = (max_length, gt_max_length)
+            capture_state.preprocess_limit_calls.append(
+                (self.is_judge, max_length, gt_max_length)
+            )
+
+        def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
+            return None
+
+        def format_prompt(self, messages: list[dict[str, str]]) -> str:
+            return messages[0]["content"] if messages else ""
+
+        def generate_answers_from_prompts(
+            self,
+            prompts: list[str | list[dict[str, str]]],
+            sampling_config: SamplingConfig,
+        ) -> list[str]:
+            del sampling_config
+            return [str(prompt) for prompt in prompts]
 
     monkeypatch.setattr(base_evaluator_module, "TransformersEvalEngine", StubEvalEngine)
+
+    class StubApiEvalEngine(StubEvalEngine):
+        def __init__(
+            self, eval_config: EvaluationConfig, *, is_judge: bool = False
+        ) -> None:
+            self.tokenizer = None
+            self._explicit_batch_size = eval_config.batch_size
+            self.dataset: Sized | None = None
+            self.is_judge = is_judge
+            self._raw_text_truncator: Callable[[str, int], str] = (
+                lambda text, max_tokens: text[:max_tokens]
+            )
+            capture_state.data_collator = None
+            capture_state.engine_inits.append(is_judge)
+
+        def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
+            return self._raw_text_truncator
+
+    monkeypatch.setattr(base_evaluator_module, "ApiEvalEngine", StubApiEvalEngine)
 
 
 @pytest.fixture(autouse=True)
@@ -152,7 +193,7 @@ def patch_custom_dataset(
 
         def preprocess(
             self,
-            tokenizer: StubTokenizer,
+            tokenizer: StubTokenizer | None,
             _preprocess_config: object,
             *,
             trust_remote_code: bool,
@@ -160,6 +201,7 @@ def patch_custom_dataset(
             reasoning: bool,
             pass_max_answer_tokens: bool,
             token: str | None = None,
+            raw_text_truncator: object = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
             capture_state.trust_remote_code = trust_remote_code
@@ -167,6 +209,7 @@ def patch_custom_dataset(
             capture_state.reasoning = reasoning
             capture_state.pass_max_answer_tokens = pass_max_answer_tokens
             capture_state.token = token
+            capture_state.raw_text_truncator = raw_text_truncator
             return StubDataset()
 
     monkeypatch.setattr(base_evaluator_module, "CustomDataset", StubCustomDataset)
@@ -205,10 +248,9 @@ class ConcreteEvaluator(BaseEvaluator):
         return nullcontext()
 
 
-def test_prepare_dataloader_receives_eval_engine_tokenizer(
+def test_prepare_dataloader_uses_prompt_preprocessing_for_transformers_engine(
     tmp_path: Path,
     capture_state: CaptureState,
-    stub_tokenizer: StubTokenizer,
 ) -> None:
     evaluation_config = EvaluationConfig(
         model_path_or_repo_id="meta/model",
@@ -223,15 +265,355 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
 
     evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
 
-    assert capture_state.tokenizer is stub_tokenizer
-    assert evaluator.tokenizer is stub_tokenizer
+    assert capture_state.tokenizer is None
+    assert evaluator.tokenizer is None
     assert capture_state.trust_remote_code == evaluation_config.trust_remote_code
+    assert capture_state.preprocess_limits == (
+        dataset_config_instance.preprocess_config.max_length,
+        dataset_config_instance.preprocess_config.gt_max_length,
+    )
+    assert capture_state.raw_text_truncator is None
     assert capture_state.dataloader_args is not None
     _, batch_size, _, _ = capture_state.dataloader_args
     assert batch_size == 3
     assert evaluator.eval_loader == "loader"
     assert evaluator.num_samples == 3
     assert capture_state.engine_dataset == evaluator.eval_dataset
+
+
+def test_prepare_dataloader_api_model_uses_raw_collator(
+    tmp_path: Path,
+    capture_state: CaptureState,
+) -> None:
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        model_tokenizer_path_or_repo_id=None,
+        results_dir=tmp_path,
+        batch_size=None,
+        max_samples=10,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+
+    assert capture_state.tokenizer is None
+    assert evaluator.tokenizer is None
+    assert capture_state.preprocess_limits == (
+        dataset_config_instance.preprocess_config.max_length,
+        dataset_config_instance.preprocess_config.gt_max_length,
+    )
+    assert (
+        capture_state.raw_text_truncator
+        is evaluator.eval_engine.get_raw_text_truncator()
+    )
+    assert capture_state.dataloader_args is not None
+    _, batch_size, _, collate_fn = capture_state.dataloader_args
+    assert batch_size == 3
+    assert collate_fn is base_evaluator_module.raw_text_collator
+
+
+def test_generate_answers_from_prompts_uses_prompt_engine(
+    tmp_path: Path,
+) -> None:
+    class StubPromptEngine(PromptEvalEngine):
+        tokenizer = None
+
+        def __init__(self) -> None:
+            self.last_prompts: list[str | list[dict[str, str]]] | None = None
+            self.last_sampling_config: SamplingConfig | None = None
+
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
+
+        def generate_answers_from_prompts(
+            self,
+            prompts: list[str | list[dict[str, str]]],
+            sampling_config: SamplingConfig,
+        ) -> list[str]:
+            self.last_prompts = prompts
+            self.last_sampling_config = sampling_config
+            return ["ok" for _ in prompts]
+
+        def set_dataset(self, eval_dataset: Sized) -> None:
+            del eval_dataset
+            return None
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def free_model(self) -> None:
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+    prompt_engine = StubPromptEngine()
+    evaluator.eval_engine = prompt_engine
+
+    answers = evaluator.generate_answers_from_prompts(["prompt-a"])
+
+    assert answers == ["ok"]
+    assert prompt_engine.last_prompts == ["prompt-a"]
+    assert isinstance(prompt_engine.last_sampling_config, SamplingConfig)
+
+
+def test_api_model_reuses_eval_dataset_for_judge_with_prompt_pipeline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capture_state: CaptureState,
+    stub_tokenizer: StubTokenizer,
+) -> None:
+    load_calls: list[str] = []
+
+    def fake_load_tokenizer(model_name: str, **_kwargs: object) -> StubTokenizer:
+        load_calls.append(model_name)
+        return stub_tokenizer
+
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        fake_load_tokenizer,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        model_tokenizer_path_or_repo_id=None,
+        model_token="model-token",
+        judge_engine="transformers",
+        judge_tokenizer_path_or_repo_id="meta/judge-tokenizer",
+        judge_token="judge-token",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+
+    with evaluator.get_grading_context() as _judge_engine:
+        assert capture_state.set_dataset_calls
+        is_judge, dataset = capture_state.set_dataset_calls[-1]
+        assert is_judge is True
+        assert dataset is evaluator.eval_dataset
+
+    assert capture_state.tokenizer is None
+    assert capture_state.token == "model-token"
+    assert load_calls == []
+
+
+def test_update_dataset_config_restores_dataset_state_in_judge_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_tokenizer: StubTokenizer,
+) -> None:
+    selected_indices_by_dataset: list[tuple[str, list[int]]] = []
+    dataset_specs = {
+        "repo/dataset-a": (2, False),
+        "repo/dataset-b": (5, True),
+    }
+
+    class StubDataset:
+        def __init__(self, file_path: str) -> None:
+            self._file_path = file_path
+            self._size = dataset_specs[file_path][0]
+
+        def shuffle(self, *, seed: int) -> StubDataset:
+            del seed
+            return self
+
+        def select(self, indices: list[int]) -> StubDataset:
+            if indices and max(indices) >= self._size:
+                raise IndexError("selected index out of range")
+            selected_indices_by_dataset.append((self._file_path, list(indices)))
+            return self
+
+        def __len__(self) -> int:
+            return self._size
+
+    class StubCustomDataset:
+        def __init__(self, file_path: str, dataset_type: DatasetType) -> None:
+            del dataset_type
+            self.file_path = file_path
+            self.has_stereotype = dataset_specs[file_path][1]
+
+        def preprocess(
+            self,
+            tokenizer: StubTokenizer | None,
+            _preprocess_config: object,
+            *,
+            trust_remote_code: bool,
+            max_answer_tokens: int | None,
+            reasoning: bool,
+            pass_max_answer_tokens: bool,
+            token: str | None = None,
+            raw_text_truncator: object = None,
+        ) -> StubDataset:
+            del tokenizer
+            del trust_remote_code
+            del max_answer_tokens
+            del reasoning
+            del pass_max_answer_tokens
+            del token
+            del raw_text_truncator
+            return StubDataset(self.file_path)
+
+    monkeypatch.setattr(base_evaluator_module, "CustomDataset", StubCustomDataset)
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: stub_tokenizer,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "empty_cuda_cache_if_available",
+        lambda: None,
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        model_tokenizer_path_or_repo_id=None,
+        judge_engine="transformers",
+        judge_tokenizer_path_or_repo_id="meta/judge-tokenizer",
+        results_dir=tmp_path,
+        max_samples=4,
+    )
+    dataset_a = DatasetConfig(
+        file_path="repo/dataset-a",
+        dataset_type=DatasetType.BIAS,
+        seed=7,
+    )
+    dataset_b = DatasetConfig(
+        file_path="repo/dataset-b",
+        dataset_type=DatasetType.BIAS,
+        seed=7,
+    )
+
+    evaluator = StubEvaluator(evaluation_config, dataset_a)
+    assert evaluator._selected_sample_indices == [0, 1]
+    assert evaluator.num_samples == 2
+    assert evaluator.has_stereotype is False
+
+    # Simulate generation phase iterating to another dataset.
+    evaluator.update_dataset_config(dataset_b)
+    assert evaluator._selected_sample_indices == [0, 1, 2, 3]
+    assert evaluator.num_samples == 4
+    assert evaluator.has_stereotype is True
+
+    # Simulate grading phase moving back to dataset A while judge engine is active.
+    with evaluator.get_grading_context() as _judge:
+        evaluator.update_dataset_config(dataset_a)
+        assert evaluator._selected_sample_indices == [0, 1]
+        assert evaluator.num_samples == 2
+        assert evaluator.has_stereotype is False
+
+    assert ("repo/dataset-a", [0, 1]) in selected_indices_by_dataset
+    assert ("repo/dataset-b", [0, 1, 2, 3]) in selected_indices_by_dataset
+
+
+def test_update_dataset_config_in_judge_context_does_not_require_rebuild_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_tokenizer: StubTokenizer,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: stub_tokenizer,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "empty_cuda_cache_if_available",
+        lambda: None,
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        judge_engine="transformers",
+        results_dir=tmp_path,
+        max_samples=2,
+    )
+    dataset_a = DatasetConfig(
+        file_path="repo/dataset-a",
+        dataset_type=DatasetType.BIAS,
+        seed=7,
+    )
+    dataset_c = DatasetConfig(
+        file_path="repo/dataset-c",
+        dataset_type=DatasetType.BIAS,
+        seed=7,
+    )
+
+    evaluator = StubEvaluator(evaluation_config, dataset_a)
+
+    with evaluator.get_grading_context():
+        evaluator.update_dataset_config(dataset_c)
+
+    assert evaluator.dataset_config.file_path == "repo/dataset-c"
 
 
 def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> None:
@@ -283,24 +665,25 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
                 {"input_ids": input_ids, "attention_mask": attention_mask}
             )
 
-    class RecordingJudgeEngine(EvalEngine):
+    class RecordingJudgeEngine(PromptEvalEngine):
         def __init__(self) -> None:
             self.calls: list[dict[str, object]] = []
 
-        def generate_answers(
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
+
+        def generate_answers_from_prompts(
             self,
-            input_ids,
-            attention_mask,
+            prompts,
             sampling_config: SamplingConfig,
         ):
             self.calls.append(
                 {
-                    "input_ids": input_ids,
-                    "attention_mask": attention_mask,
+                    "prompts": prompts,
                     "sampling_config": sampling_config,
                 }
             )
-            return ["yes"] * input_ids.shape[0]
+            return ["yes"] * len(prompts)
 
         def free_model(self) -> None:
             return None
@@ -308,7 +691,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
         def get_batch_size(self) -> int:
             return 1
 
-        def set_dataset(self, eval_dataset: Dataset) -> None:
+        def set_dataset(self, eval_dataset: Sized) -> None:
             return None
 
     class StubFreeTextEvaluator(FreeTextSharedEvaluator):
@@ -340,9 +723,10 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     evaluator.dataset_config = DatasetConfig(
         file_path="repo/dataset",
         dataset_type=DatasetType.BIAS,
-        seed=777,
+        seed=0,
     )
     evaluator.judge_tokenizer = StubJudgeTokenizer()
+    evaluator.judge_engine = "transformers"
 
     judge_engine = RecordingJudgeEngine()
     outputs = evaluator._process_judge_prompts_batch(
@@ -359,7 +743,364 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.temperature == 0.5
     assert sampling_config.top_p == 0.9
     assert sampling_config.top_k == 4
-    assert sampling_config.seed == evaluator.dataset_config.seed
+    assert sampling_config.seed == 0
+
+
+def test_process_judge_prompts_batch_prefers_sample_judge_over_shared_do_sample(
+    tmp_path: Path,
+) -> None:
+    class RecordingJudgeEngine(PromptEvalEngine):
+        def __init__(self) -> None:
+            self.sampling_configs: list[SamplingConfig] = []
+
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
+
+        def generate_answers_from_prompts(
+            self,
+            prompts,
+            sampling_config: SamplingConfig,
+        ):
+            self.sampling_configs.append(sampling_config)
+            return ["ok"] * len(prompts)
+
+        def free_model(self) -> None:
+            return None
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def set_dataset(self, eval_dataset: Sized) -> None:
+            del eval_dataset
+            return None
+
+    class StubFreeTextEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(self, generations: object, judge_engine: object = None) -> None:
+            del generations, judge_engine
+            return None
+
+        def get_grading_context(self) -> AbstractContextManager:
+            return nullcontext()
+
+    evaluator = StubFreeTextEvaluator.__new__(StubFreeTextEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        sample_judge=True,
+        sample=False,
+        sampling_config=SamplingConfig(do_sample=False, seed=11),
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+        seed=None,
+    )
+    evaluator.judge_engine = "transformers"
+
+    judge_engine = RecordingJudgeEngine()
+    evaluator._process_judge_prompts_batch(
+        judge_engine,
+        ["prompt-a"],
+        do_sample=None,
+    )
+
+    assert len(judge_engine.sampling_configs) == 1
+    assert judge_engine.sampling_configs[0].do_sample is True
+
+
+def test_build_sampling_config_keeps_none_when_no_seed_is_configured(
+    tmp_path: Path,
+) -> None:
+    class StubFreeTextEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(self, generations: object, judge_engine: object = None) -> None:
+            del generations, judge_engine
+            return None
+
+        def get_grading_context(self) -> AbstractContextManager:
+            return nullcontext()
+
+    evaluator = StubFreeTextEvaluator.__new__(StubFreeTextEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        sampling_config=SamplingConfig(seed=None),
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+        seed=None,
+    )
+
+    sampling_config = evaluator._build_sampling_config(do_sample=None, is_judge=False)
+    assert sampling_config.seed is None
+
+
+def test_run_judge_with_backoff_uses_fixed_batch_size_without_probing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        judge_batch_size=2,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+    prompts = ["p1", "p2", "p3", "p4", "p5"]
+    chunks: list[list[str]] = []
+
+    def fake_process(
+        _judge_engine: object,
+        prompts_batch: Sequence[str],
+        batch_size: int | None = None,
+        do_sample: bool | None = None,
+    ) -> list[list[dict[str, str]]]:
+        del batch_size, do_sample
+        prompts_list = list(prompts_batch)
+        chunks.append(prompts_list)
+        return [[{"generated_text": prompt}] for prompt in prompts_list]
+
+    class StubJudge(PromptEvalEngine):
+        def set_dataset(self, eval_dataset: Sized) -> None:
+            del eval_dataset
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def free_model(self) -> None:
+            return None
+
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
+
+        def generate_answers_from_prompts(self, prompts, sampling_config):
+            del prompts, sampling_config
+            return []
+
+    monkeypatch.setattr(evaluator, "_process_judge_prompts_batch", fake_process)
+    outputs = evaluator.run_judge_with_backoff(
+        cast("PromptEvalEngine", StubJudge()), prompts
+    )
+
+    assert chunks == [["p1", "p2"], ["p3", "p4"], ["p5"]]
+    assert outputs == [
+        [{"generated_text": "p1"}],
+        [{"generated_text": "p2"}],
+        [{"generated_text": "p3"}],
+        [{"generated_text": "p4"}],
+        [{"generated_text": "p5"}],
+    ]
+
+
+def test_run_judge_with_backoff_retries_and_clears_partial_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        judge_batch_size=None,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+    prompts = ["p1", "p2", "p3", "p4", "p5"]
+    cache_clear_calls = 0
+    calls: list[tuple[int | None, list[str]]] = []
+
+    def fake_clear_cache() -> None:
+        nonlocal cache_clear_calls
+        cache_clear_calls += 1
+
+    def fake_find_executable_batch_size(
+        fn,
+        *,
+        starting_batch_size: int,
+        reduce_batch_size_fn,
+    ):
+        del starting_batch_size
+
+        def wrapper():
+            candidate_batch_size = 4
+            while True:
+                try:
+                    return fn(candidate_batch_size)
+                except RuntimeError:
+                    candidate_batch_size = reduce_batch_size_fn()
+
+        return wrapper
+
+    def fake_process(
+        _judge_engine: object,
+        prompts_batch: Sequence[str],
+        batch_size: int | None = None,
+        do_sample: bool | None = None,
+    ) -> list[list[dict[str, str]]]:
+        del do_sample
+        prompts_list = list(prompts_batch)
+        calls.append((batch_size, prompts_list))
+        if batch_size == 4 and len(prompts_list) == 1:
+            raise RuntimeError("simulated OOM")
+        return [[{"generated_text": prompt}] for prompt in prompts_list]
+
+    class StubJudge(PromptEvalEngine):
+        def set_dataset(self, eval_dataset: Sized) -> None:
+            del eval_dataset
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def free_model(self) -> None:
+            return None
+
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
+
+        def generate_answers_from_prompts(self, prompts, sampling_config):
+            del prompts, sampling_config
+            return []
+
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", fake_clear_cache
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "find_executable_batch_size",
+        fake_find_executable_batch_size,
+    )
+    monkeypatch.setattr(evaluator, "_process_judge_prompts_batch", fake_process)
+
+    outputs = evaluator.run_judge_with_backoff(
+        cast("PromptEvalEngine", StubJudge()), prompts
+    )
+
+    assert calls == [
+        (4, ["p1", "p2", "p3", "p4"]),
+        (4, ["p5"]),
+        (2, ["p1", "p2"]),
+        (2, ["p3", "p4"]),
+        (2, ["p5"]),
+    ]
+    assert cache_clear_calls == 1
+    assert outputs == [
+        [{"generated_text": "p1"}],
+        [{"generated_text": "p2"}],
+        [{"generated_text": "p3"}],
+        [{"generated_text": "p4"}],
+        [{"generated_text": "p5"}],
+    ]
+
+
+def test_ensure_run_configuration_allowed_raises_on_mismatch_without_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return False
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        replace_existing_output=False,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+    with open(evaluator.run_config_path(), "w") as file_handle:
+        json.dump(
+            {"evaluation_config": {"mismatch": True}, "dataset_config": {}}, file_handle
+        )
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", StubStdin())
+
+    with pytest.raises(
+        RuntimeError,
+        match="Existing evaluation outputs were produced with a different configuration",
+    ):
+        evaluator._ensure_run_configuration_allowed()
+
+
+def test_ensure_run_configuration_allowed_replaces_outputs_when_flag_enabled(
+    tmp_path: Path,
+) -> None:
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        replace_existing_output=True,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+    with open(evaluator.run_config_path(), "w") as file_handle:
+        json.dump(
+            {"evaluation_config": {"mismatch": True}, "dataset_config": {}}, file_handle
+        )
+
+    for filename in ["responses.json", "metrics.csv", "generations.jsonl"]:
+        with open(evaluator.get_output_dir() / filename, "w") as file_handle:
+            file_handle.write("old")
+
+    evaluator._ensure_run_configuration_allowed()
+
+    for filename in ["responses.json", "metrics.csv", "generations.jsonl"]:
+        assert not (evaluator.get_output_dir() / filename).exists()
+
+    with open(evaluator.run_config_path()) as file_handle:
+        rewritten = json.load(file_handle)
+    assert rewritten == evaluator._current_run_config()
 
 
 def test_get_grading_context_creates_and_frees_judge_engine(
@@ -387,7 +1128,7 @@ def test_get_grading_context_creates_and_frees_judge_engine(
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             del generations, judge_engine
             return None
@@ -413,6 +1154,486 @@ def test_get_grading_context_creates_and_frees_judge_engine(
 
     # Exiting the context should free the judge engine.
     assert True in capture_state.free_model_calls
+
+
+def test_get_grading_context_supports_api_judge_engine(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubApiJudgeEngine(PromptEvalEngine):
+        def __init__(self, _eval_config, *, is_judge: bool = False) -> None:
+            self.is_judge = is_judge
+            self.dataset = None
+            self.preprocess_limits: tuple[int, int] | None = None
+
+        def set_dataset(self, eval_dataset: object) -> None:
+            self.dataset = eval_dataset
+
+        def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
+            self.preprocess_limits = (max_length, gt_max_length)
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def free_model(self) -> None:
+            return None
+
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
+
+        def generate_answers_from_prompts(self, prompts, sampling_config):
+            del prompts, sampling_config
+            return []
+
+    # Need to use a FreeTextSharedEvaluator subclass to test get_judge_engine_context
+    class StubApiEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "empty_cuda_cache_if_available",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Tokenizer should not be loaded for API judges.")
+        ),
+    )
+    monkeypatch.setattr(base_evaluator_module, "ApiEvalEngine", StubApiJudgeEngine)
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+        judge_engine="api",
+        judge_path_or_repo_id="openai/gpt-4o-mini",
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = StubApiEvaluator(evaluation_config, dataset_config_instance)
+
+    with evaluator.get_grading_context() as judge_engine:
+        assert isinstance(judge_engine, StubApiJudgeEngine)
+        assert judge_engine.is_judge is True
+        assert judge_engine.dataset is evaluator.eval_dataset
+        assert judge_engine.preprocess_limits == (
+            dataset_config_instance.preprocess_config.max_length,
+            dataset_config_instance.preprocess_config.gt_max_length,
+        )
+
+
+def test_update_dataset_config_in_api_judge_context_uses_model_preprocess_limits(
+    tmp_path: Path,
+    capture_state: CaptureState,
+) -> None:
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o-mini",
+        model_engine="api",
+        judge_engine="api",
+        judge_path_or_repo_id="openai/gpt-4o-mini",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_a = DatasetConfig(
+        file_path="repo/dataset-a",
+        dataset_type=DatasetType.BIAS,
+    )
+    dataset_b = DatasetConfig(
+        file_path="repo/dataset-b",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_a)
+
+    # Initial model-engine dataloader setup sets preprocess limits once.
+    assert capture_state.preprocess_limit_calls == [
+        (
+            False,
+            dataset_a.preprocess_config.max_length,
+            dataset_a.preprocess_config.gt_max_length,
+        )
+    ]
+
+    with evaluator.get_grading_context():
+        evaluator.update_dataset_config(dataset_b)
+
+    # Updating dataset config keeps model preprocessing on the model engine, while
+    # entering grading context configures preprocessing on the judge engine once.
+    assert capture_state.preprocess_limit_calls == [
+        (
+            False,
+            dataset_a.preprocess_config.max_length,
+            dataset_a.preprocess_config.gt_max_length,
+        ),
+        (
+            True,
+            dataset_a.preprocess_config.max_length,
+            dataset_a.preprocess_config.gt_max_length,
+        ),
+        (
+            False,
+            dataset_b.preprocess_config.max_length,
+            dataset_b.preprocess_config.gt_max_length,
+        ),
+    ]
+
+
+def test_format_judge_messages_defaults_to_eval_config_flags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: list[dict[str, object]] = []
+
+    def fake_apply_chat_template(_tokenizer, _messages, **kwargs):
+        captured_kwargs.append(kwargs)
+        return "formatted"
+
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "safe_apply_chat_template",
+        fake_apply_chat_template,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        judge_path_or_repo_id="meta/judge",
+        results_dir=tmp_path,
+        max_samples=1,
+        reasoning=True,
+        pass_max_answer_tokens=True,
+        max_judge_tokens=77,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+
+    formatted = evaluator.format_judge_messages([{"role": "user", "content": "ping"}])
+
+    assert formatted == "formatted"
+    assert captured_kwargs[-1]["reasoning"] is True
+    assert captured_kwargs[-1]["pass_max_answer_tokens"] is True
+    assert captured_kwargs[-1]["max_answer_tokens"] == 77
+
+
+def test_format_judge_messages_uses_explicit_judge_engine_tokenizer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tokenizer_load_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def fake_load_tokenizer(*args, **kwargs):
+        tokenizer_load_calls.append((args, kwargs))
+        return StubTokenizer()
+
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        fake_load_tokenizer,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "safe_apply_chat_template",
+        lambda *_args, **_kwargs: "formatted",
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        judge_path_or_repo_id="meta/judge",
+        judge_engine="transformers",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+
+    with evaluator.get_judge_engine_context() as judge_engine:
+        formatted = evaluator.format_judge_messages(
+            [{"role": "user", "content": "ping"}],
+            judge_engine=judge_engine,
+        )
+
+    assert formatted == "formatted"
+    assert tokenizer_load_calls == []
+
+
+def test_prepare_judge_tokenizer_after_free_judge_does_not_raise(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+
+    evaluator.judge_tokenizer = cast("PreTrainedTokenizerBase", StubTokenizer())
+    evaluator.free_judge()
+
+    assert hasattr(evaluator, "judge_tokenizer")
+    assert evaluator.judge_tokenizer is None
+
+    evaluator.prepare_judge_tokenizer()
+    assert evaluator.judge_tokenizer is not None
+
+
+def test_grading_context_preserves_sampling_seed_without_dataset_rebuild(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    stub_tokenizer: StubTokenizer,
+) -> None:
+    shuffle_calls: list[tuple[str, int]] = []
+    selected_indices_by_dataset: list[tuple[str, list[int]]] = []
+    dataset_specs = {
+        "repo/dataset-a": (3, False),
+    }
+
+    class StubDataset:
+        def __init__(self, file_path: str) -> None:
+            self._file_path = file_path
+            self._size = dataset_specs[file_path][0]
+
+        def shuffle(self, *, seed: int) -> StubDataset:
+            shuffle_calls.append((self._file_path, seed))
+            return self
+
+        def select(self, indices: list[int]) -> StubDataset:
+            selected_indices_by_dataset.append((self._file_path, list(indices)))
+            return self
+
+        def __len__(self) -> int:
+            return self._size
+
+    class StubCustomDataset:
+        def __init__(self, file_path: str, dataset_type: DatasetType) -> None:
+            del dataset_type
+            self.file_path = file_path
+            self.has_stereotype = dataset_specs[file_path][1]
+
+        def preprocess(
+            self,
+            tokenizer: StubTokenizer | None,
+            _preprocess_config: object,
+            *,
+            trust_remote_code: bool,
+            max_answer_tokens: int | None,
+            reasoning: bool,
+            pass_max_answer_tokens: bool,
+            token: str | None = None,
+            raw_text_truncator: object = None,
+        ) -> StubDataset:
+            del tokenizer
+            del trust_remote_code
+            del max_answer_tokens
+            del reasoning
+            del pass_max_answer_tokens
+            del token
+            del raw_text_truncator
+            return StubDataset(self.file_path)
+
+    monkeypatch.setattr(base_evaluator_module, "CustomDataset", StubCustomDataset)
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: stub_tokenizer,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "empty_cuda_cache_if_available",
+        lambda: None,
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        model_tokenizer_path_or_repo_id=None,
+        judge_engine="transformers",
+        judge_tokenizer_path_or_repo_id="meta/judge-tokenizer",
+        results_dir=tmp_path,
+        max_samples=2,
+        sampling_config=SamplingConfig(seed=123),
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset-a",
+        dataset_type=DatasetType.BIAS,
+        seed=None,
+    )
+
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+    selected_indices = list(evaluator._selected_sample_indices)
+
+    with evaluator.get_grading_context():
+        pass
+
+    assert selected_indices == [0, 1]
+    assert ("repo/dataset-a", [0, 1]) in selected_indices_by_dataset
+    assert len(shuffle_calls) == 1
+    assert all(seed == 123 for _, seed in shuffle_calls)
+
+
+def test_api_model_engine_uses_api_eval_engine(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubApiModelEngine:
+        # API engines do not load a local tokenizer
+        tokenizer = None
+
+        def __init__(self, _eval_config, *, is_judge: bool = False) -> None:
+            self.is_judge = is_judge
+            self.dataset = None
+
+        def set_dataset(self, dataset: object) -> None:
+            self.dataset = dataset
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def free_model(self) -> None:
+            return None
+
+        def ensure_test_model_ready(self) -> None:
+            return None
+
+        def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
+            del max_length, gt_max_length
+            return None
+
+        def get_raw_text_truncator(self):
+            return None
+
+    monkeypatch.setattr(base_evaluator_module, "ApiEvalEngine", StubApiModelEngine)
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o-mini",
+        results_dir=tmp_path,
+        max_samples=1,
+        model_engine="api",
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
+
+    assert isinstance(evaluator.eval_engine, StubApiModelEngine)
+    assert evaluator.eval_engine.is_judge is False
+    assert evaluator.tokenizer is None
 
 
 def test_evaluate_flow_can_use_generate_then_grade_in_grading_context(
@@ -441,7 +1662,7 @@ def test_evaluate_flow_can_use_generate_then_grade_in_grading_context(
         def grade(
             self,
             generations: Sequence[_GenerationRecord],
-            judge_engine: EvalEngine | None = None,
+            judge_engine: PromptEvalEngine | None = None,
         ) -> None:
             capture_state.grade_generations_count = len(generations)
             capture_state.grade_called_with_judge = (

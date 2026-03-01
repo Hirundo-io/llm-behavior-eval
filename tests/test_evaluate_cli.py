@@ -157,6 +157,58 @@ def test_main_sets_inference_engine_and_sampling(
     assert dataset_config.seed == 123
 
 
+def test_main_preserves_explicit_zero_vllm_judge_max_model_len(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        inference_engine="vllm",
+        vllm_max_model_len=8192,
+        vllm_judge_max_model_len=0,
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.vllm_config is not None
+    assert eval_config.vllm_config.judge_max_model_len == 0
+
+
+def test_main_allows_api_inference_engine(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "openai/gpt-4o-mini",
+        "hallu",
+        inference_engine="api",
+        judge_model="openai/gpt-4o-mini",
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.inference_engine == "api"
+
+
+def test_main_rejects_api_inference_engine_with_default_judge_model() -> None:
+    with pytest.raises(
+        ValueError,
+        match="judge_path_or_repo_id must be set to an API model identifier",
+    ):
+        evaluate.main(
+            "openai/gpt-4o-mini",
+            "hallu",
+            inference_engine="api",
+        )
+
+
+def test_main_passes_judge_tokenizer_override(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        judge_tokenizer_path_or_repo_id="fake/judge-tokenizer",
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.judge_tokenizer_path_or_repo_id == "fake/judge-tokenizer"
+
+
 def test_main_allows_replacing_existing_output(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:

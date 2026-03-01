@@ -7,8 +7,7 @@ import torch
 from tqdm import tqdm
 
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
-from .eval_engine import EvalEngine
-from .util_functions import safe_apply_chat_template
+from .eval_engine import PromptEvalEngine
 
 CHOICE_LETTERS: list[str] = ["A", "B", "C"]
 CHOICE_STRINGS: list[str] = ["CORRECT", "INCORRECT", "NOT_ATTEMPTED"]
@@ -76,16 +75,11 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         ):
             if batch_index < completed_batches:
                 continue
-            input_ids = batch["test_input_ids"]
-            attention_mask = batch["test_attention_mask"]
-
-            input_texts = self.tokenizer.batch_decode(
-                input_ids, skip_special_tokens=True
+            input_texts = cast("list[str]", batch.get("input_texts", []))
+            gt_answers = cast("list[str]", batch["gt_answers"])
+            answers = self.generate_answers_from_prompts(
+                cast("list[list[dict[str, str]]]", batch["test_messages"])
             )
-            gt_answers = self.tokenizer.batch_decode(
-                batch["gt_answers"], skip_special_tokens=True
-            )
-            answers = self.generate_answers(input_ids, attention_mask)
             generation_record = _HalluGenerationRecord(
                 input_texts=input_texts,
                 gt_answers=gt_answers,
@@ -108,20 +102,17 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
 
     def _grade_batch(
         self,
-        judge_engine: EvalEngine,
+        judge_engine: PromptEvalEngine,
         questions: list[str],
         gt_answers: list[str],
         generated_answers: list[str],
     ) -> list[str]:
-        self.prepare_judge_tokenizer()
-        judge_tokenizer = self._get_judge_tokenizer()
         prompts = []
         for question, gt_answer, generated_answer in zip(
             questions, gt_answers, generated_answers, strict=True
         ):
             prompts.append(
-                safe_apply_chat_template(
-                    judge_tokenizer,
+                self.format_judge_messages(
                     [
                         {
                             "role": "user",
@@ -132,6 +123,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                             ),
                         }
                     ],
+                    judge_engine=judge_engine,
                 )
             )
         raw = self.run_judge_with_backoff(judge_engine, prompts)
@@ -161,7 +153,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
     def grade(
         self,
         generations: Sequence[_GenerationRecord],
-        judge_engine: EvalEngine | None = None,
+        judge_engine: PromptEvalEngine | None = None,
     ) -> None:
         if judge_engine is None:
             raise ValueError(

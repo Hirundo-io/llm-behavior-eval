@@ -7,7 +7,7 @@ import shutil
 from contextlib import contextmanager
 from inspect import Parameter, signature
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
 
 import torch
@@ -21,7 +21,7 @@ from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
 
-from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+from .vllm_config import VllmConfig
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -45,6 +45,22 @@ if TYPE_CHECKING:
     from vllm import LLM
 
 DIGEST_SIZE_FOR_PEFT_PATHS = 8
+
+
+def raw_text_collator(batch: list[dict[str, Any]]) -> dict[str, list[Any]]:
+    if not batch:
+        return {}
+    return {key: [item[key] for item in batch] for key in batch[0]}
+
+
+def truncate_text_by_whitespace(text: str, max_tokens: int) -> str:
+    """Approximate token truncation by splitting on whitespace."""
+    if max_tokens <= 0:
+        return ""
+    tokens = text.split()
+    if len(tokens) <= max_tokens:
+        return text
+    return " ".join(tokens[:max_tokens])
 
 
 def empty_cuda_cache_if_available() -> None:
@@ -259,7 +275,11 @@ def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
 
 
 def is_model_multimodal(
-    repo_id: str, trust_remote_code: bool = False, token: str | None = None
+    repo_id: str,
+    trust_remote_code: bool = False,
+    token: str | None = None,
+    *,
+    allow_remote_lookup: bool = True,
 ) -> bool:
     """
     Decide whether the model should be loaded with a vision-capable architecture.
@@ -271,6 +291,8 @@ def is_model_multimodal(
         repo_id: The repo-id or local path of the model to load.
         trust_remote_code: Whether to trust remote code.
         token: The HuggingFace token to use for accessing gated models.
+        allow_remote_lookup: Whether to fall back to a remote config lookup when
+            local cache resolution fails.
 
     Returns:
         True if the model should be loaded with a vision-capable architecture, False otherwise.
@@ -284,6 +306,8 @@ def is_model_multimodal(
             token=token,
         )
     except Exception:
+        if not allow_remote_lookup:
+            return False
         # Fallback to remote if not cached locally
         config = AutoConfig.from_pretrained(
             repo_id, trust_remote_code=trust_remote_code, token=token
@@ -379,7 +403,7 @@ def load_vllm_model(
             trust_remote_code=trust_remote_code,
             dtype=dtype_literal,
             enforce_eager=enforce_eager,
-            quantization=quantization,
+            quantization=cast("Any", quantization),
             tensor_parallel_size=tensor_parallel
             if tensor_parallel is not None
             else default_tensor_parallel,
@@ -421,6 +445,8 @@ def load_transformers_model_and_tokenizer(
     use_4bit: bool = False,
     device_map: str | dict[str, int] | None = "auto",
     trust_remote_code: bool = False,
+    *,
+    tokenizer_name_or_path: str | None = None,
 ) -> tuple[PreTrainedTokenizerBase, PreTrainedModel]:
     """
     Load a tokenizer and a causal language model based on the model name/path,
@@ -435,6 +461,8 @@ def load_transformers_model_and_tokenizer(
         use_4bit: If True, load the model in 4-bit mode using bitsandbytes.
         device_map: The device map to use for the model.
         trust_remote_code: Whether to trust remote code.
+        tokenizer_name_or_path: Optional tokenizer repo-id or local path.
+            Defaults to `model_name` when omitted.
 
     Returns:
         A tuple containing the loaded tokenizer and model.
@@ -445,8 +473,11 @@ def load_transformers_model_and_tokenizer(
     logging.info("Using dtype: %s", dtype)
 
     # Load tokenizer
+    resolved_tokenizer_name = tokenizer_name_or_path or model_name
     tokenizer = load_tokenizer_with_transformers(
-        model_name, token=token, trust_remote_code=trust_remote_code
+        resolved_tokenizer_name,
+        token=token,
+        trust_remote_code=trust_remote_code,
     )
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
         raise ValueError("Tokenizer is not supported!")

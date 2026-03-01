@@ -2,50 +2,73 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import torch
 
-from .eval_engine import EvalEngine
+from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine
 from .util_functions import (
-    build_vllm_prompt_token_ids,
+    is_model_multimodal,
     load_tokenizer_with_transformers,
     load_vllm_model,
     maybe_download_adapter,
     pick_best_dtype,
+    safe_apply_chat_template,
 )
 from .vllm_config import VllmConfig
 
 if TYPE_CHECKING:
-    from datasets import Dataset
+    from collections.abc import Sequence
+
     from vllm.inputs.data import PromptType
 
     from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
 
 
-class VllmEvalEngine(EvalEngine):
+class VllmEvalEngine(PromptEvalEngine):
     def __init__(
         self,
         eval_config: EvaluationConfig,
         is_judge: bool = False,
-        max_model_len: int | None = None,
     ) -> None:
         self.eval_config = eval_config
         self.is_judge = is_judge
-        self.max_model_len = max_model_len
+        self.max_model_len = self._resolve_max_model_len(eval_config, is_judge)
 
-        model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
+        model_path_or_repo_id = (
+            eval_config.judge_path_or_repo_id
+            if is_judge
+            else eval_config.model_path_or_repo_id
+        )
+        tokenizer_path_or_repo_id = (
+            (
+                eval_config.judge_tokenizer_path_or_repo_id
+                or eval_config.judge_path_or_repo_id
+            )
+            if is_judge
+            else (
+                eval_config.model_tokenizer_path_or_repo_id
+                or eval_config.model_path_or_repo_id
+            )
+        )
         lora_path_or_repo_id = (
             eval_config.lora_path_or_repo_id if not self.is_judge else None
         )
-        model_token = self._get_model_token(eval_config, is_judge)
-        use_4bit = self._get_use_4bit(eval_config, is_judge)
-        batch_size_config = self._get_batch_size_from_config(eval_config, is_judge)
-        batch_size = batch_size_config or 256
+        model_token = eval_config.judge_token if is_judge else eval_config.model_token
+        use_4bit = eval_config.use_4bit_judge if is_judge else eval_config.use_4bit
+        batch_size = (
+            eval_config.judge_batch_size if is_judge else eval_config.batch_size
+        ) or 256
+        self.is_multimodal = is_model_multimodal(
+            model_path_or_repo_id,
+            eval_config.trust_remote_code,
+            model_token,
+            allow_remote_lookup=False,
+        )
 
         self.tokenizer = load_tokenizer_with_transformers(
-            model_path_or_repo_id,
+            tokenizer_path_or_repo_id,
             model_token,
             trust_remote_code=eval_config.trust_remote_code,
         )
@@ -71,7 +94,7 @@ class VllmEvalEngine(EvalEngine):
             model_token,
             enforce_eager=vllm_config.enforce_eager,
             quantization=quantization,
-            max_model_len=max_model_len,
+            max_model_len=self.max_model_len,
             tokenizer_mode=vllm_config.tokenizer_mode,
             config_format=vllm_config.config_format,
             load_format=vllm_config.load_format,
@@ -104,35 +127,23 @@ class VllmEvalEngine(EvalEngine):
         else:
             self.lora_request = None
 
-    def set_dataset(self, eval_dataset: Dataset) -> None:
-        self.eval_dataset = eval_dataset
+    @staticmethod
+    def _resolve_max_model_len(
+        eval_config: EvaluationConfig,
+        is_judge: bool,
+    ) -> int | None:
+        if not eval_config.vllm_config:
+            return None
+        if is_judge:
+            return (
+                eval_config.vllm_config.judge_max_model_len
+                if eval_config.vllm_config.judge_max_model_len is not None
+                else eval_config.vllm_config.max_model_len
+            )
+        return eval_config.vllm_config.max_model_len
 
-    def generate_answers(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        sampling_config: SamplingConfig,
-    ) -> list[str]:
-        prompt_token_ids = build_vllm_prompt_token_ids(input_ids, attention_mask)
-        prompts: list[PromptType] = [
-            {"prompt_token_ids": tokens} for tokens in prompt_token_ids
-        ]
-        sampling_params = self._get_vllm_sampling_params(sampling_config)
-        outputs = self.model.generate(
-            prompts=prompts,
-            sampling_params=sampling_params,
-            use_tqdm=False,
-            lora_request=self.lora_request,
-        )
-        responses: list[str] = []
-        for output in outputs:
-            candidates = getattr(output, "outputs", [])
-            if not candidates:
-                responses.append("")
-                continue
-            first_candidate = candidates[0]
-            responses.append(getattr(first_candidate, "text", ""))
-        return responses
+    def set_dataset(self, eval_dataset: EvalDataset) -> None:
+        self.eval_dataset = eval_dataset
 
     def _get_vllm_sampling_params(
         self,
@@ -154,10 +165,18 @@ class VllmEvalEngine(EvalEngine):
         from vllm import SamplingParams
 
         if sampling_config.do_sample is None:
-            do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
+            do_sample = (
+                self.eval_config.sample_judge
+                if self.is_judge
+                else self.eval_config.sample
+            )
         else:
             do_sample = sampling_config.do_sample
-        max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
+        max_new_tokens = (
+            self.eval_config.max_judge_tokens
+            if self.is_judge
+            else self.eval_config.max_answer_tokens
+        )
         if sampling_config.temperature is None:
             temperature = 1.0 if do_sample else 0.0
         else:
@@ -183,7 +202,11 @@ class VllmEvalEngine(EvalEngine):
         return [int(eos_token_id)]
 
     def get_batch_size(self) -> int:
-        batch_size = self._get_batch_size_from_config(self.eval_config, self.is_judge)
+        batch_size = (
+            self.eval_config.judge_batch_size
+            if self.is_judge
+            else self.eval_config.batch_size
+        )
 
         if batch_size is None:
             batch_size = max(1, min(len(self.eval_dataset), 8))
@@ -202,3 +225,45 @@ class VllmEvalEngine(EvalEngine):
         del self.model
         with contextlib.suppress(AssertionError):
             torch.distributed.destroy_process_group()
+
+    def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
+        """Apply chat template to format messages into a tokenized prompt string."""
+        max_answer_tokens = (
+            self.eval_config.max_judge_tokens
+            if self.is_judge
+            else self.eval_config.max_answer_tokens
+        )
+        return safe_apply_chat_template(
+            self.tokenizer,
+            messages,
+            is_multimodal=self.is_multimodal,
+            max_answer_tokens=max_answer_tokens,
+            reasoning=self.eval_config.reasoning,
+            pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
+        )
+
+    def generate_answers_from_prompts(
+        self,
+        prompts: list[JudgePrompt],
+        sampling_config: SamplingConfig,
+    ) -> list[str]:
+        """Generate from preformatted string prompts."""
+        if not prompts:
+            return []
+        string_prompts = self.normalize_prompts_to_strings(prompts)
+        sampling_params = self._get_vllm_sampling_params(sampling_config)
+        outputs = self.model.generate(
+            prompts=cast("Sequence[PromptType]", string_prompts),
+            sampling_params=sampling_params,
+            use_tqdm=False,
+            lora_request=self.lora_request,
+        )
+        responses: list[str] = []
+        for output in outputs:
+            candidates = getattr(output, "outputs", [])
+            if not candidates:
+                responses.append("")
+                continue
+            first_candidate = candidates[0]
+            responses.append(getattr(first_candidate, "text", ""))
+        return responses

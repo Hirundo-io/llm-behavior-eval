@@ -12,6 +12,9 @@ import torch
 from datasets import Dataset
 
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.eval_engine import (
+    PromptEvalEngine,
+)
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
@@ -24,6 +27,7 @@ class RecordingTokenizer:
         self.pad_token_id = pad_token_id
         self.eos_token_id = eos_token_id
         self.batch_decode_calls: list[dict[str, object]] = []
+        self.encode_calls: list[dict[str, object]] = []
         self.pad_token: str | None = None
         self.eos_token = "<eos>"
 
@@ -32,6 +36,56 @@ class RecordingTokenizer:
             {"tokens": tokens.clone(), "skip_special_tokens": skip_special_tokens}
         )
         return ["decoded"] * tokens.size(0)
+
+    def __call__(
+        self,
+        texts: list[str],
+        *,
+        truncation: bool = False,
+        return_tensors: str = "pt",
+        padding: bool = True,
+    ) -> dict[str, torch.Tensor]:
+        self.encode_calls.append(
+            {
+                "texts": list(texts),
+                "truncation": truncation,
+                "return_tensors": return_tensors,
+                "padding": padding,
+            }
+        )
+        batch_size = len(texts)
+        return {
+            "input_ids": torch.ones((batch_size, 2), dtype=torch.long),
+            "attention_mask": torch.ones((batch_size, 2), dtype=torch.long),
+        }
+
+
+class RecordingVllmTokenizer:
+    def __init__(self) -> None:
+        self.pad_token: str | None = None
+        self.eos_token = "<eos>"
+        self.eos_token_id = 7
+        self.encode_calls: list[dict[str, object]] = []
+
+    def __call__(
+        self,
+        texts: list[str],
+        *,
+        return_tensors: str = "pt",
+        padding: bool = True,
+    ) -> dict[str, torch.Tensor]:
+        self.encode_calls.append(
+            {
+                "texts": list(texts),
+                "return_tensors": return_tensors,
+                "padding": padding,
+            }
+        )
+        batch_size = len(texts)
+        return {
+            "input_ids": torch.ones((batch_size, 2), dtype=torch.long),
+            "attention_mask": torch.ones((batch_size, 2), dtype=torch.long),
+        }
 
 
 class DummyTransformersModel:
@@ -58,18 +112,6 @@ class DummyTransformersModel:
     def cpu(self):
         self.cpu_called = True
         return self
-
-
-class BuildPromptRecorder:
-    def __init__(self) -> None:
-        self.last_input_ids: torch.Tensor | None = None
-        self.last_attention_mask: torch.Tensor | None = None
-        self.return_value = [[101], [102]]
-
-    def __call__(self, input_ids: torch.Tensor, attention_mask: torch.Tensor):
-        self.last_input_ids = input_ids
-        self.last_attention_mask = attention_mask
-        return self.return_value
 
 
 class SamplingParamsRecorder:
@@ -116,18 +158,28 @@ class TransformModelLoaderStub:
     def __init__(self, tokenizer: RecordingTokenizer, model: DummyTransformersModel):
         self.tokenizer = tokenizer
         self.model = model
+        self.calls: list[dict[str, object]] = []
 
     def __call__(self, *args, **kwargs):
+        self.calls.append({"args": args, "kwargs": kwargs})
         return self.tokenizer, self.model
 
 
 class TokenizerLoaderStub:
     def __init__(self, tokenizer) -> None:
         self.tokenizer = tokenizer
+        self.calls: list[dict[str, object]] = []
 
     def __call__(
         self, _model_id, _token: str | None = None, trust_remote_code: bool = False
     ):
+        self.calls.append(
+            {
+                "model_id": _model_id,
+                "token": _token,
+                "trust_remote_code": trust_remote_code,
+            }
+        )
         return self.tokenizer
 
 
@@ -168,8 +220,7 @@ class CandidateRecorder:
 
 @dataclass
 class VllmPatchBundle:
-    tokenizer: SimpleNamespace
-    build_recorder: BuildPromptRecorder
+    tokenizer: RecordingVllmTokenizer
     sampling_recorder: SamplingParamsRecorder
     outputs_log: list[object]
     tokenizer_loader: TokenizerLoaderStub
@@ -181,25 +232,16 @@ class TransformersPatchBundle:
     tokenizer: RecordingTokenizer
     model: DummyTransformersModel
     loader_stub: TransformModelLoaderStub
-    data_collator: ConstantCollator
-    find_recorder: FindExecutableBatchSizeRecorder
-    candidate_recorder: CandidateRecorder
 
 
 @pytest.fixture
 def vllm_bundle() -> VllmPatchBundle:
-    tokenizer = SimpleNamespace(
-        pad_token=None,
-        eos_token="<eos>",
-        eos_token_id=7,
-    )
-    build_recorder = BuildPromptRecorder()
+    tokenizer = RecordingVllmTokenizer()
     sampling_recorder = SamplingParamsRecorder()
     outputs_log: list[object] = []
     model = DummyVllmModel(outputs_log)
     return VllmPatchBundle(
         tokenizer=tokenizer,
-        build_recorder=build_recorder,
         sampling_recorder=sampling_recorder,
         outputs_log=outputs_log,
         tokenizer_loader=TokenizerLoaderStub(tokenizer),
@@ -212,16 +254,10 @@ def transformers_bundle() -> TransformersPatchBundle:
     tokenizer = RecordingTokenizer()
     model = DummyTransformersModel()
     loader_stub = TransformModelLoaderStub(tokenizer, model)
-    data_collator = ConstantCollator()
-    find_recorder = FindExecutableBatchSizeRecorder()
-    candidate_recorder = CandidateRecorder()
     return TransformersPatchBundle(
         tokenizer=tokenizer,
         model=model,
         loader_stub=loader_stub,
-        data_collator=data_collator,
-        find_recorder=find_recorder,
-        candidate_recorder=candidate_recorder,
     )
 
 
@@ -233,10 +269,6 @@ def _apply_vllm_patching(request, monkeypatch):
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.vllm_eval_engine.load_tokenizer_with_transformers",
         bundle.tokenizer_loader,
-    )
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.vllm_eval_engine.build_vllm_prompt_token_ids",
-        bundle.build_recorder,
     )
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.vllm_eval_engine.torch.cuda.is_available",
@@ -251,6 +283,10 @@ def _apply_vllm_patching(request, monkeypatch):
         "llm_behavior_eval.evaluation_utils.vllm_eval_engine.load_vllm_model",
         bundle.model_loader,
     )
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.vllm_eval_engine.is_model_multimodal",
+        lambda *_args, **_kwargs: False,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -263,18 +299,52 @@ def _apply_transformers_patching(request, monkeypatch):
         bundle.loader_stub,
     )
     monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.transformers_eval_engine.find_executable_batch_size",
-        bundle.find_recorder,
-    )
-    monkeypatch.setattr(
-        TransformersEvalEngine,
-        "_get_first_non_oom_batch_size",
-        bundle.candidate_recorder.record,
+        "llm_behavior_eval.evaluation_utils.transformers_eval_engine.is_model_multimodal",
+        lambda *_args, **_kwargs: False,
     )
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
+def test_vllm_eval_engine_implements_prompt_interface(tmp_path) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+    )
+
+    engine = VllmEvalEngine(config)
+
+    assert isinstance(engine, PromptEvalEngine)
+
+
+@pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_uses_model_tokenizer_override(vllm_bundle, tmp_path) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        model_tokenizer_path_or_repo_id="fake/tokenizer",
+        results_dir=tmp_path,
+    )
+
+    VllmEvalEngine(config)
+
+    assert vllm_bundle.tokenizer_loader.calls[-1]["model_id"] == "fake/tokenizer"
+
+
+@pytest.mark.vllm_engine_test
+def test_vllm_judge_engine_uses_judge_tokenizer_override(vllm_bundle, tmp_path) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        judge_path_or_repo_id="fake/judge-model",
+        judge_tokenizer_path_or_repo_id="fake/judge-tokenizer",
+        results_dir=tmp_path,
+    )
+
+    VllmEvalEngine(config, is_judge=True)
+
+    assert vllm_bundle.tokenizer_loader.calls[-1]["model_id"] == "fake/judge-tokenizer"
+
+
+@pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_generate_answers_from_prompts(vllm_bundle, tmp_path) -> None:
     dataset = Dataset.from_dict({"question": ["q1", "q2"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -287,12 +357,8 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
     engine = VllmEvalEngine(config)
     engine.set_dataset(dataset)
 
-    input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
-    attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]])
-
-    responses = engine.generate_answers(
-        input_ids,
-        attention_mask,
+    responses = engine.generate_answers_from_prompts(
+        ["prompt-1", "prompt-2"],
         sampling_config=SamplingConfig(
             do_sample=config.sample,
             temperature=config.sampling_config.temperature,
@@ -302,14 +368,56 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
         ),
     )
     assert responses == ["first", ""]
-    assert vllm_bundle.build_recorder.last_input_ids is input_ids
-    assert vllm_bundle.build_recorder.last_attention_mask is attention_mask
     call_kwargs = vllm_bundle.sampling_recorder.calls[0]
     assert call_kwargs["max_tokens"] == config.max_answer_tokens
     assert call_kwargs["temperature"] == 0.0
     assert call_kwargs["stop_token_ids"] == [vllm_bundle.tokenizer.eos_token_id]
+    model_call = vllm_bundle.outputs_log[-1]
+    assert isinstance(model_call, dict)
+    assert model_call["prompts"] == ["prompt-1", "prompt-2"]
     assert vllm_bundle.tokenizer.pad_token == vllm_bundle.tokenizer.eos_token
     assert engine.get_batch_size() == len(dataset)
+
+
+@pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_formats_message_prompts_before_generation(
+    vllm_bundle, tmp_path, monkeypatch
+) -> None:
+    captured_kwargs: list[dict[str, object]] = []
+
+    def fake_safe_apply_chat_template(_tokenizer, messages, **kwargs):
+        captured_kwargs.append(kwargs)
+        return f"templated::{messages[0]['content']}"
+
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.vllm_eval_engine.safe_apply_chat_template",
+        fake_safe_apply_chat_template,
+    )
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        max_answer_tokens=77,
+        pass_max_answer_tokens=True,
+        reasoning=True,
+    )
+    engine = VllmEvalEngine(config)
+
+    answers = engine.generate_answers_from_prompts(
+        prompts=[
+            [{"role": "user", "content": "hello"}],
+            "already-formatted",
+        ],
+        sampling_config=SamplingConfig(),
+    )
+
+    assert answers == ["first", ""]
+    model_call = vllm_bundle.outputs_log[-1]
+    assert isinstance(model_call, dict)
+    assert model_call["prompts"] == ["templated::hello", "already-formatted"]
+    assert captured_kwargs[-1]["is_multimodal"] is False
+    assert captured_kwargs[-1]["max_answer_tokens"] == 77
+    assert captured_kwargs[-1]["reasoning"] is True
+    assert captured_kwargs[-1]["pass_max_answer_tokens"] is True
 
 
 @pytest.mark.vllm_engine_test
@@ -326,12 +434,8 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
     engine = VllmEvalEngine(config)
     engine.set_dataset(dataset)
 
-    input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
-    attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]])
-
-    responses = engine.generate_answers(
-        input_ids,
-        attention_mask,
+    responses = engine.generate_answers_from_prompts(
+        ["prompt-1", "prompt-2"],
         sampling_config=SamplingConfig(
             do_sample=True,
             temperature=None,
@@ -356,6 +460,8 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
         tokenizer_mode="slow",
         config_format="hf-torch",
         load_format="dummy",
+        max_model_len=8192,
+        judge_max_model_len=4096,
     )
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -370,13 +476,76 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
     assert last_call["tokenizer_mode"] == "slow"
     assert last_call["config_format"] == "hf-torch"
     assert last_call["load_format"] == "dummy"
+    assert last_call["max_model_len"] == 8192
+
+    VllmEvalEngine(config, is_judge=True)
+    judge_call = vllm_bundle.model_loader.calls[-1]["kwargs"]
+    assert judge_call["max_model_len"] == 4096
 
 
 @pytest.mark.transformers_engine_test
-def test_transformers_eval_engine_generate_answers(
+def test_transformers_eval_engine_implements_prompt_interface(
     transformers_bundle, tmp_path
 ) -> None:
-    dataset = Dataset.from_dict({"prompt": ["hi"]})
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+    )
+
+    engine = TransformersEvalEngine(
+        config,
+    )
+
+    assert isinstance(engine, PromptEvalEngine)
+    assert engine.tokenizer.padding_side == "left"
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_uses_model_tokenizer_override(
+    transformers_bundle, tmp_path
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        model_tokenizer_path_or_repo_id="fake/tokenizer",
+        results_dir=tmp_path,
+    )
+
+    TransformersEvalEngine(
+        config,
+    )
+
+    assert (
+        transformers_bundle.loader_stub.calls[-1]["kwargs"]["tokenizer_name_or_path"]
+        == "fake/tokenizer"
+    )
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_judge_engine_uses_judge_tokenizer_override(
+    transformers_bundle, tmp_path
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        judge_path_or_repo_id="fake/judge-model",
+        judge_tokenizer_path_or_repo_id="fake/judge-tokenizer",
+        results_dir=tmp_path,
+    )
+
+    TransformersEvalEngine(
+        config,
+        is_judge=True,
+    )
+
+    assert (
+        transformers_bundle.loader_stub.calls[-1]["kwargs"]["tokenizer_name_or_path"]
+        == "fake/judge-tokenizer"
+    )
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_generate_answers_from_prompts(
+    transformers_bundle, tmp_path
+) -> None:
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
@@ -386,13 +555,8 @@ def test_transformers_eval_engine_generate_answers(
     )
 
     engine = TransformersEvalEngine(
-        transformers_bundle.data_collator,
         config,
     )
-    engine.set_dataset(dataset)
-
-    input_ids = torch.tensor([[5, 6]])
-    attention_mask = torch.tensor([[1, 1]])
     sampling_config = SamplingConfig(
         do_sample=config.sample,
         temperature=0.7,
@@ -400,9 +564,8 @@ def test_transformers_eval_engine_generate_answers(
         top_k=5,
         seed=123,
     )
-    answers = engine.generate_answers(
-        input_ids,
-        attention_mask,
+    answers = engine.generate_answers_from_prompts(
+        ["prompt-a"],
         sampling_config=sampling_config,
     )
 
@@ -431,10 +594,53 @@ def test_transformers_eval_engine_generate_answers(
 
 
 @pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_formats_message_prompts_before_tokenization(
+    transformers_bundle, tmp_path, monkeypatch
+) -> None:
+    captured_kwargs: list[dict[str, object]] = []
+
+    def fake_safe_apply_chat_template(_tokenizer, messages, **kwargs):
+        captured_kwargs.append(kwargs)
+        return f"templated::{messages[0]['content']}"
+
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.transformers_eval_engine.safe_apply_chat_template",
+        fake_safe_apply_chat_template,
+    )
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        max_answer_tokens=99,
+        pass_max_answer_tokens=True,
+        reasoning=True,
+    )
+    engine = TransformersEvalEngine(
+        config,
+    )
+
+    answers = engine.generate_answers_from_prompts(
+        prompts=[
+            [{"role": "user", "content": "hello"}],
+            "already-formatted",
+        ],
+        sampling_config=SamplingConfig(),
+    )
+
+    assert answers == ["decoded", "decoded"]
+    assert transformers_bundle.tokenizer.encode_calls[-1]["texts"] == [
+        "templated::hello",
+        "already-formatted",
+    ]
+    assert captured_kwargs[-1]["is_multimodal"] is False
+    assert captured_kwargs[-1]["max_answer_tokens"] == 99
+    assert captured_kwargs[-1]["reasoning"] is True
+    assert captured_kwargs[-1]["pass_max_answer_tokens"] is True
+
+
+@pytest.mark.transformers_engine_test
 def test_transformers_eval_engine_sampling_config_overrides_defaults(
     transformers_bundle, tmp_path
 ) -> None:
-    dataset = Dataset.from_dict({"prompt": ["hi"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
@@ -444,13 +650,8 @@ def test_transformers_eval_engine_sampling_config_overrides_defaults(
     )
 
     engine = TransformersEvalEngine(
-        transformers_bundle.data_collator,
         config,
     )
-    engine.set_dataset(dataset)
-
-    input_ids = torch.tensor([[7, 8]])
-    attention_mask = torch.tensor([[1, 1]])
     sampling_config = SamplingConfig(
         do_sample=True,
         temperature=None,
@@ -458,9 +659,8 @@ def test_transformers_eval_engine_sampling_config_overrides_defaults(
         top_k=None,
         seed=321,
     )
-    engine.generate_answers(
-        input_ids,
-        attention_mask,
+    engine.generate_answers_from_prompts(
+        ["prompt-a"],
         sampling_config=sampling_config,
     )
     generate_call = transformers_bundle.model.generate_calls[-1]
@@ -484,12 +684,9 @@ def test_transformers_eval_engine_get_batch_size_autotune(
     )
 
     engine = TransformersEvalEngine(
-        transformers_bundle.data_collator,
         config,
     )
     engine.set_dataset(dataset)
     batch_size = engine.get_batch_size()
 
     assert batch_size == len(dataset)
-    assert transformers_bundle.find_recorder.calls == [len(dataset)]
-    assert transformers_bundle.candidate_recorder.calls == [len(dataset)]

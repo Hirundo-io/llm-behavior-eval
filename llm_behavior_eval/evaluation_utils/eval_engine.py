@@ -1,29 +1,25 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Sized
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import torch
-    from datasets import Dataset
-
-    from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
 
 
-class EvalEngine(ABC):
-    @abstractmethod
-    def set_dataset(self, eval_dataset: Dataset) -> None:
-        raise NotImplementedError("Subclasses must implement set_dataset().")
+EvalDataset = Sized
+
+# Canonical type for prompts: either preformatted text or raw messages.
+JudgePrompt = str | list[dict[str, str]]
+
+
+class PromptEvalEngine(ABC):
+    is_judge: bool = False
 
     @abstractmethod
-    def generate_answers(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        sampling_config: SamplingConfig,
-    ) -> list[str]:
-        raise NotImplementedError("Subclasses must implement generate_answers().")
+    def set_dataset(self, eval_dataset: EvalDataset) -> None:
+        raise NotImplementedError("Subclasses must implement set_dataset().")
 
     def ensure_test_model_ready(self) -> None:
         return None
@@ -36,42 +32,68 @@ class EvalEngine(ABC):
     def free_model(self) -> None:
         raise NotImplementedError("Subclasses must implement free_model().")
 
-    @staticmethod
-    def _get_model_path_or_repo_id(
-        eval_config: EvaluationConfig, is_judge: bool
-    ) -> str:
-        """Get the model path based on whether this is a judge model."""
-        return (
-            eval_config.judge_path_or_repo_id
-            if is_judge
-            else eval_config.model_path_or_repo_id
+    def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
+        """
+        Return an optional raw-text truncation callable for tokenizer-free paths.
+
+        Engines that do not provide model-aware truncation should return None.
+        """
+        return None
+
+    def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
+        """
+        Receive dataset preprocessing limits for optional engine-specific use.
+
+        Engines may ignore this information.
+        """
+        del max_length, gt_max_length
+        return None
+
+    def should_combine_judge_prompt_groups(self) -> bool:
+        """
+        Whether grouped judge prompts should be coalesced into one engine call.
+
+        API engines benefit from this to maximize provider-side batching.
+        """
+        return False
+
+    @abstractmethod
+    def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
+        """Format messages into a prompt suitable for this engine."""
+        raise NotImplementedError("Subclasses must implement format_prompt().")
+
+    def normalize_prompts_to_strings(self, prompts: list[JudgePrompt]) -> list[str]:
+        """Normalize mixed prompt inputs into string prompts.
+
+        Tokenizer-backed engines accept either:
+        - preformatted strings, or
+        - message lists that still need formatting via `format_prompt`.
+        """
+        string_prompts: list[str] = []
+        for prompt in prompts:
+            if isinstance(prompt, str):
+                string_prompts.append(prompt)
+                continue
+
+            formatted_prompt = self.format_prompt(prompt)
+            if not isinstance(formatted_prompt, str):
+                raise TypeError(
+                    "Tokenizer-backed engines must format message prompts into strings."
+                )
+            string_prompts.append(formatted_prompt)
+        return string_prompts
+
+    @abstractmethod
+    def generate_answers_from_prompts(
+        self,
+        prompts: list[JudgePrompt],
+        sampling_config: SamplingConfig,
+    ) -> list[str]:
+        """Generate answers from pre-formatted prompts."""
+        raise NotImplementedError(
+            "Subclasses must implement generate_answers_from_prompts()."
         )
 
-    @staticmethod
-    def _get_model_token(eval_config: EvaluationConfig, is_judge: bool) -> str | None:
-        """Get the model token based on whether this is a judge model."""
-        return eval_config.judge_token if is_judge else eval_config.model_token
 
-    @staticmethod
-    def _get_use_4bit(eval_config: EvaluationConfig, is_judge: bool) -> bool:
-        """Get the 4-bit setting based on whether this is a judge model."""
-        return eval_config.use_4bit_judge if is_judge else eval_config.use_4bit
-
-    @staticmethod
-    def _get_batch_size_from_config(
-        eval_config: EvaluationConfig, is_judge: bool
-    ) -> int | None:
-        """Get the estimated batch size from config based on whether this is a judge model."""
-        return eval_config.judge_batch_size if is_judge else eval_config.batch_size
-
-    @staticmethod
-    def _get_sample_from_config(eval_config: EvaluationConfig, is_judge: bool) -> bool:
-        """Get the sample setting from config based on whether this is a judge model."""
-        return eval_config.sample_judge if is_judge else eval_config.sample
-
-    @staticmethod
-    def _get_max_new_tokens(eval_config: EvaluationConfig, is_judge: bool) -> int:
-        """Get the max new tokens setting from config based on whether this is a judge model."""
-        return (
-            eval_config.max_judge_tokens if is_judge else eval_config.max_answer_tokens
-        )
+# Backward-compatible alias for existing imports.
+EvalEngine = PromptEvalEngine
