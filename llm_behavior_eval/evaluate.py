@@ -152,12 +152,22 @@ def main(
     output_dir: Annotated[
         Path | None,
         typer.Option(
-            "--output-dir",
+            "--base-output-dir",
             help=(
                 "Output directory for evaluation results (optional). "
                 "Defaults to: macOS ~/Library/Application Support/llm-behavior-eval/results; "
                 "Linux $XDG_DATA_HOME/llm-behavior-eval/results (or ~/.local/share/llm-behavior-eval/results); "
                 "Windows %LOCALAPPDATA%\\llm-behavior-eval\\results."
+            ),
+        ),
+    ] = None,
+    model_output_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--model-output-dir",
+            help=(
+                "Override the model output directory name used under --base-output-dir. "
+                "By default this is derived from the model (and LoRA, if provided)."
             ),
         ),
     ] = None,
@@ -476,6 +486,7 @@ def main(
 
     eval_config = EvaluationConfig(
         model_path_or_repo_id=model_path_or_repo_id,
+        model_output_dir=model_output_dir,
         model_token=model_token,
         lora_path_or_repo_id=lora_path_or_repo_id,
         judge_path_or_repo_id=judge_path_or_repo_id,

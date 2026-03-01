@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from inspect import Parameter, signature
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 import torch
 from transformers.models.auto.configuration_auto import AutoConfig
@@ -490,6 +490,33 @@ def load_transformers_model_and_tokenizer(
     return tokenizer, model
 
 
+def check_mlflow_url(
+    parsed_url: ParseResult, mlflow_tracking_uri: str | None
+) -> tuple[bool, str | None]:
+    """
+    Check if the URL is an MLflow URL.
+
+    Args:
+        parsed_url: The parsed URL.
+        mlflow_tracking_uri: The MLflow tracking URI.
+
+    Returns:
+        A tuple containing a boolean indicating if the URL is an MLflow URL and the run ID.
+    """
+    run_id = None
+    tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
+    is_mlflow_scheme = parsed_url.scheme.lower() == "mlflow"
+    if is_mlflow_scheme:
+        run_id = parsed_url.netloc
+    elif not is_mlflow_scheme and tracking_uri:
+        tracking_parsed = urlparse(tracking_uri)
+        adapter_scheme_netloc = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        tracking_scheme_netloc = f"{tracking_parsed.scheme}://{tracking_parsed.netloc}"
+        is_mlflow_scheme = adapter_scheme_netloc == tracking_scheme_netloc
+        run_id = parsed_url.path.split("/")[-1]
+    return is_mlflow_scheme, run_id
+
+
 def maybe_download_adapter(
     adapter_ref: str,
     cache_dir: str | None = None,
@@ -549,13 +576,7 @@ def maybe_download_adapter(
     digest_path.mkdir(parents=True, exist_ok=True)
 
     tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
-    is_mlflow_url = scheme == "mlflow"
-    if not is_mlflow_url and tracking_uri:
-        # Check if scheme+netloc match the MLflow tracking URI
-        tracking_parsed = urlparse(tracking_uri)
-        adapter_scheme_netloc = f"{parsed_url.scheme}://{parsed_url.netloc}"
-        tracking_scheme_netloc = f"{tracking_parsed.scheme}://{tracking_parsed.netloc}"
-        is_mlflow_url = adapter_scheme_netloc == tracking_scheme_netloc
+    is_mlflow_url, run_id = check_mlflow_url(parsed_url, tracking_uri)
 
     if is_mlflow_url:
         try:
@@ -566,9 +587,6 @@ def maybe_download_adapter(
                 "mlflow is required for mlflow:// refs. Install: [uv] pip install mlflow"
             ) from mlflow_exception
 
-        run_id = (
-            parsed_url.netloc if scheme == "mlflow" else parsed_url.path.split("/")[-1]
-        )
         if not run_id:
             raise ValueError(f"Invalid mlflow ref (missing run id): {adapter_ref!r}")
 
@@ -685,6 +703,35 @@ def maybe_download_adapter(
             shutil.copyfileobj(remote_file, local_file)
 
     return str(digest_path)
+
+
+def get_lora_slug(adapter_ref: str, mlflow_tracking_uri: str | None = None) -> str:
+    """Build a stable slug for a LoRA adapter from its reference.
+
+    Args:
+        adapter_ref: Adapter reference (path, ``mlflow://<run_id>``, or tracking URI URL).
+        mlflow_tracking_uri: Optional MLflow tracking URI used to recognize MLflow run URLs.
+
+    - For MLflow run refs (e.g. ``mlflow://<run_id>`` or a matching tracking URI URL),
+      returns ``adapter_<run_id>``.
+    - For any other reference (path or URL), returns ``adapter_<hash>`` using a
+      BLAKE2b hash of the reference.
+    """
+    adapter_ref = adapter_ref.strip()
+    if not adapter_ref:
+        raise ValueError("adapter_ref must be a non-empty string")
+
+    parsed_url = urlparse(adapter_ref, allow_fragments=False)
+
+    is_mlflow_url, run_id = check_mlflow_url(parsed_url, mlflow_tracking_uri)
+
+    if is_mlflow_url and run_id:
+        return f"adapter_{run_id}"
+
+    digest = hashlib.blake2b(
+        adapter_ref.encode("utf-8"), digest_size=DIGEST_SIZE_FOR_PEFT_PATHS
+    ).hexdigest()
+    return f"adapter_{digest}"
 
 
 def config_to_dict(obj_to_convert: BaseModel, keys: list[str]) -> dict[str, Any]:
