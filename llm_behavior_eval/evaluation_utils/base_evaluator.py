@@ -152,6 +152,11 @@ class BaseEvaluator(ABC):
         return tokenizer
 
     def get_model_slug(self) -> str:
+        """Get the slug for the model, used for building output directories
+
+        Returns:
+            The slug for the model.
+        """
         if self.eval_config.model_output_dir:
             return self.eval_config.model_output_dir
 
@@ -166,6 +171,11 @@ class BaseEvaluator(ABC):
         return model_slug
 
     def get_dataset_slug(self) -> str:
+        """Get the slug for the dataset, used for building output structures (directories and mlflow runs)
+
+        Returns:
+            The slug for the dataset.
+        """
         return self.dataset_config.file_path.split("/")[-1]
 
     def get_output_dir(self) -> Path:
@@ -173,6 +183,9 @@ class BaseEvaluator(ABC):
         Compute the output directory used for this evaluation run.
 
         Uses a consistent convention and ensures the directory exists.
+
+        Returns:
+            The output directory.
         """
         model_slug = self.get_model_slug()
         dataset_slug = self.get_dataset_slug()

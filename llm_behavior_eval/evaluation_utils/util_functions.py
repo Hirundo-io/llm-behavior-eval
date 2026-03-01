@@ -490,6 +490,33 @@ def load_transformers_model_and_tokenizer(
     return tokenizer, model
 
 
+def check_mlflow_url(
+    parsed_url: ParseResult, mlflow_tracking_uri: str | None
+) -> tuple[bool, str | None]:
+    """
+    Check if the URL is an MLflow URL.
+
+    Args:
+        parsed_url: The parsed URL.
+        mlflow_tracking_uri: The MLflow tracking URI.
+
+    Returns:
+        A tuple containing a boolean indicating if the URL is an MLflow URL and the run ID.
+    """
+    run_id = None
+    tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
+    is_mlflow_scheme = parsed_url.scheme.lower() == "mlflow"
+    if is_mlflow_scheme:
+        run_id = parsed_url.netloc
+    elif not is_mlflow_scheme and tracking_uri:
+        tracking_parsed = urlparse(tracking_uri)
+        adapter_scheme_netloc = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        tracking_scheme_netloc = f"{tracking_parsed.scheme}://{tracking_parsed.netloc}"
+        is_mlflow_scheme = adapter_scheme_netloc == tracking_scheme_netloc
+        run_id = parsed_url.path.split("/")[-1]
+    return is_mlflow_scheme, run_id
+
+
 def maybe_download_adapter(
     adapter_ref: str,
     cache_dir: str | None = None,
@@ -678,37 +705,17 @@ def maybe_download_adapter(
     return str(digest_path)
 
 
-def check_mlflow_url(
-    parsed_url: ParseResult, mlflow_tracking_uri: str | None
-) -> tuple[bool, str | None]:
-    tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
-    is_mlflow_url = parsed_url.scheme.lower() == "mlflow"
-    if not is_mlflow_url and tracking_uri:
-        tracking_parsed = urlparse(tracking_uri)
-        adapter_scheme_netloc = f"{parsed_url.scheme}://{parsed_url.netloc}"
-        tracking_scheme_netloc = f"{tracking_parsed.scheme}://{tracking_parsed.netloc}"
-        is_mlflow_url = adapter_scheme_netloc == tracking_scheme_netloc
-
-    run_id = None
-    if is_mlflow_url:
-        run_id = (
-            parsed_url.netloc
-            if parsed_url.scheme.lower() == "mlflow"
-            else parsed_url.path.split("/")[-1]
-        )
-    return is_mlflow_url, run_id
-
-
 def get_lora_slug(adapter_ref: str, mlflow_tracking_uri: str | None = None) -> str:
-    """
-    Create a stable LoRA slug from an adapter reference.
+    """Build a stable slug for a LoRA adapter from its reference.
 
-    If `adapter_ref` is an MLflow run reference (either `mlflow://<run_id>` or an
-    HTTP(S) URL whose scheme+netloc matches the MLflow tracking URI), return:
-      `adapter_<run_id>`
+    Args:
+        adapter_ref: Adapter reference (path, ``mlflow://<run_id>``, or tracking URI URL).
+        mlflow_tracking_uri: Optional MLflow tracking URI used to recognize MLflow run URLs.
 
-    Otherwise, return:
-      `adapter_<hash_of_adapter_ref>`
+    - For MLflow run refs (e.g. ``mlflow://<run_id>`` or a matching tracking URI URL),
+      returns ``adapter_<run_id>``.
+    - For any other reference (path or URL), returns ``adapter_<hash>`` using a
+      BLAKE2b hash of the reference.
     """
     adapter_ref = adapter_ref.strip()
     if not adapter_ref:

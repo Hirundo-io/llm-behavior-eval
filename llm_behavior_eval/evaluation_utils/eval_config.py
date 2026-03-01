@@ -73,6 +73,14 @@ class EvaluationConfig(BaseModel):
     @field_validator("model_output_dir")
     @classmethod
     def validate_model_output_dir(cls, value: str | None) -> str | None:
+        """Validate the model output directory to avoid path traversal attacks and illegal characters.
+
+        Args:
+            value: The model output directory.
+
+        Returns:
+            The validated model output directory.
+        """
         if value is None:
             return None
 
