@@ -62,7 +62,7 @@ gcs = [
 dev = [
   "ruff>=0.11.11,<1.0.0",
   "bumpver>=2024.1130",
-  "basedpyright>=1.31.6",
+  "ty>=0.0.1a13",
   "pytest>=8.3.5",
   "pre-commit>=4.3.0",
   "llm-behavior-eval[mlflow,vllm,gcs]",
@@ -123,6 +123,3 @@ unfixable = ["F401"]
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["S"]
 "hirundo_notion_tools/test_*.py" = ["S"]
-
-[tool.pyright]
-typeCheckingMode = "standard"

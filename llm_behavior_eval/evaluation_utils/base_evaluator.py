@@ -50,16 +50,64 @@ class SamplingParamsProtocol(Protocol):
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
 
+class MlflowRunInfoProtocol(Protocol):
+    run_id: str
+
+
+class MlflowRunProtocol(Protocol):
+    info: MlflowRunInfoProtocol
+
+
+class MlflowModuleProtocol(Protocol):
+    def log_param(self, key: str, value: Any) -> None: ...
+
+    def end_run(self, status: str) -> None: ...
+
+    def set_tracking_uri(self, uri: str) -> None: ...
+
+    def set_experiment(self, experiment_name: str) -> None: ...
+
+    def active_run(self) -> MlflowRunProtocol | None: ...
+
+    def start_run(
+        self, run_name: str | None = None, nested: bool = False
+    ) -> MlflowRunProtocol: ...
+
+    def log_params(self, params: dict[str, Any]) -> None: ...
+
+    def log_metrics(self, metrics: dict[str, Any]) -> None: ...
+
+    def log_artifact(self, local_path: str) -> None: ...
+
+
+class MlflowRunStatusProtocol(Protocol):
+    FAILED: Any
+    FINISHED: Any
+
+    @staticmethod
+    def to_string(status: Any) -> str: ...
+
+
 # Optional MLflow imports
 try:
-    import mlflow
+    import mlflow as imported_mlflow
 except ImportError:
-    mlflow = None
+    mlflow: MlflowModuleProtocol | None = None
+else:
+    mlflow = imported_mlflow
 
 try:
-    from mlflow.entities import RunStatus
+    from mlflow.entities import RunStatus as ImportedRunStatus
 except ImportError:
-    RunStatus = None
+    RunStatus: MlflowRunStatusProtocol | None = None
+else:
+    RunStatus = ImportedRunStatus
+
+
+def _get_mlflow_client() -> MlflowModuleProtocol:
+    if mlflow is None:
+        raise RuntimeError("MLflow is required but is not installed.")
+    return cast("MlflowModuleProtocol", mlflow)
 
 
 def custom_collator(batch):
@@ -141,7 +189,8 @@ class BaseEvaluator(ABC):
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
         if self.eval_config.mlflow_config and mlflow:
-            mlflow.log_param("num_samples_evaluated", self.num_samples)
+            mlflow_client = _get_mlflow_client()
+            mlflow_client.log_param("num_samples_evaluated", self.num_samples)
 
         self._ensure_run_configuration_allowed()
 
@@ -504,18 +553,22 @@ class BaseEvaluator(ABC):
         Args:
             error: Flag indicating if the evaluation failed. If True, the run is marked as FAILED, otherwise FINISHED.
         """
-        if mlflow and mlflow.active_run():
-            active_run = mlflow.active_run()
-            run_id = active_run.info.run_id if active_run else None
-            if RunStatus is not None:
+        if mlflow:
+            mlflow_client = _get_mlflow_client()
+            active_run = mlflow_client.active_run()
+            if active_run is None:
+                return
+            run_id = active_run.info.run_id
+            run_status = cast("MlflowRunStatusProtocol | None", RunStatus)
+            if run_status is not None:
                 status = (
-                    RunStatus.to_string(RunStatus.FAILED)
+                    run_status.to_string(run_status.FAILED)
                     if error
-                    else RunStatus.to_string(RunStatus.FINISHED)
+                    else run_status.to_string(run_status.FINISHED)
                 )
             else:
                 status = "FAILED" if error else "FINISHED"
-            mlflow.end_run(status=status)
+            mlflow_client.end_run(status=status)
             logging.info(f"Ended MLflow run {run_id}")
 
     # Hook: override in subclasses that want the dataset type in the output dir name
@@ -538,17 +591,19 @@ class BaseEvaluator(ABC):
                 "MLFlow main run already initialized, cannot initialize another one. Did you mean to launch a dataset run?"
             )
 
+        mlflow_client = _get_mlflow_client()
+
         if self.mlflow_config.mlflow_tracking_uri:
-            mlflow.set_tracking_uri(self.mlflow_config.mlflow_tracking_uri)
+            mlflow_client.set_tracking_uri(self.mlflow_config.mlflow_tracking_uri)
 
         # Set experiment
         if self.mlflow_config.mlflow_experiment_name:
-            mlflow.set_experiment(self.mlflow_config.mlflow_experiment_name)
+            mlflow_client.set_experiment(self.mlflow_config.mlflow_experiment_name)
 
         # Generate run name if not specified
         model_slug = self.get_model_slug()
 
-        active_run = mlflow.active_run()
+        active_run = mlflow_client.active_run()
         if active_run is not None:
             logging.warning(
                 f"Using existing active run {active_run.info.run_id} as main run"
@@ -558,11 +613,11 @@ class BaseEvaluator(ABC):
             # Set up parent run with model slug name only
             run_name = self.mlflow_config.mlflow_run_name or f"{model_slug}"
             # Start MLflow parent run
-            self.mlflow_run = mlflow.start_run(run_name=run_name)
+            self.mlflow_run = mlflow_client.start_run(run_name=run_name)
             self.parent_run = self.mlflow_run
             logging.info(f"Started MLflow main run: {run_name}")
 
-        mlflow.log_params(
+        mlflow_client.log_params(
             config_to_dict(
                 self.eval_config,
                 [
@@ -602,9 +657,12 @@ class BaseEvaluator(ABC):
                         "Main MLFlow run not found, cannot launch dataset run before initializing MLFlow"
                     )
 
-                self.mlflow_run = mlflow.start_run(run_name=run_name, nested=True)
+                mlflow_client = _get_mlflow_client()
+                self.mlflow_run = mlflow_client.start_run(
+                    run_name=run_name, nested=True
+                )
                 logging.info(f"Started MLflow dataset run: {run_name}")
-                mlflow.log_params(
+                mlflow_client.log_params(
                     config_to_dict(
                         self.dataset_config, ["file_path", "dataset_type", "seed"]
                     )
@@ -625,13 +683,15 @@ class BaseEvaluator(ABC):
         """Log evaluation metrics to MLflow."""
         if not self.eval_config.mlflow_config or not mlflow:
             return
-        mlflow.log_metrics(metrics)
+        mlflow_client = _get_mlflow_client()
+        mlflow_client.log_metrics(metrics)
 
     def _log_mlflow_artifacts(self) -> None:
         """Log evaluation artifacts (responses, metrics files) to MLflow."""
         if not self.eval_config.mlflow_config or not mlflow:
             return
 
+        mlflow_client = _get_mlflow_client()
         output_dir = self.get_output_dir()
 
         # Log individual files
@@ -640,11 +700,11 @@ class BaseEvaluator(ABC):
         generations_file = output_dir / "generations.jsonl"
 
         if responses_file.exists():
-            mlflow.log_artifact(str(responses_file))
+            mlflow_client.log_artifact(str(responses_file))
         if metrics_file.exists():
-            mlflow.log_artifact(str(metrics_file))
+            mlflow_client.log_artifact(str(metrics_file))
         if generations_file.exists():
-            mlflow.log_artifact(str(generations_file))
+            mlflow_client.log_artifact(str(generations_file))
 
     def run_config_path(self) -> Path:
         return self.get_output_dir() / "run_config.json"
