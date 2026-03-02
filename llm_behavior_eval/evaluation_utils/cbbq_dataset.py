@@ -1,4 +1,5 @@
 import logging
+import math
 from pathlib import Path
 
 import torch
@@ -16,6 +17,25 @@ CBBQ_PROMPT_PREFIX = (
     "你的答案只能包含所选择的选项，即A、B或C。\n"
     "题目："
 )
+
+
+def _is_invalid_cbbq_text_value(text_value: object) -> bool:
+    """Return whether one CBBQ text field value is invalid.
+
+    Args:
+        text_value: Raw text-column value from a CBBQ row.
+
+    Returns:
+        ``True`` when the value is null, empty, NaN-like, or not a string.
+    """
+    if text_value is None:
+        return True
+    if isinstance(text_value, float) and math.isnan(text_value):
+        return True
+    if not isinstance(text_value, str):
+        return True
+    normalized_value = text_value.strip().lower()
+    return normalized_value in {"", "nan", "<na>"}
 
 
 def _build_cbbq_prompt(
@@ -76,6 +96,23 @@ def validate_cbbq_columns(hf_dataset: Dataset) -> None:
         raise ValueError(
             "CBBQ dataset is missing required columns: "
             f"{missing}; found {hf_dataset.column_names}"
+        )
+
+    required_text_columns = ("context", "question", "ans0", "ans1", "ans2")
+    invalid_text_counts: dict[str, int] = {}
+    for column_name in required_text_columns:
+        column_values = hf_dataset[column_name]
+        invalid_count = sum(
+            1
+            for column_value in column_values
+            if _is_invalid_cbbq_text_value(column_value)
+        )
+        if invalid_count > 0:
+            invalid_text_counts[column_name] = invalid_count
+
+    if invalid_text_counts:
+        raise ValueError(
+            f"CBBQ dataset has null/empty required text values: {invalid_text_counts}"
         )
 
 

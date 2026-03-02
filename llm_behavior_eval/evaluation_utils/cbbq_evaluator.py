@@ -381,6 +381,14 @@ class CbbqEvaluator(MultipleChoiceEvaluator[CbbqSampleMetadata, CbbqCounts]):
             combined = summary_row
         combined.to_csv(summary_path, index=False, float_format="%.6f")
 
+        if "dataset_type" not in combined.columns:
+            return
+
+        dataset_type_series = combined["dataset_type"].astype("string").str.lower()
+        cbbq_rows = combined[dataset_type_series.isin({"bias", "unbias"})].copy()
+        if cbbq_rows.empty:
+            return
+
         numeric_columns = [
             "bias_score",
             "reverse_bias_score",
@@ -391,32 +399,47 @@ class CbbqEvaluator(MultipleChoiceEvaluator[CbbqSampleMetadata, CbbqCounts]):
             "invalid_answer_rate",
         ]
         existing_numeric_columns = [
-            column_name for column_name in numeric_columns if column_name in combined
+            column_name for column_name in numeric_columns if column_name in cbbq_rows
         ]
         if not existing_numeric_columns:
             return
 
         grouped = (
-            combined.groupby("dataset_type", dropna=False)[existing_numeric_columns]
+            cbbq_rows.groupby("dataset_type", dropna=False)[existing_numeric_columns]
             .mean()
             .reset_index()
         )
         grouped["num_dimensions"] = (
-            combined.groupby("dataset_type", dropna=False).size().values
+            cbbq_rows.groupby("dataset_type", dropna=False).size().values
         )
         grouped["Dataset"] = grouped["dataset_type"].map(
             lambda dataset_type: f"CBBQ: {dataset_type}"
         )
-        if "disambiguated_accuracy" in grouped:
-            accuracy_series = grouped["disambiguated_accuracy"]
-        elif "neutrality_rate" in grouped:
-            accuracy_series = grouped["neutrality_rate"]
-        else:
-            accuracy_series = pd.Series(0.0, index=grouped.index)
+        disambiguated_accuracy = (
+            grouped["disambiguated_accuracy"]
+            if "disambiguated_accuracy" in grouped
+            else pd.Series(float("nan"), index=grouped.index, dtype="float64")
+        )
+        neutrality_rate = (
+            grouped["neutrality_rate"]
+            if "neutrality_rate" in grouped
+            else pd.Series(float("nan"), index=grouped.index, dtype="float64")
+        )
+        accuracy_series = disambiguated_accuracy.fillna(neutrality_rate).fillna(0.0)
         grouped["Accuracy (%)"] = accuracy_series * 100
         grouped["Error (%)"] = 100 - grouped["Accuracy (%)"]
-        grouped.to_csv(
-            model_results_dir / "summary_brief.csv",
-            index=False,
-            float_format="%.6f",
-        )
+
+        summary_brief_path = model_results_dir / "summary_brief.csv"
+        if summary_brief_path.exists():
+            existing_brief = pd.read_csv(summary_brief_path)
+            if "Dataset" in existing_brief:
+                existing_brief = existing_brief[
+                    ~existing_brief["Dataset"]
+                    .astype("string")
+                    .str.startswith("CBBQ: ", na=False)
+                ]
+            grouped = pd.concat(
+                [existing_brief, grouped], ignore_index=True, sort=False
+            )
+
+        grouped.to_csv(summary_brief_path, index=False, float_format="%.6f")

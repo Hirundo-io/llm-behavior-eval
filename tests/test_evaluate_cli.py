@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 import llm_behavior_eval.evaluate as evaluate
-from llm_behavior_eval import DatasetConfig, EvaluationConfig
+from llm_behavior_eval import DatasetConfig, DatasetType, EvaluationConfig
 from llm_behavior_eval.evaluation_utils.enums import AnswerFormat
 
 if TYPE_CHECKING:
@@ -411,6 +411,13 @@ def test_main_maps_cbbq_unbias_behavior_to_dataset_config(
     )
     assert captured.dataset_config.dataset_type.value == "unbias"
     assert captured.dataset_config.answer_format == AnswerFormat.MULTIPLE_CHOICE
+
+
+def test_infer_dataset_type_treats_disambiguous_as_unbias() -> None:
+    dataset_type = evaluate._infer_dataset_type(
+        "/tmp/cbbq/gender/disambiguous/disambiguous.csv"
+    )
+    assert dataset_type == DatasetType.UNBIAS
 
 
 def test_main_accepts_uppercase_cbbq_bias_type(

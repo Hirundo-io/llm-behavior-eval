@@ -145,6 +145,51 @@ def test_cbbq_finalize_artifacts_writes_summary_contract(tmp_path) -> None:
     assert {"Dataset", "Accuracy (%)", "Error (%)"} <= set(overall_df.columns)
     assert "disambiguated_accuracy" in overall_df.columns
     assert "accuracy" not in overall_df.columns
+    bias_row = overall_df.loc[overall_df["dataset_type"] == "bias"].iloc[0]
+    assert bias_row["Accuracy (%)"] == 10.0
+    assert bias_row["Error (%)"] == 90.0
+    unbias_row = overall_df.loc[overall_df["dataset_type"] == "unbias"].iloc[0]
+    assert unbias_row["Accuracy (%)"] == 70.0
+    assert unbias_row["Error (%)"] == 30.0
+
+
+def test_cbbq_finalize_artifacts_preserves_non_cbbq_summary_rows(tmp_path) -> None:
+    evaluator = object.__new__(CbbqEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="fake-org/fake-model",
+        results_dir=tmp_path,
+    )
+
+    model_dir = tmp_path / "fake-model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [
+            {
+                "Dataset": "halueval",
+                "Accuracy (%) ⬆️": 85.0,
+            }
+        ]
+    ).to_csv(model_dir / "summary_brief.csv", index=False)
+
+    evaluator.finalize_artifacts(
+        {
+            "dimension_id": "gender",
+            "dimension_label": "Gender",
+            "dataset_type": "bias",
+            "bias_score": 0.1,
+            "reverse_bias_score": 0.2,
+            "neutrality_rate": 0.6,
+            "neutrality_error_rate": 0.4,
+            "invalid_answer_rate": 0.0,
+            "invalid_responses": 0.0,
+            "num_samples": 10.0,
+            "num_samples_evaluated": 10.0,
+        }
+    )
+
+    overall_df = pd.read_csv(model_dir / "summary_brief.csv")
+    assert "halueval" in set(overall_df["Dataset"])
+    assert "CBBQ: bias" in set(overall_df["Dataset"])
 
 
 def test_cbbq_evaluator_does_not_mutate_input_eval_config(

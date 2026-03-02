@@ -188,7 +188,21 @@ def _behavior_presets(behavior: str) -> list[str]:
 
 
 def _infer_dataset_type(file_path: str) -> DatasetType:
-    if "-unbias-" in file_path:
+    """Infer dataset type from canonical dataset id/path markers.
+
+    Args:
+        file_path: Dataset identifier or local path token.
+
+    Returns:
+        ``DatasetType.UNBIAS`` when the path encodes an unbias/disambiguated split,
+        otherwise ``DatasetType.BIAS``.
+    """
+    normalized_path = file_path.lower()
+    if (
+        "-unbias-" in normalized_path
+        or "disambiguous" in normalized_path
+        or "disambiguated" in normalized_path
+    ):
         return DatasetType.UNBIAS
     return DatasetType.BIAS
 
