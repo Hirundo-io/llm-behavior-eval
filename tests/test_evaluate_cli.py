@@ -37,12 +37,19 @@ class _StubEvaluator:
     def dataset_mlflow_run(self, run_name: str | None = None) -> AbstractContextManager:
         return nullcontext()
 
-    def grade(
+    def _grade_impl(
         self,
         generations: Sequence[_GenerationRecord],
         judge_engine: EvalEngine | None = None,
     ) -> None:
         return None
+
+    def grade(
+        self,
+        generations: Sequence[_GenerationRecord],
+        judge_engine: EvalEngine | None = None,
+    ) -> None:
+        self._grade_impl(generations, judge_engine)
 
     def cleanup(self, error: bool = False) -> None:
         return None
