@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from datasets import Dataset, DatasetDict, load_dataset
-from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from .dataset_config import PreprocessConfig
 from .enums import DatasetType
@@ -215,40 +214,23 @@ class CustomDataset:
 
     def preprocess(
         self,
-        tokenizer: PreTrainedTokenizerBase | None,
         preprocess_config: PreprocessConfig,
-        trust_remote_code: bool = False,
-        max_answer_tokens: int | None = None,
-        reasoning: bool = False,
-        pass_max_answer_tokens: bool = False,
-        token: str | None = None,
+        *,
         raw_text_truncator: Callable[[str, int], str] | None = None,
     ) -> Dataset:
         """
         Preprocess custom datasets into raw message/text fields.
 
         This path is raw-text only and is consumed by eval engines that format/tokenize
-        prompts at generation time. Unused tokenizer-era parameters are retained for
-        call-site compatibility within this PR scope.
+        prompts at generation time.
 
         Args:
-            tokenizer: Unused; retained for compatibility.
             preprocess_config: Configuration for preprocessing the dataset.
-            trust_remote_code: Unused; retained for compatibility.
-            max_answer_tokens: Unused; retained for compatibility.
-            reasoning: Unused; retained for compatibility.
-            pass_max_answer_tokens: Unused; retained for compatibility.
-            token: Unused; retained for compatibility.
+            raw_text_truncator: Optional text truncator injected by eval engine.
 
         Returns:
             A test dataset with raw message and text fields.
         """
-        del tokenizer
-        del trust_remote_code
-        del max_answer_tokens
-        del reasoning
-        del pass_max_answer_tokens
-        del token
 
         validate_dataset_columns(self.ds)
         old_columns = self.ds.column_names

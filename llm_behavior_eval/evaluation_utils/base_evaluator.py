@@ -199,7 +199,7 @@ class BaseEvaluator(ABC):
         messages: list[dict[str, str]],
         *,
         judge_engine: PromptEvalEngine | None = None,
-        is_multimodal: bool = False,
+        is_multimodal: bool | None = None,
         max_answer_tokens: int | None = None,
         reasoning: bool | None = None,
         pass_max_answer_tokens: bool | None = None,
@@ -224,10 +224,15 @@ class BaseEvaluator(ABC):
             if max_answer_tokens is None
             else max_answer_tokens
         )
+        resolved_is_multimodal = (
+            getattr(judge_engine, "is_multimodal", False)
+            if is_multimodal is None
+            else is_multimodal
+        )
         return safe_apply_chat_template(
             judge_tokenizer,
             messages,
-            is_multimodal=is_multimodal,
+            is_multimodal=resolved_is_multimodal,
             max_answer_tokens=resolved_max_answer_tokens,
             reasoning=resolved_reasoning,
             pass_max_answer_tokens=resolved_pass_max_answer_tokens,
@@ -290,24 +295,15 @@ class BaseEvaluator(ABC):
         custom_dataset = CustomDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
-        tokenizer = None
         self.data_collator = raw_text_collator
         preprocess_config = self.dataset_config.preprocess_config
-        raw_text_truncator = None
         self.eval_engine.set_preprocess_limits(
             preprocess_config.max_length,
             preprocess_config.gt_max_length,
         )
-        raw_text_truncator = self.eval_engine.get_raw_text_truncator()
         test_dataset = custom_dataset.preprocess(
-            tokenizer,
             preprocess_config,
-            trust_remote_code=self.trust_remote_code,
-            max_answer_tokens=self.eval_config.max_answer_tokens,
-            reasoning=self.eval_config.reasoning,
-            pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
-            token=self.eval_config.model_token,
-            raw_text_truncator=raw_text_truncator,
+            raw_text_truncator=self.eval_engine.get_raw_text_truncator(),
         )
         # Deterministic shuffle before sampling
         test_dataset = test_dataset.shuffle(seed=self._resolved_dataset_shuffle_seed())

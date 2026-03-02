@@ -51,12 +51,6 @@ class CaptureState:
     shuffle_seed: int | None = None
     select_indices: list[int] | None = None
     dataloader_args: tuple[Sized, int, bool, Callable[..., object] | None] | None = None
-    tokenizer: object | None = None
-    trust_remote_code: bool | None = None
-    max_answer_tokens: int | None = None
-    reasoning: bool | None = None
-    pass_max_answer_tokens: bool | None = None
-    token: str | None = None
     preprocess_limits: tuple[int, int] | None = None
     preprocess_limit_calls: list[tuple[bool, int, int]] = field(default_factory=list)
     raw_text_truncator: object | None = None
@@ -196,22 +190,10 @@ def patch_custom_dataset(
 
         def preprocess(
             self,
-            tokenizer: StubTokenizer | None,
             _preprocess_config: object,
             *,
-            trust_remote_code: bool,
-            max_answer_tokens: int | None,
-            reasoning: bool,
-            pass_max_answer_tokens: bool,
-            token: str | None = None,
             raw_text_truncator: object = None,
         ) -> StubDataset:
-            capture_state.tokenizer = tokenizer
-            capture_state.trust_remote_code = trust_remote_code
-            capture_state.max_answer_tokens = max_answer_tokens
-            capture_state.reasoning = reasoning
-            capture_state.pass_max_answer_tokens = pass_max_answer_tokens
-            capture_state.token = token
             capture_state.raw_text_truncator = raw_text_truncator
             return StubDataset()
 
@@ -268,9 +250,7 @@ def test_prepare_dataloader_uses_prompt_preprocessing_for_transformers_engine(
 
     evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
 
-    assert capture_state.tokenizer is None
     assert evaluator.tokenizer is None
-    assert capture_state.trust_remote_code == evaluation_config.trust_remote_code
     assert capture_state.preprocess_limits == (
         dataset_config_instance.preprocess_config.max_length,
         dataset_config_instance.preprocess_config.gt_max_length,
@@ -303,7 +283,6 @@ def test_prepare_dataloader_api_model_uses_raw_collator(
 
     evaluator = ConcreteEvaluator(evaluation_config, dataset_config_instance)
 
-    assert capture_state.tokenizer is None
     assert evaluator.tokenizer is None
     assert capture_state.preprocess_limits == (
         dataset_config_instance.preprocess_config.max_length,
@@ -432,8 +411,6 @@ def test_api_model_reuses_eval_dataset_for_judge_with_prompt_pipeline(
         assert is_judge is True
         assert dataset is evaluator.eval_dataset
 
-    assert capture_state.tokenizer is None
-    assert capture_state.token == "model-token"
     assert load_calls == []
 
 
@@ -474,22 +451,10 @@ def test_update_dataset_config_restores_dataset_state_in_judge_context(
 
         def preprocess(
             self,
-            tokenizer: StubTokenizer | None,
             _preprocess_config: object,
             *,
-            trust_remote_code: bool,
-            max_answer_tokens: int | None,
-            reasoning: bool,
-            pass_max_answer_tokens: bool,
-            token: str | None = None,
             raw_text_truncator: object = None,
         ) -> StubDataset:
-            del tokenizer
-            del trust_remote_code
-            del max_answer_tokens
-            del reasoning
-            del pass_max_answer_tokens
-            del token
             del raw_text_truncator
             return StubDataset(self.file_path)
 
@@ -1471,6 +1436,79 @@ def test_format_judge_messages_uses_explicit_judge_engine_tokenizer(
     assert tokenizer_load_calls == []
 
 
+def test_format_judge_messages_uses_judge_engine_multimodal_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: list[dict[str, object]] = []
+
+    def fake_apply_chat_template(_tokenizer, _messages, **kwargs):
+        captured_kwargs.append(kwargs)
+        return "formatted"
+
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "safe_apply_chat_template",
+        fake_apply_chat_template,
+    )
+
+    class StubEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def grade(
+            self,
+            generations: Sequence[_GenerationRecord],
+            judge_engine: PromptEvalEngine | None = None,
+        ) -> None:
+            del generations, judge_engine
+            return None
+
+    class StubJudge(PromptEvalEngine):
+        def __init__(self) -> None:
+            self.tokenizer = StubTokenizer()
+            self.is_multimodal = True
+
+        def set_dataset(self, eval_dataset: Sized) -> None:
+            del eval_dataset
+
+        def get_batch_size(self) -> int:
+            return 1
+
+        def free_model(self) -> None:
+            return None
+
+        def format_prompt(self, messages: list[dict[str, str]]):
+            return messages
+
+        def generate_answers_from_prompts(self, prompts, sampling_config):
+            del prompts, sampling_config
+            return []
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        judge_path_or_repo_id="meta/judge",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = StubEvaluator(evaluation_config, dataset_config_instance)
+
+    formatted = evaluator.format_judge_messages(
+        [{"role": "user", "content": "ping"}],
+        judge_engine=cast("PromptEvalEngine", StubJudge()),
+    )
+
+    assert formatted == "formatted"
+    assert captured_kwargs[-1]["is_multimodal"] is True
+
+
 def test_prepare_judge_tokenizer_after_free_judge_does_not_raise(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1555,22 +1593,10 @@ def test_grading_context_preserves_sampling_seed_without_dataset_rebuild(
 
         def preprocess(
             self,
-            tokenizer: StubTokenizer | None,
             _preprocess_config: object,
             *,
-            trust_remote_code: bool,
-            max_answer_tokens: int | None,
-            reasoning: bool,
-            pass_max_answer_tokens: bool,
-            token: str | None = None,
             raw_text_truncator: object = None,
         ) -> StubDataset:
-            del tokenizer
-            del trust_remote_code
-            del max_answer_tokens
-            del reasoning
-            del pass_max_answer_tokens
-            del token
             del raw_text_truncator
             return StubDataset(self.file_path)
 
