@@ -72,37 +72,50 @@ class TransformersEvalEngine(PromptEvalEngine):
     def _truncate_text_to_tokens(self, text: str, max_tokens: int) -> str:
         return truncate_text_with_tokenizer(self.tokenizer, text, max_tokens)
 
-    def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
-        logging.info("Trying batch size: %s", candidate_bs)
+    def _can_probe_batch_size(self) -> bool:
         if not hasattr(self.eval_dataset, "__getitem__"):
-            return candidate_bs
-
+            return False
         dataset_with_getitem = cast("Any", self.eval_dataset)
         first_sample = dataset_with_getitem[0]
-        if "test_messages" not in first_sample:
-            # Some tests and legacy datasets are tokenized differently; skip probing.
-            return candidate_bs
+        # Some tests and legacy datasets are tokenized differently; skip probing.
+        return "test_messages" in first_sample
 
+    def _build_probe_prompts(self, candidate_bs: int) -> list[JudgePrompt]:
+        dataset_with_getitem = cast("Any", self.eval_dataset)
         prompt_count = min(candidate_bs, len(self.eval_dataset))
-        prompts = [
+        return [
             cast("JudgePrompt", dataset_with_getitem[index]["test_messages"])
             for index in range(prompt_count)
         ]
 
-        self.generate_answers_from_prompts(
-            prompts,
-            sampling_config=SamplingConfig(
-                do_sample=(
-                    self.eval_config.sample_judge
-                    if self.is_judge
-                    else self.eval_config.sample
+    def _probe_batch_size_candidate(self, candidate_bs: int) -> int:
+        logging.info("Trying batch size: %s", candidate_bs)
+        if not self._can_probe_batch_size():
+            return candidate_bs
+
+        prompts = self._build_probe_prompts(candidate_bs)
+        try:
+            self.generate_answers_from_prompts(
+                prompts,
+                sampling_config=SamplingConfig(
+                    do_sample=(
+                        self.eval_config.sample_judge
+                        if self.is_judge
+                        else self.eval_config.sample
+                    ),
+                    temperature=self.eval_config.sampling_config.temperature,
+                    top_p=self.eval_config.sampling_config.top_p,
+                    top_k=self.eval_config.sampling_config.top_k,
+                    seed=self.eval_config.sampling_config.seed,
                 ),
-                temperature=self.eval_config.sampling_config.temperature,
-                top_p=self.eval_config.sampling_config.top_p,
-                top_k=self.eval_config.sampling_config.top_k,
-                seed=self.eval_config.sampling_config.seed,
-            ),
-        )
+            )
+        except RuntimeError:
+            # Keep RuntimeError bubbling so `find_executable_batch_size` can reduce.
+            logging.warning(
+                "Batch-size probe failed for candidate batch size %s; retrying with a smaller batch size.",
+                candidate_bs,
+            )
+            raise
         return candidate_bs
 
     def ensure_test_model_ready(self) -> None:
@@ -125,7 +138,7 @@ class TransformersEvalEngine(PromptEvalEngine):
                 return current_bs
 
             wrapper = find_executable_batch_size(
-                self._get_first_non_oom_batch_size,
+                self._probe_batch_size_candidate,
                 starting_batch_size=starting_bs,
                 reduce_batch_size_fn=halve_reducer,
             )
