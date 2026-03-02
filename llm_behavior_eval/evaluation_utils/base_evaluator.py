@@ -734,8 +734,7 @@ class BaseEvaluator(ABC):
                 "c": "cancel",
                 "cancel": "cancel",
             }
-            if self._remembered_run_config_action is not None:
-                action = self._remembered_run_config_action
+            if (action := self._remembered_run_config_action) is not None:
                 logging.info(
                     "Reusing remembered run-configuration action '%s' for %s.",
                     action,
@@ -746,7 +745,6 @@ class BaseEvaluator(ABC):
                     f"Existing {what_exists} produced with a different configuration. "
                     "Choose: [r]eplace outputs and rerun, [s]kip and reuse existing outputs, or [c]ancel"
                 )
-                action: str | None = None
                 while action is None:
                     user_choice = typer.prompt(prompt, default="c").strip().lower()
                     action = action_map.get(user_choice)
