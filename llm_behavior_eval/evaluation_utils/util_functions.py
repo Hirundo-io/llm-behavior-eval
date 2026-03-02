@@ -76,7 +76,7 @@ def _hf_token(token: str | None) -> Iterator[None]:
 
 
 class SafeApplyChatTemplate:
-    _CHAT_TEMPLATE_SUPPORTS_THINKING: dict[int, bool] = {}
+    _CHAT_TEMPLATE_SUPPORTS_REASONING: dict[tuple[int, str], bool] = {}
 
     def __call__(
         self,
@@ -106,29 +106,29 @@ class SafeApplyChatTemplate:
             The formatted string after applying the chat template.
         """
 
-        def _supports_thinking_kwarg(tokenizer: PreTrainedTokenizerBase, name: str) -> bool:
+        def _supports_reasoning_kwarg(tokenizer: PreTrainedTokenizerBase, name: str) -> bool:
             """
-            Check if the tokenizer's apply_chat_template supports the `thinking` kwarg.
+            Check if the tokenizer's apply_chat_template supports the reasoning mode kwarg `name`.
 
             Args:
                 tokenizer: The tokenizer to check.
                 name: The name of the kwarg to check.
 
             Returns:
-                True if the tokenizer's apply_chat_template supports the `thinking` kwarg, False otherwise.
+                True if the tokenizer's apply_chat_template supports the reasoning mode kwarg `name`, False otherwise.
             """
             # Cache for checking whether a given tokenizer's apply_chat_template supports
-            # the `thinking` kwarg. Keyed by id(tokenizer) to avoid holding strong refs.
+            # the reasoning mode kwarg `name`. Keyed by (id(tokenizer), name) to avoid holding strong refs.
             # This avoids repeated try/except in hot paths.
-            cache_key = id(tokenizer)
-            cached = self._CHAT_TEMPLATE_SUPPORTS_THINKING.get(cache_key)
+            cache_key = (id(tokenizer), name)
+            cached = self._CHAT_TEMPLATE_SUPPORTS_REASONING.get(cache_key)
             if cached is not None:
                 return cached
             supports = (
                 isinstance(tokenizer.chat_template, str)
                 and name in tokenizer.chat_template
             )
-            self._CHAT_TEMPLATE_SUPPORTS_THINKING[cache_key] = supports
+            self._CHAT_TEMPLATE_SUPPORTS_REASONING[cache_key] = supports
 
             return supports
 
@@ -171,9 +171,9 @@ class SafeApplyChatTemplate:
             Call tokenizer.apply_chat_template while remaining compatible with
             tokenizers that don't support the `reasoning` kwarg.
             """
-            if _supports_thinking_kwarg(tokenizer, "reasoning"):
+            if _supports_reasoning_kwarg(tokenizer, "reasoning"):
                 thinking_kwarg_name = "reasoning"
-            elif _supports_thinking_kwarg(tokenizer, "enable_thinking"):
+            elif _supports_reasoning_kwarg(tokenizer, "enable_thinking"):
                 thinking_kwarg_name = "enable_thinking"
             else:
                 thinking_kwarg_name = None
@@ -196,7 +196,7 @@ class SafeApplyChatTemplate:
                         "content": [{"type": "text", "text": str(current_content)}],
                     }
                 )
-            chat_template = str(_apply_chat_template(multimodal_chat_messages))
+            input_message = str(_apply_chat_template(multimodal_chat_messages))
         else:
             # Unimodal: plain string content
             chat_messages_text: list[dict[str, str]] = []
@@ -204,11 +204,11 @@ class SafeApplyChatTemplate:
                 chat_messages_text.append(
                     {"role": message["role"], "content": str(message["content"])}
                 )
-            chat_template = str(_apply_chat_template(chat_messages_text))
-        if uses_think_delim and not reasoning and chat_template.endswith("<think>\n"):
-            chat_template = chat_template.replace("<think>\n", "<think></think>")
+            input_message = str(_apply_chat_template(chat_messages_text))
+        if uses_think_delim and not reasoning and input_message.endswith("<think>\n"):
+            input_message = input_message.removesuffix("<think>\n") + "<think></think>"
 
-        return chat_template
+        return input_message
 
 
 safe_apply_chat_template = SafeApplyChatTemplate()
