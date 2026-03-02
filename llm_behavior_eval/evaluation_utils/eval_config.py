@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from pydantic.functional_validators import model_validator
 
 from .sampling_config import SamplingConfig
@@ -24,6 +24,7 @@ class EvaluationConfig(BaseModel):
         max_answer_tokens: Number of tokens to generate per answer. Typical range is 32-256.
         pass_max_answer_tokens: Whether to pass max_answer_tokens to the model.
         model_path_or_repo_id: HF repo ID or path of the model under test (e.g. "meta-llama/Llama-3.1-8B-Instruct").
+        model_output_dir: Optional override for the model output directory slug under results_dir.
         model_tokenizer_path_or_repo_id: Optional tokenizer repo ID or path for the model under test.
             Only used with transformers/vllm engines. Not supported with model_engine='api'.
         lora_path_or_repo_id: Optional LoRA adapter path/repo for evaluated model (vLLM only).
@@ -58,6 +59,7 @@ class EvaluationConfig(BaseModel):
     max_answer_tokens: int = 128
     pass_max_answer_tokens: bool = False
     model_path_or_repo_id: str
+    model_output_dir: str | None = None
     model_tokenizer_path_or_repo_id: str | None = None
     lora_path_or_repo_id: str | None = None
     model_token: str | None = None
@@ -78,6 +80,35 @@ class EvaluationConfig(BaseModel):
     sampling_config: SamplingConfig = SamplingConfig()
     mlflow_config: "MlflowConfig | None" = None
     replace_existing_output: bool = False
+
+    @field_validator("model_output_dir")
+    @classmethod
+    def validate_model_output_dir(cls, value: str | None) -> str | None:
+        """Validate the model output directory to avoid path traversal attacks and illegal characters.
+
+        Args:
+            value: The model output directory.
+
+        Returns:
+            The validated model output directory.
+        """
+        if value is None:
+            return None
+
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("model_output_dir cannot be empty")
+
+        output_path = Path(normalized)
+        if output_path.is_absolute():
+            raise ValueError("model_output_dir must be a relative path")
+
+        if any(part == ".." for part in output_path.parts):
+            raise ValueError(
+                "model_output_dir cannot contain '..' and must stay under base output directory"
+            )
+
+        return normalized
 
     @model_validator(mode="after")
     def set_judge_token(self):

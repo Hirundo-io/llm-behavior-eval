@@ -27,6 +27,7 @@ from .transformers_eval_engine import TransformersEvalEngine
 from .util_functions import (
     config_to_dict,
     empty_cuda_cache_if_available,
+    get_lora_slug,
     load_tokenizer_with_transformers,
     raw_text_collator,
     safe_apply_chat_template,
@@ -232,14 +233,44 @@ class BaseEvaluator(ABC):
             pass_max_answer_tokens=resolved_pass_max_answer_tokens,
         )
 
+    def get_model_slug(self) -> str:
+        """Get the slug for the model, used for building output directories
+
+        Returns:
+            The slug for the model.
+        """
+        if self.eval_config.model_output_dir:
+            return self.eval_config.model_output_dir
+
+        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
+        if self.eval_config.lora_path_or_repo_id:
+            mlflow_tracking_uri = (
+                self.eval_config.mlflow_config.mlflow_tracking_uri
+                if self.eval_config.mlflow_config
+                else None
+            )
+            model_slug += f"-lora-{get_lora_slug(self.eval_config.lora_path_or_repo_id, mlflow_tracking_uri=mlflow_tracking_uri)}"
+        return model_slug
+
+    def get_dataset_slug(self) -> str:
+        """Get the slug for the dataset, used for building output structures (directories and mlflow runs)
+
+        Returns:
+            The slug for the dataset.
+        """
+        return self.dataset_config.file_path.split("/")[-1]
+
     def get_output_dir(self) -> Path:
         """
         Compute the output directory used for this evaluation run.
 
         Uses a consistent convention and ensures the directory exists.
+
+        Returns:
+            The output directory.
         """
-        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
-        dataset_slug = self.dataset_config.file_path.split("/")[-1]
+        model_slug = self.get_model_slug()
+        dataset_slug = self.get_dataset_slug()
         if self.should_include_dataset_type_in_output_dir():
             folder_name = f"{dataset_slug}_{self.dataset_config.dataset_type}"
         else:
@@ -400,8 +431,8 @@ class BaseEvaluator(ABC):
             stereotyped_bias: A score representing the stereotyped bias.
             empty_responses: A count of empty response.
         """
-        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
-        dataset_slug = self.dataset_config.file_path.split("/")[-1]
+        model_slug = self.get_model_slug()
+        dataset_slug = self.get_dataset_slug()
         output_dir = self.get_output_dir()
 
         output_responses = output_dir / "responses.json"
@@ -619,7 +650,7 @@ class BaseEvaluator(ABC):
             mlflow.set_experiment(self.mlflow_config.mlflow_experiment_name)
 
         # Generate run name if not specified
-        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
+        model_slug = self.get_model_slug()
 
         active_run = mlflow.active_run()
         if active_run is not None:
@@ -665,7 +696,7 @@ class BaseEvaluator(ABC):
         error = True
         try:
             if mlflow and self.mlflow_config:
-                dataset_slug = self.dataset_config.file_path.split("/")[-1]
+                dataset_slug = self.get_dataset_slug()
                 if run_name is None:
                     logging.info(f"Using run name {dataset_slug} for dataset run")
                     run_name = dataset_slug
