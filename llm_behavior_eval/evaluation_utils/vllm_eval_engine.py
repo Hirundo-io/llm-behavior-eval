@@ -14,11 +14,12 @@ from .util_functions import (
     maybe_download_adapter,
     pick_best_dtype,
     safe_apply_chat_template,
+    truncate_text_with_tokenizer,
 )
 from .vllm_config import VllmConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from vllm.inputs.data import PromptType
 
@@ -144,6 +145,12 @@ class VllmEvalEngine(PromptEvalEngine):
 
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset
+
+    def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
+        return self._truncate_text_to_tokens
+
+    def _truncate_text_to_tokens(self, text: str, max_tokens: int) -> str:
+        return truncate_text_with_tokenizer(self.tokenizer, text, max_tokens)
 
     def _get_vllm_sampling_params(
         self,

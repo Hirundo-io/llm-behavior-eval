@@ -63,6 +63,25 @@ def truncate_text_by_whitespace(text: str, max_tokens: int) -> str:
     return " ".join(tokens[:max_tokens])
 
 
+def truncate_text_with_tokenizer(
+    tokenizer: PreTrainedTokenizerBase,
+    text: str,
+    max_tokens: int,
+) -> str:
+    """Truncate text to at most `max_tokens` tokenizer tokens."""
+    if max_tokens <= 0:
+        return ""
+    token_ids = tokenizer.encode(text, add_special_tokens=False)
+    if len(token_ids) <= max_tokens:
+        return text
+    truncated_ids = token_ids[:max_tokens]
+    return tokenizer.decode(
+        truncated_ids,
+        skip_special_tokens=True,
+        clean_up_tokenization_spaces=False,
+    )
+
+
 def empty_cuda_cache_if_available() -> None:
     """Free CUDA cache if GPUs are available."""
 

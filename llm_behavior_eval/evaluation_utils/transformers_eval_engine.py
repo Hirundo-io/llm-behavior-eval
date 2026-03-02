@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 
 import torch
@@ -13,6 +14,7 @@ from .util_functions import (
     is_model_multimodal,
     load_transformers_model_and_tokenizer,
     safe_apply_chat_template,
+    truncate_text_with_tokenizer,
 )
 
 if TYPE_CHECKING:
@@ -63,6 +65,12 @@ class TransformersEvalEngine(PromptEvalEngine):
 
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
         self.eval_dataset = eval_dataset
+
+    def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
+        return self._truncate_text_to_tokens
+
+    def _truncate_text_to_tokens(self, text: str, max_tokens: int) -> str:
+        return truncate_text_with_tokenizer(self.tokenizer, text, max_tokens)
 
     def _get_first_non_oom_batch_size(self, candidate_bs: int) -> int:
         logging.info("Trying batch size: %s", candidate_bs)

@@ -27,7 +27,9 @@ class RecordingTokenizer:
         self.pad_token_id = pad_token_id
         self.eos_token_id = eos_token_id
         self.batch_decode_calls: list[dict[str, object]] = []
+        self.decode_calls: list[dict[str, object]] = []
         self.encode_calls: list[dict[str, object]] = []
+        self.raw_encode_calls: list[dict[str, object]] = []
         self.pad_token: str | None = None
         self.eos_token = "<eos>"
 
@@ -59,6 +61,28 @@ class RecordingTokenizer:
             "attention_mask": torch.ones((batch_size, 2), dtype=torch.long),
         }
 
+    def encode(self, text: str, add_special_tokens: bool = False):
+        self.raw_encode_calls.append(
+            {"text": text, "add_special_tokens": add_special_tokens}
+        )
+        return text.split()
+
+    def decode(
+        self,
+        token_ids: list[str],
+        *,
+        skip_special_tokens: bool = True,
+        clean_up_tokenization_spaces: bool = False,
+    ) -> str:
+        self.decode_calls.append(
+            {
+                "token_ids": list(token_ids),
+                "skip_special_tokens": skip_special_tokens,
+                "clean_up_tokenization_spaces": clean_up_tokenization_spaces,
+            }
+        )
+        return " ".join(token_ids)
+
 
 class RecordingVllmTokenizer:
     def __init__(self) -> None:
@@ -66,6 +90,8 @@ class RecordingVllmTokenizer:
         self.eos_token = "<eos>"
         self.eos_token_id = 7
         self.encode_calls: list[dict[str, object]] = []
+        self.raw_encode_calls: list[dict[str, object]] = []
+        self.decode_calls: list[dict[str, object]] = []
 
     def __call__(
         self,
@@ -86,6 +112,28 @@ class RecordingVllmTokenizer:
             "input_ids": torch.ones((batch_size, 2), dtype=torch.long),
             "attention_mask": torch.ones((batch_size, 2), dtype=torch.long),
         }
+
+    def encode(self, text: str, add_special_tokens: bool = False):
+        self.raw_encode_calls.append(
+            {"text": text, "add_special_tokens": add_special_tokens}
+        )
+        return text.split()
+
+    def decode(
+        self,
+        token_ids: list[str],
+        *,
+        skip_special_tokens: bool = True,
+        clean_up_tokenization_spaces: bool = False,
+    ) -> str:
+        self.decode_calls.append(
+            {
+                "token_ids": list(token_ids),
+                "skip_special_tokens": skip_special_tokens,
+                "clean_up_tokenization_spaces": clean_up_tokenization_spaces,
+            }
+        )
+        return " ".join(token_ids)
 
 
 class DummyTransformersModel:
@@ -317,6 +365,24 @@ def test_vllm_eval_engine_implements_prompt_interface(tmp_path) -> None:
 
 
 @pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_raw_text_truncator_uses_tokenizer(
+    vllm_bundle, tmp_path
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+    )
+    engine = VllmEvalEngine(config)
+
+    truncator = engine.get_raw_text_truncator()
+    assert truncator is not None
+    assert truncator("one two three", 2) == "one two"
+    assert truncator("one two", 3) == "one two"
+    assert vllm_bundle.tokenizer.raw_encode_calls[-1]["add_special_tokens"] is False
+    assert vllm_bundle.tokenizer.decode_calls[-1]["token_ids"] == ["one", "two"]
+
+
+@pytest.mark.vllm_engine_test
 def test_vllm_eval_engine_uses_model_tokenizer_override(vllm_bundle, tmp_path) -> None:
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -498,6 +564,30 @@ def test_transformers_eval_engine_implements_prompt_interface(
 
     assert isinstance(engine, PromptEvalEngine)
     assert engine.tokenizer.padding_side == "left"
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_raw_text_truncator_uses_tokenizer(
+    transformers_bundle, tmp_path
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+    )
+    engine = TransformersEvalEngine(config)
+
+    truncator = engine.get_raw_text_truncator()
+    assert truncator is not None
+    assert truncator("one two three", 2) == "one two"
+    assert truncator("one two", 3) == "one two"
+    assert (
+        transformers_bundle.tokenizer.raw_encode_calls[-1]["add_special_tokens"]
+        is False
+    )
+    assert transformers_bundle.tokenizer.decode_calls[-1]["token_ids"] == [
+        "one",
+        "two",
+    ]
 
 
 @pytest.mark.transformers_engine_test
