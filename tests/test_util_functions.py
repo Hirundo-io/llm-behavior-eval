@@ -8,6 +8,7 @@ import torch
 
 from llm_behavior_eval.evaluation_utils.util_functions import (
     build_vllm_prompt_token_ids,
+    get_lora_slug,
     is_model_multimodal,
     maybe_download_adapter,
     pick_best_dtype,
@@ -243,6 +244,42 @@ def test_maybe_download_adapter_local_path_with_whitespace(tmp_path) -> None:
     local_path = str(tmp_path / "adapter")
     result = maybe_download_adapter(f"  {local_path}  ")
     assert result == local_path
+
+
+def test_get_lora_slug_empty_string() -> None:
+    with pytest.raises(ValueError, match="adapter_ref must be a non-empty string"):
+        get_lora_slug("")
+
+
+def test_get_lora_slug_is_deterministic() -> None:
+    adapter_ref = "meta-llama/Llama-3.1-8B-Instruct"
+    assert get_lora_slug(adapter_ref) == get_lora_slug(adapter_ref)
+
+
+def test_get_lora_slug_uses_hash_for_non_mlflow_ref() -> None:
+    adapter_ref = "https://huggingface.co/org/some-adapter"
+    slug = get_lora_slug(adapter_ref)
+
+    assert slug.startswith("adapter_")
+    assert len(slug.removeprefix("adapter_")) == 16
+
+
+def test_get_lora_slug_changes_for_different_refs() -> None:
+    slug_one = get_lora_slug("s3://bucket/path/adapter-a")
+    slug_two = get_lora_slug("s3://bucket/path/adapter-b")
+    assert slug_one != slug_two
+
+
+def test_get_lora_slug_uses_mlflow_run_id_for_mlflow_scheme() -> None:
+    run_id = "abc123def45678901234567890123456"
+    assert get_lora_slug(f"mlflow://{run_id}") == f"adapter_{run_id}"
+
+
+def test_get_lora_slug_uses_mlflow_run_id_for_matching_tracking_uri() -> None:
+    run_id = "abc123def45678901234567890123456"
+    adapter_ref = f"http://mlflow.example.com/runs/{run_id}"
+    slug = get_lora_slug(adapter_ref, mlflow_tracking_uri="http://mlflow.example.com")
+    assert slug == f"adapter_{run_id}"
 
 
 def test_maybe_download_adapter_mlflow_scheme_missing_mlflow(

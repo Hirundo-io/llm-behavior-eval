@@ -37,12 +37,19 @@ class _StubEvaluator:
     def dataset_mlflow_run(self, run_name: str | None = None) -> AbstractContextManager:
         return nullcontext()
 
-    def grade(
+    def _grade_impl(
         self,
         generations: Sequence[_GenerationRecord],
         judge_engine: EvalEngine | None = None,
     ) -> None:
         return None
+
+    def grade(
+        self,
+        generations: Sequence[_GenerationRecord],
+        judge_engine: EvalEngine | None = None,
+    ) -> None:
+        self._grade_impl(generations, judge_engine)
 
     def cleanup(self, error: bool = False) -> None:
         return None
@@ -111,6 +118,13 @@ def test_main_passes_judge_quantization_flag(
 ) -> None:
     evaluate.main("fake/model", "hallu", use_4bit_judge=True)
     assert capture_eval_config[-1].use_4bit_judge is True
+
+
+def test_main_passes_model_output_dir_override(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main("fake/model", "hallu", model_output_dir="custom-model-dir")
+    assert capture_eval_config[-1].model_output_dir == "custom-model-dir"
 
 
 def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
@@ -314,6 +328,51 @@ def test_eval_config_allows_none_lora_path() -> None:
         model_engine="transformers",
     )
     assert config.lora_path_or_repo_id is None
+
+
+def test_eval_config_allows_relative_model_output_dir() -> None:
+    from pathlib import Path
+
+    from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=Path("/tmp"),
+        model_output_dir="team-a/model-v1",
+        model_engine="transformers",
+    )
+    assert config.model_output_dir == "team-a/model-v1"
+
+
+def test_eval_config_rejects_absolute_model_output_dir() -> None:
+    from pathlib import Path
+
+    from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+
+    with pytest.raises(ValueError, match="model_output_dir must be a relative path"):
+        EvaluationConfig(
+            model_path_or_repo_id="fake/model",
+            results_dir=Path("/tmp"),
+            model_output_dir="/tmp/escape",
+            model_engine="transformers",
+        )
+
+
+def test_eval_config_rejects_parent_traversal_in_model_output_dir() -> None:
+    from pathlib import Path
+
+    from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+
+    with pytest.raises(
+        ValueError,
+        match="model_output_dir cannot contain '\\.\\.' and must stay under base output directory",
+    ):
+        EvaluationConfig(
+            model_path_or_repo_id="fake/model",
+            results_dir=Path("/tmp"),
+            model_output_dir="../escape",
+            model_engine="transformers",
+        )
 
 
 def test_main_passes_answer_tokens_and_judge_tokens_via_cli(
