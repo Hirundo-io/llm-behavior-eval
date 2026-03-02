@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Callable
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, cast
 
 import torch
@@ -14,7 +15,6 @@ from .util_functions import (
     is_model_multimodal,
     load_transformers_model_and_tokenizer,
     safe_apply_chat_template,
-    truncate_text_with_tokenizer,
 )
 
 if TYPE_CHECKING:
@@ -67,12 +67,11 @@ class TransformersEvalEngine(PromptEvalEngine):
         self.eval_dataset = eval_dataset
 
     def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
-        return self._truncate_text_to_tokens
-
-    def _truncate_text_to_tokens(self, text: str, max_tokens: int) -> str:
-        return truncate_text_with_tokenizer(self.tokenizer, text, max_tokens)
+        return self.build_tokenizer_raw_text_truncator(self.tokenizer)
 
     def _can_probe_batch_size(self) -> bool:
+        if len(self.eval_dataset) == 0:
+            return False
         if not hasattr(self.eval_dataset, "__getitem__"):
             return False
         dataset_with_getitem = cast("Any", self.eval_dataset)
@@ -84,7 +83,7 @@ class TransformersEvalEngine(PromptEvalEngine):
         dataset_with_getitem = cast("Any", self.eval_dataset)
         prompt_count = min(candidate_bs, len(self.eval_dataset))
         return [
-            cast("JudgePrompt", dataset_with_getitem[index]["test_messages"])
+            deepcopy(cast("JudgePrompt", dataset_with_getitem[index]["test_messages"]))
             for index in range(prompt_count)
         ]
 

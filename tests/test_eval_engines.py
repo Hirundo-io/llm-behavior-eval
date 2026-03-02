@@ -780,3 +780,71 @@ def test_transformers_eval_engine_get_batch_size_autotune(
     batch_size = engine.get_batch_size()
 
     assert batch_size == len(dataset)
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_get_batch_size_autotune_handles_empty_dataset(
+    transformers_bundle, tmp_path
+) -> None:
+    class EmptyDataset:
+        def __len__(self) -> int:
+            return 0
+
+        def __getitem__(self, _index: int):
+            raise AssertionError("Probe should not access dataset[0] for empty datasets.")
+
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        max_answer_tokens=2,
+        sample=False,
+        batch_size=None,
+    )
+    engine = TransformersEvalEngine(config)
+    engine.set_dataset(EmptyDataset())
+
+    assert engine.get_batch_size() == 1
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_probe_does_not_mutate_dataset_messages(
+    transformers_bundle, tmp_path, monkeypatch
+) -> None:
+    shared_row = {
+        "test_messages": [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hello"},
+        ]
+    }
+
+    class SharedRowDataset:
+        def __len__(self) -> int:
+            return 1
+
+        def __getitem__(self, _index: int):
+            return shared_row
+
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        max_answer_tokens=2,
+        sample=False,
+        batch_size=None,
+    )
+    engine = TransformersEvalEngine(config)
+    engine.set_dataset(SharedRowDataset())
+
+    def fake_generate(
+        prompts: list[object],
+        sampling_config: SamplingConfig,
+    ) -> list[str]:
+        del sampling_config
+        first_prompt = prompts[0]
+        assert isinstance(first_prompt, list)
+        first_prompt[0]["content"] = "MUTATED"
+        return ["ok"]
+
+    monkeypatch.setattr(engine, "generate_answers_from_prompts", fake_generate)
+
+    assert engine.get_batch_size() == 1
+    assert shared_row["test_messages"][0]["content"] == "sys"

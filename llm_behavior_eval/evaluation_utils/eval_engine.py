@@ -5,6 +5,8 @@ from collections.abc import Callable, Sized
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+
     from .sampling_config import SamplingConfig
 
 
@@ -39,6 +41,17 @@ class PromptEvalEngine(ABC):
         Engines that do not provide model-aware truncation should return None.
         """
         return None
+
+    @staticmethod
+    def build_tokenizer_raw_text_truncator(
+        tokenizer: PreTrainedTokenizerBase,
+    ) -> Callable[[str, int], str]:
+        from .util_functions import truncate_text_with_tokenizer
+
+        def _truncate(text: str, max_tokens: int) -> str:
+            return truncate_text_with_tokenizer(tokenizer, text, max_tokens)
+
+        return _truncate
 
     def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
         """
