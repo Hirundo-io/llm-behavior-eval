@@ -791,7 +791,9 @@ def test_transformers_eval_engine_get_batch_size_autotune_handles_empty_dataset(
             return 0
 
         def __getitem__(self, _index: int):
-            raise AssertionError("Probe should not access dataset[0] for empty datasets.")
+            raise AssertionError(
+                "Probe should not access dataset[0] for empty datasets."
+            )
 
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
