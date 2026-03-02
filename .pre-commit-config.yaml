@@ -21,12 +21,12 @@ repos:
       - id: uv-lock
   - repo: local
     hooks:
-      - id: basedpyright
-        name: basedpyright
-        entry: basedpyright
+      - id: ty
+        name: ty
+        entry: ty check
         language: system
         types: [python]
-        pass_filenames: true
+        pass_filenames: false
       - id: pytest
         name: pytest
         entry: pytest

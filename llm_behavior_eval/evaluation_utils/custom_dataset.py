@@ -2,7 +2,6 @@ import logging
 from copy import copy
 from functools import partial
 from pathlib import Path
-from typing import cast
 
 import torch
 from datasets import Dataset, DatasetDict, load_dataset
@@ -166,7 +165,7 @@ class CustomDataset:
             ) from exc
         if not isinstance(raw, DatasetDict):
             raise ValueError(f"Expected DatasetDict, got {type(raw)}")
-        self.ds = cast("Dataset", raw["train"])
+        self.ds = raw["train"]
         self.has_stereotype: bool = "stereotyped_answer" in self.ds.column_names
 
     def preprocess(

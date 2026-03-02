@@ -1,4 +1,4 @@
-name: pyright
+name: ty
 on:
   - pull_request
   - merge_group
@@ -11,7 +11,7 @@ permissions:
   contents: read # This is required for actions/checkout
 
 jobs:
-  pyright:
+  ty:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -30,4 +30,4 @@ jobs:
 
       - name: Install the project
         run: uv sync --locked --extra mlflow --extra vllm
-      - run: uvx basedpyright
+      - run: uvx ty check
