@@ -20,7 +20,10 @@ from llm_behavior_eval.evaluation_utils.base_evaluator import (
 )
 from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
-from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.eval_config import (
+    EvaluationConfig,
+    MlflowConfig,
+)
 from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
@@ -360,6 +363,47 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.top_p == 0.9
     assert sampling_config.top_k == 4
     assert sampling_config.seed == evaluator.dataset_config.seed
+
+
+def test_get_model_slug_includes_lora_slug(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_args: dict[str, str | None] = {}
+
+    def fake_get_lora_slug(
+        adapter_ref: str, mlflow_tracking_uri: str | None = None
+    ) -> str:
+        captured_args["adapter_ref"] = adapter_ref
+        captured_args["mlflow_tracking_uri"] = mlflow_tracking_uri
+        return "adapter_test_slug"
+
+    monkeypatch.setattr(base_evaluator_module, "get_lora_slug", fake_get_lora_slug)
+
+    evaluator = ConcreteEvaluator.__new__(ConcreteEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        lora_path_or_repo_id="org/lora-adapter",
+        inference_engine="vllm",
+        results_dir=tmp_path,
+        mlflow_config=MlflowConfig(mlflow_tracking_uri="http://tracking.example"),
+    )
+
+    assert evaluator.get_model_slug() == "model-lora-adapter_test_slug"
+    assert captured_args == {
+        "adapter_ref": "org/lora-adapter",
+        "mlflow_tracking_uri": "http://tracking.example",
+    }
+
+
+def test_get_model_slug_prefers_model_output_dir_override(tmp_path: Path) -> None:
+    evaluator = ConcreteEvaluator.__new__(ConcreteEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        model_output_dir="custom-model-output",
+        results_dir=tmp_path,
+    )
+
+    assert evaluator.get_model_slug() == "custom-model-output"
 
 
 def test_get_grading_context_creates_and_frees_judge_engine(
