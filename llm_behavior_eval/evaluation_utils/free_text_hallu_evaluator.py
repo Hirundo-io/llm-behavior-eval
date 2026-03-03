@@ -150,7 +150,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         finally:
             self.cleanup(error)
 
-    def grade(
+    def _grade_impl(
         self,
         generations: Sequence[_GenerationRecord],
         judge_engine: PromptEvalEngine | None = None,

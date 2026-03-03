@@ -224,7 +224,7 @@ class ConcreteEvaluator(BaseEvaluator):
     def generate(self) -> Sequence[_GenerationRecord]:
         return []
 
-    def grade(self, generations: object, judge_engine: object = None) -> None:
+    def _grade_impl(self, generations: object, judge_engine: object = None) -> None:
         del generations, judge_engine
         return None
 
@@ -379,7 +379,7 @@ def test_api_model_reuses_eval_dataset_for_judge_with_prompt_pipeline(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -477,7 +477,7 @@ def test_update_dataset_config_restores_dataset_state_in_judge_context(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -550,7 +550,7 @@ def test_update_dataset_config_in_judge_context_does_not_require_rebuild_state(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -669,7 +669,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(self, generations: object, judge_engine: object = None) -> None:
+        def _grade_impl(self, generations: object, judge_engine: object = None) -> None:
             del generations, judge_engine
             return None
 
@@ -749,7 +749,7 @@ def test_process_judge_prompts_batch_prefers_sample_judge_over_shared_do_sample(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(self, generations: object, judge_engine: object = None) -> None:
+        def _grade_impl(self, generations: object, judge_engine: object = None) -> None:
             del generations, judge_engine
             return None
 
@@ -792,7 +792,7 @@ def test_build_sampling_config_keeps_none_when_no_seed_is_configured(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(self, generations: object, judge_engine: object = None) -> None:
+        def _grade_impl(self, generations: object, judge_engine: object = None) -> None:
             del generations, judge_engine
             return None
 
@@ -826,7 +826,7 @@ def test_run_judge_with_backoff_uses_fixed_batch_size_without_probing(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -901,7 +901,7 @@ def test_run_judge_with_backoff_retries_and_clears_partial_outputs(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -1134,7 +1134,7 @@ def test_get_grading_context_creates_and_frees_judge_engine(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -1202,7 +1202,7 @@ def test_get_grading_context_supports_api_judge_engine(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -1259,7 +1259,7 @@ def test_update_dataset_config_in_api_judge_context_uses_model_preprocess_limits
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -1346,7 +1346,7 @@ def test_format_judge_messages_defaults_to_eval_config_flags(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -1405,7 +1405,7 @@ def test_format_judge_messages_uses_explicit_judge_engine_tokenizer(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -1459,7 +1459,7 @@ def test_format_judge_messages_uses_judge_engine_multimodal_default(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -1529,7 +1529,7 @@ def test_prepare_judge_tokenizer_after_free_judge_does_not_raise(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -1619,7 +1619,7 @@ def test_grading_context_preserves_sampling_seed_without_dataset_rebuild(
         def generate(self) -> Sequence[_GenerationRecord]:
             return []
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -1729,7 +1729,7 @@ def test_evaluate_flow_can_use_generate_then_grade_in_grading_context(
         def generate(self) -> Sequence[_GenerationRecord]:
             return [_GenerationRecord(answers=["a"])]
 
-        def grade(
+        def _grade_impl(
             self,
             generations: Sequence[_GenerationRecord],
             judge_engine: PromptEvalEngine | None = None,
@@ -1874,3 +1874,219 @@ def test_save_results_rewrites_summary_with_non_empty_columns_after_append(
     assert summary_rows[1]["Error (%) ⬇️"] == "40.000"
     assert "Attack success rate (%) ⬇️" not in summary_rows[0]
     assert "Attack success rate (%) ⬇️" not in summary_rows[1]
+
+
+def test_run_config_mismatch_allows_skip_reusing_existing_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_dir = tmp_path / "model" / "dataset"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    run_config_path = output_dir / "run_config.json"
+    run_config_path.write_text(
+        json.dumps(
+            {
+                "evaluation_config": {"model_path_or_repo_id": "different/model"},
+                "dataset_config": {"file_path": "repo/other-dataset"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    responses_path = output_dir / "responses.json"
+    responses_path.write_text('{"preserved": true}', encoding="utf-8")
+
+    class _StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return True
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", _StubStdin())
+    monkeypatch.setattr(base_evaluator_module.typer, "prompt", lambda *_a, **_k: "s")
+    monkeypatch.setattr(base_evaluator_module.typer, "confirm", lambda *_a, **_k: False)
+
+    ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="repo/dataset",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    assert responses_path.read_text(encoding="utf-8") == '{"preserved": true}'
+    with run_config_path.open(encoding="utf-8") as file_handle:
+        persisted_config = json.load(file_handle)
+    assert persisted_config["evaluation_config"]["model_path_or_repo_id"] == (
+        "different/model"
+    )
+
+
+def test_run_config_mismatch_cancel_still_raises_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_dir = tmp_path / "model" / "dataset"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    run_config_path = output_dir / "run_config.json"
+    run_config_path.write_text(
+        json.dumps(
+            {
+                "evaluation_config": {"model_path_or_repo_id": "different/model"},
+                "dataset_config": {"file_path": "repo/other-dataset"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class _StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return True
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", _StubStdin())
+    monkeypatch.setattr(base_evaluator_module.typer, "prompt", lambda *_a, **_k: "c")
+    monkeypatch.setattr(base_evaluator_module.typer, "confirm", lambda *_a, **_k: False)
+
+    with pytest.raises(RuntimeError, match="--replace-existing-output"):
+        ConcreteEvaluator(
+            EvaluationConfig(
+                model_path_or_repo_id="meta/model",
+                results_dir=tmp_path,
+                max_samples=1,
+            ),
+            DatasetConfig(
+                file_path="repo/dataset",
+                dataset_type=DatasetType.BIAS,
+            ),
+        )
+
+
+def test_run_config_choice_remembered_for_rest_of_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_output_dir = tmp_path / "model" / "dataset-first"
+    second_output_dir = tmp_path / "model" / "dataset-second"
+    first_output_dir.mkdir(parents=True, exist_ok=True)
+    second_output_dir.mkdir(parents=True, exist_ok=True)
+
+    run_config_payload = json.dumps(
+        {
+            "evaluation_config": {"model_path_or_repo_id": "different/model"},
+            "dataset_config": {"file_path": "repo/other-dataset"},
+        }
+    )
+    (first_output_dir / "run_config.json").write_text(
+        run_config_payload, encoding="utf-8"
+    )
+    (second_output_dir / "run_config.json").write_text(
+        run_config_payload, encoding="utf-8"
+    )
+
+    class _StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return True
+
+    prompt_calls = {"count": 0}
+    confirm_calls = {"count": 0}
+
+    def _prompt(*_args: object, **_kwargs: object) -> str:
+        prompt_calls["count"] += 1
+        return "s"
+
+    def _confirm(*_args: object, **_kwargs: object) -> bool:
+        confirm_calls["count"] += 1
+        return True
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", _StubStdin())
+    monkeypatch.setattr(base_evaluator_module.typer, "prompt", _prompt)
+    monkeypatch.setattr(base_evaluator_module.typer, "confirm", _confirm)
+
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="repo/dataset-first",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    evaluator.update_dataset_config(
+        DatasetConfig(
+            file_path="repo/dataset-second",
+            dataset_type=DatasetType.BIAS,
+        )
+    )
+
+    assert prompt_calls["count"] == 1
+    assert confirm_calls["count"] == 1
+
+
+def test_run_config_choice_not_remembered_prompts_again_without_second_remember_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first_output_dir = tmp_path / "model" / "dataset-first"
+    second_output_dir = tmp_path / "model" / "dataset-second"
+    first_output_dir.mkdir(parents=True, exist_ok=True)
+    second_output_dir.mkdir(parents=True, exist_ok=True)
+
+    run_config_payload = json.dumps(
+        {
+            "evaluation_config": {"model_path_or_repo_id": "different/model"},
+            "dataset_config": {"file_path": "repo/other-dataset"},
+        }
+    )
+    (first_output_dir / "run_config.json").write_text(
+        run_config_payload, encoding="utf-8"
+    )
+    (second_output_dir / "run_config.json").write_text(
+        run_config_payload, encoding="utf-8"
+    )
+
+    class _StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return True
+
+    prompt_calls = {"count": 0}
+    confirm_calls = {"count": 0}
+
+    def _prompt(*_args: object, **_kwargs: object) -> str:
+        prompt_calls["count"] += 1
+        return "s"
+
+    def _confirm(*_args: object, **_kwargs: object) -> bool:
+        confirm_calls["count"] += 1
+        return False
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", _StubStdin())
+    monkeypatch.setattr(base_evaluator_module.typer, "prompt", _prompt)
+    monkeypatch.setattr(base_evaluator_module.typer, "confirm", _confirm)
+
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="repo/dataset-first",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    evaluator.update_dataset_config(
+        DatasetConfig(
+            file_path="repo/dataset-second",
+            dataset_type=DatasetType.BIAS,
+        )
+    )
+
+    assert prompt_calls["count"] == 2
+    assert confirm_calls["count"] == 1
