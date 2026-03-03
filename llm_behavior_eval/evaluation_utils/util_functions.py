@@ -106,19 +106,19 @@ class SafeApplyChatTemplate:
             The formatted string after applying the chat template.
         """
 
-        def _supports_reasoning_kwarg(tokenizer: PreTrainedTokenizerBase, name: str) -> bool:
+        def _supports_reasoning_kwarg_or_token(tokenizer: PreTrainedTokenizerBase, name: str) -> bool:
             """
-            Check if the tokenizer's apply_chat_template supports the reasoning mode kwarg `name`.
+            Check if the tokenizer's apply_chat_template supports the reasoning mode kwarg `name` or the token `name`.
 
             Args:
                 tokenizer: The tokenizer to check.
-                name: The name of the kwarg to check.
+                name: The name of the kwarg or token to check.
 
             Returns:
-                True if the tokenizer's apply_chat_template supports the reasoning mode kwarg `name`, False otherwise.
+                True if the tokenizer's apply_chat_template supports the reasoning mode kwarg `name` or the token `name`, False otherwise.
             """
             # Cache for checking whether a given tokenizer's apply_chat_template supports
-            # the reasoning mode kwarg `name`. Keyed by (id(tokenizer), name) to avoid holding strong refs.
+            # the reasoning mode kwarg `name` or the token `name`. Keyed by (id(tokenizer), name) to avoid holding strong refs.
             # This avoids repeated try/except in hot paths.
             cache_key = (id(tokenizer), name)
             cached = self._CHAT_TEMPLATE_SUPPORTS_REASONING.get(cache_key)
@@ -137,14 +137,6 @@ class SafeApplyChatTemplate:
             and isinstance(tokenizer.chat_template, str)
             and "System role not supported" in tokenizer.chat_template
         )
-        uses_nothink = (
-            isinstance(tokenizer.chat_template, str)
-            and "/no_think" in tokenizer.chat_template
-        )
-        uses_think_delim = (
-            isinstance(tokenizer.chat_template, str)
-            and "</think>" in tokenizer.chat_template
-        )
 
         if messages and messages[0]["role"] == "system":
             if pass_max_answer_tokens and max_answer_tokens is not None:
@@ -160,7 +152,7 @@ class SafeApplyChatTemplate:
                     messages[0]["content"] = f"{sys_msg}\n\n{messages[0]['content']}"
                 else:
                     messages.insert(0, {"role": "user", "content": sys_msg})
-            elif uses_nothink and not reasoning:
+            elif _supports_reasoning_kwarg_or_token(tokenizer, "/no_think") and not reasoning:
                 messages[0]["content"] = f"/no_think {messages[0]['content']}"
 
         # Choose formatting based on whether the model is multimodal
@@ -171,9 +163,9 @@ class SafeApplyChatTemplate:
             Call tokenizer.apply_chat_template while remaining compatible with
             tokenizers that don't support the `reasoning` kwarg.
             """
-            if _supports_reasoning_kwarg(tokenizer, "reasoning"):
+            if _supports_reasoning_kwarg_or_token(tokenizer, "reasoning"):
                 thinking_kwarg_name = "reasoning"
-            elif _supports_reasoning_kwarg(tokenizer, "enable_thinking"):
+            elif _supports_reasoning_kwarg_or_token(tokenizer, "enable_thinking"):
                 thinking_kwarg_name = "enable_thinking"
             else:
                 thinking_kwarg_name = None
@@ -205,7 +197,7 @@ class SafeApplyChatTemplate:
                     {"role": message["role"], "content": str(message["content"])}
                 )
             input_message = str(_apply_chat_template(chat_messages_text))
-        if uses_think_delim and not reasoning and input_message.endswith("<think>\n"):
+        if _supports_reasoning_kwarg_or_token(tokenizer, "</think>") and not reasoning and input_message.endswith("<think>\n"):
             input_message = input_message.removesuffix("<think>\n") + "<think></think>"
 
         return input_message
