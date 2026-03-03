@@ -54,6 +54,29 @@ mlflow = [
 vllm = [
   "vllm>=0.15.0",
 ]
+api-openai = [
+  "litellm>=1.53.0",
+  "openai>=2.6.0",
+]
+api-anthropic = [
+  "litellm>=1.53.0",
+  "anthropic>=0.71.0",
+]
+api-bedrock = [
+  "litellm>=1.53.0",
+  "boto3>=1.34.0",
+]
+api-vertex = [
+  "litellm>=1.53.0",
+  "google-cloud-aiplatform>=1.71.0",
+]
+api-all = [
+  "litellm>=1.53.0",
+  "openai>=2.6.0",
+  "anthropic>=0.71.0",
+  "boto3>=1.34.0",
+  "google-cloud-aiplatform>=1.71.0",
+]
 gcs = [
     "google-cloud-storage",
 ]
@@ -65,7 +88,7 @@ dev = [
   "basedpyright>=1.31.6",
   "pytest>=8.3.5",
   "pre-commit>=4.3.0",
-  "llm-behavior-eval[mlflow,vllm,gcs]",
+  "llm-behavior-eval[mlflow,vllm,gcs,api-all]",
 ]
 docs = [
   "sphinx>=8.0.0",
