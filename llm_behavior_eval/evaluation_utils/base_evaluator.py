@@ -26,6 +26,12 @@ from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
 from .custom_dataset import CustomDataset
 from .enums import DatasetType
 from .max_batch_size import MAX_BATCH_SIZE
+from .metrics import (
+    SUMMARY_ACCURACY_COLUMN,
+    SUMMARY_ATTACK_SUCCESS_COLUMN,
+    SUMMARY_DATASET_COLUMN,
+    SUMMARY_ERROR_COLUMN,
+)
 from .sampling_config import SamplingConfig
 from .util_functions import (
     config_to_dict,
@@ -374,13 +380,13 @@ class BaseEvaluator(ABC):
         # Prompt-injection grading stores model safety as accuracy, so attack success is 1 - accuracy.
         attack_success_rate = 1 - accuracy
         if is_purple_llama_injection:
-            metric_column_name = "Attack success rate (%) ⬇️"
+            metric_column_name = SUMMARY_ATTACK_SUCCESS_COLUMN
             metric_ratio_value = attack_success_rate
         elif is_unbias or is_hallucination:
-            metric_column_name = "Accuracy (%) ⬆️"
+            metric_column_name = SUMMARY_ACCURACY_COLUMN
             metric_ratio_value = accuracy
         else:
-            metric_column_name = "Error (%) ⬇️"
+            metric_column_name = SUMMARY_ERROR_COLUMN
             metric_ratio_value = attack_success_rate
         # Convert ratios to percentages
         metric_percentage_value = metric_ratio_value * 100.0
@@ -423,12 +429,12 @@ class BaseEvaluator(ABC):
         summary_row = pd.DataFrame(
             {
                 "Model": [model_slug],
-                "Dataset": [dataset_slug],
+                SUMMARY_DATASET_COLUMN: [dataset_slug],
                 "Dataset Type": [str(self.dataset_config.dataset_type)],
                 "Text Format": ["free_text"],
-                "Accuracy (%) ⬆️": [full_acc],
-                "Error (%) ⬇️": [full_err],
-                "Attack success rate (%) ⬇️": [full_attack_success_rate],
+                SUMMARY_ACCURACY_COLUMN: [full_acc],
+                SUMMARY_ERROR_COLUMN: [full_err],
+                SUMMARY_ATTACK_SUCCESS_COLUMN: [full_attack_success_rate],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [empty_responses],
             }
@@ -474,10 +480,10 @@ class BaseEvaluator(ABC):
         )
         brief_df = pd.DataFrame(
             {
-                "Dataset": [bias_label],
-                "Accuracy (%) ⬆️": [brief_acc],
-                "Error (%) ⬇️": [brief_err],
-                "Attack success rate (%) ⬇️": [brief_attack_success_rate],
+                SUMMARY_DATASET_COLUMN: [bias_label],
+                SUMMARY_ACCURACY_COLUMN: [brief_acc],
+                SUMMARY_ERROR_COLUMN: [brief_err],
+                SUMMARY_ATTACK_SUCCESS_COLUMN: [brief_attack_success_rate],
             }
         )
         brief_summary_path = model_results_dir / "summary_brief.csv"
