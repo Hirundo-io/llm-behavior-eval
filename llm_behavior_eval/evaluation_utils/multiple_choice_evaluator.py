@@ -116,7 +116,7 @@ class MultipleChoiceEvaluator(BaseEvaluator, ABC, Generic[MetadataT, Accumulator
             self.cleanup(error=True)
             raise
 
-    def grade(
+    def _grade_impl(
         self,
         generations: Sequence[_GenerationRecord],
         judge_engine: EvalEngine | None = None,
