@@ -48,6 +48,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+excel = [
+  "xlsxwriter>=3.2.0",
+]
 mlflow = [
   "mlflow>=2.0.0",
 ]
@@ -65,7 +68,7 @@ dev = [
   "basedpyright>=1.31.6",
   "pytest>=8.3.5",
   "pre-commit>=4.3.0",
-  "llm-behavior-eval[mlflow,vllm,gcs]",
+  "llm-behavior-eval[excel,mlflow,vllm,gcs]",
 ]
 docs = [
   "sphinx>=8.0.0",

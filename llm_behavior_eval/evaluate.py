@@ -23,6 +23,7 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
 )
 from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
+from llm_behavior_eval.export_excel import export_excel
 
 torch.set_float32_matmul_precision("high")
 
@@ -580,8 +581,67 @@ def main(
         empty_cuda_cache_if_available()
 
 
+def export_excel_command(
+    output_file: Annotated[
+        Path,
+        typer.Option(
+            "--output-file",
+            "-o",
+            help="Path to the .xlsx file to generate.",
+        ),
+    ],
+    reference_summary_csv: Annotated[
+        Path,
+        typer.Option(
+            "--reference-summary-csv",
+            help="Path to summary_brief.csv for the reference model.",
+        ),
+    ],
+    comparison_summary_csv: Annotated[
+        Path,
+        typer.Option(
+            "--comparison-summary-csv",
+            help="Path to summary_brief.csv for the comparison model.",
+        ),
+    ],
+    datasets: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--dataset",
+            help=(
+                "Dataset label from summary_brief.csv to include. "
+                "Provide multiple times for multiple sheets. Defaults to all."
+            ),
+        ),
+    ] = None,
+    reference_model_name: Annotated[
+        str,
+        typer.Option(
+            "--reference-model-name",
+            help="Display name for the reference model column in the workbook.",
+        ),
+    ] = "Pretrained model",
+    comparison_model_name: Annotated[
+        str,
+        typer.Option(
+            "--comparison-model-name",
+            help="Display name for the comparison model column in the workbook.",
+        ),
+    ] = "Unlearned model",
+) -> None:
+    export_excel(
+        output_file=output_file,
+        reference_summary_csv=reference_summary_csv,
+        comparison_summary_csv=comparison_summary_csv,
+        datasets=datasets,
+        reference_model_name=reference_model_name,
+        comparison_model_name=comparison_model_name,
+    )
+
+
 app = typer.Typer()
 app.command()(main)
+app.command("export-excel")(export_excel_command)
 
 if __name__ == "__main__":
     app()

@@ -185,6 +185,21 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 
 The metrics are composed of error (1 − accuracy), stereotype bias (when available) and the ratio of empty responses (i.e. the model generating empty string).
 
+### Export results to Excel
+
+Install Excel support with `uv pip install -e ".[excel]"` (included in the `dev` dependency group).
+
+You can export a comparison workbook with one sheet per dataset using:
+
+```bash
+llm-behavior-eval export-excel \
+  --reference-summary-csv /path/to/reference/summary_brief.csv \
+  --comparison-summary-csv /path/to/comparison/summary_brief.csv \
+  --output-file /path/to/comparison.xlsx
+```
+
+If `--dataset` is omitted, all overlapping datasets are exported. Optional `--dataset` can be passed multiple times to filter specific sheets, and model labels can be customized with `--reference-model-name` and `--comparison-model-name`.
+
 See the original papers for the explanation on accuracy. See the BBQ paper for the explanation of the stereotype bias.
 
 ## Tested on

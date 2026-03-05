@@ -458,3 +458,35 @@ def test_main_defaults_output_dir_to_data_dir(
     evaluate.main("fake/model", "hallu")
     eval_config = capture_eval_config[-1]
     assert eval_config.results_dir == expected
+
+
+def test_export_excel_command_passes_new_option_names(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured_arguments: dict[str, object] = {}
+
+    def fake_export_excel(**keyword_arguments: object) -> None:
+        captured_arguments.update(keyword_arguments)
+
+    monkeypatch.setattr(evaluate, "export_excel", fake_export_excel)
+
+    evaluate.export_excel_command(
+        output_file=tmp_path / "comparison.xlsx",
+        reference_summary_csv=tmp_path / "reference_summary.csv",
+        comparison_summary_csv=tmp_path / "comparison_summary.csv",
+        datasets=["BBQ: gender bias"],
+        reference_model_name="Reference model",
+        comparison_model_name="Comparison model",
+    )
+
+    assert (
+        captured_arguments["reference_summary_csv"]
+        == tmp_path / "reference_summary.csv"
+    )
+    assert (
+        captured_arguments["comparison_summary_csv"]
+        == tmp_path / "comparison_summary.csv"
+    )
+    assert captured_arguments["reference_model_name"] == "Reference model"
+    assert captured_arguments["comparison_model_name"] == "Comparison model"
