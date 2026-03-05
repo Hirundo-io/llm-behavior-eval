@@ -54,7 +54,7 @@ class DummyEvaluator(BaseEvaluator):
     def generate(self) -> Sequence[_GenerationRecord]:
         return []
 
-    def grade(
+    def _grade_impl(
         self, generations: Sequence[Any], judge_engine: EvalEngine | None = None
     ) -> None:
         return None
