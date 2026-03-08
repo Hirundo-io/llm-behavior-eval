@@ -23,15 +23,15 @@ repos:
     hooks:
       - id: basedpyright
         name: basedpyright
-        entry: basedpyright
+        entry: .venv/bin/basedpyright
         language: system
         types: [python]
         pass_filenames: true
       - id: pytest
         name: pytest
-        entry: pytest
+        entry: .venv/bin/pytest
         args: [-q]
         language: system
         types: [python]
         pass_filenames: true
-        stages: [push]
+        stages: [pre-push]

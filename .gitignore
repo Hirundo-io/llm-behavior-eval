@@ -185,4 +185,5 @@ act-events/pr.secrets
 .pixi/*
 !.pixi/config.toml
 
-./results/*
+.DS_Store
+results/*

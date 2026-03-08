@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .enums import DatasetType
+from .enums import AnswerFormat, DatasetType
 
 
 class PreprocessConfig(BaseSettings):
@@ -28,6 +28,7 @@ class DatasetConfig(BaseSettings):
         file_path: The HuggingFace repo id of the dataset file.
         dataset_type: The type of the dataset, represented as an enum.
         preprocess_config: Configuration for preprocessing the dataset.
+        answer_format: Response format expected by the evaluator.
         seed: The random seed for reproducibility.
     """
 
@@ -36,4 +37,5 @@ class DatasetConfig(BaseSettings):
     file_path: str
     dataset_type: DatasetType
     preprocess_config: PreprocessConfig = PreprocessConfig()
+    answer_format: AnswerFormat = AnswerFormat.FREE_TEXT
     seed: int | None = 42

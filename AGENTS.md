@@ -5,18 +5,35 @@ Core library code lives in `llm_behavior_eval/`, with behavior-specific helpers 
 
 ## Build, Test, and Development Commands
 - `uv venv .venv && source .venv/bin/activate`: create and activate the dedicated virtual environment before running tooling. Install dependencies into `.venv` rather than the system interpreter.
-- `uv pip install --python .venv/bin/python -e .`: install the project locally; append extras like `".[mlflow]"`, `".[vllm]"`, or `".[mlflow,vllm]"` when you need those integrations.
-- Dev containers run `.devcontainer/setup.sh`, which installs the base project by default; export `LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS="mlflow"` (or `mlflow,vllm`) before invoking the script if you require extras and have sufficient disk space.
+- `uv sync`: install the project and the default development toolchain into `.venv`. On Linux, this includes `mlflow`, `gcs`, and `vllm` through the default `dev` dependency group. On macOS, it includes `mlflow` and `gcs`, but not `vllm`.
+- `vllm` is unsupported in the normal macOS setup because upstream does not provide macOS wheels; using it on Apple Silicon would require a separate manual build path rather than the standard project environment.
+- Dev containers run `.devcontainer/setup.sh`, which installs the base project by default; export `LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS="mlflow"` (or `mlflow,vllm` on Linux) before invoking the script if you require extras and have sufficient disk space.
 - Prefer `uv` for dependency management in automation scripts and local workflows; avoid invoking `pip` directly unless you are installing `uv` itself or a tool explicitly requires `pip`.
-- `pytest`: run the full test suite; pass `-k pattern` to scope to a module while iterating.
-- Run `ruff format .` (or `ruff format --check --diff` to verify) before committing to ensure consistent styling, followed by `ruff check .` for linting.
-- `basedpyright`: run static type checks (CI uses the same configuration).
+- Activate `.venv` before running project tools so `pytest`, `ruff`, and `basedpyright` come from the project's local environment rather than the system Python.
+- Run `pytest` after activation: the full test suite; pass `-k pattern` to scope to a module while iterating.
+- Run `ruff format .` (or `ruff format --check --diff` to verify) after activation, followed by `ruff check .` for linting.
+- Run `basedpyright` after activation for static type checks (CI uses the same configuration).
+- Before finishing any change, run `ruff check` and `basedpyright` on all touched Python files and confirm there are no new issues.
 
 ## Coding Style & Naming Conventions
-Follow PEP 8 defaults with 4-space indentation. Prefer `snake_case` for modules, functions, and variables; reserve `PascalCase` for classes and `UPPER_SNAKE_CASE` for constants. Keep public CLI options descriptive and aligned with existing Typer command names. Let `ruff` fix spacing and import order; avoid disabling rules unless there is a clear justification. Type hints are expected on new public functions—match the patterns in `evaluation_utils/`.
+Follow PEP 8 defaults with 4-space indentation. Prefer `snake_case` for modules, functions, and variables; reserve `PascalCase` for classes and `UPPER_SNAKE_CASE` for constants. Keep public CLI options descriptive and aligned with existing Typer command names. Avoid 1-3 letter variable names; use descriptive names even in small scopes. Let `ruff` fix spacing and import order; avoid disabling rules unless there is a clear justification. Type hints are expected on new public functions—match the patterns in `evaluation_utils/`.
+- Any usage of `typing.cast(...)` must include an inline code comment that justifies why the cast is safe at runtime.
+- New or modified non-trivial functions/methods should include docstrings with explicit `Args` and `Returns` sections.
+- For scripts that fetch remote datasets or metadata, prefer Python-native reads or API clients over shelling out to external CLIs (for example, avoid `subprocess` for GitHub downloads when direct HTTP fetch is straightforward).
 
 ## Testing Guidelines
 Add or update `tests/test_*.py` files alongside any new feature. Use `pytest` assertions, fixtures, and `monkeypatch` for mocking (avoid `unittest.mock`). Parametrization keeps dataset scenarios readable. Cover both CLI flows (`llm_behavior_eval/__main__.py`) and factory utilities when behavior changes. Keep simulated model outputs deterministic so runs remain reproducible. When adding evaluation datasets, include at least one regression test that exercises parsing and scoring logic. Use pytest's `monkeypatch` fixture for patching module attributes and dependencies; create custom fixtures for reusable test setup.
+
+## Planning Checklist for behavior changes
+- For any behavior, preset, dataset-id, or naming convention change, include a full cross-file sweep before proposing completion:
+  - runtime implementation paths,
+  - user-facing docs,
+  - and all relevant tests.
+- Keep a change surface map in your plan with file paths and the token values being changed.
+- Add a final pass confirming:
+  - all imports still resolve after file moves,
+  - import path references are updated in docs/examples,
+  - static check/lint passes are clean on edited files.
 
 ## Commit & Pull Request Guidelines
 Write imperative, concise commit titles (e.g., `Add hallu evaluator smoke tests`). Squash trivial fixups locally before raising a PR. Each PR should explain behavior changes, note impacts on benchmark outputs, and link to any tracking issue. Attach screenshots or sample CLI output when the change affects user-visible results. Mark configuration-sensitive updates (MLflow, datasets, prompt presets) so reviewers can double-check downstream pipelines.
