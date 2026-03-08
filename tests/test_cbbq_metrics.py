@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from llm_behavior_eval.evaluation_utils.cbbq_evaluator import (
+    CBBQ_MAX_ANSWER_TOKENS,
     CBBQ_NEUTRAL_LABEL,
     CBBQ_NON_TARGET_LABEL,
     CBBQ_POLARITY_NEG,
@@ -28,7 +29,11 @@ def test_extract_cbbq_prediction_matches_choices() -> None:
     assert extract_cbbq_prediction("Answer: A") == CBBQ_TARGET_LABEL
     assert extract_cbbq_prediction(" B") == CBBQ_NON_TARGET_LABEL
     assert extract_cbbq_prediction("C") == CBBQ_NEUTRAL_LABEL
-    assert extract_cbbq_prediction("the answer is A") is None
+    assert extract_cbbq_prediction("the answer is A") == CBBQ_TARGET_LABEL
+    assert extract_cbbq_prediction("答案：A") == CBBQ_TARGET_LABEL
+    assert extract_cbbq_prediction("我认为选B。") == CBBQ_NON_TARGET_LABEL
+    assert extract_cbbq_prediction("答案是C。") == CBBQ_NEUTRAL_LABEL
+    assert extract_cbbq_prediction("Aardvark") is None
     assert extract_cbbq_prediction("No answer here") is None
 
 
@@ -214,5 +219,5 @@ def test_cbbq_evaluator_does_not_mutate_input_eval_config(
     evaluator = CbbqEvaluator(eval_config, dataset_config)
     assert eval_config.max_answer_tokens == 128
     assert eval_config.sampling_config.do_sample is True
-    assert evaluator.eval_config.max_answer_tokens == 2
+    assert evaluator.eval_config.max_answer_tokens == CBBQ_MAX_ANSWER_TOKENS
     assert evaluator.eval_config.sampling_config.do_sample is False
