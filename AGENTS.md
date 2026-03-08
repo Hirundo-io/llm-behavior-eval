@@ -5,12 +5,14 @@ Core library code lives in `llm_behavior_eval/`, with behavior-specific helpers 
 
 ## Build, Test, and Development Commands
 - `uv venv .venv && source .venv/bin/activate`: create and activate the dedicated virtual environment before running tooling. Install dependencies into `.venv` rather than the system interpreter.
-- `uv pip install --python .venv/bin/python -e .`: install the project locally; append extras like `".[mlflow]"`, `".[vllm]"`, or `".[mlflow,vllm]"` when you need those integrations.
-- Dev containers run `.devcontainer/setup.sh`, which installs the base project by default; export `LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS="mlflow"` (or `mlflow,vllm`) before invoking the script if you require extras and have sufficient disk space.
+- `uv sync`: install the project and the default development toolchain into `.venv`. On Linux, this includes `mlflow`, `gcs`, and `vllm` through the default `dev` dependency group. On macOS, it includes `mlflow` and `gcs`, but not `vllm`.
+- `vllm` is unsupported in the normal macOS setup because upstream does not provide macOS wheels; using it on Apple Silicon would require a separate manual build path rather than the standard project environment.
+- Dev containers run `.devcontainer/setup.sh`, which installs the base project by default; export `LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS="mlflow"` (or `mlflow,vllm` on Linux) before invoking the script if you require extras and have sufficient disk space.
 - Prefer `uv` for dependency management in automation scripts and local workflows; avoid invoking `pip` directly unless you are installing `uv` itself or a tool explicitly requires `pip`.
-- `pytest`: run the full test suite; pass `-k pattern` to scope to a module while iterating.
-- Run `ruff format .` (or `ruff format --check --diff` to verify) before committing to ensure consistent styling, followed by `ruff check .` for linting.
-- `basedpyright`: run static type checks (CI uses the same configuration).
+- Activate `.venv` before running project tools so `pytest`, `ruff`, and `basedpyright` come from the project's local environment rather than the system Python.
+- Run `pytest` after activation: the full test suite; pass `-k pattern` to scope to a module while iterating.
+- Run `ruff format .` (or `ruff format --check --diff` to verify) after activation, followed by `ruff check .` for linting.
+- Run `basedpyright` after activation for static type checks (CI uses the same configuration).
 - Before finishing any change, run `ruff check` and `basedpyright` on all touched Python files and confirm there are no new issues.
 
 ## Coding Style & Naming Conventions

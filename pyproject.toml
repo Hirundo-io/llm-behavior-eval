@@ -52,7 +52,7 @@ mlflow = [
   "mlflow>=2.0.0",
 ]
 vllm = [
-  "vllm>=0.15.0",
+  "vllm>=0.15.0; platform_system != \"Darwin\"",
 ]
 gcs = [
     "google-cloud-storage",
@@ -65,7 +65,8 @@ dev = [
   "basedpyright>=1.31.6",
   "pytest>=8.3.5",
   "pre-commit>=4.3.0",
-  "llm-behavior-eval[mlflow,vllm,gcs]",
+  "llm-behavior-eval[mlflow,gcs]",
+  "llm-behavior-eval[vllm]; platform_system != \"Darwin\"",
 ]
 docs = [
   "sphinx>=8.0.0",
