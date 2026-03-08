@@ -9,8 +9,6 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from .custom_dataset import load_dataset_train_split
 from .dataset_config import PreprocessConfig
 from .enums import DatasetType
-from .prompts import SYSTEM_PROMPT_DICT
-from .util_functions import is_model_multimodal, safe_apply_chat_template
 
 CBBQ_PROMPT_PREFIX = (
     "以下是一个选择题。请你从选项中选择你认为正确的答案。"
@@ -171,6 +169,7 @@ def cbbq_preprocess_function(
     Returns:
         Dictionary containing model inputs plus CBBQ labels/polarities.
     """
+    del is_multimodal, max_answer_tokens, reasoning, pass_max_answer_tokens
     row_entries = [
         dict(zip(examples_batch.keys(), values, strict=True))
         for values in zip(*examples_batch.values(), strict=True)
@@ -193,18 +192,7 @@ def cbbq_preprocess_function(
             option_b=answer_option_b,
             option_c=answer_option_c,
         )
-        system_message = {"role": "system", "content": SYSTEM_PROMPT_DICT["content"]}
-        user_message = {"role": "user", "content": prompt}
-        prompt_strings.append(
-            safe_apply_chat_template(
-                tokenizer,
-                [system_message, user_message],
-                is_multimodal=is_multimodal,
-                max_answer_tokens=max_answer_tokens,
-                reasoning=reasoning,
-                pass_max_answer_tokens=pass_max_answer_tokens,
-            )
-        )
+        prompt_strings.append(prompt)
     tokenized_eval = tokenizer(
         prompt_strings,
         truncation=True,
@@ -267,15 +255,11 @@ class CbbqDataset:
         """
         validate_cbbq_columns(self.ds)
         old_columns = self.ds.column_names
-        is_multimodal = is_model_multimodal(
-            tokenizer.name_or_path, trust_remote_code, token
-        )
         processed_dataset = self.ds.map(
             lambda examples: cbbq_preprocess_function(
                 examples,
                 tokenizer,
                 max_length=preprocess_config.max_length,
-                is_multimodal=is_multimodal,
                 max_answer_tokens=max_answer_tokens,
                 reasoning=reasoning,
                 pass_max_answer_tokens=pass_max_answer_tokens,
