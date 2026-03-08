@@ -56,8 +56,7 @@ plotly = [
   "plotly>=6.0.0,<7.0.0",
 ]
 vllm = [
-  "vllm>=0.13.0",
-  # ⬆️ Required to fix vulnerability with ID GHSA-mcmc-2m55-j8jj (vLLM introduced enhanced protection for CVE-2025-62164)
+  "vllm>=0.15.0; platform_system != \"Darwin\"",
 ]
 gcs = [
     "google-cloud-storage>=3.0.0,<4.0.0",
@@ -70,7 +69,8 @@ dev = [
   "basedpyright>=1.31.6",
   "pytest>=8.3.5",
   "pre-commit>=4.3.0",
-  "llm-behavior-eval[mlflow,vllm,gcs,plotly]",
+  "llm-behavior-eval[mlflow,gcs,plotly]",
+  "llm-behavior-eval[vllm]; platform_system != \"Darwin\"",
 ]
 docs = [
   "sphinx>=8.0.0",
