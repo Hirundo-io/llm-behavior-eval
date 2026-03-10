@@ -708,6 +708,9 @@ class BaseEvaluator(ABC):
         artifact_path = (
             f"llm-behavior-eval/{model_path_slug}/{behavior_slug}/{timestamp}"
         )
+        log_summary_string_params = not (
+            self.mlflow_config and self.mlflow_config.mlflow_run_id
+        )
 
         # Log summary_full.csv contents as MLflow metrics (numeric) or params (strings)
         summary_full_path = model_results_dir / "summary_full.csv"
@@ -727,7 +730,8 @@ class BaseEvaluator(ABC):
                             num = float(val)
                             mlflow.log_metric(key, num)
                         except (TypeError, ValueError):
-                            mlflow.log_param(key, str(val))
+                            if log_summary_string_params:
+                                mlflow.log_param(key, str(val))
             except Exception as e:
                 logging.warning("Could not log summary_full.csv to MLflow: %s", e)
 
