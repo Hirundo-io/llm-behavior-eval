@@ -146,3 +146,4 @@ class MlflowConfig(BaseModel):
     mlflow_tracking_uri: str | None = None
     mlflow_experiment_name: str | None = None
     mlflow_run_name: str | None = None
+    mlflow_run_id: str | None = None  # existing run ID to log to (no new run created)

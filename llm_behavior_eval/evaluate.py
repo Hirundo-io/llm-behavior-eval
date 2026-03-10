@@ -10,14 +10,14 @@ import typer
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
-from llm_behavior_eval import (
+from llm_behavior_eval.evaluation_utils.dataset_config import (
     DatasetConfig,
-    DatasetType,
-    EvaluateFactory,
-    EvaluationConfig,
     PreprocessConfig,
-    SamplingConfig,
 )
+from llm_behavior_eval.evaluation_utils.enums import DatasetType
+from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
+from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
 )
@@ -195,7 +195,10 @@ def main(
     ] = False,
     mlflow_tracking_uri: Annotated[
         str | None,
-        typer.Option("--mlflow-tracking-uri", help="MLflow tracking URI (optional)"),
+        typer.Option(
+            "--mlflow-tracking-uri",
+            help="MLflow tracking URI (optional). For auth, set MLFLOW_TRACKING_USERNAME and MLFLOW_TRACKING_PASSWORD env vars or use --mlflow-username / --mlflow-password.",
+        ),
     ] = None,
     mlflow_experiment_name: Annotated[
         str | None,
@@ -208,6 +211,27 @@ def main(
         typer.Option(
             "--mlflow-run-name",
             help="MLflow run name (optional, auto-generates if not specified)",
+        ),
+    ] = None,
+    mlflow_run_id: Annotated[
+        str | None,
+        typer.Option(
+            "--mlflow-run-id",
+            help="Existing MLflow run ID to log metrics and upload artifacts to (instead of creating a new run).",
+        ),
+    ] = None,
+    mlflow_username: Annotated[
+        str | None,
+        typer.Option(
+            "--mlflow-username",
+            help="MLflow tracking server username (optional). Overrides MLFLOW_TRACKING_USERNAME env var.",
+        ),
+    ] = None,
+    mlflow_password: Annotated[
+        str | None,
+        typer.Option(
+            "--mlflow-password",
+            help="MLflow tracking server password (optional). Overrides MLFLOW_TRACKING_PASSWORD env var.",
         ),
     ] = None,
     lora_path_or_repo_id: Annotated[
@@ -452,7 +476,18 @@ def main(
     )
 
     # Compose MLflow config separately
-    if use_mlflow or mlflow_tracking_uri or mlflow_experiment_name or mlflow_run_name:
+    if (
+        use_mlflow
+        or mlflow_tracking_uri
+        or mlflow_experiment_name
+        or mlflow_run_name
+        or mlflow_run_id
+    ):
+        # Set MLflow auth env vars so the client can authenticate (MLflow reads MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD)
+        if mlflow_username is not None:
+            os.environ["MLFLOW_TRACKING_USERNAME"] = mlflow_username
+        if mlflow_password is not None:
+            os.environ["MLFLOW_TRACKING_PASSWORD"] = mlflow_password
         from llm_behavior_eval.evaluation_utils.eval_config import MlflowConfig
 
         mlflow_config = MlflowConfig(
@@ -460,6 +495,7 @@ def main(
             or os.environ.get("MLFLOW_TRACKING_URI"),
             mlflow_experiment_name=mlflow_experiment_name,
             mlflow_run_name=mlflow_run_name,
+            mlflow_run_id=mlflow_run_id,
         )
     else:
         mlflow_config = None

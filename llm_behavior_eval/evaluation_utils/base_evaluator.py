@@ -3,10 +3,12 @@ from __future__ import annotations
 import gc
 import json
 import logging
+import re
 import sys
 from abc import ABC, abstractmethod
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
 
@@ -154,16 +156,28 @@ class BaseEvaluator(ABC):
             raise RuntimeError("Judge tokenizer is not initialized.")
         return tokenizer
 
-    def get_model_slug(self) -> str:
-        """Get the slug for the model, used for building output directories
+    def _model_name_slug(self) -> str:
+        """Last path segment of model_path_or_repo_id (e.g. rank_8_alpha_64).
 
         Returns:
-            The slug for the model.
+            The final path component, or "model" if empty.
+        """
+        path = self.eval_config.model_path_or_repo_id.rstrip("/")
+        return Path(path).name or (path.split("/")[-1] if path else "model")
+
+    def get_model_slug(self) -> str:
+        """Get the slug for the model, used for building output directories.
+
+        Uses the last path segment so that paths with or without a trailing slash
+        (e.g. .../bias_0_1 or .../bias_0_1/) both yield the same folder name.
+
+        Returns:
+            The slug for the model (and optional -lora- suffix).
         """
         if self.eval_config.model_output_dir:
             return self.eval_config.model_output_dir
 
-        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
+        model_slug = self._model_name_slug()
         if self.eval_config.lora_path_or_repo_id:
             mlflow_tracking_uri = (
                 self.eval_config.mlflow_config.mlflow_tracking_uri
@@ -520,10 +534,13 @@ class BaseEvaluator(ABC):
     def cleanup(self, error: bool = False) -> None:
         """
         Cleanup the active MLFlow run if it exists, and set its status accordingly.
+        When using an existing run (mlflow_run_id), do not end the run—we did not start it.
 
         Args:
             error: Flag indicating if the evaluation failed. If True, the run is marked as FAILED, otherwise FINISHED.
         """
+        if self.mlflow_config and getattr(self.mlflow_config, "mlflow_run_id", None):
+            return
         if mlflow and mlflow.active_run():
             active_run = mlflow.active_run()
             run_id = active_run.info.run_id if active_run else None
@@ -574,6 +591,15 @@ class BaseEvaluator(ABC):
                 f"Using existing active run {active_run.info.run_id} as main run"
             )
             self.parent_run = self.mlflow_run = active_run
+        elif self.mlflow_config.mlflow_run_id:
+            # Log to an existing run: resume that run and log metrics/artifacts to it
+            existing = mlflow.get_run(self.mlflow_config.mlflow_run_id)
+            mlflow.set_experiment(experiment_id=existing.info.experiment_id)
+            mlflow.start_run(run_id=self.mlflow_config.mlflow_run_id)
+            self.parent_run = self.mlflow_run = mlflow.active_run()
+            logging.info(
+                "Logging to existing MLflow run: %s", self.mlflow_config.mlflow_run_id
+            )
         else:
             # Set up parent run with model slug name only
             run_name = self.mlflow_config.mlflow_run_name or f"{model_slug}"
@@ -612,6 +638,11 @@ class BaseEvaluator(ABC):
         error = True
         try:
             if mlflow and self.mlflow_config:
+                # When logging to an existing run (mlflow_run_id), do not start nested runs
+                if self.mlflow_config.mlflow_run_id:
+                    yield
+                    error = False
+                    return
                 dataset_slug = self.get_dataset_slug()
                 if run_name is None:
                     logging.info(f"Using run name {dataset_slug} for dataset run")
@@ -647,24 +678,72 @@ class BaseEvaluator(ABC):
             return
         mlflow.log_metrics(metrics)
 
+    def _sanitize_mlflow_key(self, name: str) -> str:
+        """Return a key safe for MLflow params/metrics: alphanumeric and underscores only.
+
+        Returns:
+            Sanitized key (e.g. "Attack_success_rate" from "Attack success rate (%) ⬇️").
+        """
+        # Keep only letters, digits, spaces; replace % and other symbols with nothing
+        s = re.sub(r"[^a-zA-Z0-9\s]", "", name)
+        s = re.sub(r"\s+", "_", s.strip("_"))
+        s = re.sub(r"_+", "_", s).strip("_")
+        return s or "value"
+
     def _log_mlflow_artifacts(self) -> None:
-        """Log evaluation artifacts (responses, metrics files) to MLflow."""
+        """Log evaluation artifacts to MLflow.
+
+        Logs summary_full.csv columns as metrics/params, and uploads all files under
+        results_dir/model_slug to artifacts at:
+        llm-behavior-eval/<model_name>/<behavior>/<timestamp> (model_name = last path segment).
+        """
         if not self.eval_config.mlflow_config or not mlflow:
             return
 
-        output_dir = self.get_output_dir()
+        model_slug = self.get_model_slug()
+        model_results_dir = Path(self.eval_config.results_dir) / model_slug
+        model_path_slug = self._model_name_slug()
+        behavior_slug = self.get_dataset_slug().replace("/", "-")
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        artifact_path = (
+            f"llm-behavior-eval/{model_path_slug}/{behavior_slug}/{timestamp}"
+        )
 
-        # Log individual files
-        responses_file = output_dir / "responses.json"
-        metrics_file = output_dir / "metrics.csv"
-        generations_file = output_dir / "generations.jsonl"
+        # Log summary_full.csv contents as MLflow metrics (numeric) or params (strings)
+        summary_full_path = model_results_dir / "summary_full.csv"
+        if summary_full_path.exists():
+            try:
+                summary_df = pd.read_csv(summary_full_path)
+                if not summary_df.empty:
+                    last_row = summary_df.iloc[-1]
+                    for col in summary_df.columns:
+                        key = self._sanitize_mlflow_key(col)
+                        if not key:
+                            continue
+                        val = last_row[col]
+                        if pd.isna(val):
+                            continue
+                        try:
+                            num = float(val)
+                            mlflow.log_metric(key, num)
+                        except (TypeError, ValueError):
+                            mlflow.log_param(key, str(val))
+            except Exception as e:
+                logging.warning("Could not log summary_full.csv to MLflow: %s", e)
 
-        if responses_file.exists():
-            mlflow.log_artifact(str(responses_file))
-        if metrics_file.exists():
-            mlflow.log_artifact(str(metrics_file))
-        if generations_file.exists():
-            mlflow.log_artifact(str(generations_file))
+        # Upload entire results dir for this model to the artifact path
+        if model_results_dir.exists():
+            try:
+                mlflow.log_artifacts(
+                    str(model_results_dir), artifact_path=artifact_path
+                )
+                logging.info(
+                    "Uploaded artifacts from %s to MLflow path %s",
+                    model_results_dir,
+                    artifact_path,
+                )
+            except Exception as e:
+                logging.warning("Could not upload artifacts to MLflow: %s", e)
 
     def run_config_path(self) -> Path:
         return self.get_output_dir() / "run_config.json"
