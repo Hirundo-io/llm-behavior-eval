@@ -9,6 +9,17 @@ if TYPE_CHECKING:
 DEFAULT_CHART_TITLE_TEMPLATE = "{metric_label} by Category"
 
 
+def ensure_plotting_dependencies():
+    try:
+        import plotly.graph_objects as graph_objects
+    except ImportError as import_error:
+        raise ImportError(
+            "Plotly is required for plotting. Install with `llm-behavior-eval[plotly]`."
+        ) from import_error
+
+    return graph_objects
+
+
 def _validate_plot_args(
     value_lists: Sequence[Sequence[float]],
     series_labels: Sequence[str],
@@ -64,12 +75,7 @@ def draw_radar_chart(
         metric_name_mapping: Optional mapping of metric identifiers to display labels.
         chart_title: Optional explicit chart title.
     """
-    try:
-        import plotly.graph_objects as graph_objects
-    except ImportError as import_error:
-        raise ImportError(
-            "Plotly is required for plotting. Install with `llm-behavior-eval[plotly]`."
-        ) from import_error
+    graph_objects = ensure_plotting_dependencies()
 
     _validate_plot_args(value_lists, series_labels, categories, colors)
 

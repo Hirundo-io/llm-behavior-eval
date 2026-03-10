@@ -52,6 +52,17 @@ DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
 DEFAULT_MAX_LORA_RANK = VllmConfig.model_fields["max_lora_rank"].default
 
 
+def _validate_plot_dependencies(plot: bool) -> None:
+    if not plot:
+        return
+
+    from llm_behavior_eval.evaluation_utils.plotting import (
+        ensure_plotting_dependencies,
+    )
+
+    ensure_plotting_dependencies()
+
+
 def _plot_metrics_from_summary(
     result_dir: Path,
     model_path_or_repo_id: str,
@@ -522,6 +533,7 @@ def main(
         raise ValueError("--save-plot-to-mlflow requires --plot.")
     if save_plot_to_mlflow and not use_mlflow:
         raise ValueError("--save-plot-to-mlflow requires --use-mlflow.")
+    _validate_plot_dependencies(plot)
 
     # Compose MLflow config separately
     if use_mlflow or mlflow_tracking_uri or mlflow_experiment_name or mlflow_run_name:

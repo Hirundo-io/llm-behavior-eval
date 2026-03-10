@@ -423,6 +423,39 @@ def test_main_rejects_save_plot_to_mlflow_without_mlflow() -> None:
         )
 
 
+def test_main_rejects_missing_plotly_before_evaluation_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    create_calls = 0
+
+    def fake_validate_plot_dependencies(plot: bool) -> None:
+        if plot:
+            raise ImportError(
+                "Plotly is required for plotting. Install with `llm-behavior-eval[plotly]`."
+            )
+
+    def fake_create(
+        eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> _StubEvaluator:
+        nonlocal create_calls
+        create_calls += 1
+        return _StubEvaluator()
+
+    monkeypatch.setattr(
+        evaluate, "_validate_plot_dependencies", fake_validate_plot_dependencies
+    )
+    monkeypatch.setattr(
+        evaluate.EvaluateFactory,
+        "create_evaluator",
+        staticmethod(fake_create),
+    )
+
+    with pytest.raises(ImportError, match="Plotly is required for plotting"):
+        evaluate.main("fake/model", "hallu", plot=True)
+
+    assert create_calls == 0
+
+
 def test_main_calls_plotting_when_enabled(
     capture_eval_config: list[EvaluationConfig],
     monkeypatch: pytest.MonkeyPatch,
