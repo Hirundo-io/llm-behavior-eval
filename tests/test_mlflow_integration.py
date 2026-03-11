@@ -258,13 +258,15 @@ def test_dataset_mlflow_run_with_existing_run_id_logs_params(
     mlflow_mock.start_run.return_value = parent_run
     mlflow_mock.active_run.return_value = parent_run
 
+    assert evaluation_config.mlflow_config is not None
+    base_mlflow = evaluation_config.mlflow_config
     config_with_run_id = EvaluationConfig(
         model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
         results_dir=evaluation_config.results_dir,
         batch_size=evaluation_config.batch_size,
         mlflow_config=MlflowConfig(
-            mlflow_tracking_uri=evaluation_config.mlflow_config.mlflow_tracking_uri,
-            mlflow_experiment_name=evaluation_config.mlflow_config.mlflow_experiment_name,
+            mlflow_tracking_uri=base_mlflow.mlflow_tracking_uri,
+            mlflow_experiment_name=base_mlflow.mlflow_experiment_name,
             mlflow_run_id="existing-123",
         ),
     )
