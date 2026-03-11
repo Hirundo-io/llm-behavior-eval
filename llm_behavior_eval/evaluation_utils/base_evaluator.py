@@ -602,9 +602,7 @@ class BaseEvaluator(ABC):
                 mlflow.set_experiment(experiment_id=existing.info.experiment_id)
                 mlflow.start_run(run_id=requested_run_id)
                 self.parent_run = self.mlflow_run = mlflow.active_run()
-                logging.info(
-                    "Logging to existing MLflow run: %s", requested_run_id
-                )
+                logging.info("Logging to existing MLflow run: %s", requested_run_id)
         elif active_run is not None:
             # No run ID requested: reuse active run only when it was not requested by ID
             logging.warning(
