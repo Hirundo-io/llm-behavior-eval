@@ -234,6 +234,13 @@ def main(
             help="MLflow tracking server password (optional). Overrides MLFLOW_TRACKING_PASSWORD env var.",
         ),
     ] = None,
+    mlflow_artifact_path_suffix: Annotated[
+        str | None,
+        typer.Option(
+            "--mlflow-artifact-path-suffix",
+            help='Optional suffix for MLflow artifact path. Use "timestamp" to auto-append current time. If not set, artifacts go under llm-behavior-eval only.',
+        ),
+    ] = None,
     lora_path_or_repo_id: Annotated[
         str | None,
         typer.Option(
@@ -496,6 +503,7 @@ def main(
             mlflow_experiment_name=mlflow_experiment_name,
             mlflow_run_name=mlflow_run_name,
             mlflow_run_id=mlflow_run_id,
+            mlflow_artifact_path_suffix=mlflow_artifact_path_suffix,
         )
     else:
         mlflow_config = None

@@ -637,13 +637,10 @@ class BaseEvaluator(ABC):
         mlflow.log_params(config_dict)
 
     @contextmanager
-    def dataset_mlflow_run(self, run_name: str | None = None) -> Iterator[None]:
+    def dataset_mlflow_run(self) -> Iterator[None]:
         """
         Log dataset-specific params to the current MLflow run and yield.
         Child runs are never started; behavior is consistent whether or not mlflow_run_id was provided.
-
-        Args:
-            run_name: Unused; kept for API compatibility.
         """
         if mlflow and self.mlflow_config:
             if not self.parent_run:
@@ -692,22 +689,27 @@ class BaseEvaluator(ABC):
         """Log evaluation artifacts to MLflow.
 
         Logs summary_full.csv numeric columns as metrics only (no prefix; string columns skipped).
-        Uploads all files under results_dir/model_slug to
-        llm-behavior-eval/<model_name>/<behavior>/<timestamp>. Also logs the current
-        run's responses.json, metrics.csv, generations.jsonl, run_config.json at the
-        run root for backward compatibility with dashboards/tests.
+        Uploads all files under results_dir/model_slug to artifact path
+        llm-behavior-eval (no nested subfolders). If mlflow_artifact_path_suffix is set,
+        one segment is appended: llm-behavior-eval/<suffix>. Use suffix "timestamp" to
+        auto-append current time (e.g. 2025-03-10_12-00-00).
+        Also logs the current run's responses.json, metrics.csv, generations.jsonl, run_config.json
+        at the run root for backward compatibility with dashboards/tests.
         """
         if not self.eval_config.mlflow_config or not mlflow:
             return
 
         model_slug = self.get_model_slug()
         model_results_dir = Path(self.eval_config.results_dir) / model_slug
-        model_path_slug = self._model_name_slug()
-        behavior_slug = self.get_dataset_slug().replace("/", "-")
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        artifact_path = (
-            f"llm-behavior-eval/{model_path_slug}/{behavior_slug}/{timestamp}"
-        )
+        base_path = "llm-behavior-eval"
+        raw_suffix = (
+            self.eval_config.mlflow_config.mlflow_artifact_path_suffix or ""
+        ).strip()
+        if raw_suffix == "timestamp":
+            suffix = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        else:
+            suffix = raw_suffix
+        artifact_path = f"{base_path}/{suffix}" if suffix else base_path
 
         # Log summary_full.csv numeric columns as metrics only (no prefix; string columns skipped)
         summary_full_path = model_results_dir / "summary_full.csv"
@@ -747,19 +749,19 @@ class BaseEvaluator(ABC):
 
         # Log current run's key files at run root for backward compatibility (dashboards, tests)
         output_dir = self.get_output_dir()
-        for file_name in (
+        for fname in (
             "responses.json",
             "metrics.csv",
             "generations.jsonl",
             "run_config.json",
         ):
-            file_path = output_dir / file_name
-            if file_path.exists():
+            fpath = output_dir / fname
+            if fpath.exists():
                 try:
-                    mlflow.log_artifact(str(file_path))
+                    mlflow.log_artifact(str(fpath))
                 except Exception as e:
                     logging.warning(
-                        "Could not log %s at run root to MLflow: %s", file_name, e
+                        "Could not log %s at run root to MLflow: %s", fname, e
                     )
 
     def run_config_path(self) -> Path:

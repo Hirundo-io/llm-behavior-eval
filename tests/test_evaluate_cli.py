@@ -34,7 +34,7 @@ class _StubEvaluator:
     def get_grading_context(self) -> AbstractContextManager:
         return nullcontext()
 
-    def dataset_mlflow_run(self, run_name: str | None = None) -> AbstractContextManager:
+    def dataset_mlflow_run(self) -> AbstractContextManager:
         return nullcontext()
 
     def _grade_impl(
