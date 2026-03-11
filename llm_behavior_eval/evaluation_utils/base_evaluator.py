@@ -747,19 +747,19 @@ class BaseEvaluator(ABC):
 
         # Log current run's key files at run root for backward compatibility (dashboards, tests)
         output_dir = self.get_output_dir()
-        for fname in (
+        for file_name in (
             "responses.json",
             "metrics.csv",
             "generations.jsonl",
             "run_config.json",
         ):
-            fpath = output_dir / fname
-            if fpath.exists():
+            file_path = output_dir / file_name
+            if file_path.exists():
                 try:
-                    mlflow.log_artifact(str(fpath))
+                    mlflow.log_artifact(str(file_path))
                 except Exception as e:
                     logging.warning(
-                        "Could not log %s at run root to MLflow: %s", fname, e
+                        "Could not log %s at run root to MLflow: %s", file_name, e
                     )
 
     def run_config_path(self) -> Path:
