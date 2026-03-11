@@ -225,6 +225,61 @@ def test_dataset_mlflow_run_requires_parent_run(
             pass
 
 
+def test_dataset_mlflow_run_logs_dataset_params_to_current_run(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    """dataset_mlflow_run logs file_path, dataset_type, seed to the current run and does not start a nested run."""
+    parent_run = _make_run("parent-run", "model")
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
+
+    evaluator = DummyEvaluator(evaluation_config, dataset_config)
+    mlflow_mock.reset_mock()
+
+    with evaluator.dataset_mlflow_run():
+        pass
+
+    mlflow_mock.start_run.assert_not_called()
+    mlflow_mock.log_params.assert_called_once()
+    logged = mlflow_mock.log_params.call_args.args[0]
+    assert logged["file_path"] == "hirundo-io/bbq-gender-bias-free-text"
+    assert logged["dataset_type"] == DatasetType.BIAS.value
+
+
+def test_dataset_mlflow_run_with_existing_run_id_logs_params(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    """When mlflow_run_id is set, dataset_mlflow_run still logs dataset params to the current run."""
+    parent_run = _make_run("existing-123", "model")
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = parent_run
+
+    config_with_run_id = EvaluationConfig(
+        model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
+        results_dir=evaluation_config.results_dir,
+        batch_size=evaluation_config.batch_size,
+        mlflow_config=MlflowConfig(
+            mlflow_tracking_uri=evaluation_config.mlflow_config.mlflow_tracking_uri,
+            mlflow_experiment_name=evaluation_config.mlflow_config.mlflow_experiment_name,
+            mlflow_run_id="existing-123",
+        ),
+    )
+    evaluator = DummyEvaluator(config_with_run_id, dataset_config)
+    mlflow_mock.reset_mock()
+
+    with evaluator.dataset_mlflow_run():
+        pass
+
+    mlflow_mock.log_params.assert_called_once()
+    logged = mlflow_mock.log_params.call_args.args[0]
+    assert logged["file_path"] == dataset_config.file_path
+    assert logged["dataset_type"] == dataset_config.dataset_type.value
+
+
 def test_save_results_logs_mlflow_metrics_and_artifacts(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
