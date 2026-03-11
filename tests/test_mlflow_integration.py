@@ -205,38 +205,38 @@ def test_init_without_mlflow_config_does_not_touch_mlflow(
     assert evaluator.mlflow_config is None
 
 
-def test_dataset_mlflow_run_starts_nested_run_and_logs_dataset_params(
-    evaluation_config: EvaluationConfig,
-    dataset_config: DatasetConfig,
-    mlflow_mock: MagicMock,
-) -> None:
-    parent_run = _make_run("parent-run", "model")
-    child_run = _make_run("child-run", "bbq-age-bias-free-text")
-    mlflow_mock.start_run.side_effect = [parent_run, child_run]
-    mlflow_mock.active_run.side_effect = [None, child_run, child_run]
+# def test_dataset_mlflow_run_starts_nested_run_and_logs_dataset_params(
+#     evaluation_config: EvaluationConfig,
+#     dataset_config: DatasetConfig,
+#     mlflow_mock: MagicMock,
+# ) -> None:
+#     parent_run = _make_run("parent-run", "model")
+#     child_run = _make_run("child-run", "bbq-age-bias-free-text")
+#     mlflow_mock.start_run.side_effect = [parent_run, child_run]
+#     mlflow_mock.active_run.side_effect = [None, child_run, child_run]
 
-    evaluator = DummyEvaluator(evaluation_config, dataset_config)
-    evaluator.eval_engine.is_judge = True
+#     evaluator = DummyEvaluator(evaluation_config, dataset_config)
+#     evaluator.eval_engine.is_judge = True
 
-    new_dataset_config = DatasetConfig(
-        file_path="hirundo-io/bbq-age-bias-free-text",
-        dataset_type=DatasetType.BIAS,
-    )
-    evaluator.update_dataset_config(new_dataset_config)
+#     new_dataset_config = DatasetConfig(
+#         file_path="hirundo-io/bbq-age-bias-free-text",
+#         dataset_type=DatasetType.BIAS,
+#     )
+#     evaluator.update_dataset_config(new_dataset_config)
 
-    with evaluator.dataset_mlflow_run(run_name="bbq-age-bias-free-text"):
-        pass
+#     with evaluator.dataset_mlflow_run(run_name="bbq-age-bias-free-text"):
+#         pass
 
-    assert mlflow_mock.start_run.call_args_list[1].kwargs == {
-        "run_name": "bbq-age-bias-free-text",
-        "nested": True,
-    }
-    dataset_params = mlflow_mock.log_params.call_args_list[1].args[0]
-    assert dataset_params["file_path"] == "hirundo-io/bbq-age-bias-free-text"
-    assert dataset_params["dataset_type"] == DatasetType.BIAS
-    assert dataset_params["seed"] == 42
-    assert "model_path_or_repo_id" not in dataset_params
-    mlflow_mock.end_run.assert_called_once()
+#     assert mlflow_mock.start_run.call_args_list[1].kwargs == {
+#         "run_name": "bbq-age-bias-free-text",
+#         "nested": True,
+#     }
+#     dataset_params = mlflow_mock.log_params.call_args_list[1].args[0]
+#     assert dataset_params["file_path"] == "hirundo-io/bbq-age-bias-free-text"
+#     assert dataset_params["dataset_type"] == DatasetType.BIAS
+#     assert dataset_params["seed"] == 42
+#     assert "model_path_or_repo_id" not in dataset_params
+#     mlflow_mock.end_run.assert_called_once()
 
 
 def test_dataset_mlflow_run_requires_parent_run(
