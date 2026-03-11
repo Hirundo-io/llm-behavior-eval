@@ -30,6 +30,7 @@ from .sampling_config import SamplingConfig
 from .util_functions import (
     config_to_dict,
     empty_cuda_cache_if_available,
+    get_lora_slug,
     load_tokenizer_with_transformers,
 )
 
@@ -102,6 +103,7 @@ class BaseEvaluator(ABC):
         self.model_engine = eval_config.inference_engine or eval_config.model_engine
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
+        self._skip_current_run = False
 
         self._set_seed()
 
@@ -139,6 +141,8 @@ class BaseEvaluator(ABC):
         self.tokenizer.padding_side = "left"
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
+        self._remembered_run_config_action: str | None = None
+        self._remember_choice_prompt_asked = False
         if self.eval_config.mlflow_config and mlflow:
             mlflow.log_param("num_samples_evaluated", self.num_samples)
 
@@ -150,14 +154,44 @@ class BaseEvaluator(ABC):
             raise RuntimeError("Judge tokenizer is not initialized.")
         return tokenizer
 
+    def get_model_slug(self) -> str:
+        """Get the slug for the model, used for building output directories
+
+        Returns:
+            The slug for the model.
+        """
+        if self.eval_config.model_output_dir:
+            return self.eval_config.model_output_dir
+
+        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
+        if self.eval_config.lora_path_or_repo_id:
+            mlflow_tracking_uri = (
+                self.eval_config.mlflow_config.mlflow_tracking_uri
+                if self.eval_config.mlflow_config
+                else None
+            )
+            model_slug += f"-lora-{get_lora_slug(self.eval_config.lora_path_or_repo_id, mlflow_tracking_uri=mlflow_tracking_uri)}"
+        return model_slug
+
+    def get_dataset_slug(self) -> str:
+        """Get the slug for the dataset, used for building output structures (directories and mlflow runs)
+
+        Returns:
+            The slug for the dataset.
+        """
+        return self.dataset_config.file_path.split("/")[-1]
+
     def get_output_dir(self) -> Path:
         """
         Compute the output directory used for this evaluation run.
 
         Uses a consistent convention and ensures the directory exists.
+
+        Returns:
+            The output directory.
         """
-        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
-        dataset_slug = self.dataset_config.file_path.split("/")[-1]
+        model_slug = self.get_model_slug()
+        dataset_slug = self.get_dataset_slug()
         if self.should_include_dataset_type_in_output_dir():
             folder_name = f"{dataset_slug}_{self.dataset_config.dataset_type}"
         else:
@@ -247,8 +281,27 @@ class BaseEvaluator(ABC):
         """
         raise NotImplementedError("Subclasses must implement generate().")
 
-    @abstractmethod
     def grade(
+        self,
+        generations: Sequence[_GenerationRecord],
+        judge_engine: EvalEngine | None = None,
+    ) -> None:
+        """
+        Grade the answers for the evaluation.
+        """
+        if self._skip_current_run:
+            logging.info(
+                "Skipping evaluation and using existing outputs in %s.",
+                self.get_output_dir(),
+            )
+            return
+            # TODO: this skipping check also skips reporting to MLFlow - so, if results exist, they will not be re-reported
+            # We should decide if this is the desired behavior
+
+        return self._grade_impl(generations, judge_engine)
+
+    @abstractmethod
+    def _grade_impl(
         self,
         generations: Sequence[_GenerationRecord],
         judge_engine: EvalEngine | None = None,
@@ -258,13 +311,11 @@ class BaseEvaluator(ABC):
 
         This is an abstract method that must be implemented by subclasses.
         """
-        raise NotImplementedError("Subclasses must implement grade().")
+        raise NotImplementedError("Subclasses must implement _grade_impl().")
 
     def update_dataset_config(self, dataset_config: DatasetConfig) -> None:
         """
         Update the dataset configuration for the evaluation.
-
-        This is an abstract method that must be implemented by subclasses.
         """
         self.dataset_config = dataset_config
         self._set_seed()
@@ -296,8 +347,8 @@ class BaseEvaluator(ABC):
             stereotyped_bias: A score representing the stereotyped bias.
             empty_responses: A count of empty response.
         """
-        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
-        dataset_slug = self.dataset_config.file_path.split("/")[-1]
+        model_slug = self.get_model_slug()
+        dataset_slug = self.get_dataset_slug()
         output_dir = self.get_output_dir()
 
         output_responses = output_dir / "responses.json"
@@ -515,7 +566,7 @@ class BaseEvaluator(ABC):
             mlflow.set_experiment(self.mlflow_config.mlflow_experiment_name)
 
         # Generate run name if not specified
-        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
+        model_slug = self.get_model_slug()
 
         active_run = mlflow.active_run()
         if active_run is not None:
@@ -561,7 +612,7 @@ class BaseEvaluator(ABC):
         error = True
         try:
             if mlflow and self.mlflow_config:
-                dataset_slug = self.dataset_config.file_path.split("/")[-1]
+                dataset_slug = self.get_dataset_slug()
                 if run_name is None:
                     logging.info(f"Using run name {dataset_slug} for dataset run")
                     run_name = dataset_slug
@@ -618,6 +669,9 @@ class BaseEvaluator(ABC):
     def run_config_path(self) -> Path:
         return self.get_output_dir() / "run_config.json"
 
+    def metrics_path(self) -> Path:
+        return self.get_output_dir() / "metrics.csv"
+
     class RunConfig(TypedDict):
         evaluation_config: dict[str, Any]
         dataset_config: dict[str, Any]
@@ -627,9 +681,11 @@ class BaseEvaluator(ABC):
         del self.eval_engine
         empty_cuda_cache_if_available()
         gc.collect()
-        print(
+        logging.info(
             f"VRAM reserved after freeing test model is {torch.cuda.memory_reserved() / 1e9}GB",
         )
+        self._remembered_run_config_action = None
+        self._remember_choice_prompt_asked = False
 
     def _current_run_config(self) -> RunConfig:
         evaluation_config_snapshot = self.eval_config.model_dump(
@@ -675,6 +731,7 @@ class BaseEvaluator(ABC):
             )
             return
 
+        what_exists = "evaluation outputs were"
         if self.eval_config.replace_existing_output:
             logging.info(
                 "Replacing outputs at %s because --replace-existing-output was provided.",
@@ -684,18 +741,72 @@ class BaseEvaluator(ABC):
             self._write_run_config(run_config)
             return
 
+        self._skip_current_run = False
+        if hasattr(self, "eval_engine") and self.eval_engine.is_judge:
+            if not self.metrics_path().exists():
+                logging.info(
+                    "No metrics file found at %s; grading cached generations.",
+                    self.metrics_path(),
+                )
+                return
+            else:
+                logging.info(
+                    "Metrics file found at %s; attempting to query user for action.",
+                    self.metrics_path(),
+                )
+                what_exists = "metrics file was"
+
         if sys.stdin.isatty():
-            should_replace = typer.confirm(
-                (
-                    "Existing evaluation outputs were produced with a different configuration. "
-                    "Replace them and rerun?"
-                ),
-                default=False,
-            )
-            if should_replace:
+            action_map = {
+                "r": "replace",
+                "replace": "replace",
+                "s": "skip",
+                "skip": "skip",
+                "c": "cancel",
+                "cancel": "cancel",
+            }
+            if (action := self._remembered_run_config_action) is not None:
+                logging.info(
+                    "Reusing remembered run-configuration action '%s' for %s.",
+                    action,
+                    config_path,
+                )
+            else:
+                prompt = (
+                    f"Existing {what_exists} produced with a different configuration. "
+                    "Choose: [r]eplace outputs and rerun, [s]kip and reuse existing outputs, or [c]ancel"
+                )
+                while action is None:
+                    user_choice = typer.prompt(prompt, default="c").strip().lower()
+                    action = action_map.get(user_choice)
+                    if action is None:
+                        typer.echo("Invalid choice. Enter r, s, or c.")
+
+                if not self._remember_choice_prompt_asked:
+                    self._remember_choice_prompt_asked = True
+                    remember_choice = typer.confirm(
+                        "Remember this choice for all datasets in this run?",
+                        default=False,
+                    )
+                    if remember_choice:
+                        self._remembered_run_config_action = action
+                        logging.info(
+                            "Remembering run-configuration action '%s' for the rest of this run.",
+                            action,
+                        )
+
+            if action == "replace":
                 logging.info("User approved replacing outputs at %s.", config_path)
                 self._clear_output_files()
                 self._write_run_config(run_config)
+                return
+            if action == "skip":
+                logging.info(
+                    "User chose to reuse existing outputs at %s and continue with cached generations if present.",
+                    config_path,
+                )
+                if hasattr(self, "eval_engine") and self.eval_engine.is_judge:
+                    self._skip_current_run = True
                 return
 
         raise RuntimeError(
