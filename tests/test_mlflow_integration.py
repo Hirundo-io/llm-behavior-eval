@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager, nullcontext
-from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
@@ -18,6 +17,7 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from pathlib import Path
 
     from llm_behavior_eval.evaluation_utils.base_evaluator import _GenerationRecord
     from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
@@ -309,10 +309,10 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
         "stereotyped_bias": 0.1,
     }
 
-    artifact_calls = {
-        Path(call.args[0]).name for call in mlflow_mock.log_artifact.call_args_list
-    }
-    assert {"responses.json", "metrics.csv"}.issubset(artifact_calls)
+    mlflow_mock.log_artifacts.assert_called_once()
+    call_args = mlflow_mock.log_artifacts.call_args
+    assert str(evaluation_config.results_dir / "model") in str(call_args.args[0])
+    assert call_args.kwargs.get("artifact_path", "").startswith("llm-behavior-eval")
 
     output_dir = evaluation_config.results_dir / "model" / "bbq-gender-bias-free-text"
     assert (output_dir / "responses.json").exists()

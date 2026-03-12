@@ -147,6 +147,6 @@ class MlflowConfig(BaseModel):
     mlflow_experiment_name: str | None = None
     mlflow_run_name: str | None = None
     mlflow_run_id: str | None = None  # existing run ID to log to (no new run created)
-    mlflow_artifact_path_suffix: str | None = (
-        None  # optional suffix; use "timestamp" to auto-append current time; None = no extra segment
+    mlflow_artifact_path_subfolder: str | None = (
+        None  # optional subfolder; use "timestamp" to auto-append current time; None = no extra segment
     )

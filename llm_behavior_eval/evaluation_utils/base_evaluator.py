@@ -522,11 +522,13 @@ class BaseEvaluator(ABC):
     ) -> None:
         if summary_file_path.exists():
             existing_summary = pd.read_csv(summary_file_path)
+            existing_clean = self._drop_empty_columns(existing_summary)
+            row_clean = self._drop_empty_columns(summary_row)
             combined_summary = pd.concat(
-                [existing_summary, summary_row], ignore_index=True, sort=False
+                [existing_clean, row_clean], ignore_index=True, sort=False
             )
         else:
-            combined_summary = summary_row
+            combined_summary = self._drop_empty_columns(summary_row)
 
         combined_summary = self._drop_empty_columns(combined_summary)
         combined_summary.to_csv(summary_file_path, index=False, float_format="%.3f")
@@ -618,6 +620,11 @@ class BaseEvaluator(ABC):
             self.parent_run = self.mlflow_run
             logging.info(f"Started MLflow main run: {run_name}")
 
+        # One timestamp per run when subfolder is "timestamp".
+        self._mlflow_run_artifact_timestamp = datetime.now().strftime(
+            "%Y-%m-%d_%H-%M-%S"
+        )
+
         config_dict = config_to_dict(
             self.eval_config,
             [
@@ -690,11 +697,8 @@ class BaseEvaluator(ABC):
 
         Logs summary_full.csv numeric columns as metrics only (no prefix; string columns skipped).
         Uploads all files under results_dir/model_slug to artifact path
-        llm-behavior-eval (no nested subfolders). If mlflow_artifact_path_suffix is set,
-        one segment is appended: llm-behavior-eval/<suffix>. Use suffix "timestamp" to
-        auto-append current time (e.g. 2025-03-10_12-00-00).
-        Also logs the current run's responses.json, metrics.csv, generations.jsonl, run_config.json
-        at the run root for backward compatibility with dashboards/tests.
+        llm-behavior-eval (optional subfolder via mlflow_artifact_path_subfolder;
+        use "timestamp" for a per-run cached timestamp).
         """
         if not self.eval_config.mlflow_config or not mlflow:
             return
@@ -702,14 +706,16 @@ class BaseEvaluator(ABC):
         model_slug = self.get_model_slug()
         model_results_dir = Path(self.eval_config.results_dir) / model_slug
         base_path = "llm-behavior-eval"
-        raw_suffix = (
-            self.eval_config.mlflow_config.mlflow_artifact_path_suffix or ""
+        raw_subfolder = (
+            self.eval_config.mlflow_config.mlflow_artifact_path_subfolder or ""
         ).strip()
-        if raw_suffix == "timestamp":
-            suffix = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        if raw_subfolder == "timestamp":
+            subfolder = getattr(
+                self, "_mlflow_run_artifact_timestamp", None
+            ) or datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         else:
-            suffix = raw_suffix
-        artifact_path = f"{base_path}/{suffix}" if suffix else base_path
+            subfolder = raw_subfolder
+        artifact_path = f"{base_path}/{subfolder}" if subfolder else base_path
 
         # Log summary_full.csv numeric columns as metrics only (no prefix; string columns skipped)
         summary_full_path = model_results_dir / "summary_full.csv"
@@ -733,7 +739,7 @@ class BaseEvaluator(ABC):
             except Exception as e:
                 logging.warning("Could not log summary_full.csv to MLflow: %s", e)
 
-        # Upload entire results dir for this model under the structured path
+        # Upload entire results dir for this model under the structured path only
         if model_results_dir.exists():
             try:
                 mlflow.log_artifacts(
@@ -746,7 +752,6 @@ class BaseEvaluator(ABC):
                 )
             except Exception as e:
                 logging.warning("Could not upload artifacts to MLflow: %s", e)
-
 
     def run_config_path(self) -> Path:
         return self.get_output_dir() / "run_config.json"
