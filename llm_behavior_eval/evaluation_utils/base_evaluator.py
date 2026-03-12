@@ -540,7 +540,7 @@ class BaseEvaluator(ABC):
         Args:
             error: Flag indicating if the evaluation failed. If True, the run is marked as FAILED, otherwise FINISHED.
         """
-        if self.mlflow_config and getattr(self.mlflow_config, "mlflow_run_id", None):
+        if self.mlflow_config and self.mlflow_config.mlflow_run_id:
             return
         if mlflow and mlflow.active_run():
             active_run = mlflow.active_run()
@@ -747,22 +747,6 @@ class BaseEvaluator(ABC):
             except Exception as e:
                 logging.warning("Could not upload artifacts to MLflow: %s", e)
 
-        # Log current run's key files at run root for backward compatibility (dashboards, tests)
-        output_dir = self.get_output_dir()
-        for fname in (
-            "responses.json",
-            "metrics.csv",
-            "generations.jsonl",
-            "run_config.json",
-        ):
-            fpath = output_dir / fname
-            if fpath.exists():
-                try:
-                    mlflow.log_artifact(str(fpath))
-                except Exception as e:
-                    logging.warning(
-                        "Could not log %s at run root to MLflow: %s", fname, e
-                    )
 
     def run_config_path(self) -> Path:
         return self.get_output_dir() / "run_config.json"

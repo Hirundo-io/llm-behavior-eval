@@ -197,7 +197,7 @@ def main(
         str | None,
         typer.Option(
             "--mlflow-tracking-uri",
-            help="MLflow tracking URI (optional). For auth, set MLFLOW_TRACKING_USERNAME and MLFLOW_TRACKING_PASSWORD env vars or use --mlflow-username / --mlflow-password.",
+            help="MLflow tracking URI (optional). For auth, set MLFLOW_TRACKING_USERNAME and MLFLOW_TRACKING_PASSWORD environment variables or use --mlflow-username / --mlflow-password.",
         ),
     ] = None,
     mlflow_experiment_name: Annotated[
