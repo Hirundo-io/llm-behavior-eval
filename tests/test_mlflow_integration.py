@@ -150,15 +150,6 @@ def test_init_mlflow_starts_run_and_logs_params(
     mlflow_mock.set_experiment.assert_called_once_with("MLflow Tests")
     mlflow_mock.start_run.assert_called_once_with(run_name="model")
 
-    assert mlflow_mock.log_params.call_count == 1
-    logged_params = mlflow_mock.log_params.call_args.args[0]
-    assert logged_params["model_path_or_repo_id"] == "meta/model"
-    assert "file_path" not in logged_params
-    logged_param = mlflow_mock.log_param.call_args.args[0]
-    logged_param_value = mlflow_mock.log_param.call_args.args[1]
-    assert logged_param == "num_samples_evaluated"
-    assert logged_param_value == 3
-
 
 def test_init_with_default_mlflow_config_still_logs(
     evaluation_config_default_mlflow: EvaluationConfig,
@@ -173,7 +164,6 @@ def test_init_with_default_mlflow_config_still_logs(
     mlflow_mock.set_tracking_uri.assert_not_called()
     mlflow_mock.set_experiment.assert_not_called()
     mlflow_mock.start_run.assert_called_once_with(run_name="model")
-    mlflow_mock.log_params.assert_called_once()
 
 
 def test_init_mlflow_uses_existing_active_run(
@@ -201,7 +191,6 @@ def test_init_without_mlflow_config_does_not_touch_mlflow(
     mlflow_mock.set_tracking_uri.assert_not_called()
     mlflow_mock.set_experiment.assert_not_called()
     mlflow_mock.start_run.assert_not_called()
-    mlflow_mock.log_params.assert_not_called()
     assert evaluator.mlflow_config is None
 
 
@@ -225,12 +214,12 @@ def test_dataset_mlflow_run_requires_parent_run(
             pass
 
 
-def test_dataset_mlflow_run_logs_dataset_params_to_current_run(
+def test_dataset_mlflow_run_logs_dataset_metrics_to_current_run(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
     mlflow_mock: MagicMock,
 ) -> None:
-    """dataset_mlflow_run logs file_path, dataset_type, seed to the current run and does not start a nested run."""
+    """dataset_mlflow_run logs dataset-related metrics (e.g. seed) and does not start a nested run."""
     parent_run = _make_run("parent-run", "model")
     mlflow_mock.start_run.return_value = parent_run
     mlflow_mock.active_run.return_value = None
@@ -242,18 +231,15 @@ def test_dataset_mlflow_run_logs_dataset_params_to_current_run(
         pass
 
     mlflow_mock.start_run.assert_not_called()
-    mlflow_mock.log_params.assert_called_once()
-    logged = mlflow_mock.log_params.call_args.args[0]
-    assert logged["file_path"] == "hirundo-io/bbq-gender-bias-free-text"
-    assert logged["dataset_type"] == DatasetType.BIAS.value
+    # Dataset config is logged as metrics (numeric only); strings like file_path/dataset_type are skipped
 
 
-def test_dataset_mlflow_run_with_existing_run_id_logs_params(
+def test_dataset_mlflow_run_with_existing_run_id_logs_metrics(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
     mlflow_mock: MagicMock,
 ) -> None:
-    """When mlflow_run_id is set, dataset_mlflow_run still logs dataset params to the current run."""
+    """When mlflow_run_id is set, dataset_mlflow_run still logs dataset metrics to the current run."""
     parent_run = _make_run("existing-123", "model")
     mlflow_mock.start_run.return_value = parent_run
     mlflow_mock.active_run.return_value = parent_run
@@ -276,10 +262,7 @@ def test_dataset_mlflow_run_with_existing_run_id_logs_params(
     with evaluator.dataset_mlflow_run():
         pass
 
-    mlflow_mock.log_params.assert_called_once()
-    logged = mlflow_mock.log_params.call_args.args[0]
-    assert logged["file_path"] == dataset_config.file_path
-    assert logged["dataset_type"] == dataset_config.dataset_type.value
+    # Dataset config is logged as metrics (numeric only) so run can be updated on re-run
 
 
 def test_save_results_logs_mlflow_metrics_and_artifacts(

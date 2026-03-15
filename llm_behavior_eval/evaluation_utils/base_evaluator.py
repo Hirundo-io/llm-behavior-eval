@@ -147,7 +147,7 @@ class BaseEvaluator(ABC):
         self._remembered_run_config_action: str | None = None
         self._remember_choice_prompt_asked = False
         if self.eval_config.mlflow_config and mlflow:
-            mlflow.log_param("num_samples_evaluated", self.num_samples)
+            mlflow.log_metric("num_samples_evaluated", float(self.num_samples))
 
         self._ensure_run_configuration_allowed()
 
@@ -631,23 +631,7 @@ class BaseEvaluator(ABC):
             "%Y-%m-%d_%H-%M-%S"
         )
 
-        config_dict = config_to_dict(
-            self.eval_config,
-            [
-                "model_path_or_repo_id",
-                "max_samples",
-                "batch_size",
-                "sample",
-                "use_4bit",
-                "max_answer_tokens",
-                "judge_path_or_repo_id",
-                "judge_batch_size",
-                "max_judge_tokens",
-                "use_4bit_judge",
-                "reasoning",
-            ],
-        )
-        mlflow.log_params(config_dict)
+        # Run config is uploaded as JSON in artifacts (e.g. run_config.json), not logged as params/metrics.
 
     @contextmanager
     def dataset_mlflow_run(self) -> Iterator[None]:
@@ -667,11 +651,7 @@ class BaseEvaluator(ABC):
                     self.dataset_config.file_path,
                     self.dataset_config.dataset_type,
                 )
-            mlflow.log_params(
-                config_to_dict(
-                    self.dataset_config, ["file_path", "dataset_type", "seed"]
-                )
-            )
+            # Dataset config is available in uploaded artifacts (e.g. run_config.json), not logged as params/metrics.
         yield
 
     def _set_seed(self) -> None:
@@ -919,8 +899,24 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
     def _run_with_cleanup(self, run_fn: Callable[[], None]) -> None:
         """
-        Run run_fn and, if this evaluator started the MLflow run, call cleanup
-        in a finally block (with error=True only when run_fn raises).
+        Execute run_fn and, when appropriate, call cleanup in a finally block.
+
+        Args:
+            run_fn: A no-argument callable executed by this helper. Typically
+                contains generate, free_test_model, and grade logic.
+
+        Returns:
+            None.
+
+        Raises:
+            Any exception raised by run_fn is re-raised after cleanup runs.
+            If run_fn raises, cleanup is invoked with error=True before the
+            exception is propagated. Exceptions raised by cleanup itself are
+            not suppressed.
+
+        Side effects:
+            cleanup(error) is called only when self.started_mlflow_run is True,
+            with error=True if run_fn raised, otherwise error=False.
         """
         error = True
         try:
