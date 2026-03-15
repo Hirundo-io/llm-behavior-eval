@@ -617,7 +617,7 @@ def main(
                     evaluator.grade(generations, judge)
         evaluation_error = False
     finally:
-        if evaluator is not None:
+        if evaluator is not None and evaluator.started_mlflow_run:
             evaluator.cleanup(error=evaluation_error)
         del evaluator
         gc.collect()

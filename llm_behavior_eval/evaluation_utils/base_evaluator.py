@@ -117,6 +117,7 @@ class BaseEvaluator(ABC):
         )
         self.mlflow_run = None
         self.parent_run = None
+        self._started_mlflow_run = False
         if self.mlflow_config:
             self._init_mlflow()
 
@@ -533,30 +534,35 @@ class BaseEvaluator(ABC):
         combined_summary = self._drop_empty_columns(combined_summary)
         combined_summary.to_csv(summary_file_path, index=False, float_format="%.3f")
 
+    @property
+    def started_mlflow_run(self) -> bool:
+        """True if this evaluator started the current MLflow run (and thus should end it in cleanup)."""
+        return self._started_mlflow_run
+
     def cleanup(self, error: bool = False) -> None:
         """
-        Cleanup the active MLflow run if we started it, and set its status accordingly.
-        When using an existing run (mlflow_run_id), we did not start it, so do not end it.
-        When we did start the run (e.g. after a restarted training run), we must end it here.
+        End the active MLflow run and set its status. Call only when this evaluator
+        started the run (check started_mlflow_run); otherwise gate at the call site and do not call cleanup.
 
         Args:
-            error: Flag indicating if the evaluation failed. If True, the run is marked as FAILED, otherwise FINISHED.
+            error: If True, the run is marked as FAILED, otherwise FINISHED.
         """
-        if self.mlflow_config and self.mlflow_config.mlflow_run_id:
+        if not self.mlflow_config or not mlflow:
             return
-        if mlflow and mlflow.active_run():
-            active_run = mlflow.active_run()
-            run_id = active_run.info.run_id if active_run else None
-            if RunStatus is not None:
-                status = (
-                    RunStatus.to_string(RunStatus.FAILED)
-                    if error
-                    else RunStatus.to_string(RunStatus.FINISHED)
-                )
-            else:
-                status = "FAILED" if error else "FINISHED"
-            mlflow.end_run(status=status)
-            logging.info(f"Ended MLflow run {run_id}")
+        active_run = mlflow.active_run()
+        if active_run is None:
+            return
+        run_id = active_run.info.run_id
+        if RunStatus is not None:
+            status = (
+                RunStatus.to_string(RunStatus.FAILED)
+                if error
+                else RunStatus.to_string(RunStatus.FINISHED)
+            )
+        else:
+            status = "FAILED" if error else "FINISHED"
+        mlflow.end_run(status=status)
+        logging.info("Ended MLflow run %s", run_id)
 
     # Hook: override in subclasses that want the dataset type in the output dir name
     def should_include_dataset_type_in_output_dir(self) -> bool:
@@ -592,9 +598,9 @@ class BaseEvaluator(ABC):
         active_run = mlflow.active_run()
 
         if requested_run_id:
-            # Explicit run ID takes precedence: use that run (or verify active run matches)
             if active_run is not None and active_run.info.run_id == requested_run_id:
                 self.parent_run = self.mlflow_run = active_run
+                self._started_mlflow_run = False
                 logging.info(
                     "Using active run %s (matches requested mlflow_run_id)",
                     requested_run_id,
@@ -604,21 +610,21 @@ class BaseEvaluator(ABC):
                 mlflow.set_experiment(experiment_id=existing.info.experiment_id)
                 mlflow.start_run(run_id=requested_run_id)
                 self.parent_run = self.mlflow_run = mlflow.active_run()
+                self._started_mlflow_run = True
                 logging.info("Logging to existing MLflow run: %s", requested_run_id)
         elif active_run is not None:
-            # No run ID requested: reuse active run only when it was not requested by ID
+            self.parent_run = self.mlflow_run = active_run
+            self._started_mlflow_run = False
             logging.warning(
                 "Using existing active run %s as main run",
                 active_run.info.run_id,
             )
-            self.parent_run = self.mlflow_run = active_run
         else:
-            # Set up parent run with model slug name only
             run_name = self.mlflow_config.mlflow_run_name or f"{model_slug}"
-            # Start MLflow parent run
             self.mlflow_run = mlflow.start_run(run_name=run_name)
             self.parent_run = self.mlflow_run
-            logging.info(f"Started MLflow main run: {run_name}")
+            self._started_mlflow_run = True
+            logging.info("Started MLflow main run: %s", run_name)
 
         # One timestamp per run when subfolder is "timestamp".
         self._mlflow_run_artifact_timestamp = datetime.now().strftime(
@@ -696,24 +702,27 @@ class BaseEvaluator(ABC):
         """Log evaluation artifacts to MLflow.
 
         Logs summary_full.csv numeric columns as metrics only (no prefix; string columns skipped).
-        Uploads all files under results_dir/model_slug to artifact path
-        llm-behavior-eval (optional subfolder via mlflow_artifact_path_subfolder;
-        use "timestamp" for a per-run cached timestamp).
+        Uploads all files under results_dir/model_slug. When mlflow_artifact_path_subfolder
+        is not set, artifacts go to run root; when set (or "timestamp"), go under
+        llm-behavior-eval/<subfolder>.
         """
         if not self.eval_config.mlflow_config or not mlflow:
             return
 
         model_slug = self.get_model_slug()
         model_results_dir = Path(self.eval_config.results_dir) / model_slug
-        base_path = "llm-behavior-eval"
         raw_subfolder = (
             self.eval_config.mlflow_config.mlflow_artifact_path_subfolder or ""
         ).strip()
         if raw_subfolder == "timestamp":
-            subfolder = self._mlflow_run_artifact_timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            subfolder = self._mlflow_run_artifact_timestamp or datetime.now().strftime(
+                "%Y-%m-%d_%H-%M-%S"
+            )
+            artifact_path = f"llm-behavior-eval/{subfolder}"
+        elif raw_subfolder:
+            artifact_path = f"llm-behavior-eval/{raw_subfolder}"
         else:
-            subfolder = raw_subfolder
-        artifact_path = f"{base_path}/{subfolder}" if subfolder else base_path
+            artifact_path = ""
 
         # Log summary_full.csv numeric columns as metrics only (no prefix; string columns skipped)
         summary_full_path = model_results_dir / "summary_full.csv"

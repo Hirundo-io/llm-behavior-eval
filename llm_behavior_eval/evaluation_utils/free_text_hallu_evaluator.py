@@ -156,7 +156,8 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                 self.grade(generations, judge_engine)
             error = False
         finally:
-            self.cleanup(error)
+            if self.started_mlflow_run:
+                self.cleanup(error)
 
     def _grade_impl(
         self,

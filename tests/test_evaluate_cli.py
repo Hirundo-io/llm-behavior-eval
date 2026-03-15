@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 
 
 class _StubEvaluator:
+    started_mlflow_run = False
+
     def update_dataset_config(self, dataset_config: DatasetConfig) -> None:
         return None
 

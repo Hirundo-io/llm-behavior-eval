@@ -141,12 +141,19 @@ class MlflowConfig(BaseModel):
 
     Keep this separate from the main EvaluationConfig to avoid
     coupling MLflow-specific settings with core evaluation logic.
+
+    Args:
+        mlflow_tracking_uri: MLflow tracking server URI (optional).
+        mlflow_experiment_name: Experiment name in MLflow (optional).
+        mlflow_run_name: Run name for new runs (optional).
+        mlflow_run_id: Existing run ID to log to instead of creating a new run (optional).
+        mlflow_artifact_path_subfolder: Optional subfolder under the run for artifacts.
+            If None, artifacts are logged at run root. Use "timestamp" to auto-append
+            a per-run timestamp subfolder.
     """
 
     mlflow_tracking_uri: str | None = None
     mlflow_experiment_name: str | None = None
     mlflow_run_name: str | None = None
-    mlflow_run_id: str | None = None  # existing run ID to log to (no new run created)
-    mlflow_artifact_path_subfolder: str | None = (
-        None  # optional subfolder; use "timestamp" to auto-append current time; None = no extra segment
-    )
+    mlflow_run_id: str | None = None
+    mlflow_artifact_path_subfolder: str | None = None
