@@ -37,7 +37,7 @@ from .util_functions import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator, Sequence
+    from collections.abc import Callable, Generator, Iterator, Sequence
 
     from torch import Tensor
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -916,6 +916,19 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     - Free under‑test model before judging
     - Initialize and free judge pipeline
     """
+
+    def _run_with_cleanup(self, run_fn: Callable[[], None]) -> None:
+        """
+        Run run_fn and, if this evaluator started the MLflow run, call cleanup
+        in a finally block (with error=True only when run_fn raises).
+        """
+        error = True
+        try:
+            run_fn()
+            error = False
+        finally:
+            if self.started_mlflow_run:
+                self.cleanup(error)
 
     def generations_path(self, filename: str = "generations.jsonl") -> Path:
         return Path(self.get_output_dir()) / filename

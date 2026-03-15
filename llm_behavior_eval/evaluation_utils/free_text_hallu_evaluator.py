@@ -143,21 +143,16 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         return generations
 
     def evaluate(self) -> None:
-        error = True
-        try:
+        def _run() -> None:
             generations = self.generate()
-
-            # free task model
             self.free_test_model()
             with (
                 self.dataset_mlflow_run(),
                 self.get_judge_engine_context() as judge_engine,
             ):
                 self.grade(generations, judge_engine)
-            error = False
-        finally:
-            if self.started_mlflow_run:
-                self.cleanup(error)
+
+        self._run_with_cleanup(_run)
 
     def _grade_impl(
         self,
