@@ -710,9 +710,7 @@ class BaseEvaluator(ABC):
             self.eval_config.mlflow_config.mlflow_artifact_path_subfolder or ""
         ).strip()
         if raw_subfolder == "timestamp":
-            subfolder = getattr(
-                self, "_mlflow_run_artifact_timestamp", None
-            ) or datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            subfolder = self._mlflow_run_artifact_timestamp or datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         else:
             subfolder = raw_subfolder
         artifact_path = f"{base_path}/{subfolder}" if subfolder else base_path
