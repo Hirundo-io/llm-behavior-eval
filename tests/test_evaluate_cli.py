@@ -589,3 +589,63 @@ def test_main_keeps_success_when_plotting_fails(
     assert "Plot generation failed after successful evaluation; skipping plots." in (
         caplog.text
     )
+
+
+def test_plot_metrics_from_summary_excludes_nan_values_per_metric(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    model_slug = "model"
+    summary_dir = tmp_path / model_slug
+    summary_dir.mkdir(parents=True)
+    summary_path = summary_dir / "summary_full.csv"
+    summary_path.write_text(
+        "Dataset,Accuracy (%) ⬆️,Error (%) ⬇️,Attack success rate (%) ⬇️\n"
+        "bias-set,80,,10\n"
+        "hallu-set,75,25,\n"
+        "inj-set,90,,5\n"
+    )
+
+    captured_calls: list[dict[str, object]] = []
+
+    def fake_draw_radar_chart(
+        *, value_lists, series_labels, metric_name, categories, save_path, chart_title
+    ):
+        captured_calls.append(
+            {
+                "value_lists": value_lists,
+                "series_labels": series_labels,
+                "metric_name": metric_name,
+                "categories": categories,
+                "save_path": save_path,
+                "chart_title": chart_title,
+            }
+        )
+
+    from llm_behavior_eval.evaluation_utils import plotting
+
+    monkeypatch.setattr(plotting, "draw_radar_chart", fake_draw_radar_chart)
+
+    evaluate._plot_metrics_from_summary(
+        result_dir=tmp_path,
+        model_path_or_repo_id=f"org/{model_slug}",
+        save_plot_to_mlflow=False,
+    )
+
+    calls_by_metric = {call["metric_name"]: call for call in captured_calls}
+
+    assert calls_by_metric["Accuracy (%) ⬆️"]["categories"] == [
+        "bias-set",
+        "hallu-set",
+        "inj-set",
+    ]
+    assert calls_by_metric["Accuracy (%) ⬆️"]["value_lists"] == [[80.0, 75.0, 90.0]]
+
+    assert calls_by_metric["Error (%) ⬇️"]["categories"] == ["hallu-set"]
+    assert calls_by_metric["Error (%) ⬇️"]["value_lists"] == [[25.0]]
+
+    assert calls_by_metric["Attack success rate (%) ⬇️"]["categories"] == [
+        "bias-set",
+        "inj-set",
+    ]
+    assert calls_by_metric["Attack success rate (%) ⬇️"]["value_lists"] == [[10.0, 5.0]]

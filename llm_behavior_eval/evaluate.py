@@ -81,10 +81,14 @@ def _plot_metrics_from_summary(
         return
 
     summary_dataframe = pd.read_csv(summary_file_path)
-    categories = [
-        str(dataset_name) for dataset_name in summary_dataframe["Dataset"].tolist()
-    ]
-    if not categories:
+    if "Dataset" not in summary_dataframe.columns:
+        logging.warning(
+            "No Dataset column in summary file %s; skipping chart creation.",
+            summary_file_path,
+        )
+        return
+
+    if summary_dataframe["Dataset"].dropna().empty:
         logging.warning(
             "No datasets in summary file %s; skipping chart creation.",
             summary_file_path,
@@ -105,9 +109,13 @@ def _plot_metrics_from_summary(
         metric_columns.append(column_name)
 
     for metric_column_name in metric_columns:
-        metric_values = (
-            summary_dataframe[metric_column_name].fillna(0).astype(float).tolist()
-        )
+        metric_dataframe = summary_dataframe[
+            summary_dataframe[metric_column_name].notna()
+        ][["Dataset", metric_column_name]]
+        categories = [
+            str(dataset_name) for dataset_name in metric_dataframe["Dataset"].tolist()
+        ]
+        metric_values = metric_dataframe[metric_column_name].astype(float).tolist()
         output_chart_path = (
             summary_file_path.parent
             / f"radar_{metric_column_name.replace(' ', '_').replace('%', 'pct').replace('⬆️', 'up').replace('⬇️', 'down')}.html"
