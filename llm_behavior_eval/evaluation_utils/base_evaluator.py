@@ -30,7 +30,6 @@ from .enums import DatasetType
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import (
-    config_to_dict,
     empty_cuda_cache_if_available,
     get_lora_slug,
     load_tokenizer_with_transformers,
