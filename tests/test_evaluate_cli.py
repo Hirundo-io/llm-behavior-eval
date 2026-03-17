@@ -458,3 +458,243 @@ def test_main_defaults_output_dir_to_data_dir(
     evaluate.main("fake/model", "hallu")
     eval_config = capture_eval_config[-1]
     assert eval_config.results_dir == expected
+
+
+def test_main_rejects_save_plot_to_mlflow_without_plot() -> None:
+    with pytest.raises(ValueError, match="requires --plot"):
+        evaluate.main(
+            "fake/model",
+            "hallu",
+            save_plot_to_mlflow=True,
+            plot=False,
+            use_mlflow=True,
+        )
+
+
+def test_main_rejects_save_plot_to_mlflow_without_mlflow() -> None:
+    with pytest.raises(ValueError, match="requires --use-mlflow"):
+        evaluate.main(
+            "fake/model",
+            "hallu",
+            save_plot_to_mlflow=True,
+            plot=True,
+            use_mlflow=False,
+        )
+
+
+def test_main_rejects_missing_plotly_before_evaluation_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    create_calls = 0
+
+    def fake_validate_plot_dependencies(plot: bool) -> None:
+        if plot:
+            raise ImportError(
+                "Plotly is required for plotting. Install with `llm-behavior-eval[plotly]`."
+            )
+
+    def fake_create(
+        eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> _StubEvaluator:
+        nonlocal create_calls
+        create_calls += 1
+        return _StubEvaluator()
+
+    monkeypatch.setattr(
+        evaluate, "_validate_plot_dependencies", fake_validate_plot_dependencies
+    )
+    monkeypatch.setattr(
+        evaluate.EvaluateFactory,
+        "create_evaluator",
+        staticmethod(fake_create),
+    )
+
+    with pytest.raises(ImportError, match="Plotly is required for plotting"):
+        evaluate.main("fake/model", "hallu", plot=True)
+
+    assert create_calls == 0
+
+
+def test_main_calls_plotting_when_enabled(
+    capture_eval_config: list[EvaluationConfig],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    captured_plot_calls: list[tuple[str, bool]] = []
+
+    def fake_plot_metrics_from_summary(
+        result_dir,
+        model_path_or_repo_id: str,
+        save_plot_to_mlflow: bool,
+    ) -> None:
+        captured_plot_calls.append((model_path_or_repo_id, save_plot_to_mlflow))
+
+    monkeypatch.setattr(
+        evaluate, "_plot_metrics_from_summary", fake_plot_metrics_from_summary
+    )
+
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        output_dir=tmp_path,
+        plot=True,
+        save_plot_to_mlflow=False,
+    )
+
+    assert capture_eval_config
+    assert captured_plot_calls == [("fake/model", False)]
+
+
+def test_main_keeps_success_when_plotting_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cleanup_calls: list[bool] = []
+
+    class CleanupTrackingEvaluator(_StubEvaluator):
+        def cleanup(self, error: bool = False) -> None:
+            cleanup_calls.append(error)
+
+    def _fake_create(
+        eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> CleanupTrackingEvaluator:
+        return CleanupTrackingEvaluator()
+
+    def fake_plot_metrics_from_summary(
+        result_dir,
+        model_path_or_repo_id: str,
+        save_plot_to_mlflow: bool,
+    ) -> None:
+        raise RuntimeError("plotting exploded")
+
+    monkeypatch.setattr(
+        evaluate.EvaluateFactory,
+        "create_evaluator",
+        staticmethod(_fake_create),
+    )
+    monkeypatch.setattr(
+        evaluate, "_plot_metrics_from_summary", fake_plot_metrics_from_summary
+    )
+
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        output_dir=tmp_path,
+        plot=True,
+        save_plot_to_mlflow=False,
+    )
+
+    assert cleanup_calls == [False]
+    assert "Plot generation failed after successful evaluation; skipping plots." in (
+        caplog.text
+    )
+
+
+def test_plot_metrics_from_summary_excludes_nan_values_per_metric(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    model_slug = "model"
+    summary_dir = tmp_path / model_slug
+    summary_dir.mkdir(parents=True)
+    summary_path = summary_dir / "summary_full.csv"
+    summary_path.write_text(
+        "Dataset,Accuracy (%) ⬆️,Error (%) ⬇️,Attack success rate (%) ⬇️\n"
+        "bias-set,80,,10\n"
+        "hallu-set,75,25,\n"
+        "inj-set,90,,5\n"
+    )
+
+    captured_calls: list[dict[str, object]] = []
+
+    def fake_draw_radar_chart(
+        *, value_lists, series_labels, metric_name, categories, save_path, chart_title
+    ):
+        captured_calls.append(
+            {
+                "value_lists": value_lists,
+                "series_labels": series_labels,
+                "metric_name": metric_name,
+                "categories": categories,
+                "save_path": save_path,
+                "chart_title": chart_title,
+            }
+        )
+
+    from llm_behavior_eval.evaluation_utils import plotting
+
+    monkeypatch.setattr(plotting, "draw_radar_chart", fake_draw_radar_chart)
+
+    evaluate._plot_metrics_from_summary(
+        result_dir=tmp_path,
+        model_path_or_repo_id=f"org/{model_slug}",
+        save_plot_to_mlflow=False,
+    )
+
+    calls_by_metric = {call["metric_name"]: call for call in captured_calls}
+
+    assert calls_by_metric["Accuracy (%) ⬆️"]["categories"] == [
+        "bias-set",
+        "hallu-set",
+        "inj-set",
+    ]
+    assert calls_by_metric["Accuracy (%) ⬆️"]["value_lists"] == [[80.0, 75.0, 90.0]]
+
+    assert calls_by_metric["Error (%) ⬇️"]["categories"] == ["hallu-set"]
+    assert calls_by_metric["Error (%) ⬇️"]["value_lists"] == [[25.0]]
+
+    assert calls_by_metric["Attack success rate (%) ⬇️"]["categories"] == [
+        "bias-set",
+        "inj-set",
+    ]
+    assert calls_by_metric["Attack success rate (%) ⬇️"]["value_lists"] == [[10.0, 5.0]]
+
+
+def test_plot_metrics_from_summary_skips_when_dataset_column_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_slug = "model"
+    summary_dir = tmp_path / model_slug
+    summary_dir.mkdir(parents=True)
+    summary_path = summary_dir / "summary_full.csv"
+    summary_path.write_text("Accuracy (%) ⬆️,Error (%) ⬇️\n80,20\n")
+
+    captured_calls: list[dict[str, object]] = []
+
+    def fake_draw_radar_chart(
+        *,
+        value_lists,
+        series_labels,
+        metric_name,
+        categories,
+        save_path,
+        chart_title,
+    ):
+        captured_calls.append(
+            {
+                "value_lists": value_lists,
+                "series_labels": series_labels,
+                "metric_name": metric_name,
+                "categories": categories,
+                "save_path": save_path,
+                "chart_title": chart_title,
+            }
+        )
+
+    from llm_behavior_eval.evaluation_utils import plotting
+
+    monkeypatch.setattr(plotting, "draw_radar_chart", fake_draw_radar_chart)
+
+    caplog.set_level("WARNING")
+
+    evaluate._plot_metrics_from_summary(
+        result_dir=tmp_path,
+        model_path_or_repo_id=f"org/{model_slug}",
+        save_plot_to_mlflow=False,
+    )
+
+    assert captured_calls == []
+    assert "No Dataset column in summary file" in caplog.text

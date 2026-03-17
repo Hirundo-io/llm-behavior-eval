@@ -22,6 +22,6 @@ jobs:
         with:
           python-version-file: "pyproject.toml"
       - name: Install the project
-        run: uv sync --locked
+        run: uv sync --group dev --locked
       - name: Run tests
         run: uv run pytest -v
