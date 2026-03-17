@@ -649,3 +649,33 @@ def test_plot_metrics_from_summary_excludes_nan_values_per_metric(
         "inj-set",
     ]
     assert calls_by_metric["Attack success rate (%) ⬇️"]["value_lists"] == [[10.0, 5.0]]
+
+
+def test_plot_metrics_from_summary_skips_when_dataset_column_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    model_slug = "model"
+    summary_dir = tmp_path / model_slug
+    summary_dir.mkdir(parents=True)
+    summary_path = summary_dir / "summary_full.csv"
+    summary_path.write_text("Accuracy (%) ⬆️,Error (%) ⬇️\n80,20\n")
+
+    captured_calls: list[dict[str, object]] = []
+
+    def fake_draw_radar_chart(**kwargs):
+        captured_calls.append(kwargs)
+
+    from llm_behavior_eval.evaluation_utils import plotting
+
+    monkeypatch.setattr(plotting, "draw_radar_chart", fake_draw_radar_chart)
+
+    evaluate._plot_metrics_from_summary(
+        result_dir=tmp_path,
+        model_path_or_repo_id=f"org/{model_slug}",
+        save_plot_to_mlflow=False,
+    )
+
+    assert captured_calls == []
+    assert "No Dataset column in summary file" in caplog.text
