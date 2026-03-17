@@ -664,12 +664,31 @@ def test_plot_metrics_from_summary_skips_when_dataset_column_missing(
 
     captured_calls: list[dict[str, object]] = []
 
-    def fake_draw_radar_chart(**kwargs):
-        captured_calls.append(kwargs)
+    def fake_draw_radar_chart(
+        *,
+        value_lists,
+        series_labels,
+        metric_name,
+        categories,
+        save_path,
+        chart_title,
+    ):
+        captured_calls.append(
+            {
+                "value_lists": value_lists,
+                "series_labels": series_labels,
+                "metric_name": metric_name,
+                "categories": categories,
+                "save_path": save_path,
+                "chart_title": chart_title,
+            }
+        )
 
     from llm_behavior_eval.evaluation_utils import plotting
 
     monkeypatch.setattr(plotting, "draw_radar_chart", fake_draw_radar_chart)
+
+    caplog.set_level("WARNING")
 
     evaluate._plot_metrics_from_summary(
         result_dir=tmp_path,
