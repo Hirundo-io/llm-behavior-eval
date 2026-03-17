@@ -238,7 +238,7 @@ def main(
         str | None,
         typer.Option(
             "--mlflow-artifact-path-subfolder",
-            help='Optional subfolder for MLflow artifact path. Use "timestamp" to auto-append current time. If not set, artifacts go under llm-behavior-eval only.',
+            help='Optional subfolder for MLflow artifact path. Use "timestamp" to auto pre-append current time. If set to any other value, the artifact folder will be "llm-behavior-eval/{mlflow_artifact_path_subfolder}" and if not set (i.e. `None`) then no folder will be set',
         ),
     ] = None,
     lora_path_or_repo_id: Annotated[
