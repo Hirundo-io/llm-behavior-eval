@@ -650,7 +650,8 @@ class BaseEvaluator(ABC):
                     self.dataset_config.file_path,
                     self.dataset_config.dataset_type,
                 )
-            # Dataset config is available in uploaded artifacts (e.g. run_config.json), not logged as params/metrics.
+            # Dataset config is in uploaded artifacts; log a metric so this attachment is visible in MLflow.
+            mlflow.log_metric("dataset_attached", 1.0)
         yield
 
     def _set_seed(self) -> None:

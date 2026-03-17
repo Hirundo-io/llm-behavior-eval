@@ -231,7 +231,7 @@ def test_dataset_mlflow_run_logs_dataset_metrics_to_current_run(
         pass
 
     mlflow_mock.start_run.assert_not_called()
-    # Dataset config is logged as metrics (numeric only); strings like file_path/dataset_type are skipped
+    mlflow_mock.log_metric.assert_called_with("dataset_attached", 1.0)
 
 
 def test_dataset_mlflow_run_with_existing_run_id_logs_metrics(
@@ -262,7 +262,7 @@ def test_dataset_mlflow_run_with_existing_run_id_logs_metrics(
     with evaluator.dataset_mlflow_run():
         pass
 
-    # Dataset config is logged as metrics (numeric only) so run can be updated on re-run
+    mlflow_mock.log_metric.assert_called_with("dataset_attached", 1.0)
 
 
 def test_save_results_logs_mlflow_metrics_and_artifacts(
