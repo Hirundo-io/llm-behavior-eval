@@ -150,15 +150,6 @@ def test_init_mlflow_starts_run_and_logs_params(
     mlflow_mock.set_experiment.assert_called_once_with("MLflow Tests")
     mlflow_mock.start_run.assert_called_once_with(run_name="model")
 
-    assert mlflow_mock.log_params.call_count == 1
-    logged_params = mlflow_mock.log_params.call_args.args[0]
-    assert logged_params["model_path_or_repo_id"] == "meta/model"
-    assert "file_path" not in logged_params
-    logged_param = mlflow_mock.log_param.call_args.args[0]
-    logged_param_value = mlflow_mock.log_param.call_args.args[1]
-    assert logged_param == "num_samples_evaluated"
-    assert logged_param_value == 3
-
 
 def test_init_with_default_mlflow_config_still_logs(
     evaluation_config_default_mlflow: EvaluationConfig,
@@ -173,7 +164,6 @@ def test_init_with_default_mlflow_config_still_logs(
     mlflow_mock.set_tracking_uri.assert_not_called()
     mlflow_mock.set_experiment.assert_not_called()
     mlflow_mock.start_run.assert_called_once_with(run_name="model")
-    mlflow_mock.log_params.assert_called_once()
 
 
 def test_init_mlflow_uses_existing_active_run(
@@ -201,42 +191,7 @@ def test_init_without_mlflow_config_does_not_touch_mlflow(
     mlflow_mock.set_tracking_uri.assert_not_called()
     mlflow_mock.set_experiment.assert_not_called()
     mlflow_mock.start_run.assert_not_called()
-    mlflow_mock.log_params.assert_not_called()
     assert evaluator.mlflow_config is None
-
-
-def test_dataset_mlflow_run_starts_nested_run_and_logs_dataset_params(
-    evaluation_config: EvaluationConfig,
-    dataset_config: DatasetConfig,
-    mlflow_mock: MagicMock,
-) -> None:
-    parent_run = _make_run("parent-run", "model")
-    child_run = _make_run("child-run", "bbq-age-bias-free-text")
-    mlflow_mock.start_run.side_effect = [parent_run, child_run]
-    mlflow_mock.active_run.side_effect = [None, child_run, child_run]
-
-    evaluator = DummyEvaluator(evaluation_config, dataset_config)
-    evaluator.eval_engine.is_judge = True
-
-    new_dataset_config = DatasetConfig(
-        file_path="hirundo-io/bbq-age-bias-free-text",
-        dataset_type=DatasetType.BIAS,
-    )
-    evaluator.update_dataset_config(new_dataset_config)
-
-    with evaluator.dataset_mlflow_run(run_name="bbq-age-bias-free-text"):
-        pass
-
-    assert mlflow_mock.start_run.call_args_list[1].kwargs == {
-        "run_name": "bbq-age-bias-free-text",
-        "nested": True,
-    }
-    dataset_params = mlflow_mock.log_params.call_args_list[1].args[0]
-    assert dataset_params["file_path"] == "hirundo-io/bbq-age-bias-free-text"
-    assert dataset_params["dataset_type"] == DatasetType.BIAS
-    assert dataset_params["seed"] == 42
-    assert "model_path_or_repo_id" not in dataset_params
-    mlflow_mock.end_run.assert_called_once()
 
 
 def test_dataset_mlflow_run_requires_parent_run(
@@ -257,6 +212,57 @@ def test_dataset_mlflow_run_requires_parent_run(
     ):
         with evaluator.dataset_mlflow_run():
             pass
+
+
+def test_dataset_mlflow_run_logs_dataset_metrics_to_current_run(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    """dataset_mlflow_run logs dataset-related metrics (e.g. seed) and does not start a nested run."""
+    parent_run = _make_run("parent-run", "model")
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
+
+    evaluator = DummyEvaluator(evaluation_config, dataset_config)
+    mlflow_mock.reset_mock()
+
+    with evaluator.dataset_mlflow_run():
+        pass
+
+    mlflow_mock.start_run.assert_not_called()
+    mlflow_mock.log_metric.assert_called_with("dataset_attached", 1.0)
+
+
+def test_dataset_mlflow_run_with_existing_run_id_logs_metrics(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    """When mlflow_run_id is set, dataset_mlflow_run still logs dataset metrics to the current run."""
+    parent_run = _make_run("existing-123", "model")
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = parent_run
+
+    assert evaluation_config.mlflow_config is not None
+    base_mlflow = evaluation_config.mlflow_config
+    config_with_run_id = EvaluationConfig(
+        model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
+        results_dir=evaluation_config.results_dir,
+        batch_size=evaluation_config.batch_size,
+        mlflow_config=MlflowConfig(
+            mlflow_tracking_uri=base_mlflow.mlflow_tracking_uri,
+            mlflow_experiment_name=base_mlflow.mlflow_experiment_name,
+            mlflow_run_id="existing-123",
+        ),
+    )
+    evaluator = DummyEvaluator(config_with_run_id, dataset_config)
+    mlflow_mock.reset_mock()
+
+    with evaluator.dataset_mlflow_run():
+        pass
+
+    mlflow_mock.log_metric.assert_called_with("dataset_attached", 1.0)
 
 
 def test_save_results_logs_mlflow_metrics_and_artifacts(
@@ -286,11 +292,15 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
         "stereotyped_bias": 0.1,
     }
 
-    artifact_calls = {
-        Path(call.args[0]).name for call in mlflow_mock.log_artifact.call_args_list
-    }
-    assert {"responses.json", "metrics.csv"}.issubset(artifact_calls)
+    mlflow_mock.log_artifacts.assert_called_once()
+    call_args = mlflow_mock.log_artifacts.call_args
+    uploaded_dir = Path(call_args.args[0])
+    assert str(evaluation_config.results_dir / "model") in str(uploaded_dir)
+    artifact_path = call_args.kwargs.get("artifact_path", "")
+    assert artifact_path == "" or artifact_path.startswith("llm-behavior-eval")
 
     output_dir = evaluation_config.results_dir / "model" / "bbq-gender-bias-free-text"
     assert (output_dir / "responses.json").exists()
     assert (output_dir / "metrics.csv").exists()
+    assert (uploaded_dir / "bbq-gender-bias-free-text" / "responses.json").exists()
+    assert (uploaded_dir / "bbq-gender-bias-free-text" / "metrics.csv").exists()

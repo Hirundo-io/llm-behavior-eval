@@ -44,7 +44,7 @@ dependencies = [
   "accelerate<2.0.0",
   "bitsandbytes<1.0.0; platform_system != \"Darwin\"",
   "protobuf<7.0.0", # needed for Mistral models
-  "sentencepiece<1.0.0", # needed for Mistral models
+  "sentencepiece<1.0.0",  # needed for Mistral models
 ]
 
 [project.optional-dependencies]
@@ -56,6 +56,9 @@ vllm = [
 ]
 gcs = [
     "google-cloud-storage",
+]
+gpt-oss = [
+    "opencv-python-headless>=4.12.0.88",
 ]
 
 [dependency-groups]
