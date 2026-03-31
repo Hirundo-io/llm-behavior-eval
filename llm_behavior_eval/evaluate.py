@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 import torch
 import typer
@@ -96,26 +96,28 @@ def _plot_metrics_from_summary(
         return
 
     metric_columns: list[str] = []
-    for column_name in [
-        "Accuracy (%) ⬆️",
-        "Error (%) ⬇️",
-        "Attack success rate (%) ⬇️",
-    ]:
-        if column_name not in summary_dataframe.columns:
+    numeric_columns_by_metric: dict[str, pd.Series] = {}
+    for column_name in summary_dataframe.columns:
+        if column_name == "Dataset":
             continue
-        column_values = summary_dataframe[column_name].dropna()
-        if column_values.empty:
+
+        numeric_column_values = cast(
+            pd.Series,
+            pd.to_numeric(summary_dataframe[column_name], errors="coerce"),
+        )
+        if numeric_column_values.dropna().empty:
             continue
+
         metric_columns.append(column_name)
+        numeric_columns_by_metric[column_name] = numeric_column_values
 
     for metric_column_name in metric_columns:
-        metric_dataframe = summary_dataframe[
-            summary_dataframe[metric_column_name].notna()
-        ][["Dataset", metric_column_name]]
+        numeric_column_values = numeric_columns_by_metric[metric_column_name]
+        metric_dataframe = summary_dataframe[numeric_column_values.notna()][["Dataset"]]
         categories = [
             str(dataset_name) for dataset_name in metric_dataframe["Dataset"].tolist()
         ]
-        metric_values = metric_dataframe[metric_column_name].astype(float).tolist()
+        metric_values = numeric_column_values[numeric_column_values.notna()].tolist()
         output_chart_path = (
             summary_file_path.parent
             / f"radar_{metric_column_name.replace(' ', '_').replace('%', 'pct').replace('⬆️', 'up').replace('⬇️', 'down')}.html"

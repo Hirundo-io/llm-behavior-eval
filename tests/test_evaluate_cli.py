@@ -600,10 +600,10 @@ def test_plot_metrics_from_summary_excludes_nan_values_per_metric(
     summary_dir.mkdir(parents=True)
     summary_path = summary_dir / "summary_full.csv"
     summary_path.write_text(
-        "Dataset,Accuracy (%) ⬆️,Error (%) ⬇️,Attack success rate (%) ⬇️\n"
-        "bias-set,80,,10\n"
-        "hallu-set,75,25,\n"
-        "inj-set,90,,5\n"
+        "Dataset,Accuracy (%) ⬆️,Error (%) ⬇️,Attack success rate (%) ⬇️,Custom score\n"
+        "bias-set,80,,10,0.1\n"
+        "hallu-set,75,25,,0.2\n"
+        "inj-set,90,,5,0.3\n"
     )
 
     captured_calls: list[dict[str, object]] = []
@@ -634,6 +634,13 @@ def test_plot_metrics_from_summary_excludes_nan_values_per_metric(
 
     calls_by_metric = {call["metric_name"]: call for call in captured_calls}
 
+    assert len(calls_by_metric) == 4
+    assert set(calls_by_metric) >= {
+        "Accuracy (%) ⬆️",
+        "Error (%) ⬇️",
+        "Attack success rate (%) ⬇️",
+    }
+
     assert calls_by_metric["Accuracy (%) ⬆️"]["categories"] == [
         "bias-set",
         "hallu-set",
@@ -649,6 +656,10 @@ def test_plot_metrics_from_summary_excludes_nan_values_per_metric(
         "inj-set",
     ]
     assert calls_by_metric["Attack success rate (%) ⬇️"]["value_lists"] == [[10.0, 5.0]]
+
+    custom_score_call = calls_by_metric["Custom score"]
+    assert custom_score_call["categories"] == ["bias-set", "hallu-set", "inj-set"]
+    assert custom_score_call["value_lists"] == [[0.1, 0.2, 0.3]]
 
 
 def test_plot_metrics_from_summary_skips_when_dataset_column_missing(
