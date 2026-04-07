@@ -23,3 +23,69 @@ Write imperative, concise commit titles (e.g., `Add hallu evaluator smoke tests`
 
 ## Security & Configuration Tips
 No secrets should live in the repo. Use environment variables for provider tokens and model paths when invoking `evaluate.py`. Verify that large artifacts stay out of version control—`results/` is excluded, so place experimental outputs there and keep them untracked.
+
+---
+
+## eval-assistant — LLM Behavior Evaluation Skill
+
+When a user asks you to help them run an evaluation, configure the CLI, or choose evaluation settings, follow this interactive workflow. Ask one section at a time; emit the final `llm-behavior-eval` command only after confirming all required inputs.
+
+### Step 1 — Behavior preset
+
+Ask what the user wants to measure and map their answer to a preset:
+
+| Preset syntax | Dataset | What it measures |
+|---|---|---|
+| `bias:<type>` | BBQ | Stereotype bias (ambiguous context) |
+| `unbias:<type>` | BBQ | Bias in disambiguation context |
+| `unqover:bias:<type>` | UNQOVER | Social bias (no `unbias` direction) |
+| `hallu` | HaluEval | General hallucinations |
+| `hallu-med` | Med-Hallu | Medical hallucinations |
+| `prompt-injection` | Purple Llama | Prompt injection vulnerability |
+
+BBQ `<type>` values: `age`, `gender`, `nationality`, `physical`, `race`, `religion`, `all`
+UNQOVER `<type>` values: `gender`, `nationality`, `race`, `religion`, `all`
+Multiple presets: comma-separated (e.g. `bias:gender,hallu,prompt-injection`)
+
+### Step 2 — Model
+
+- HuggingFace repo ID or local path (required)
+- `--model-token` if the model is gated
+- `--trust-remote-code` is auto-set for trusted providers (`hirundo-io`, `nvidia`, `meta-llama`, `google`, `aisingapore`, `LGAI-EXAONE`); ask for all others
+
+### Step 3 — Inference engine
+
+| Choice | Flag | Notes |
+|---|---|---|
+| transformers (default) | _(none)_ | Works everywhere; auto batch-sizing |
+| vLLM | `--inference-engine vllm` | Faster on GPU; required for LoRA |
+| Split engines | `--model-engine vllm` + `--judge-engine transformers` | Don't combine with `--inference-engine` |
+
+Add `--use-4bit` (model) or `--use-4bit-judge` (judge) for memory-constrained GPUs.
+
+### Step 4 — LoRA adapter (optional)
+
+Requires vLLM. Use `--lora-path-or-repo-id` with a local path, HF repo, or URI scheme (`mlflow://`, `git://`, `s3://`, `gs://`).
+
+### Step 5 — Judge model (optional)
+
+Default: `google/gemma-3-12b-it`. Override with `--judge-model`. Accepts `--judge-engine vllm` and `--use-4bit-judge`.
+
+### Step 6 — MLflow tracking (optional)
+
+Flags: `--use-mlflow`, `--mlflow-tracking-uri`, `--mlflow-experiment-name`, `--mlflow-run-name`. Auth via `MLFLOW_TRACKING_USERNAME`/`MLFLOW_TRACKING_PASSWORD` env vars or `--mlflow-username`/`--mlflow-password`.
+
+### Step 7 — Emit the command
+
+```
+llm-behavior-eval <MODEL> <BEHAVIOR> [OPTIONS]
+```
+
+Results land in `~/.local/share/llm-behavior-eval/results/` (Linux default) as `summary_brief.csv`, `summary_full.csv`, and per-dataset `.json` files. Override with `--base-output-dir`. Limit sample count with `--max-samples` (default 500; ≤0 = full dataset).
+
+### Validation rules to enforce
+
+- `--inference-engine` is mutually exclusive with `--model-engine`/`--judge-engine`
+- LoRA requires `--model-engine vllm` or `--inference-engine vllm`
+- `unqover:unbias:*` is invalid — UNQOVER only supports `bias` direction
+- `--max-samples` ≤0 runs the **full** dataset, not zero samples
