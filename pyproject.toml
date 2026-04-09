@@ -63,7 +63,7 @@ gcs = [
 dev = [
   "ruff>=0.11.11,<1.0.0",
   "bumpver>=2024.1130",
-  "ty>=0.0.1a13",
+  "ty>=0.0.20",
   "pytest>=8.3.5",
   "pre-commit>=4.3.0",
   "llm-behavior-eval[mlflow,vllm,gcs]",
