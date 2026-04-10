@@ -5,6 +5,7 @@ Supported targets:
   claude    — copies command files to ~/.claude/commands/
   codex     — appends skill sections to ~/.codex/AGENTS.md
   opencode  — appends skill sections to ~/.opencode/AGENTS.md
+  cursor    — writes .mdc rule files to ~/.cursor/rules/
   all       — all of the above
 """
 
@@ -31,7 +32,17 @@ _SKILLS: dict[str, str] = {
 _MARKER_BEGIN = "<!-- lbe-skills-begin -->"
 _MARKER_END = "<!-- lbe-skills-end -->"
 
-_VALID_TARGETS = {"claude", "codex", "opencode", "all"}
+_VALID_TARGETS = {"claude", "codex", "cursor", "opencode", "all"}
+
+# Human-readable descriptions used in Cursor .mdc frontmatter
+_CURSOR_DESCRIPTIONS: dict[str, str] = {
+    "lbe_eval_assistant": (
+        "Guide me through configuring and running an llm-behavior-eval evaluation"
+    ),
+    "lbe_results_analysis": (
+        "Help me read and interpret llm-behavior-eval output files and metrics"
+    ),
+}
 
 
 def _skill_content(module_name: str) -> str:
@@ -55,6 +66,24 @@ def _install_claude(force: bool) -> None:
         dest.write_text(_skill_content(module_name), encoding="utf-8")
         verb = "Overwrote" if dest.exists() else "Installed"
         typer.echo(f"  {verb} /{cmd_name} → {dest}")
+
+
+def _install_cursor(force: bool) -> None:
+    target_dir = Path.home() / ".cursor" / "rules"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for module_name, cmd_name in _SKILLS.items():
+        dest = target_dir / f"{cmd_name}.mdc"
+        if dest.exists() and not force:
+            typer.echo(
+                f"  Skipped {cmd_name} — already exists (pass --force to overwrite)"
+            )
+            continue
+        description = _CURSOR_DESCRIPTIONS[module_name]
+        content = _skill_content(module_name)
+        mdc = f"---\ndescription: {description}\nalwaysApply: false\n---\n{content}"
+        dest.write_text(mdc, encoding="utf-8")
+        verb = "Overwrote" if dest.exists() else "Installed"
+        typer.echo(f"  {verb} {cmd_name} → {dest}")
 
 
 def _install_agents_md(target: Path, label: str, force: bool) -> None:
@@ -97,7 +126,7 @@ def main(
             "-t",
             help=(
                 "Coding assistant to install for: "
-                "'claude', 'codex', 'opencode', or 'all'."
+                "'claude', 'codex', 'cursor', 'opencode', or 'all'."
             ),
             show_default=True,
         ),
@@ -127,6 +156,10 @@ def main(
     if target in {"codex", "all"}:
         typer.echo("Installing for Codex (~/.codex/AGENTS.md)...")
         _install_agents_md(Path.home() / ".codex" / "AGENTS.md", "Codex", force)
+
+    if target in {"cursor", "all"}:
+        typer.echo("Installing for Cursor (~/.cursor/rules/)...")
+        _install_cursor(force)
 
     if target in {"opencode", "all"}:
         typer.echo("Installing for OpenCode (~/.opencode/AGENTS.md)...")
