@@ -4,6 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project.scripts]
 llm-behavior-eval = "llm_behavior_eval.evaluate:app"
+lbe-install-skills = "llm_behavior_eval.install_skills:app"
 
 [project]
 name = "llm-behavior-eval"
@@ -83,6 +84,9 @@ llm-behavior-eval = { path = ".", editable = true }
 [tool.setuptools.packages.find]
 include = ["llm_behavior_eval*"]
 exclude = ["results*"]
+
+[tool.setuptools.package-data]
+"llm_behavior_eval.skills" = ["*.md"]
 
 [tool.bumpver]
 current_version = "0.1.6b10"
