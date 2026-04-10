@@ -2,10 +2,10 @@
 Install llm-behavior-eval skills into your coding assistant's global context.
 
 Supported targets:
-  claude    — copies command files to ~/.claude/commands/
-  codex     — appends skill sections to ~/.codex/AGENTS.md
-  opencode  — appends skill sections to ~/.opencode/AGENTS.md
-  cursor    — writes .mdc rule files to ~/.cursor/rules/
+  claude    — ~/.claude/commands/     (.md slash-command files)
+  codex     — ~/.codex/AGENTS.md      (appended block)
+  cursor    — ~/.cursor/rules/        (.mdc rule files)
+  opencode  — ~/.opencode/AGENTS.md   (appended block)
   all       — all of the above
 """
 
@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from importlib.resources import files
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, NamedTuple
 
 import typer
 
@@ -23,75 +23,77 @@ app = typer.Typer(
     add_completion=False,
 )
 
-# Maps Python module name → slash-command file name
-_SKILLS: dict[str, str] = {
-    "lbe_eval_assistant": "lbe-eval-assistant",
-    "lbe_results_analysis": "lbe-results-analysis",
-}
-
 _MARKER_BEGIN = "<!-- lbe-skills-begin -->"
 _MARKER_END = "<!-- lbe-skills-end -->"
 
 _VALID_TARGETS = {"claude", "codex", "cursor", "opencode", "all"}
 
-# Human-readable descriptions used in Cursor .mdc frontmatter
-_CURSOR_DESCRIPTIONS: dict[str, str] = {
-    "lbe_eval_assistant": (
-        "Guide me through configuring and running an llm-behavior-eval evaluation"
-    ),
-    "lbe_results_analysis": (
-        "Help me read and interpret llm-behavior-eval output files and metrics"
-    ),
-}
+
+class _Skill(NamedTuple):
+    module: str        # filename stem under llm_behavior_eval/skills/
+    cmd_name: str      # slash-command / file name (e.g. "lbe-eval-assistant")
+    description: str   # used in Cursor .mdc frontmatter
 
 
-def _skill_content(module_name: str) -> str:
+_SKILLS: list[_Skill] = [
+    _Skill(
+        module="lbe_eval_assistant",
+        cmd_name="lbe-eval-assistant",
+        description="Guide me through configuring and running an llm-behavior-eval evaluation",
+    ),
+    _Skill(
+        module="lbe_results_analysis",
+        cmd_name="lbe-results-analysis",
+        description="Help me read and interpret llm-behavior-eval output files and metrics",
+    ),
+]
+
+
+def _read(module: str) -> str:
     return (
         files("llm_behavior_eval.skills")
-        .joinpath(f"{module_name}.md")
+        .joinpath(f"{module}.md")
         .read_text(encoding="utf-8")
     )
+
+
+def _write_file(dest: Path, content: str, label: str, force: bool) -> None:
+    if dest.exists() and not force:
+        typer.echo(f"  Skipped {label} — already exists (pass --force to overwrite)")
+        return
+    verb = "Overwrote" if dest.exists() else "Installed"
+    dest.write_text(content, encoding="utf-8")
+    typer.echo(f"  {verb} {label} → {dest}")
 
 
 def _install_claude(force: bool) -> None:
     target_dir = Path.home() / ".claude" / "commands"
     target_dir.mkdir(parents=True, exist_ok=True)
-    for module_name, cmd_name in _SKILLS.items():
-        dest = target_dir / f"{cmd_name}.md"
-        if dest.exists() and not force:
-            typer.echo(
-                f"  Skipped /{cmd_name} — already exists (pass --force to overwrite)"
-            )
-            continue
-        dest.write_text(_skill_content(module_name), encoding="utf-8")
-        verb = "Overwrote" if dest.exists() else "Installed"
-        typer.echo(f"  {verb} /{cmd_name} → {dest}")
+    for skill in _SKILLS:
+        _write_file(
+            target_dir / f"{skill.cmd_name}.md",
+            _read(skill.module),
+            f"/{skill.cmd_name}",
+            force,
+        )
 
 
 def _install_cursor(force: bool) -> None:
     target_dir = Path.home() / ".cursor" / "rules"
     target_dir.mkdir(parents=True, exist_ok=True)
-    for module_name, cmd_name in _SKILLS.items():
-        dest = target_dir / f"{cmd_name}.mdc"
-        if dest.exists() and not force:
-            typer.echo(
-                f"  Skipped {cmd_name} — already exists (pass --force to overwrite)"
-            )
-            continue
-        description = _CURSOR_DESCRIPTIONS[module_name]
-        content = _skill_content(module_name)
-        mdc = f"---\ndescription: {description}\nalwaysApply: false\n---\n{content}"
-        dest.write_text(mdc, encoding="utf-8")
-        verb = "Overwrote" if dest.exists() else "Installed"
-        typer.echo(f"  {verb} {cmd_name} → {dest}")
+    for skill in _SKILLS:
+        content = (
+            f"---\ndescription: {skill.description}\nalwaysApply: false\n---\n"
+            + _read(skill.module)
+        )
+        _write_file(target_dir / f"{skill.cmd_name}.mdc", content, skill.cmd_name, force)
 
 
 def _install_agents_md(target: Path, label: str, force: bool) -> None:
-    """Append or replace the lbe skills block in an AGENTS.md file."""
     target.parent.mkdir(parents=True, exist_ok=True)
     existing = target.read_text(encoding="utf-8") if target.exists() else ""
 
-    combined = "\n\n---\n\n".join(_skill_content(m) for m in _SKILLS)
+    combined = "\n\n---\n\n".join(_read(s.module) for s in _SKILLS)
     new_block = f"{_MARKER_BEGIN}\n{combined}\n{_MARKER_END}"
 
     if _MARKER_BEGIN in existing:
@@ -124,27 +126,19 @@ def main(
         typer.Option(
             "--target",
             "-t",
-            help=(
-                "Coding assistant to install for: "
-                "'claude', 'codex', 'cursor', 'opencode', or 'all'."
-            ),
+            help="Coding assistant: 'claude', 'codex', 'cursor', 'opencode', or 'all'.",
             show_default=True,
         ),
     ] = "claude",
     force: Annotated[
         bool,
-        typer.Option(
-            "--force",
-            "-f",
-            help="Overwrite existing installations.",
-        ),
+        typer.Option("--force", "-f", help="Overwrite existing installations."),
     ] = False,
 ) -> None:
     """Install lbe-eval-assistant and lbe-results-analysis skills globally."""
     if target not in _VALID_TARGETS:
         typer.echo(
-            f"Unknown target '{target}'. "
-            f"Choose from: {', '.join(sorted(_VALID_TARGETS))}",
+            f"Unknown target '{target}'. Choose from: {', '.join(sorted(_VALID_TARGETS))}",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -163,9 +157,7 @@ def main(
 
     if target in {"opencode", "all"}:
         typer.echo("Installing for OpenCode (~/.opencode/AGENTS.md)...")
-        _install_agents_md(
-            Path.home() / ".opencode" / "AGENTS.md", "OpenCode", force
-        )
+        _install_agents_md(Path.home() / ".opencode" / "AGENTS.md", "OpenCode", force)
 
     typer.echo("Done.")
 
