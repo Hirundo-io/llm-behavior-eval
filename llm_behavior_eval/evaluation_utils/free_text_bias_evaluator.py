@@ -319,21 +319,16 @@ candidate_uncertain: "<yes|no>"
         return generations
 
     def evaluate(self) -> None:
-        error = True
-        try:
+        def _run() -> None:
             generations = self.generate()
-
             self.free_test_model()
-
-            # free under-test model
             with (
                 self.dataset_mlflow_run(),
                 self.get_judge_engine_context() as judge_engine,
             ):
                 self.grade(generations, judge_engine)
-            error = False
-        finally:
-            self.cleanup(error)
+
+        self._run_with_cleanup(_run)
 
     def _grade_impl(
         self,

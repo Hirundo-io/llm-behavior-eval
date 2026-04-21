@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 
 
 class _StubEvaluator:
+    started_mlflow_run = False
+
     def update_dataset_config(self, dataset_config: DatasetConfig) -> None:
         return None
 
@@ -34,7 +36,7 @@ class _StubEvaluator:
     def get_grading_context(self) -> AbstractContextManager:
         return nullcontext()
 
-    def dataset_mlflow_run(self, run_name: str | None = None) -> AbstractContextManager:
+    def dataset_mlflow_run(self) -> AbstractContextManager:
         return nullcontext()
 
     def _grade_impl(
