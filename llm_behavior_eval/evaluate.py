@@ -297,7 +297,7 @@ def main(
         TokenizerModeOption | None,
         typer.Option(
             "--vllm-tokenizer-mode",
-            help="Tokenizer mode forwarded to vLLM (e.g. 'auto', 'slow').",
+            help="Tokenizer mode forwarded to vLLM (e.g. 'auto', 'hf', 'slow').",
         ),
     ] = None,
     vllm_config_format: Annotated[
@@ -590,9 +590,35 @@ def main(
                     seed=seed,
                 )
                 if evaluator is None:
-                    evaluator = EvaluateFactory.create_evaluator(
-                        eval_config, dataset_config
-                    )
+                    try:
+                        evaluator = EvaluateFactory.create_evaluator(
+                            eval_config, dataset_config
+                        )
+                    except Exception as eval_error:
+                        error_text = str(eval_error)
+                        unsupported_arch = (
+                            "does not recognize this architecture" in error_text
+                            and "model type `" in error_text
+                        )
+                        requested_vllm = (
+                            eval_config.inference_engine == "vllm"
+                            or eval_config.model_engine == "vllm"
+                        )
+                        if not (requested_vllm and unsupported_arch):
+                            raise
+
+                        logging.warning(
+                            "vLLM initialization failed due to unsupported model architecture in the installed Transformers stack (%s). "
+                            "Falling back to transformers engine for this run.",
+                            eval_error,
+                        )
+                        eval_config.inference_engine = "transformers"
+                        eval_config.model_engine = "transformers"
+                        eval_config.judge_engine = "transformers"
+                        eval_config.vllm_config = None
+                        evaluator = EvaluateFactory.create_evaluator(
+                            eval_config, dataset_config
+                        )
                 else:
                     evaluator.update_dataset_config(dataset_config)
 

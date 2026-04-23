@@ -1,3 +1,3 @@
 from typing import Literal
 
-TokenizerModeOption = Literal["auto", "slow", "mistral", "custom"]
+TokenizerModeOption = Literal["auto", "hf", "slow", "mistral", "custom"]

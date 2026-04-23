@@ -1,3 +1,5 @@
+import json
+import os
 import sys
 import types
 from pathlib import Path
@@ -7,6 +9,9 @@ import pytest
 import torch
 
 from llm_behavior_eval.evaluation_utils.util_functions import (
+    _apply_tokenizer_config_hub_compat_patches,
+    _disable_vllm_symm_mem_env_if_device_unsupported,
+    _ensure_tokenizer_config_hub_compat_on_disk,
     build_vllm_prompt_token_ids,
     get_lora_slug,
     is_model_multimodal,
@@ -112,6 +117,51 @@ def test_torch_dtype_to_str_supported() -> None:
 def test_torch_dtype_to_str_unsupported() -> None:
     with pytest.raises(ValueError):
         torch_dtype_to_str(torch.float64)
+
+
+def test_apply_tokenizer_config_hub_compat_patches_tokenizers_backend(
+    tmp_path: Path,
+) -> None:
+    cfg = tmp_path / "tokenizer_config.json"
+    cfg.write_text(
+        json.dumps({"tokenizer_class": "TokenizersBackend"}), encoding="utf-8"
+    )
+    assert _apply_tokenizer_config_hub_compat_patches(cfg) is True
+    data = json.loads(cfg.read_text(encoding="utf-8"))
+    assert data["tokenizer_class"] == "PreTrainedTokenizerFast"
+    assert _apply_tokenizer_config_hub_compat_patches(cfg) is False
+
+
+def test_apply_tokenizer_config_hub_compat_patches_extra_special_tokens_list(
+    tmp_path: Path,
+) -> None:
+    cfg = tmp_path / "tokenizer_config.json"
+    cfg.write_text(
+        json.dumps({"extra_special_tokens": ["<a>", "<b>"]}), encoding="utf-8"
+    )
+    assert _apply_tokenizer_config_hub_compat_patches(cfg) is True
+    data = json.loads(cfg.read_text(encoding="utf-8"))
+    assert data["extra_special_tokens"] == {}
+    assert _apply_tokenizer_config_hub_compat_patches(cfg) is False
+
+
+def test_ensure_tokenizer_config_hub_compat_on_disk_local_dir(tmp_path: Path) -> None:
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    tcfg = model_dir / "tokenizer_config.json"
+    tcfg.write_text(
+        json.dumps(
+            {
+                "tokenizer_class": "TokenizersBackend",
+                "extra_special_tokens": ["<think>", "</think>"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    _ensure_tokenizer_config_hub_compat_on_disk(str(model_dir), None)
+    data = json.loads(tcfg.read_text(encoding="utf-8"))
+    assert data["tokenizer_class"] == "PreTrainedTokenizerFast"
+    assert data["extra_special_tokens"] == {}
 
 
 def test_build_vllm_prompt_token_ids_strips_padding() -> None:
@@ -292,10 +342,12 @@ def test_maybe_download_adapter_mlflow_scheme_missing_mlflow(
         raising=False,
     )
 
+    real_import = __import__
+
     def mock_import(name, *args, **kwargs):
-        if name == "mlflow":
+        if name == "mlflow" or name.startswith("mlflow."):
             raise ImportError("No module named 'mlflow'")
-        raise ImportError(f"No module named '{name}'")
+        return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", mock_import)
 
@@ -511,10 +563,12 @@ def test_maybe_download_adapter_git_scheme_missing_gitpython(
 ) -> None:
     """Test that git:// scheme raises ImportError when gitpython is not available."""
 
+    real_import = __import__
+
     def mock_import(name, *args, **kwargs):
-        if name == "git":
+        if name == "git" or name.startswith("git."):
             raise ImportError("No module named 'git'")
-        raise ImportError(f"No module named '{name}'")
+        return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", mock_import)
 
@@ -633,10 +687,12 @@ def test_maybe_download_adapter_s3_scheme_missing_fsspec(
 ) -> None:
     """Test that s3:// scheme raises ImportError when fsspec is not available."""
 
+    real_import = __import__
+
     def mock_import(name, *args, **kwargs):
-        if name == "fsspec":
+        if name == "fsspec" or name.startswith("fsspec."):
             raise ImportError("No module named 'fsspec'")
-        raise ImportError(f"No module named '{name}'")
+        return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr("builtins.__import__", mock_import)
 
@@ -825,3 +881,27 @@ def test_maybe_download_adapter_mlflow_tracking_uri(
             del sys.modules["mlflow"]
         if "mlflow.artifacts" in sys.modules:
             del sys.modules["mlflow.artifacts"]
+
+
+def test_disable_vllm_symm_mem_sets_env_on_ampere(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _idx=0: (8, 0))
+    monkeypatch.delenv("VLLM_ALLREDUCE_USE_SYMM_MEM", raising=False)
+    _disable_vllm_symm_mem_env_if_device_unsupported()
+    assert os.environ.get("VLLM_ALLREDUCE_USE_SYMM_MEM") == "0"
+
+
+def test_disable_vllm_symm_mem_respects_user_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _idx=0: (8, 0))
+    monkeypatch.setenv("VLLM_ALLREDUCE_USE_SYMM_MEM", "1")
+    _disable_vllm_symm_mem_env_if_device_unsupported()
+    assert os.environ.get("VLLM_ALLREDUCE_USE_SYMM_MEM") == "1"
+
+
+def test_disable_vllm_symm_mem_no_env_on_hopper(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda _idx=0: (9, 0))
+    monkeypatch.delenv("VLLM_ALLREDUCE_USE_SYMM_MEM", raising=False)
+    _disable_vllm_symm_mem_env_if_device_unsupported()
+    assert "VLLM_ALLREDUCE_USE_SYMM_MEM" not in os.environ

@@ -37,7 +37,8 @@ dependencies = [
   "pydantic_settings<3.0.0",
   "tqdm",
   "torch<3.0.0",
-  "transformers<5.0.0",
+  # Lower bound matches current vLLM wheels; upper bound matches vLLM's declared cap on PyPI.
+  "transformers>=4.56.0,<5.0.0",
   "networkx<4.0.0",
   "pytest<9.0.0",
   "typer<1.0.0",
@@ -52,13 +53,13 @@ mlflow = [
   "mlflow>=2.0.0",
 ]
 vllm = [
-  "vllm>=0.15.0",
+  "vllm>=0.19.0",
 ]
 gcs = [
     "google-cloud-storage",
 ]
 gpt-oss = [
-    "opencv-python-headless>=4.12.0.88",
+  "opencv-python-headless>=4.13.0",
 ]
 
 [dependency-groups]
