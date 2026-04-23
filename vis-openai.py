@@ -16,9 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-RUN_PATTERN = re.compile(
-    r"^(?P<model>gpt-oss-20b)-(?P<method>[a-z0-9_-]+)-checkpoint-(?P<step>\d+)$"
-)
+CHECKPOINT_SUFFIX_PATTERN = re.compile(r"^(?P<prefix>.+)-checkpoint-(?P<step>\d+)$")
 DEFAULT_RESULTS_DIR = SCRIPT_DIR / "results"
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "plots"
 SVG_WIDTH = 960
@@ -77,7 +75,7 @@ AGGREGATE_METRICS: tuple[tuple[str, tuple[str, ...]], ...] = (
 def scale_step(method: str, step: int) -> int:
     if "sb" in method:
         return step
-    return step * 8
+    return step * 1
 
 
 def parse_summary_csv(csv_path: Path) -> dict[str, ScoreEntry]:
@@ -135,25 +133,47 @@ def add_aggregate_scores(scores: dict[str, ScoreEntry]) -> dict[str, ScoreEntry]
     return enriched_scores
 
 
-def discover_runs(results_dir: Path, methods: Iterable[str]) -> list[RunRecord]:
+def parse_run_dir_name(
+    run_dir_name: str, methods: set[str], base_model: str
+) -> tuple[str, int] | None:
+    match = CHECKPOINT_SUFFIX_PATTERN.match(run_dir_name)
+    if match is None:
+        return None
+
+    step = int(match.group("step"))
+    prefix = match.group("prefix")
+    base_prefix = f"{base_model}-"
+    if not prefix.startswith(base_prefix):
+        return None
+
+    method = prefix[len(base_prefix) :]
+    if not method or method not in methods:
+        return None
+
+    return method, step
+
+
+def discover_runs(results_dir: Path, methods: Iterable[str], base_model: str) -> list[RunRecord]:
     allowed_methods = set(methods)
     runs: list[RunRecord] = []
     for child in sorted(results_dir.iterdir()):
         if not child.is_dir():
             continue
-        match = RUN_PATTERN.match(child.name)
-        if not match:
+        parsed = parse_run_dir_name(
+            run_dir_name=child.name,
+            methods=allowed_methods,
+            base_model=base_model,
+        )
+        if parsed is None:
             continue
-        method = match.group("method")
-        if method not in allowed_methods:
-            continue
+        method, raw_step = parsed
         summary_path = child / "summary_brief.csv"
         if not summary_path.exists():
             continue
         runs.append(
             RunRecord(
                 method=method,
-                step=scale_step(method, int(match.group("step"))),
+                step=scale_step(method, raw_step),
                 scores=add_aggregate_scores(parse_summary_csv(summary_path)),
             )
         )
@@ -218,6 +238,7 @@ def render_metric_svg(
     series_by_method: dict[str, list[tuple[int, float]]],
     baseline_value: float | None,
     output_path: Path,
+    base_model: str,
     max_x_value: int | None = None,
 ) -> None:
     if max_x_value is not None:
@@ -324,7 +345,7 @@ def render_metric_svg(
     svg_parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{SVG_WIDTH}" height="{SVG_HEIGHT}" viewBox="0 0 {SVG_WIDTH} {SVG_HEIGHT}">',
         '<rect width="100%" height="100%" fill="#fcfcf8" />',
-        f'<text x="{margin_left}" y="30" font-size="22" font-family="sans-serif" fill="#1f1f1f">{html.escape(metric)}</text>',
+        f'<text x="{margin_left}" y="30" font-size="22" font-family="sans-serif" fill="#1f1f1f">{html.escape(metric)} ({html.escape(base_model)})</text>',
         f'<text x="{margin_left}" y="48" font-size="13" font-family="sans-serif" fill="#5c5c5c">{html.escape(score_kind)} across checkpoints</text>',
     ]
 
@@ -409,7 +430,7 @@ def render_metric_svg(
     output_path.write_text("\n".join(svg_parts), encoding="utf-8")
 
 
-def write_index(metric_paths: list[tuple[str, Path]], output_dir: Path) -> None:
+def write_index(metric_paths: list[tuple[str, Path]], output_dir: Path, base_model: str) -> None:
     items = "\n".join(
         f'<li><a href="{path.name}">{html.escape(metric)}</a></li>'
         for metric, path in metric_paths
@@ -418,7 +439,7 @@ def write_index(metric_paths: list[tuple[str, Path]], output_dir: Path) -> None:
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>OpenAI Fine-Tuning Metric Plots</title>
+  <title>Training Metric Plots</title>
   <style>
     body {{ font-family: sans-serif; margin: 32px; background: #fcfcf8; color: #222; }}
     a {{ color: #0b6e4f; text-decoration: none; }}
@@ -427,8 +448,8 @@ def write_index(metric_paths: list[tuple[str, Path]], output_dir: Path) -> None:
   </style>
 </head>
 <body>
-  <h1>OpenAI Fine-Tuning Metric Plots</h1>
-  <p>Each chart compares checkpoint trajectories for the selected methods and shows the vanilla <code>gpt-oss-20b</code> score as a dotted baseline.</p>
+  <h1>Training Metric Plots</h1>
+  <p>Each chart compares checkpoint trajectories for the selected methods and shows the vanilla <code>{html.escape(base_model)}</code> score as a dotted baseline.</p>
   <ul>
     {items}
   </ul>
@@ -462,7 +483,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--base-model",
-        default="gpt-oss-20b",
+        default="qwen-sea-lion-4b-vl",
         help="Directory name for the vanilla baseline model.",
     )
     parser.add_argument(
@@ -481,7 +502,7 @@ def main() -> None:
         raise FileNotFoundError(f"Baseline summary file not found: {baseline_path}")
     baseline_scores = add_aggregate_scores(parse_summary_csv(baseline_path))
 
-    runs = discover_runs(results_dir, args.methods)
+    runs = discover_runs(results_dir, args.methods, args.base_model)
     if not runs:
         raise FileNotFoundError(
             f"No checkpoint runs found in {results_dir} for methods: {', '.join(args.methods)}"
@@ -504,11 +525,12 @@ def main() -> None:
             series_by_method=series_by_method,
             baseline_value=None if baseline_score is None else baseline_score.value,
             output_path=output_path,
+            base_model=args.base_model,
             max_x_value=args.max_x_value,
         )
         written_files.append((metric, output_path))
 
-    write_index(written_files, output_dir)
+    write_index(written_files, output_dir, args.base_model)
     print(f"Wrote {len(written_files)} metric plots to {output_dir}")
 
 
