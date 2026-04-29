@@ -30,4 +30,4 @@ jobs:
 
       - name: Install the project
         run: uv sync --locked --extra mlflow --extra vllm
-      - run: uvx basedpyright
+      - run: uv run basedpyright
