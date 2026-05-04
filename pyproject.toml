@@ -60,6 +60,8 @@ dev = [
   "pytest>=8.3.5",
   "pre-commit>=4.3.0",
   "llm-behavior-eval[mlflow,vllm,gcs]",
+  "pyrefly>=0.63.1",
+  "types-tqdm",
 ]
 docs = ["sphinx>=8.0.0"]
 
@@ -122,3 +124,6 @@ unfixable = ["F401"]
 [tool.pyright]
 typeCheckingMode = "standard"
 reportPrivateImportUsage = "warning"
+
+[tool.pyrefly]
+min-severity = "warn"
