@@ -18,7 +18,9 @@ from .vllm_config import VllmConfig
 
 if TYPE_CHECKING:
     from datasets import Dataset
+    from vllm import SamplingParams
     from vllm.inputs.data import PromptType
+    from vllm.lora.request import LoRARequest
     from vllm.model_executor.layers.quantization import QuantizationMethods
 
     from .eval_config import EvaluationConfig
@@ -81,6 +83,7 @@ class VllmEvalEngine(EvalEngine):
             max_lora_rank=vllm_config.max_lora_rank,
         )
         self._vllm_sampling_params = None
+        self.lora_request: LoRARequest | None
         if lora_path_or_repo_id is not None:
             try:
                 from vllm.lora.request import LoRARequest
@@ -136,9 +139,8 @@ class VllmEvalEngine(EvalEngine):
         return responses
 
     def _get_vllm_sampling_params(
-        self,
-        sampling_config: SamplingConfig,
-    ):
+        self, sampling_config: SamplingConfig
+    ) -> SamplingParams:
         """
         Get the sampling parameters for vLLM.
 

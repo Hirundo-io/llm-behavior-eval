@@ -24,7 +24,7 @@ from transformers.utils.quantization_config import BitsAndBytesConfig
 from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
     from pydantic import BaseModel
     from transformers.modeling_utils import PreTrainedModel
@@ -46,7 +46,7 @@ def empty_cuda_cache_if_available() -> None:
 
 
 @contextmanager
-def _hf_token(token: str | None) -> Iterator[None]:
+def _hf_token(token: str | None) -> Generator[None, None, None]:
     """
     If `token` is truthy, temporarily set HF_TOKEN for Hugging Face API calls;
     otherwise, do nothing.
@@ -178,7 +178,7 @@ class SafeApplyChatTemplate:
                 multimodal_chat_messages.append(
                     {
                         "role": message["role"],
-                        "content": [{"type": "text", "text": str(current_content)}],
+                        "content": [{"type": "text", "text": current_content}],
                     }
                 )
             return str(_apply_chat_template(multimodal_chat_messages))
@@ -187,7 +187,7 @@ class SafeApplyChatTemplate:
         chat_messages_text: list[dict[str, str]] = []
         for message in messages:
             chat_messages_text.append(
-                {"role": message["role"], "content": str(message["content"])}
+                {"role": message["role"], "content": message["content"]}
             )
         return str(_apply_chat_template(chat_messages_text))
 
