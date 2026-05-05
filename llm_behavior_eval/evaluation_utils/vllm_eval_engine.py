@@ -19,6 +19,7 @@ from .vllm_config import VllmConfig
 if TYPE_CHECKING:
     from datasets import Dataset
     from vllm.inputs.data import PromptType
+    from vllm.lora.request import LoRARequest
 
     from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
@@ -80,6 +81,7 @@ class VllmEvalEngine(EvalEngine):
             max_lora_rank=vllm_config.max_lora_rank,
         )
         self._vllm_sampling_params = None
+        self.lora_request: LoRARequest | None
         if lora_path_or_repo_id is not None:
             try:
                 from vllm.lora.request import LoRARequest

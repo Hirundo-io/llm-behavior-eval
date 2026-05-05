@@ -45,5 +45,5 @@ else
   uv pip install --python "${VENV_PYTHON}" -e .
 fi
 
-uv pip install --python "${VENV_PYTHON}" ruff basedpyright pytest pre-commit bumpver
+uv pip install --python "${VENV_PYTHON}" ruff pyrefly pytest pre-commit bumpver
 

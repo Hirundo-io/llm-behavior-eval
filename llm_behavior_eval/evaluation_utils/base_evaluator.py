@@ -36,8 +36,9 @@ from .util_functions import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Iterator, Sequence
+    from collections.abc import Callable, Generator, Sequence
 
+    from datasets import Dataset as HFDataset
     from torch import Tensor
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
@@ -105,6 +106,9 @@ class BaseEvaluator(ABC):
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
         self._skip_current_run = False
+        self.eval_engine: EvalEngine
+        self.eval_dataset: HFDataset
+        self.eval_loader: DataLoader
 
         self._set_seed()
 
@@ -241,7 +245,10 @@ class BaseEvaluator(ABC):
             if self.eval_config.max_samples
             else len(test_dataset)
         )
-        self.eval_dataset = test_dataset.select(range(self.num_samples))
+        test_dataset = cast("HFDataset", test_dataset)
+        self.eval_dataset = cast(
+            "HFDataset", test_dataset.select(range(self.num_samples))
+        )
         self.eval_engine.set_dataset(self.eval_dataset)
 
         self.eval_loader = DataLoader(
@@ -633,7 +640,7 @@ class BaseEvaluator(ABC):
         # Run config is uploaded as JSON in artifacts (e.g. run_config.json), not logged as params/metrics.
 
     @contextmanager
-    def dataset_mlflow_run(self) -> Iterator[None]:
+    def dataset_mlflow_run(self) -> Generator[None, None, None]:
         """
         Log dataset-specific params to the current MLflow run and yield.
         Child runs are never started; behavior is consistent whether or not mlflow_run_id was provided.
@@ -1018,7 +1025,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         """
         # If a fixed judge batch size is provided, run regularly with that size (no backoff)
         if self.eval_config.judge_batch_size is not None:
-            fixed_batch_size = max(1, int(self.eval_config.judge_batch_size))
+            fixed_batch_size = max(1, self.eval_config.judge_batch_size)
             outputs_fixed: list[list[dict[str, str]]] = []
             for start in range(0, len(prompts), fixed_batch_size):
                 chunk = prompts[start : start + fixed_batch_size]
