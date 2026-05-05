@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 import shutil
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from inspect import Parameter, signature
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -14,19 +13,10 @@ from urllib.parse import ParseResult, urlparse
 import torch
 from transformers.models.auto.configuration_auto import AutoConfig
 from transformers.models.auto.modeling_auto import (
+    MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES,
     AutoModelForCausalLM,
     AutoModelForImageTextToText,
 )
-
-try:
-    from transformers.models.auto.modeling_auto import (
-        MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES,
-    )
-except ImportError:
-    # Very old transformers used this name before image-text-to-text auto-mapping.
-    from transformers.models.auto.modeling_auto import (
-        MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES as MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES,
-    )
 from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
@@ -37,22 +27,13 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from pydantic import BaseModel
+    from transformers.modeling_utils import PreTrainedModel
+    from vllm import LLM
+    from vllm.model_executor.layers.quantization import QuantizationMethods
 
     from .vllm_types import TokenizerModeOption
 
 VLLMDType = Literal["bfloat16", "float16", "float32"]
-VLLMQuantization = Literal[
-    "awq",
-    "fp8",
-    "ptpc_fp8",
-    "fbgemm_fp8",
-    "fp_quant",
-    "bitsandbytes",
-]
-
-if TYPE_CHECKING:
-    from transformers.modeling_utils import PreTrainedModel
-    from vllm import LLM
 
 DIGEST_SIZE_FOR_PEFT_PATHS = 8
 
@@ -83,52 +64,6 @@ def _hf_token(token: str | None) -> Iterator[None]:
             os.environ.pop("HF_TOKEN", None)
         else:
             os.environ["HF_TOKEN"] = prev
-
-
-def _load_tokenizer_resolving_hub_tokenizer_class(
-    model_name: str,
-    token: str | None,
-    trust_remote_code: bool,
-    local_files_only: bool,
-) -> PreTrainedTokenizerBase:
-    """
-    Load a tokenizer using ``config.json`` + ``TOKENIZER_MAPPING``, bypassing a
-    bogus ``tokenizer_class`` in ``tokenizer_config.json`` (for example
-    ``TokenizersBackend``, which is only defined in newer transformers releases
-    but appears on the Hub for models saved with those versions).
-    """
-    from transformers.models.auto.tokenization_auto import TOKENIZER_MAPPING
-    from transformers.models.encoder_decoder.configuration_encoder_decoder import (
-        EncoderDecoderConfig,
-    )
-
-    config = AutoConfig.from_pretrained(
-        model_name,
-        token=token,
-        trust_remote_code=trust_remote_code,
-        local_files_only=local_files_only,
-    )
-    if isinstance(config, EncoderDecoderConfig):
-        config = config.encoder
-    # _LazyAutoMapping.get requires an explicit default (unlike dict.get).
-    mapping = TOKENIZER_MAPPING.get(type(config), None)
-    if not mapping:
-        raise ValueError(
-            f"No tokenizer mapping for config type {type(config).__name__}; "
-            "upgrade transformers or adjust tokenizer_config.json."
-        )
-    slow_cls, fast_cls = mapping
-    tokenizer_cls = fast_cls or slow_cls
-    if tokenizer_cls is None:
-        raise ValueError(
-            "No slow or fast tokenizer class is registered for this configuration."
-        )
-    return tokenizer_cls.from_pretrained(
-        model_name,
-        token=token,
-        trust_remote_code=trust_remote_code,
-        local_files_only=local_files_only,
-    )
 
 
 class SafeApplyChatTemplate:
@@ -274,52 +209,21 @@ def load_tokenizer_with_transformers(
         token: The HuggingFace token to use for the model.
         trust_remote_code: Whether to trust remote code.
     """
-    with _hf_token(token):
-        _ensure_tokenizer_config_hub_compat_on_disk(model_name, token)
     try:
+        # Attempt to load the tokenizer normally
         tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             token=token,
             trust_remote_code=trust_remote_code,
         )
         logging.info("Tokenizer loaded successfully from the remote repository.")
-        return tokenizer
     except ValueError as error:
-        err_msg = str(error)
-        # Models uploaded with transformers v5 may set tokenizer_class to TokenizersBackend,
-        # which AutoTokenizer in v4 cannot instantiate. Resolve the concrete class from config.json.
-        if "TokenizersBackend" in err_msg:
-            logging.info(
-                "tokenizer_config declares TokenizersBackend (unsupported here); "
-                "loading tokenizer class from config.json instead.",
-            )
-            try:
-                tokenizer = _load_tokenizer_resolving_hub_tokenizer_class(
-                    model_name,
-                    token,
-                    trust_remote_code,
-                    local_files_only=False,
-                )
-                logging.info("Tokenizer loaded via config.json mapping (remote).")
-                return tokenizer
-            except Exception as workaround_error:
-                logging.info(
-                    "Config-based tokenizer load failed: %s. Retrying from local cache only.",
-                    workaround_error,
-                )
-                tokenizer = _load_tokenizer_resolving_hub_tokenizer_class(
-                    model_name,
-                    token,
-                    trust_remote_code,
-                    local_files_only=True,
-                )
-                logging.info("Tokenizer loaded via config.json mapping (local cache).")
-                return tokenizer
-
+        # Print or log the error details if desired
         logging.info(
             "Standard loading failed: %s. Falling back to local loading using 'local_files_only=True'.",
             error,
         )
+        # Retry loading with local_files_only flag
         tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             local_files_only=True,
@@ -327,7 +231,8 @@ def load_tokenizer_with_transformers(
             trust_remote_code=trust_remote_code,
         )
         logging.info("Tokenizer loaded successfully from the local files.")
-        return tokenizer
+
+    return tokenizer
 
 
 def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
@@ -342,15 +247,6 @@ def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
         return torch.float16
     # CPU or MPS → stay in full precision for safety
     return torch.float32
-
-
-def _weight_dtype_kwargs(dtype: torch.dtype) -> dict[str, Any]:
-    """Pass weight dtype to ``from_pretrained`` without deprecated ``torch_dtype`` when possible."""
-    from transformers.modeling_utils import PreTrainedModel
-
-    if "dtype" in signature(PreTrainedModel.from_pretrained).parameters:
-        return {"dtype": dtype}
-    return {"torch_dtype": dtype}
 
 
 def is_model_multimodal(
@@ -410,90 +306,6 @@ def _get_default_from_vllm(parameter_name: str):
     return signature(LLM.__init__).parameters[parameter_name].default
 
 
-def _tokenizer_config_paths_for_compat_patch(
-    model_name: str, token: str | None
-) -> list[Path]:
-    """Resolve ``tokenizer_config.json`` paths for a local checkpoint or Hub repo id."""
-    expanded = os.path.expanduser(model_name)
-    root = Path(expanded)
-    if root.is_dir():
-        return [root / "tokenizer_config.json"]
-    try:
-        from huggingface_hub import hf_hub_download, try_to_load_from_cache
-
-        cached = try_to_load_from_cache(model_name, "tokenizer_config.json")
-        if isinstance(cached, str) and cached:
-            return [Path(cached)]
-        return [Path(hf_hub_download(model_name, "tokenizer_config.json", token=token))]
-    except Exception:
-        return []
-
-
-def _apply_tokenizer_config_hub_compat_patches(path: Path) -> bool:
-    """
-    Align ``tokenizer_config.json`` on disk with Transformers v4 expectations.
-
-    - ``tokenizer_class: TokenizersBackend`` (v5 Hub saves) -> ``PreTrainedTokenizerFast``.
-    - ``extra_special_tokens`` as a list (v5 format, e.g. Gemma 4) -> ``{}``; v4 calls
-      ``.keys()`` and cannot load lists (`transformers` #45376).
-    """
-    if not path.is_file():
-        return False
-    try:
-        raw = path.read_text(encoding="utf-8")
-        data = json.loads(raw)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return False
-    changes: list[str] = []
-    if data.get("tokenizer_class") == "TokenizersBackend":
-        data["tokenizer_class"] = "PreTrainedTokenizerFast"
-        changes.append("tokenizer_class TokenizersBackend -> PreTrainedTokenizerFast")
-    est = data.get("extra_special_tokens")
-    if isinstance(est, (list, tuple)):
-        data["extra_special_tokens"] = {}
-        changes.append("extra_special_tokens list -> {} for transformers 4.x")
-    if not changes:
-        return False
-    serialized = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    try:
-        tmp.write_text(serialized, encoding="utf-8")
-        tmp.replace(path)
-    except OSError:
-        with suppress(OSError):
-            tmp.unlink(missing_ok=True)
-        logging.warning(
-            "Could not patch %s (read-only or permission error). "
-            "Copy the model locally or upgrade transformers.",
-            path,
-        )
-        return False
-    logging.info("Patched %s: %s", path, "; ".join(changes))
-    return True
-
-
-def _ensure_tokenizer_config_hub_compat_on_disk(
-    model_name: str, token: str | None = None
-) -> None:
-    """Patch ``tokenizer_config.json`` for v4/v5 Hub mismatches (vLLM and ``AutoTokenizer``)."""
-    for p in _tokenizer_config_paths_for_compat_patch(model_name, token):
-        _apply_tokenizer_config_hub_compat_patches(p)
-
-
-# Keys of vLLM's ``SYMM_MEM_ALL_REDUCE_MAX_SIZES`` (Hopper / Blackwell symm-mem AR).
-# Other caps (e.g. Ampere 8.0) hit a warning then noop; skip init via env instead.
-_VLLM_SYMM_MEM_DEVICE_CAPS: frozenset[str] = frozenset({"9.0", "10.0", "10.3"})
-
-
-def _disable_vllm_symm_mem_env_if_device_unsupported() -> None:
-    if not torch.cuda.is_available():
-        return
-    major, minor = torch.cuda.get_device_capability(0)
-    cap = f"{major}.{minor}"
-    if cap not in _VLLM_SYMM_MEM_DEVICE_CAPS:
-        os.environ.setdefault("VLLM_ALLREDUCE_USE_SYMM_MEM", "0")
-
-
 def load_vllm_model(
     model_name: str,
     dtype: torch.dtype,
@@ -502,7 +314,7 @@ def load_vllm_model(
     token: str | None = None,
     tensor_parallel_size: int | None = None,
     enforce_eager: bool = False,
-    quantization: VLLMQuantization | None = None,
+    quantization: QuantizationMethods | None = None,
     max_model_len: int | None = None,
     tokenizer_mode: TokenizerModeOption | None = None,
     config_format: str | None = None,
@@ -533,19 +345,8 @@ def load_vllm_model(
         An initialized ``vllm.LLM`` instance.
     """
 
-    _disable_vllm_symm_mem_env_if_device_unsupported()
-
-    # vLLM logs this every N seconds while the engine waits on TP workers (long
-    # weight loads). Default N=60 is noisy; honor user override via the env var.
-    os.environ.setdefault("VLLM_RINGBUFFER_WARNING_INTERVAL", "600")
-
-    try:
-        from vllm import LLM
-        from vllm.config import CompilationConfig, CompilationMode
-    except ImportError as exc:
-        raise ImportError(
-            "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable vllm for inference (e.g. when using the --inference-engine argument)."
-        ) from exc
+    from vllm import LLM
+    from vllm.config import CompilationConfig, CompilationMode
 
     dtype_literal = torch_dtype_to_str(dtype)
 
@@ -558,7 +359,6 @@ def load_vllm_model(
     default_tensor_parallel = _get_default_from_vllm("tensor_parallel_size")
 
     with _hf_token(token):
-        _ensure_tokenizer_config_hub_compat_on_disk(model_name, token)
         llm_instance = LLM(
             model=model_name,
             trust_remote_code=trust_remote_code,
@@ -584,6 +384,7 @@ def load_vllm_model(
                 cudagraph_specialize_lora=False,
             ),
         )
+
     return llm_instance
 
 
@@ -633,14 +434,12 @@ def load_transformers_model_and_tokenizer(
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = pick_best_dtype(device)
     logging.info("Using dtype: %s", dtype)
-
     # Load tokenizer
     tokenizer = load_tokenizer_with_transformers(
         model_name, token=token, trust_remote_code=trust_remote_code
     )
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
         raise ValueError("Tokenizer is not supported!")
-
     # Optionally adjust the tokenizer settings (e.g., for padding)
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
@@ -662,7 +461,7 @@ def load_transformers_model_and_tokenizer(
         "quantization_config": quantization_config,
         "trust_remote_code": trust_remote_code,
         "token": token,
-        **_weight_dtype_kwargs(dtype),
+        "dtype": dtype,
     }
 
     logging.info(
@@ -680,12 +479,6 @@ def load_transformers_model_and_tokenizer(
             model_name,
             **load_kw,
         )
-    logging.info("Finished loading model weights for %r.", model_name)
-
-    # Safetensors checkpoints often store a single tensor for tied weights (e.g. embeddings vs lm_head).
-    # from_pretrained usually ties these; calling tie_weights() makes the behavior explicit across
-    # transformers versions and catches edge cases where a parameter stayed meta-initialized.
-    model.tie_weights()
 
     return tokenizer, model
 

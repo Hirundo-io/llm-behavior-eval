@@ -19,6 +19,7 @@ from .vllm_config import VllmConfig
 if TYPE_CHECKING:
     from datasets import Dataset
     from vllm.inputs.data import PromptType
+    from vllm.model_executor.layers.quantization import QuantizationMethods
 
     from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
@@ -53,7 +54,7 @@ class VllmEvalEngine(EvalEngine):
             self.tokenizer.pad_token = self.tokenizer.eos_token
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = pick_best_dtype(device)
-        quantization = "bitsandbytes" if use_4bit else None
+        quantization: QuantizationMethods | None = "bitsandbytes" if use_4bit else None
         # Extract vLLM configuration
         vllm_config = eval_config.vllm_config or VllmConfig()
 

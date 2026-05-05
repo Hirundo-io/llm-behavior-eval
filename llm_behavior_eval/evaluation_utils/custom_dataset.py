@@ -223,7 +223,7 @@ class CustomDataset:
             num_proc=1,
         )
         text = tokenizer.batch_decode(
-            processed_dataset["test_input_ids"], skip_special_tokens=True
+            list(processed_dataset["test_input_ids"]), skip_special_tokens=True
         )
         logging.info("Validation text: %s", text[0])
         return processed_dataset
