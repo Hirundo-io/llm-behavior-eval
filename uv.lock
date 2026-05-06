@@ -2235,7 +2235,7 @@ wheels = [
 
 [[package]]
 name = "llm-behavior-eval"
-version = "0.1.6b10"
+version = "0.1.6b11"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
