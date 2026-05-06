@@ -17,14 +17,14 @@ try:
 except ImportError:
     pass  # python-dotenv is optional
 
-from llm_behavior_eval import (
+from llm_behavior_eval.evaluation_utils.dataset_config import (
     DatasetConfig,
-    DatasetType,
-    EvaluateFactory,
-    EvaluationConfig,
     PreprocessConfig,
-    SamplingConfig,
 )
+from llm_behavior_eval.evaluation_utils.enums import DatasetType
+from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
+from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
 )
@@ -245,6 +245,34 @@ def main(
             help="MLflow run name (optional, auto-generates if not specified)",
         ),
     ] = None,
+    mlflow_run_id: Annotated[
+        str | None,
+        typer.Option(
+            "--mlflow-run-id",
+            help="Existing MLflow run ID to log metrics and upload artifacts to (instead of creating a new run).",
+        ),
+    ] = None,
+    mlflow_username: Annotated[
+        str | None,
+        typer.Option(
+            "--mlflow-username",
+            help="MLflow tracking server username (optional). Overrides MLFLOW_TRACKING_USERNAME env var.",
+        ),
+    ] = None,
+    mlflow_password: Annotated[
+        str | None,
+        typer.Option(
+            "--mlflow-password",
+            help="MLflow tracking server password (optional). Overrides MLFLOW_TRACKING_PASSWORD env var.",
+        ),
+    ] = None,
+    mlflow_artifact_path_subfolder: Annotated[
+        str | None,
+        typer.Option(
+            "--mlflow-artifact-path-subfolder",
+            help='Optional subfolder for MLflow artifact path. Use "timestamp" to auto pre-append current time. If set to any other value, the artifact folder will be "llm-behavior-eval/{mlflow_artifact_path_subfolder}" and if not set (i.e. `None`) then no folder will be set',
+        ),
+    ] = None,
     lora_path_or_repo_id: Annotated[
         str | None,
         typer.Option(
@@ -353,6 +381,13 @@ def main(
             help="Maximum LoRA rank for vLLM.",
         ),
     ] = DEFAULT_MAX_LORA_RANK,
+    vllm_language_model_only: Annotated[
+        bool,
+        typer.Option(
+            "--vllm-language-model-only",
+            help="Load only the language model for vLLM.",
+        ),
+    ] = False,
     replace_existing_output: Annotated[
         bool,
         typer.Option(
@@ -499,7 +534,17 @@ def main(
     )
 
     # Compose MLflow config separately
-    if use_mlflow or mlflow_tracking_uri or mlflow_experiment_name or mlflow_run_name:
+    if (
+        use_mlflow
+        or mlflow_tracking_uri
+        or mlflow_experiment_name
+        or mlflow_run_name
+        or mlflow_run_id
+    ):
+        if mlflow_username is not None:
+            os.environ["MLFLOW_TRACKING_USERNAME"] = mlflow_username
+        if mlflow_password is not None:
+            os.environ["MLFLOW_TRACKING_PASSWORD"] = mlflow_password
         from llm_behavior_eval.evaluation_utils.eval_config import MlflowConfig
 
         mlflow_config = MlflowConfig(
@@ -507,6 +552,8 @@ def main(
             or os.environ.get("MLFLOW_TRACKING_URI"),
             mlflow_experiment_name=mlflow_experiment_name,
             mlflow_run_name=mlflow_run_name,
+            mlflow_run_id=mlflow_run_id,
+            mlflow_artifact_path_subfolder=mlflow_artifact_path_subfolder,
         )
     else:
         mlflow_config = None
@@ -528,6 +575,7 @@ def main(
             gpu_memory_utilization=vllm_gpu_memory_utilization,
             enable_lora=lora_path_or_repo_id is not None,
             max_lora_rank=vllm_max_lora_rank,
+            language_model_only=vllm_language_model_only,
             enforce_eager=vllm_enforce_eager,
         )
     else:
@@ -624,7 +672,7 @@ def main(
                     evaluator.grade(generations, judge)
         evaluation_error = False
     finally:
-        if evaluator is not None:
+        if evaluator is not None and evaluator.started_mlflow_run:
             evaluator.cleanup(error=evaluation_error)
         del evaluator
         gc.collect()

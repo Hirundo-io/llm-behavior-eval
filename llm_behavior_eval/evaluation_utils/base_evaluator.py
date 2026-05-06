@@ -3,10 +3,12 @@ from __future__ import annotations
 import gc
 import json
 import logging
+import re
 import sys
 from abc import ABC, abstractmethod
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
 
@@ -25,7 +27,6 @@ from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .transformers_eval_engine import TransformersEvalEngine
 from .util_functions import (
-    config_to_dict,
     empty_cuda_cache_if_available,
     get_lora_slug,
     load_tokenizer_with_transformers,
@@ -35,8 +36,9 @@ from .util_functions import (
 from .vllm_eval_engine import VllmEvalEngine
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator, Sequence
+    from collections.abc import Callable, Generator, Sequence
 
+    from datasets import Dataset as HFDataset
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
     from .dataset_config import DatasetConfig
@@ -151,6 +153,8 @@ class BaseEvaluator(ABC):
         )
         self.mlflow_run = None
         self.parent_run = None
+        self._started_mlflow_run = False
+        self._mlflow_run_artifact_timestamp: str | None = None
         if self.mlflow_config:
             self._init_mlflow()
 
@@ -309,7 +313,10 @@ class BaseEvaluator(ABC):
             raw_text_truncator=self.eval_engine.get_raw_text_truncator(),
         )
         # Deterministic shuffle before sampling
-        test_dataset = test_dataset.shuffle(seed=self._resolved_dataset_shuffle_seed())
+        test_dataset = cast(
+            "HFDataset",
+            test_dataset.shuffle(seed=self._resolved_dataset_shuffle_seed()),
+        )
         self.num_samples = (
             min(len(test_dataset), self.eval_config.max_samples)
             if self.eval_config.max_samples
@@ -371,6 +378,15 @@ class BaseEvaluator(ABC):
         This is an abstract method that must be implemented by subclasses.
         """
         raise NotImplementedError("Subclasses must implement evaluate().")
+
+    def _run_with_cleanup(self, run: Callable[[], None]) -> None:
+        error = True
+        try:
+            run()
+            error = False
+        finally:
+            if self.started_mlflow_run:
+                self.cleanup(error=error)
 
     @abstractmethod
     def generate(self) -> Sequence[_GenerationRecord]:
@@ -617,6 +633,11 @@ class BaseEvaluator(ABC):
         combined_summary = self._drop_empty_columns(combined_summary)
         combined_summary.to_csv(summary_file_path, index=False, float_format="%.3f")
 
+    @property
+    def started_mlflow_run(self) -> bool:
+        """True if this evaluator started the current MLflow run."""
+        return self._started_mlflow_run
+
     def cleanup(self, error: bool = False) -> None:
         """
         Cleanup the active MLFlow run if it exists, and set its status accordingly.
@@ -624,19 +645,22 @@ class BaseEvaluator(ABC):
         Args:
             error: Flag indicating if the evaluation failed. If True, the run is marked as FAILED, otherwise FINISHED.
         """
-        if mlflow and mlflow.active_run():
-            active_run = mlflow.active_run()
-            run_id = active_run.info.run_id if active_run else None
-            if RunStatus is not None:
-                status = (
-                    RunStatus.to_string(RunStatus.FAILED)
-                    if error
-                    else RunStatus.to_string(RunStatus.FINISHED)
-                )
-            else:
-                status = "FAILED" if error else "FINISHED"
-            mlflow.end_run(status=status)
-            logging.info(f"Ended MLflow run {run_id}")
+        if not self.mlflow_config or not mlflow:
+            return
+        active_run = mlflow.active_run()
+        if active_run is None:
+            return
+        run_id = active_run.info.run_id
+        if RunStatus is not None:
+            status = (
+                RunStatus.to_string(RunStatus.FAILED)
+                if error
+                else RunStatus.to_string(RunStatus.FINISHED)
+            )
+        else:
+            status = "FAILED" if error else "FINISHED"
+        mlflow.end_run(status=status)
+        logging.info("Ended MLflow run %s", run_id)
 
     # Hook: override in subclasses that want the dataset type in the output dir name
     def should_include_dataset_type_in_output_dir(self) -> bool:
@@ -668,72 +692,65 @@ class BaseEvaluator(ABC):
         # Generate run name if not specified
         model_slug = self.get_model_slug()
 
+        requested_run_id = self.mlflow_config.mlflow_run_id
         active_run = mlflow.active_run()
-        if active_run is not None:
-            logging.warning(
-                f"Using existing active run {active_run.info.run_id} as main run"
-            )
+
+        if requested_run_id:
+            if active_run is not None and active_run.info.run_id == requested_run_id:
+                self.parent_run = self.mlflow_run = active_run
+                self._started_mlflow_run = False
+                logging.info(
+                    "Using active run %s (matches requested mlflow_run_id)",
+                    requested_run_id,
+                )
+            else:
+                existing = mlflow.get_run(requested_run_id)
+                mlflow.set_experiment(experiment_id=existing.info.experiment_id)
+                mlflow.start_run(run_id=requested_run_id)
+                self.parent_run = self.mlflow_run = mlflow.active_run()
+                self._started_mlflow_run = True
+                logging.info("Logging to existing MLflow run: %s", requested_run_id)
+        elif active_run is not None:
             self.parent_run = self.mlflow_run = active_run
+            self._started_mlflow_run = False
+            logging.warning(
+                "Using existing active run %s as main run",
+                active_run.info.run_id,
+            )
         else:
-            # Set up parent run with model slug name only
             run_name = self.mlflow_config.mlflow_run_name or f"{model_slug}"
-            # Start MLflow parent run
             self.mlflow_run = mlflow.start_run(run_name=run_name)
             self.parent_run = self.mlflow_run
-            logging.info(f"Started MLflow main run: {run_name}")
+            self._started_mlflow_run = True
+            logging.info("Started MLflow main run: %s", run_name)
 
-        mlflow.log_params(
-            config_to_dict(
-                self.eval_config,
-                [
-                    "model_path_or_repo_id",
-                    "max_samples",
-                    "batch_size",
-                    "sample",
-                    "use_4bit",
-                    "max_answer_tokens",
-                    "judge_path_or_repo_id",
-                    "judge_batch_size",
-                    "max_judge_tokens",
-                    "use_4bit_judge",
-                    "reasoning",
-                ],
-            )
+        self._mlflow_run_artifact_timestamp = datetime.now().strftime(
+            "%Y-%m-%d_%H-%M-%S"
         )
 
     @contextmanager
-    def dataset_mlflow_run(self, run_name: str | None = None) -> Iterator[None]:
+    def dataset_mlflow_run(self, run_name: str | None = None) -> Generator[None]:
         """
         Initialize a new MLFlow run for a specific dataset evaluation, and make sure it is closed after the context is exited.
 
         Args:
             run_name: The name of the run. If not provided, the dataset file path will be used.
         """
-        error = True
-        try:
-            if mlflow and self.mlflow_config:
-                dataset_slug = self.get_dataset_slug()
-                if run_name is None:
-                    logging.info(f"Using run name {dataset_slug} for dataset run")
-                    run_name = dataset_slug
-
-                if not self.parent_run:
-                    raise RuntimeError(
-                        "Main MLFlow run not found, cannot launch dataset run before initializing MLFlow"
-                    )
-
-                self.mlflow_run = mlflow.start_run(run_name=run_name, nested=True)
-                logging.info(f"Started MLflow dataset run: {run_name}")
-                mlflow.log_params(
-                    config_to_dict(
-                        self.dataset_config, ["file_path", "dataset_type", "seed"]
-                    )
+        del run_name
+        if mlflow and self.mlflow_config:
+            if not self.parent_run:
+                raise RuntimeError(
+                    "Main MLFlow run not found, cannot launch dataset run before initializing MLFlow"
                 )
-
-            yield
-            error = False
-        finally:
-            self.cleanup(error)
+            if self.mlflow_config.mlflow_run_id:
+                logging.info(
+                    "Attaching dataset to existing run %s (file_path=%s, dataset_type=%s)",
+                    self.mlflow_config.mlflow_run_id,
+                    self.dataset_config.file_path,
+                    self.dataset_config.dataset_type,
+                )
+            mlflow.log_metric("dataset_attached", 1.0)
+        yield
 
     def _set_seed(self) -> None:
         if self.dataset_config.seed is not None:
@@ -747,24 +764,64 @@ class BaseEvaluator(ABC):
             return
         mlflow.log_metrics(metrics)
 
+    def _sanitize_mlflow_key(self, name: str) -> str:
+        """Return a key safe for MLflow params/metrics."""
+        sanitized = re.sub(r"[^a-zA-Z0-9\s]", "", name)
+        sanitized = re.sub(r"\s+", "_", sanitized.strip("_"))
+        sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+        return sanitized or "value"
+
     def _log_mlflow_artifacts(self) -> None:
         """Log evaluation artifacts (responses, metrics files) to MLflow."""
         if not self.eval_config.mlflow_config or not mlflow:
             return
 
-        output_dir = self.get_output_dir()
+        model_slug = self.get_model_slug()
+        model_results_dir = Path(self.eval_config.results_dir) / model_slug
+        raw_subfolder = (
+            self.eval_config.mlflow_config.mlflow_artifact_path_subfolder or ""
+        ).strip()
+        if raw_subfolder == "timestamp":
+            subfolder = self._mlflow_run_artifact_timestamp or datetime.now().strftime(
+                "%Y-%m-%d_%H-%M-%S"
+            )
+            artifact_path = f"llm-behavior-eval/{subfolder}"
+        elif raw_subfolder:
+            artifact_path = f"llm-behavior-eval/{raw_subfolder}"
+        else:
+            artifact_path = ""
 
-        # Log individual files
-        responses_file = output_dir / "responses.json"
-        metrics_file = output_dir / "metrics.csv"
-        generations_file = output_dir / "generations.jsonl"
+        summary_full_path = model_results_dir / "summary_full.csv"
+        if summary_full_path.exists():
+            try:
+                summary_df = pd.read_csv(summary_full_path)
+                if not summary_df.empty:
+                    last_row = summary_df.iloc[-1]
+                    for column_name in summary_df.columns:
+                        value = last_row[column_name]
+                        if pd.isna(value):
+                            continue
+                        try:
+                            mlflow.log_metric(
+                                self._sanitize_mlflow_key(column_name), float(value)
+                            )
+                        except (TypeError, ValueError):
+                            pass
+            except Exception as exc:
+                logging.warning("Could not log summary_full.csv to MLflow: %s", exc)
 
-        if responses_file.exists():
-            mlflow.log_artifact(str(responses_file))
-        if metrics_file.exists():
-            mlflow.log_artifact(str(metrics_file))
-        if generations_file.exists():
-            mlflow.log_artifact(str(generations_file))
+        if model_results_dir.exists():
+            try:
+                mlflow.log_artifacts(
+                    str(model_results_dir), artifact_path=artifact_path
+                )
+                logging.info(
+                    "Uploaded artifacts from %s to MLflow path %s",
+                    model_results_dir,
+                    artifact_path,
+                )
+            except Exception as exc:
+                logging.warning("Could not upload artifacts to MLflow: %s", exc)
 
     def run_config_path(self) -> Path:
         return self.get_output_dir() / "run_config.json"
@@ -997,7 +1054,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         """
         # If a fixed judge batch size is provided, run regularly with that size (no backoff)
         if self.eval_config.judge_batch_size is not None:
-            fixed_batch_size = max(1, int(self.eval_config.judge_batch_size))
+            fixed_batch_size = max(1, self.eval_config.judge_batch_size)
             outputs_fixed: list[list[dict[str, str]]] = []
             for start in range(0, len(prompts), fixed_batch_size):
                 chunk = list(prompts[start : start + fixed_batch_size])

@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from vllm.inputs.data import PromptType
+    from vllm.lora.request import LoRARequest
+    from vllm.model_executor.layers.quantization import QuantizationMethods
 
     from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
@@ -76,7 +78,7 @@ class VllmEvalEngine(PromptEvalEngine):
             self.tokenizer.pad_token = self.tokenizer.eos_token
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = pick_best_dtype(device)
-        quantization = "bitsandbytes" if use_4bit else None
+        quantization: QuantizationMethods | None = "bitsandbytes" if use_4bit else None
         # Extract vLLM configuration
         vllm_config = eval_config.vllm_config or VllmConfig()
 
@@ -101,8 +103,10 @@ class VllmEvalEngine(PromptEvalEngine):
             gpu_memory_utilization=vllm_config.gpu_memory_utilization,
             enable_lora=vllm_config.enable_lora and not self.is_judge,
             max_lora_rank=vllm_config.max_lora_rank,
+            language_model_only=vllm_config.language_model_only,
         )
         self._vllm_sampling_params = None
+        self.lora_request: LoRARequest | None
         if lora_path_or_repo_id is not None:
             try:
                 from vllm.lora.request import LoRARequest

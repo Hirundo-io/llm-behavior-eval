@@ -95,7 +95,7 @@ def patch_eval_engine(
             is_judge: bool = False,
             **_kwargs: object,
         ) -> None:
-            self.tokenizer = stub_tokenizer
+            self.tokenizer: StubTokenizer | None = stub_tokenizer
             self._explicit_batch_size = eval_config.batch_size
             self.dataset: Sized | None = None
             self.is_judge = is_judge
@@ -514,7 +514,7 @@ def test_update_dataset_config_restores_dataset_state_in_judge_context(
     evaluator.update_dataset_config(dataset_b)
     assert evaluator._selected_sample_indices == [0, 1, 2, 3]
     assert evaluator.num_samples == 4
-    assert evaluator.has_stereotype is True
+    assert evaluator.has_stereotype
 
     # Simulate grading phase moving back to dataset A while judge engine is active.
     with evaluator.get_grading_context() as _judge:

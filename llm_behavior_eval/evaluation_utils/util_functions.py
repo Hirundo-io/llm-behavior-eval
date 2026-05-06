@@ -13,7 +13,7 @@ from urllib.parse import ParseResult, urlparse
 import torch
 from transformers.models.auto.configuration_auto import AutoConfig
 from transformers.models.auto.modeling_auto import (
-    MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES,
+    MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES,
     AutoModelForCausalLM,
     AutoModelForImageTextToText,
 )
@@ -24,9 +24,10 @@ from transformers.utils.quantization_config import BitsAndBytesConfig
 from .vllm_config import VllmConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
     from pydantic import BaseModel
+    from transformers._typing import GenerativePreTrainedModel
 
     from .vllm_types import TokenizerModeOption
 
@@ -41,7 +42,6 @@ VLLMQuantization = Literal[
 ]
 
 if TYPE_CHECKING:
-    from transformers.modeling_utils import PreTrainedModel
     from vllm import LLM
 
 DIGEST_SIZE_FOR_PEFT_PATHS = 8
@@ -75,10 +75,13 @@ def truncate_text_with_tokenizer(
     if len(token_ids) <= max_tokens:
         return text
     truncated_ids = token_ids[:max_tokens]
-    return tokenizer.decode(
-        truncated_ids,
-        skip_special_tokens=True,
-        clean_up_tokenization_spaces=False,
+    return cast(
+        "str",
+        tokenizer.decode(
+            truncated_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        ),
     )
 
 
@@ -90,7 +93,7 @@ def empty_cuda_cache_if_available() -> None:
 
 
 @contextmanager
-def _hf_token(token: str | None) -> Iterator[None]:
+def _hf_token(token: str | None) -> Generator[None]:
     """
     If `token` is truthy, temporarily set HF_TOKEN for Hugging Face API calls;
     otherwise, do nothing.
@@ -222,7 +225,7 @@ class SafeApplyChatTemplate:
                 multimodal_chat_messages.append(
                     {
                         "role": message["role"],
-                        "content": [{"type": "text", "text": str(current_content)}],
+                        "content": [{"type": "text", "text": current_content}],
                     }
                 )
             return str(_apply_chat_template(multimodal_chat_messages))
@@ -231,7 +234,7 @@ class SafeApplyChatTemplate:
         chat_messages_text: list[dict[str, str]] = []
         for message in messages:
             chat_messages_text.append(
-                {"role": message["role"], "content": str(message["content"])}
+                {"role": message["role"], "content": message["content"]}
             )
         return str(_apply_chat_template(chat_messages_text))
 
@@ -276,7 +279,7 @@ def load_tokenizer_with_transformers(
         )
         logging.info("Tokenizer loaded successfully from the local files.")
 
-    return tokenizer
+    return cast("PreTrainedTokenizerBase", tokenizer)
 
 
 def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
@@ -333,9 +336,7 @@ def is_model_multimodal(
         )
     config_dict = config.to_dict()
 
-    if config_dict.get("model_type") in list(
-        MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES.keys()
-    ):
+    if config_dict.get("model_type") in MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES:
         return True
 
     return False
@@ -375,6 +376,7 @@ def load_vllm_model(
     gpu_memory_utilization: float = 0.9,
     enable_lora: bool = False,
     max_lora_rank: int = VllmConfig.model_fields["max_lora_rank"].default,
+    language_model_only: bool = False,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -394,6 +396,7 @@ def load_vllm_model(
         gpu_memory_utilization: Optional GPU memory utilization passed to vLLM.
         enable_lora: Whether to enable LoRA.
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
+        language_model_only: Whether to load only the language model.
     Returns:
         An initialized ``vllm.LLM`` instance.
     """
@@ -435,6 +438,7 @@ def load_vllm_model(
             gpu_memory_utilization=gpu_memory_utilization,
             enable_lora=enable_lora,
             max_lora_rank=max_lora_rank,
+            language_model_only=language_model_only,
             compilation_config=CompilationConfig(cudagraph_specialize_lora=False),
         )
     return llm_instance
@@ -466,7 +470,7 @@ def load_transformers_model_and_tokenizer(
     trust_remote_code: bool = False,
     *,
     tokenizer_name_or_path: str | None = None,
-) -> tuple[PreTrainedTokenizerBase, PreTrainedModel]:
+) -> tuple[PreTrainedTokenizerBase, GenerativePreTrainedModel]:
     """
     Load a tokenizer and a causal language model based on the model name/path,
     using the model's configuration to determine the correct class to instantiate.
@@ -537,7 +541,7 @@ def load_transformers_model_and_tokenizer(
             token=token,
         )
 
-    return tokenizer, model
+    return tokenizer, cast("GenerativePreTrainedModel", model)
 
 
 def check_mlflow_url(

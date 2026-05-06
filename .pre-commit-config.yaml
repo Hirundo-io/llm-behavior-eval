@@ -21,15 +21,15 @@ repos:
       - id: uv-lock
   - repo: local
     hooks:
-      - id: basedpyright
-        name: basedpyright
-        entry: basedpyright
+      - id: pyrefly
+        name: pyrefly
+        entry: .venv/bin/pyrefly check
         language: system
         types: [python]
-        pass_filenames: true
+        pass_filenames: false
       - id: pytest
         name: pytest
-        entry: pytest
+        entry: .venv/bin/pytest
         args: [-q]
         language: system
         types: [python]

@@ -23,7 +23,7 @@ import torch
 from llm_behavior_eval.evaluate import main as run_evaluation
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
     from pathlib import Path
 
 DEFAULT_BEHAVIORS = "bias:gender,unqover:bias:gender,prompt-injection"
@@ -82,7 +82,7 @@ def _local_vllm_api_server(
     model: str,
     gpu_memory_utilization: float,
     startup_timeout_s: int,
-) -> Iterator[str]:
+) -> Generator[str]:
     vllm_executable = shutil.which("vllm")
     if not vllm_executable:
         raise RuntimeError("Could not find `vllm` executable on PATH.")

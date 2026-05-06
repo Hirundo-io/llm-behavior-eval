@@ -82,12 +82,13 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         completed_dicts = self.load_completed_generation_dicts()
         completed_generations = [
             _InjectionGenerationRecord(
-                input_texts=item.get("input_texts", []),
-                judge_questions=item.get(
-                    "judge_questions", item.get("input_texts", [])
+                input_texts=cast("list[str]", item.get("input_texts", [])),
+                judge_questions=cast(
+                    "list[str]",
+                    item.get("judge_questions", item.get("input_texts", [])),
                 ),
-                gt_answers=item.get("gt_answers", []),
-                answers=item.get("answers", []),
+                gt_answers=cast("list[str]", item.get("gt_answers", [])),
+                answers=cast("list[str]", item.get("answers", [])),
             )
             for item in completed_dicts
         ]
@@ -143,20 +144,16 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         return generations
 
     def evaluate(self) -> None:
-        error = True
-        try:
+        def _run() -> None:
             generations = self.generate()
-
-            # free task model
             self.free_test_model()
             with (
                 self.dataset_mlflow_run(),
                 self.get_judge_engine_context() as judge_engine,
             ):
                 self.grade(generations, judge_engine)
-            error = False
-        finally:
-            self.cleanup(error)
+
+        self._run_with_cleanup(_run)
 
     def _grade_impl(
         self,

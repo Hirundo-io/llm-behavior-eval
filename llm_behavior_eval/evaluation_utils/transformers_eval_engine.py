@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Callable
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import torch
 from accelerate.utils.memory import find_executable_batch_size
@@ -16,9 +16,6 @@ from .util_functions import (
     load_transformers_model_and_tokenizer,
     safe_apply_chat_template,
 )
-
-if TYPE_CHECKING:
-    from transformers.generation.utils import GenerationMixin
 
 
 class TransformersEvalEngine(PromptEvalEngine):
@@ -207,7 +204,7 @@ class TransformersEvalEngine(PromptEvalEngine):
             self.model.device
         )
         with torch.inference_mode():
-            outputs = cast("GenerationMixin", self.model).generate(
+            outputs = self.model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=max_new_tokens,

@@ -84,7 +84,7 @@ class ApiEvalEngine(PromptEvalEngine):
         self.dataset = eval_dataset
 
     def set_preprocess_limits(self, max_length: int, gt_max_length: int) -> None:
-        self._max_input_tokens = max(0, int(max_length))
+        self._max_input_tokens = max(0, max_length)
         del gt_max_length
 
     def should_combine_judge_prompt_groups(self) -> bool:
@@ -141,7 +141,7 @@ class ApiEvalEngine(PromptEvalEngine):
             else self.eval_config.batch_size
         )
         if configured is not None:
-            return max(1, int(configured))
+            return max(1, configured)
         return self._get_default_api_batch_size()
 
     def free_model(self) -> None:

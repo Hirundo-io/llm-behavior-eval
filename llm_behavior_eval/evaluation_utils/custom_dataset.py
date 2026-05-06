@@ -128,7 +128,7 @@ class CustomDataset:
                 "Check that the identifier is correct."
             ) from exc
         if isinstance(raw, DatasetDict):
-            self.ds = cast("Dataset", raw["train"])
+            self.ds = raw["train"]
         elif isinstance(raw, Dataset):
             self.ds = raw
         else:
@@ -249,4 +249,4 @@ class CustomDataset:
         )
         if len(processed_dataset) > 0:
             logging.info("Validation text: %s", processed_dataset["questions"][0])
-        return processed_dataset
+        return cast("Dataset", processed_dataset)
