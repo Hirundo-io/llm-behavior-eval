@@ -19,6 +19,9 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from datasets import Dataset
+    from torch.utils.data import DataLoader
+
     from llm_behavior_eval.evaluation_utils.base_evaluator import _GenerationRecord
     from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 
@@ -43,8 +46,8 @@ class DummyModel(SimpleNamespace):
 
 class DummyEvaluator(BaseEvaluator):
     def prepare_dataloader(self) -> None:
-        self.eval_dataset = []
-        self.eval_loader = []
+        self.eval_dataset = cast("Dataset", [])
+        self.eval_loader = cast("DataLoader", [])
         self.num_samples = 3
         self.has_stereotype = False
 

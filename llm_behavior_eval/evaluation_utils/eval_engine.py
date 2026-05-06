@@ -12,6 +12,8 @@ if TYPE_CHECKING:
 
 
 class EvalEngine(ABC):
+    is_judge: bool
+
     @abstractmethod
     def set_dataset(self, eval_dataset: Dataset) -> None:
         raise NotImplementedError("Subclasses must implement set_dataset().")
