@@ -37,7 +37,7 @@ dependencies = [
   "pydantic_settings<3.0.0",
   "tqdm",
   "torch<3.0.0",
-  "transformers<5.0.0",
+  "transformers>=5.0.0",
   "networkx<4.0.0",
   "typer<1.0.0",
   "accelerate<2.0.0",

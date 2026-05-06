@@ -7,13 +7,13 @@ import shutil
 from contextlib import contextmanager
 from inspect import Parameter, signature
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import ParseResult, urlparse
 
 import torch
 from transformers.models.auto.configuration_auto import AutoConfig
 from transformers.models.auto.modeling_auto import (
-    MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES,
+    MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES,
     AutoModelForCausalLM,
     AutoModelForImageTextToText,
 )
@@ -27,22 +27,14 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from pydantic import BaseModel
+    from transformers import SentencePieceBackend, TokenizersBackend
+    from transformers._typing import GenerativePreTrainedModel
+    from vllm import LLM
+    from vllm.model_executor.layers.quantization import QuantizationMethods
 
     from .vllm_types import TokenizerModeOption
 
 VLLMDType = Literal["bfloat16", "float16", "float32"]
-VLLMQuantization = Literal[
-    "awq",
-    "fp8",
-    "ptpc_fp8",
-    "fbgemm_fp8",
-    "fp_quant",
-    "bitsandbytes",
-]
-
-if TYPE_CHECKING:
-    from transformers.modeling_utils import PreTrainedModel
-    from vllm import LLM
 
 DIGEST_SIZE_FOR_PEFT_PATHS = 8
 
@@ -208,7 +200,7 @@ def load_tokenizer_with_transformers(
     model_name: str,
     token: str | None = None,
     trust_remote_code: bool = False,
-) -> PreTrainedTokenizerBase:
+) -> TokenizersBackend | SentencePieceBackend:
     """
     Load a tokenizer by first trying the standard method and, if a ValueError
     is encountered, retry loading from a local path.
@@ -240,6 +232,9 @@ def load_tokenizer_with_transformers(
             trust_remote_code=trust_remote_code,
         )
         logging.info("Tokenizer loaded successfully from the local files.")
+    # Required for type checking
+    if tokenizer is None:
+        raise ValueError("Tokenizer is not supported!")
 
     return tokenizer
 
@@ -265,7 +260,8 @@ def is_model_multimodal(
     Decide whether the model should be loaded with a vision-capable architecture.
 
     This checks the model configuration for multimodal/vision hints and explicitly
-    enables the vision architecture when the config's model_type is in the SUPPORTED_MULTIMODAL_MODELS list.
+    enables the vision architecture when the config's ``model_type`` is listed for
+    ``AutoModelForImageTextToText`` in ``transformers`` (image / vision-language checkpoints).
 
     Args:
         repo_id: The repo-id or local path of the model to load.
@@ -290,9 +286,7 @@ def is_model_multimodal(
         )
     config_dict = config.to_dict()
 
-    if config_dict.get("model_type") in list(
-        MODEL_FOR_VISION_2_SEQ_MAPPING_NAMES.keys()
-    ):
+    if config_dict.get("model_type") in MODEL_FOR_IMAGE_TEXT_TO_TEXT_MAPPING_NAMES:
         return True
 
     return False
@@ -324,7 +318,7 @@ def load_vllm_model(
     token: str | None = None,
     tensor_parallel_size: int | None = None,
     enforce_eager: bool = False,
-    quantization: VLLMQuantization | None = None,
+    quantization: QuantizationMethods | None = None,
     max_model_len: int | None = None,
     tokenizer_mode: TokenizerModeOption | None = None,
     config_format: str | None = None,
@@ -332,6 +326,7 @@ def load_vllm_model(
     gpu_memory_utilization: float = 0.9,
     enable_lora: bool = False,
     max_lora_rank: int = VllmConfig.model_fields["max_lora_rank"].default,
+    language_model_only: bool = False,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -351,17 +346,19 @@ def load_vllm_model(
         gpu_memory_utilization: Optional GPU memory utilization passed to vLLM.
         enable_lora: Whether to enable LoRA.
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
+        language_model_only: Whether to load only the language model.
     Returns:
         An initialized ``vllm.LLM`` instance.
     """
-
     try:
         from vllm import LLM
         from vllm.config import CompilationConfig
-    except ImportError as exc:
-        raise ImportError(
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
             "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable vllm for inference (e.g. when using the --inference-engine argument)."
         ) from exc
+
+    os.environ.setdefault("VLLM_USE_AOT_COMPILE", "0")
 
     dtype_literal = torch_dtype_to_str(dtype)
 
@@ -392,8 +389,10 @@ def load_vllm_model(
             gpu_memory_utilization=gpu_memory_utilization,
             enable_lora=enable_lora,
             max_lora_rank=max_lora_rank,
+            language_model_only=language_model_only,
             compilation_config=CompilationConfig(cudagraph_specialize_lora=False),
         )
+
     return llm_instance
 
 
@@ -421,7 +420,7 @@ def load_transformers_model_and_tokenizer(
     use_4bit: bool = False,
     device_map: str | dict[str, int] | None = "auto",
     trust_remote_code: bool = False,
-) -> tuple[PreTrainedTokenizerBase, PreTrainedModel]:
+) -> tuple[PreTrainedTokenizerBase, GenerativePreTrainedModel]:
     """
     Load a tokenizer and a causal language model based on the model name/path,
     using the model's configuration to determine the correct class to instantiate.
@@ -443,14 +442,12 @@ def load_transformers_model_and_tokenizer(
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = pick_best_dtype(device)
     logging.info("Using dtype: %s", dtype)
-
     # Load tokenizer
     tokenizer = load_tokenizer_with_transformers(
         model_name, token=token, trust_remote_code=trust_remote_code
     )
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
         raise ValueError("Tokenizer is not supported!")
-
     # Optionally adjust the tokenizer settings (e.g., for padding)
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
@@ -469,7 +466,7 @@ def load_transformers_model_and_tokenizer(
     if is_model_multimodal(model_name, trust_remote_code, token):
         model = AutoModelForImageTextToText.from_pretrained(
             model_name,
-            torch_dtype=dtype,
+            dtype=dtype,
             device_map=device_map,
             low_cpu_mem_usage=True,
             quantization_config=quantization_config,
@@ -479,7 +476,7 @@ def load_transformers_model_and_tokenizer(
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype=dtype,
+            dtype=dtype,
             device_map=device_map,
             low_cpu_mem_usage=True,
             quantization_config=quantization_config,
@@ -487,7 +484,7 @@ def load_transformers_model_and_tokenizer(
             token=token,
         )
 
-    return tokenizer, model
+    return tokenizer, cast("GenerativePreTrainedModel", model)
 
 
 def check_mlflow_url(

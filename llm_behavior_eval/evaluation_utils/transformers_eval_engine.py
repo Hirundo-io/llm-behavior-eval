@@ -1,5 +1,5 @@
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import torch
 from accelerate.utils.memory import find_executable_batch_size
@@ -15,9 +15,6 @@ from .sampling_config import SamplingConfig
 from .util_functions import (
     load_transformers_model_and_tokenizer,
 )
-
-if TYPE_CHECKING:
-    from transformers.generation.utils import GenerationMixin
 
 
 class TransformersEvalEngine(EvalEngine):
@@ -59,7 +56,7 @@ class TransformersEvalEngine(EvalEngine):
         do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
         max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
         with torch.inference_mode():
-            cast("GenerationMixin", self.model).generate(
+            self.model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 max_new_tokens=max_new_tokens,
@@ -92,7 +89,7 @@ class TransformersEvalEngine(EvalEngine):
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
         with torch.inference_mode():
-            outputs = cast("GenerationMixin", self.model).generate(
+            outputs = self.model.generate(
                 input_ids=model_input_ids,
                 attention_mask=model_attention,
                 max_new_tokens=max_new_tokens,
