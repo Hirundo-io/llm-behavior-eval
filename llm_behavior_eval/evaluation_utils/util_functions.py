@@ -7,7 +7,7 @@ import shutil
 from contextlib import contextmanager
 from inspect import Parameter, signature
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import ParseResult, urlparse
 
 import torch
@@ -27,7 +27,8 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from pydantic import BaseModel
-    from transformers.modeling_utils import PreTrainedModel
+    from transformers import SentencePieceBackend, TokenizersBackend
+    from transformers._typing import GenerativePreTrainedModel
     from vllm import LLM
     from vllm.model_executor.layers.quantization import QuantizationMethods
 
@@ -199,7 +200,7 @@ def load_tokenizer_with_transformers(
     model_name: str,
     token: str | None = None,
     trust_remote_code: bool = False,
-) -> PreTrainedTokenizerBase:
+) -> TokenizersBackend | SentencePieceBackend:
     """
     Load a tokenizer by first trying the standard method and, if a ValueError
     is encountered, retry loading from a local path.
@@ -231,6 +232,9 @@ def load_tokenizer_with_transformers(
             trust_remote_code=trust_remote_code,
         )
         logging.info("Tokenizer loaded successfully from the local files.")
+    # Required for type checking
+    if tokenizer is None:
+        raise ValueError("Tokenizer is not supported!")
 
     return tokenizer
 
@@ -322,6 +326,7 @@ def load_vllm_model(
     gpu_memory_utilization: float = 0.9,
     enable_lora: bool = False,
     max_lora_rank: int = VllmConfig.model_fields["max_lora_rank"].default,
+    language_model_only: bool = False,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -341,10 +346,10 @@ def load_vllm_model(
         gpu_memory_utilization: Optional GPU memory utilization passed to vLLM.
         enable_lora: Whether to enable LoRA.
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
+        language_model_only: Whether to load only the language model.
     Returns:
         An initialized ``vllm.LLM`` instance.
     """
-
     from vllm import LLM
     from vllm.config import CompilationConfig, CompilationMode
 
@@ -377,10 +382,11 @@ def load_vllm_model(
             gpu_memory_utilization=gpu_memory_utilization,
             enable_lora=enable_lora,
             max_lora_rank=max_lora_rank,
+            language_model_only=language_model_only,
             # Eager-only compilation: default vLLM compile can hit unsupported aot_compile
             # on some PyTorch builds (notably Gemma 4 multimodal + torch 2.10).
             compilation_config=CompilationConfig(
-                mode=CompilationMode.NONE,
+                mode=CompilationMode.STOCK_TORCH_COMPILE,
                 cudagraph_specialize_lora=False,
             ),
         )
@@ -412,7 +418,7 @@ def load_transformers_model_and_tokenizer(
     use_4bit: bool = False,
     device_map: str | dict[str, int] | None = "auto",
     trust_remote_code: bool = False,
-) -> tuple[PreTrainedTokenizerBase, PreTrainedModel]:
+) -> tuple[PreTrainedTokenizerBase, GenerativePreTrainedModel]:
     """
     Load a tokenizer and a causal language model based on the model name/path,
     using the model's configuration to determine the correct class to instantiate.
@@ -480,7 +486,7 @@ def load_transformers_model_and_tokenizer(
             **load_kw,
         )
 
-    return tokenizer, model
+    return tokenizer, cast("GenerativePreTrainedModel", model)
 
 
 def check_mlflow_url(

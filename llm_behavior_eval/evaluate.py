@@ -337,6 +337,13 @@ def main(
             help="Maximum LoRA rank for vLLM.",
         ),
     ] = DEFAULT_MAX_LORA_RANK,
+    vllm_language_model_only: Annotated[
+        bool,
+        typer.Option(
+            "--vllm-language-model-only",
+            help="Load only the language model for vLLM.",
+        ),
+    ] = False,
     replace_existing_output: Annotated[
         bool,
         typer.Option(
@@ -523,6 +530,7 @@ def main(
             gpu_memory_utilization=vllm_gpu_memory_utilization,
             enable_lora=lora_path_or_repo_id is not None,
             max_lora_rank=vllm_max_lora_rank,
+            language_model_only=vllm_language_model_only,
             enforce_eager=vllm_enforce_eager,
         )
     else:

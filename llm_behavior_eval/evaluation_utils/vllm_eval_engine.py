@@ -18,8 +18,7 @@ from .vllm_config import VllmConfig
 
 if TYPE_CHECKING:
     from datasets import Dataset
-    from vllm import SamplingParams
-    from vllm.inputs.data import PromptType
+    from vllm import PromptType, SamplingParams
     from vllm.lora.request import LoRARequest
     from vllm.model_executor.layers.quantization import QuantizationMethods
 
@@ -81,6 +80,7 @@ class VllmEvalEngine(EvalEngine):
             gpu_memory_utilization=vllm_config.gpu_memory_utilization,
             enable_lora=vllm_config.enable_lora and not self.is_judge,
             max_lora_rank=vllm_config.max_lora_rank,
+            language_model_only=vllm_config.language_model_only,
         )
         self._vllm_sampling_params = None
         self.lora_request: LoRARequest | None
