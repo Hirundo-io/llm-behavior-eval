@@ -234,7 +234,10 @@ class BaseEvaluator(ABC):
             self.dataset_config.preprocess_config,
             trust_remote_code=self.trust_remote_code,
             max_answer_tokens=self.eval_config.max_answer_tokens,
-            reasoning=self.eval_config.reasoning,
+            enable_thinking=self.eval_config.enable_thinking,
+            enable_thinking_arg_name=self.eval_config.enable_thinking_arg_name,
+            thinking_start_token=self.eval_config.thinking_start_token,
+            thinking_end_token=self.eval_config.thinking_end_token,
             pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
             token=self.eval_config.model_token,
         )

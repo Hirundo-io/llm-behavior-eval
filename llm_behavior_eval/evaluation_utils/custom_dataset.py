@@ -37,9 +37,11 @@ def free_text_preprocess_function(
     has_stereotype: bool,
     is_multimodal: bool = False,
     max_answer_tokens: int | None = None,
-    reasoning: bool = False,
-    reasoning_kwarg: str | None = None,
+    enable_thinking: bool = False,
+    enable_thinking_arg_name: str | None = None,
     pass_max_answer_tokens: bool = False,
+    thinking_start_token: str | None = None,
+    thinking_end_token: str | None = None,
 ) -> dict[str, torch.Tensor]:
     """
     Preprocesses a batch of examples for free-text datasets.
@@ -52,8 +54,10 @@ def free_text_preprocess_function(
         has_stereotype: Whether the dataset has stereotyped answers.
         is_multimodal: Whether the model is multimodal.
         max_answer_tokens: The maximum number of tokens to allow for the answer.
-        reasoning: Whether to use reasoning.
-        reasoning_kwarg: Reasoning kwarg to use for the model (e.g. 'reasoning' or 'enable_thinking').
+        enable_thinking: Whether to enable thinking.
+        enable_thinking_arg_name: Enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').
+        thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
+        thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
         pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
 
     Returns:
@@ -92,8 +96,10 @@ def free_text_preprocess_function(
                 [system_msg, user_msg],
                 is_multimodal=is_multimodal,
                 max_answer_tokens=max_answer_tokens,
-                reasoning=reasoning,
-                reasoning_kwarg=reasoning_kwarg,
+                enable_thinking=enable_thinking,
+                enable_thinking_arg_name=enable_thinking_arg_name,
+                thinking_start_token=thinking_start_token,
+                thinking_end_token=thinking_end_token,
                 pass_max_answer_tokens=pass_max_answer_tokens,
             )
         )
@@ -178,8 +184,10 @@ class CustomDataset:
         preprocess_config: PreprocessConfig,
         trust_remote_code: bool = False,
         max_answer_tokens: int | None = None,
-        reasoning: bool = False,
-        reasoning_kwarg: str | None = None,
+        enable_thinking: bool = False,
+        enable_thinking_arg_name: str | None = None,
+        thinking_start_token: str | None = None,
+        thinking_end_token: str | None = None,
         pass_max_answer_tokens: bool = False,
         token: str | None = None,
     ) -> Dataset:
@@ -195,8 +203,10 @@ class CustomDataset:
             preprocess_config: Configuration for preprocessing the dataset.
             trust_remote_code: Whether to trust remote code.
             max_answer_tokens: Maximum number of tokens to allow for the answer.
-            reasoning: Whether to use reasoning.
-            reasoning_kwarg: Reasoning kwarg to use for the model (e.g. 'reasoning' or 'enable_thinking').
+            enable_thinking: Whether to enable thinking.
+            enable_thinking_arg_name: Enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').
+            thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
+            thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
             pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
             token: The HuggingFace token to use for accessing gated models.
 
@@ -219,8 +229,10 @@ class CustomDataset:
                 has_stereotype=self.has_stereotype,
                 is_multimodal=is_multimodal,
                 max_answer_tokens=max_answer_tokens,
-                reasoning=reasoning,
-                reasoning_kwarg=reasoning_kwarg,
+                enable_thinking=enable_thinking,
+                enable_thinking_arg_name=enable_thinking_arg_name,
+                thinking_start_token=thinking_start_token,
+                thinking_end_token=thinking_end_token,
                 pass_max_answer_tokens=pass_max_answer_tokens,
             ),
             batched=True,

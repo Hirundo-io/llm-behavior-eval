@@ -355,18 +355,32 @@ def main(
             ),
         ),
     ] = False,
-    reasoning: Annotated[
+    enable_thinking: Annotated[
         bool,
         typer.Option(
-            "--reasoning/--no-reasoning",
-            help="Enable chat-template reasoning if supported",
+            "--thinking_on/--thinking_off",
+            help="Enable thinking (if supported by the tokenizer and model)",
         ),
     ] = False,
-    reasoning_kwarg: Annotated[
+    enable_thinking_arg_name: Annotated[
         str | None,
         typer.Option(
-            "--reasoning-kwarg",
-            help="Reasoning kwarg to use for the model (e.g. 'reasoning' or 'enable_thinking').",
+            "--enable-thinking-arg-name",
+            help="Enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').",
+        ),
+    ] = None,
+    thinking_start_token: Annotated[
+        str | None,
+        typer.Option(
+            "--thinking-start-token",
+            help="Thinking start token to use for the model (e.g. '<think>').",
+        ),
+    ] = None,
+    thinking_end_token: Annotated[
+        str | None,
+        typer.Option(
+            "--thinking-end-token",
+            help="Thinking end token to use for the model (e.g. '</think>').",
         ),
     ] = None,
     max_samples: Annotated[
@@ -553,8 +567,10 @@ def main(
         results_dir=result_dir,
         mlflow_config=mlflow_config,
         vllm_config=vllm_config,
-        reasoning=reasoning,
-        reasoning_kwarg=reasoning_kwarg,
+        enable_thinking=enable_thinking,
+        enable_thinking_arg_name=enable_thinking_arg_name,
+        thinking_start_token=thinking_start_token,
+        thinking_end_token=thinking_end_token,
         trust_remote_code=trust_remote_code
         if trust_remote_code is not None
         else model_path_or_repo_id.split("/")[0] in TRUSTED_MODEL_PROVIDERS,

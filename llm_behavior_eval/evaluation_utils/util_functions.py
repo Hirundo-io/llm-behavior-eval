@@ -76,8 +76,10 @@ class SafeApplyChatTemplate:
         messages: list[dict[str, str]],
         is_multimodal: bool = False,
         max_answer_tokens: int | None = None,
-        reasoning: bool = False,
-        reasoning_kwarg: str | None = None,
+        enable_thinking: bool = False,
+        enable_thinking_arg_name: str | None = None,
+        thinking_start_token: str | None = None,
+        thinking_end_token: str | None = None,
         pass_max_answer_tokens: bool = False,
     ) -> str:
         """
@@ -92,8 +94,10 @@ class SafeApplyChatTemplate:
             messages: The list of messages to format.
             is_multimodal: Whether to format messages for a multimodal model.
             max_answer_tokens: The maximum number of tokens to allow for the answer.
-            reasoning: Whether to enable tokenizer chat-template reasoning (if supported).
-            reasoning_kwarg: Reasoning kwarg to use for the model (e.g. 'reasoning' or 'enable_thinking').
+            enable_thinking: Whether to enable thinking.
+            enable_thinking_arg_name: Enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').
+            thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
+            thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
             pass_max_answer_tokens: Whether to pass the max_answer_tokens to the chat template.
 
         Returns:
@@ -150,7 +154,7 @@ class SafeApplyChatTemplate:
                     messages.insert(0, {"role": "user", "content": sys_msg})
             elif (
                 _supports_reasoning_kwarg_or_token(tokenizer, "/no_think")
-                and not reasoning
+                and not enable_thinking
             ):
                 # Add /no_think to the first message to disable reasoning in Nemotron-Nano-v2 models
                 messages[0]["content"] = f"/no_think {messages[0]['content']}"
@@ -161,18 +165,18 @@ class SafeApplyChatTemplate:
         ):
             """
             Call tokenizer.apply_chat_template while remaining compatible with
-            tokenizers that don't support the `reasoning` kwarg.
+            tokenizers that don't support any enable thinking kwarg.
             """
-            if reasoning_kwarg and _supports_reasoning_kwarg_or_token(
-                tokenizer, reasoning_kwarg
+            if enable_thinking_arg_name and _supports_reasoning_kwarg_or_token(
+                tokenizer, enable_thinking_arg_name
             ):
-                thinking_kwarg_name = reasoning_kwarg
+                thinking_kwarg_name = enable_thinking_arg_name
             elif _supports_reasoning_kwarg_or_token(tokenizer, "enable_thinking"):
                 thinking_kwarg_name = "enable_thinking"
             else:
                 thinking_kwarg_name = None
             thinking_kwarg: dict = (
-                {thinking_kwarg_name: reasoning} if thinking_kwarg_name else {}
+                {thinking_kwarg_name: enable_thinking} if thinking_kwarg_name else {}
             )
             return tokenizer.apply_chat_template(
                 conversation,
@@ -202,11 +206,18 @@ class SafeApplyChatTemplate:
         input_message = str(_apply_chat_template(conversation))
         # Try specific fallback for controlling reasoning mode via thinking tokens
         if (
-            _supports_reasoning_kwarg_or_token(tokenizer, "</think>")
-            and not reasoning
-            and input_message.strip().endswith("<think>")
+            thinking_end_token
+            and thinking_start_token
+            and _supports_reasoning_kwarg_or_token(tokenizer, thinking_start_token)
+            and _supports_reasoning_kwarg_or_token(tokenizer, thinking_end_token)
+            and not enable_thinking
+            and input_message.strip().endswith(thinking_start_token)
         ):
-            input_message = input_message.split("<think>")[0] + "<think></think>"
+            input_message = (
+                input_message.rsplit(thinking_start_token, 1)[0]
+                + thinking_start_token
+                + thinking_end_token
+            )
 
         return input_message
 
