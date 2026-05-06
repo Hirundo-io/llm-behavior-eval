@@ -292,12 +292,10 @@ def test_maybe_download_adapter_mlflow_scheme_missing_mlflow(
         raising=False,
     )
 
-    real_import = __import__
-
     def mock_import(name, *args, **kwargs):
-        if name == "mlflow" or name.startswith("mlflow."):
+        if name == "mlflow":
             raise ImportError("No module named 'mlflow'")
-        return real_import(name, *args, **kwargs)
+        raise ImportError(f"No module named '{name}'")
 
     monkeypatch.setattr("builtins.__import__", mock_import)
 
@@ -513,12 +511,10 @@ def test_maybe_download_adapter_git_scheme_missing_gitpython(
 ) -> None:
     """Test that git:// scheme raises ImportError when gitpython is not available."""
 
-    real_import = __import__
-
     def mock_import(name, *args, **kwargs):
-        if name == "git" or name.startswith("git."):
+        if name == "git":
             raise ImportError("No module named 'git'")
-        return real_import(name, *args, **kwargs)
+        raise ImportError(f"No module named '{name}'")
 
     monkeypatch.setattr("builtins.__import__", mock_import)
 
@@ -637,12 +633,10 @@ def test_maybe_download_adapter_s3_scheme_missing_fsspec(
 ) -> None:
     """Test that s3:// scheme raises ImportError when fsspec is not available."""
 
-    real_import = __import__
-
     def mock_import(name, *args, **kwargs):
-        if name == "fsspec" or name.startswith("fsspec."):
+        if name == "fsspec":
             raise ImportError("No module named 'fsspec'")
-        return real_import(name, *args, **kwargs)
+        raise ImportError(f"No module named '{name}'")
 
     monkeypatch.setattr("builtins.__import__", mock_import)
 

@@ -117,7 +117,6 @@ fixable = ["ALL"]
 unfixable = ["F401"]
 
 [tool.ruff.lint.per-file-ignores]
-"llm_behavior_eval/__init__.py" = ["E402"]
 "tests/*.py" = ["S"]
 "hirundo_notion_tools/test_*.py" = ["S"]
 

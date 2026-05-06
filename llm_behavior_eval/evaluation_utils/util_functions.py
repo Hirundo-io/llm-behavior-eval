@@ -350,8 +350,15 @@ def load_vllm_model(
     Returns:
         An initialized ``vllm.LLM`` instance.
     """
-    from vllm import LLM
-    from vllm.config import CompilationConfig, CompilationMode
+    try:
+        from vllm import LLM
+        from vllm.config import CompilationConfig
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable vllm for inference (e.g. when using the --inference-engine argument)."
+        ) from exc
+
+    os.environ.setdefault("VLLM_USE_AOT_COMPILE", "0")
 
     dtype_literal = torch_dtype_to_str(dtype)
 
@@ -383,12 +390,7 @@ def load_vllm_model(
             enable_lora=enable_lora,
             max_lora_rank=max_lora_rank,
             language_model_only=language_model_only,
-            # Eager-only compilation: default vLLM compile can hit unsupported aot_compile
-            # on some PyTorch builds (notably Gemma 4 multimodal + torch 2.10).
-            compilation_config=CompilationConfig(
-                mode=CompilationMode.STOCK_TORCH_COMPILE,
-                cudagraph_specialize_lora=False,
-            ),
+            compilation_config=CompilationConfig(cudagraph_specialize_lora=False),
         )
 
     return llm_instance
@@ -461,29 +463,25 @@ def load_transformers_model_and_tokenizer(
             bnb_4bit_quant_type="nf4",
         )
 
-    load_kw: dict[str, Any] = {
-        "device_map": device_map,
-        "low_cpu_mem_usage": True,
-        "quantization_config": quantization_config,
-        "trust_remote_code": trust_remote_code,
-        "token": token,
-        "dtype": dtype,
-    }
-
-    logging.info(
-        "Loading model weights for %r (large checkpoints can take several minutes; "
-        "there is often no progress bar here).",
-        model_name,
-    )
     if is_model_multimodal(model_name, trust_remote_code, token):
         model = AutoModelForImageTextToText.from_pretrained(
             model_name,
-            **load_kw,
+            dtype=dtype,
+            device_map=device_map,
+            low_cpu_mem_usage=True,
+            quantization_config=quantization_config,
+            trust_remote_code=trust_remote_code,
+            token=token,
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            **load_kw,
+            dtype=dtype,
+            device_map=device_map,
+            low_cpu_mem_usage=True,
+            quantization_config=quantization_config,
+            trust_remote_code=trust_remote_code,
+            token=token,
         )
 
     return tokenizer, cast("GenerativePreTrainedModel", model)

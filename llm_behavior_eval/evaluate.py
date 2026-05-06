@@ -297,7 +297,7 @@ def main(
         TokenizerModeOption | None,
         typer.Option(
             "--vllm-tokenizer-mode",
-            help="Tokenizer mode forwarded to vLLM (can be one of: 'auto', 'hf', 'slow', 'mistral', 'custom').",
+            help="Tokenizer mode forwarded to vLLM (e.g. 'auto', 'slow').",
         ),
     ] = None,
     vllm_config_format: Annotated[
