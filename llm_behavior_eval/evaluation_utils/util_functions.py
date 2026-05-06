@@ -77,6 +77,7 @@ class SafeApplyChatTemplate:
         is_multimodal: bool = False,
         max_answer_tokens: int | None = None,
         reasoning: bool = False,
+        reasoning_kwarg: str | None = None,
         pass_max_answer_tokens: bool = False,
     ) -> str:
         """
@@ -92,6 +93,7 @@ class SafeApplyChatTemplate:
             is_multimodal: Whether to format messages for a multimodal model.
             max_answer_tokens: The maximum number of tokens to allow for the answer.
             reasoning: Whether to enable tokenizer chat-template reasoning (if supported).
+            reasoning_kwarg: Reasoning kwarg to use for the model (e.g. 'reasoning' or 'enable_thinking').
             pass_max_answer_tokens: Whether to pass the max_answer_tokens to the chat template.
 
         Returns:
@@ -154,14 +156,16 @@ class SafeApplyChatTemplate:
 
         # Choose formatting based on whether the model is multimodal
         def _apply_chat_template(
-            messages_like: list[dict[str, Any]] | list[dict[str, str]],
+            conversation: list[dict[str, Any]] | list[dict[str, str]],
         ):
             """
             Call tokenizer.apply_chat_template while remaining compatible with
             tokenizers that don't support the `reasoning` kwarg.
             """
-            if _supports_reasoning_kwarg_or_token(tokenizer, "reasoning"):
-                thinking_kwarg_name = "reasoning"
+            if reasoning_kwarg and _supports_reasoning_kwarg_or_token(
+                tokenizer, reasoning_kwarg
+            ):
+                thinking_kwarg_name = reasoning_kwarg
             elif _supports_reasoning_kwarg_or_token(tokenizer, "enable_thinking"):
                 thinking_kwarg_name = "enable_thinking"
             else:
@@ -170,32 +174,32 @@ class SafeApplyChatTemplate:
                 {thinking_kwarg_name: reasoning} if thinking_kwarg_name else {}
             )
             return tokenizer.apply_chat_template(
-                messages_like,
+                conversation,
                 tokenize=False,
                 add_generation_prompt=True,
                 **thinking_kwarg,
             )
 
+        # Construct the input message
+        conversation: list[dict[str, Any]] = []
         if is_multimodal:
             # Multimodal: list-of-parts with type "text"
-            multimodal_chat_messages: list[dict[str, Any]] = []
             for message in messages:
                 current_content = message["content"]
-                multimodal_chat_messages.append(
+                conversation.append(
                     {
                         "role": message["role"],
                         "content": [{"type": "text", "text": current_content}],
                     }
                 )
-            input_message = str(_apply_chat_template(multimodal_chat_messages))
         else:
             # Unimodal: plain string content
-            chat_messages_text: list[dict[str, str]] = []
             for message in messages:
-                chat_messages_text.append(
+                conversation.append(
                     {"role": message["role"], "content": message["content"]}
                 )
-            input_message = str(_apply_chat_template(chat_messages_text))
+        input_message = str(_apply_chat_template(conversation))
+        # Try specific fallback for controlling reasoning mode via thinking tokens
         if (
             _supports_reasoning_kwarg_or_token(tokenizer, "</think>")
             and not reasoning

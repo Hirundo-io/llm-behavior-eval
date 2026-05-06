@@ -362,6 +362,13 @@ def main(
             help="Enable chat-template reasoning if supported",
         ),
     ] = False,
+    reasoning_kwarg: Annotated[
+        str | None,
+        typer.Option(
+            "--reasoning-kwarg",
+            help="Reasoning kwarg to use for the model (e.g. 'reasoning' or 'enable_thinking').",
+        ),
+    ] = None,
     max_samples: Annotated[
         int,
         typer.Option(
@@ -547,6 +554,7 @@ def main(
         mlflow_config=mlflow_config,
         vllm_config=vllm_config,
         reasoning=reasoning,
+        reasoning_kwarg=reasoning_kwarg,
         trust_remote_code=trust_remote_code
         if trust_remote_code is not None
         else model_path_or_repo_id.split("/")[0] in TRUSTED_MODEL_PROVIDERS,

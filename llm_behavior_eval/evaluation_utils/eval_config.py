@@ -37,6 +37,7 @@ class EvaluationConfig(BaseModel):
         vllm_config: vLLM-specific configuration (optional). Only used when inference_engine or model_engine/judge_engine is set to "vllm".
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
         reasoning: Whether to enable chat-template reasoning (if supported by tokenizer/model).
+        reasoning_kwarg: Reasoning kwarg to use for the model (e.g. 'reasoning' or 'enable_thinking').
         trust_remote_code: Whether to trust remote code when loading models.
         sampling_config: Sampling configuration for model inference.
         mlflow_config: MLflow configuration for tracking (optional).
@@ -65,6 +66,7 @@ class EvaluationConfig(BaseModel):
     vllm_config: VllmConfig | None = None
     results_dir: Path
     reasoning: bool = False
+    reasoning_kwarg: str | None = None
     trust_remote_code: bool = False
     sampling_config: SamplingConfig = SamplingConfig()
     mlflow_config: "MlflowConfig | None" = None

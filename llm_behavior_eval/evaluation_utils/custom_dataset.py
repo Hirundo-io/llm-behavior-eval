@@ -38,6 +38,7 @@ def free_text_preprocess_function(
     is_multimodal: bool = False,
     max_answer_tokens: int | None = None,
     reasoning: bool = False,
+    reasoning_kwarg: str | None = None,
     pass_max_answer_tokens: bool = False,
 ) -> dict[str, torch.Tensor]:
     """
@@ -52,6 +53,7 @@ def free_text_preprocess_function(
         is_multimodal: Whether the model is multimodal.
         max_answer_tokens: The maximum number of tokens to allow for the answer.
         reasoning: Whether to use reasoning.
+        reasoning_kwarg: Reasoning kwarg to use for the model (e.g. 'reasoning' or 'enable_thinking').
         pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
 
     Returns:
@@ -91,6 +93,7 @@ def free_text_preprocess_function(
                 is_multimodal=is_multimodal,
                 max_answer_tokens=max_answer_tokens,
                 reasoning=reasoning,
+                reasoning_kwarg=reasoning_kwarg,
                 pass_max_answer_tokens=pass_max_answer_tokens,
             )
         )
@@ -176,6 +179,7 @@ class CustomDataset:
         trust_remote_code: bool = False,
         max_answer_tokens: int | None = None,
         reasoning: bool = False,
+        reasoning_kwarg: str | None = None,
         pass_max_answer_tokens: bool = False,
         token: str | None = None,
     ) -> Dataset:
@@ -192,6 +196,7 @@ class CustomDataset:
             trust_remote_code: Whether to trust remote code.
             max_answer_tokens: Maximum number of tokens to allow for the answer.
             reasoning: Whether to use reasoning.
+            reasoning_kwarg: Reasoning kwarg to use for the model (e.g. 'reasoning' or 'enable_thinking').
             pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
             token: The HuggingFace token to use for accessing gated models.
 
@@ -215,6 +220,7 @@ class CustomDataset:
                 is_multimodal=is_multimodal,
                 max_answer_tokens=max_answer_tokens,
                 reasoning=reasoning,
+                reasoning_kwarg=reasoning_kwarg,
                 pass_max_answer_tokens=pass_max_answer_tokens,
             ),
             batched=True,
