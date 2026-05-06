@@ -152,6 +152,7 @@ class SafeApplyChatTemplate:
                 _supports_reasoning_kwarg_or_token(tokenizer, "/no_think")
                 and not reasoning
             ):
+                # Add /no_think to the first message to disable reasoning in Nemotron-Nano-v2 models
                 messages[0]["content"] = f"/no_think {messages[0]['content']}"
 
         # Choose formatting based on whether the model is multimodal
@@ -203,9 +204,9 @@ class SafeApplyChatTemplate:
         if (
             _supports_reasoning_kwarg_or_token(tokenizer, "</think>")
             and not reasoning
-            and input_message.endswith("<think>\n")
+            and input_message.strip().endswith("<think>")
         ):
-            input_message = input_message.removesuffix("<think>\n") + "<think></think>"
+            input_message = input_message.split("<think>")[0] + "<think></think>"
 
         return input_message
 
