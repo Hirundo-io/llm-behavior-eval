@@ -142,7 +142,9 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 - `--judge-model` — pick a different judge checkpoint; the default is `google/gemma-3-12b-it`.
 - `--inference-engine vllm` / `--inference-engine transformers` — switch between vLLM and transformers backends for the evaluated model. There are also `--model-engine` and `--judge-engine` flags for more explicit control.
 - `--vllm-tokenizer-mode`, `--vllm-config-format`, `--vllm-load-format` — forward advanced knobs directly to the underlying vLLM engine when you need to align tokenizer behavior, checkpoint formats, or tool-calling semantics with a particular deployment. Tokenizer mode accepts `auto`, `slow`, `mistral`, or `custom`.
-- `--reasoning/--no-reasoning` — enable chat-template reasoning modes on tokenizers that support them.
+- `--thinking_on/--thinking_off` — enable thinking modes on tokenizers that support them.
+- `--enable-thinking-arg-name` — enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').
+- `--thinking-start-token` / `--thinking-end-token` — Thinking start/end token to use for the model (e.g. '<think>'/'</think>').
 - `--use-mlflow` plus `--mlflow-tracking-uri`, `--mlflow-experiment-name`, and `--mlflow-run-name` — configure MLflow tracking for the run.
 
 Need more control or wrappers around the library? Explore the scripts in `examples/` to see how to call the evaluators from Python directly, customize additional knobs, or embed the run inside your own orchestration logic.
