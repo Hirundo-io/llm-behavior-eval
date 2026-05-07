@@ -491,6 +491,7 @@ class BaseEvaluator(ABC):
         accuracy: float,
         stereotyped_bias: float | None,
         empty_responses: int,
+        api_error_responses: int = 0,
     ) -> None:
         """
         Save the evaluation results to files.
@@ -500,6 +501,7 @@ class BaseEvaluator(ABC):
             accuracy: The accuracy of the evaluation.
             stereotyped_bias: A score representing the stereotyped bias.
             empty_responses: A count of empty response.
+            api_error_responses: A count of responses skipped because of API errors.
         """
         model_slug = self.get_model_slug()
         dataset_slug = self.get_dataset_slug()
@@ -541,12 +543,16 @@ class BaseEvaluator(ABC):
         stereo_percent = (
             stereotyped_bias * 100.0 if stereotyped_bias is not None else None
         )
+        api_error_count_value = api_error_responses if api_error_responses > 0 else None
         results = pd.DataFrame(
             {
                 metric_column_name: [metric_percentage_value],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
+                ],
+                "API Error Responses": [
+                    api_error_count_value,
                 ],
             }
         )
@@ -585,6 +591,7 @@ class BaseEvaluator(ABC):
                 "Attack success rate (%) ⬇️": [full_attack_success_rate],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [empty_responses],
+                "API Error Responses": [api_error_count_value],
             }
         )
         self._append_summary_row(full_summary_path, summary_row)
@@ -643,6 +650,7 @@ class BaseEvaluator(ABC):
                 "accuracy": accuracy,
                 "error": 1 - accuracy,
                 "empty_responses": float(empty_responses),
+                "api_error_responses": float(api_error_responses),
                 "num_samples": float(self.num_samples),
             }
             if stereotyped_bias is not None:

@@ -15,6 +15,7 @@ from llm_behavior_eval.evaluation_utils.eval_engine import EvalDataset, PromptEv
 from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
     Agreement,
     FreeTextBiasEvaluator,
+    _BiasGenerationRecord,
 )
 
 
@@ -178,3 +179,131 @@ def test_update_dataset_config_after_freeing_test_engine_uses_grading_path(
     assert evaluator.num_samples == 1
     assert len(evaluator.eval_dataset) == 1
     assert evaluator.has_stereotype is True
+
+
+def test_collect_generations_loads_generation_errors(monkeypatch) -> None:
+    evaluator = FreeTextBiasEvaluator.__new__(FreeTextBiasEvaluator)
+    evaluator.num_samples = 1
+
+    monkeypatch.setattr(
+        evaluator, "ensure_test_model_ready", lambda: None, raising=False
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "load_completed_generation_dicts",
+        lambda: [
+            {
+                "questions": ["q1"],
+                "answers": [""],
+                "correct_answers": ["c1"],
+                "stereotyped_answers": ["s1"],
+                "generation_errors": [
+                    {
+                        "api_error_type": "ContentPolicyViolationError",
+                        "api_error_message": "blocked",
+                        "api_error_kind": "content_policy",
+                        "api_error_retry_count": 0,
+                        "api_error_skipped": True,
+                    }
+                ],
+            }
+        ],
+    )
+
+    generations = evaluator._collect_generations()
+
+    assert generations[0].generation_errors == [
+        {
+            "api_error_type": "ContentPolicyViolationError",
+            "api_error_message": "blocked",
+            "api_error_kind": "content_policy",
+            "api_error_retry_count": 0,
+            "api_error_skipped": True,
+        }
+    ]
+
+
+def test_grade_records_skipped_generation_errors_without_judging_them(
+    monkeypatch, tmp_path
+) -> None:
+    evaluator = FreeTextBiasEvaluator.__new__(FreeTextBiasEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        max_samples=2,
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path="hirundo-io/bbq-age-bias-free-text",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator.num_samples = 2
+    evaluator.has_stereotype = True
+    saved: dict[str, object] = {}
+
+    def fake_match_llm_answers(
+        _judge_engine,
+        llm_answers,
+        correct_answers,
+        stereotyped_answers,
+        questions,
+    ):
+        assert llm_answers == ["normal answer"]
+        assert correct_answers == ["c1"]
+        assert stereotyped_answers == ["s1"]
+        assert questions == ["q1"]
+        return (
+            [(Agreement.YES, Agreement.NO)],
+            ["no"],
+            [[{"generated_text": 'gt_agree: "yes"'}]],
+            [[{"generated_text": 'candidate_uncertain: "no"'}]],
+        )
+
+    def fake_save_results(
+        responses,
+        accuracy,
+        stereotyped_bias,
+        empty_responses,
+        api_error_responses=0,
+    ):
+        saved["responses"] = responses
+        saved["accuracy"] = accuracy
+        saved["stereotyped_bias"] = stereotyped_bias
+        saved["empty_responses"] = empty_responses
+        saved["api_error_responses"] = api_error_responses
+
+    monkeypatch.setattr(evaluator, "_match_llm_answers", fake_match_llm_answers)
+    monkeypatch.setattr(evaluator, "save_results", fake_save_results)
+
+    evaluator._grade_impl(
+        [
+            _BiasGenerationRecord(
+                questions=["q1", "q2"],
+                answers=["normal answer", ""],
+                correct_answers=["c1", "c2"],
+                stereotyped_answers=["s1", "s2"],
+                generation_errors=[
+                    None,
+                    {
+                        "api_error_type": "ContentPolicyViolationError",
+                        "api_error_message": "blocked",
+                        "api_error_kind": "content_policy",
+                        "api_error_retry_count": 0,
+                        "api_error_skipped": True,
+                    },
+                ],
+            )
+        ],
+        StubJudgeEngine(combine_prompt_groups=True),
+    )
+
+    responses = cast("list[dict[str, object]]", saved["responses"])
+    assert saved["accuracy"] == 0.5
+    assert saved["empty_responses"] == 1
+    assert saved["api_error_responses"] == 1
+    assert responses[1]["api_error_type"] == "ContentPolicyViolationError"
+    assert responses[1]["api_error_message"] == "blocked"
+    assert responses[1]["api_error_retry_count"] == 0
+    assert responses[1]["api_error_skipped"] is True
+    assert responses[1]["flagged_as_correct"] is False
+    assert responses[1]["flagged_as_stereotyped"] is False
+    assert responses[1]["flagged_as_unknown"] is False

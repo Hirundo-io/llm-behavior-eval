@@ -57,6 +57,11 @@ DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
 DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
 DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
 DEFAULT_MAX_LORA_RANK = VllmConfig.model_fields["max_lora_rank"].default
+DEFAULT_API_SKIP_ERRORS = EvaluationConfig.model_fields["api_skip_errors"].default
+DEFAULT_API_RETRY_ATTEMPTS = EvaluationConfig.model_fields["api_retry_attempts"].default
+DEFAULT_API_RETRY_BACKOFF_SECONDS = EvaluationConfig.model_fields[
+    "api_retry_backoff_seconds"
+].default
 
 
 def _default_results_dir() -> Path:
@@ -517,6 +522,34 @@ def main(
             show_default=str(DEFAULT_MAX_JUDGE_TOKENS),
         ),
     ] = DEFAULT_MAX_JUDGE_TOKENS,
+    api_skip_errors: Annotated[
+        bool,
+        typer.Option(
+            "--api-skip-errors/--no-api-skip-errors",
+            help=(
+                "For API engines, record skippable per-prompt provider errors "
+                "and continue instead of failing the whole evaluation."
+            ),
+        ),
+    ] = DEFAULT_API_SKIP_ERRORS,
+    api_retry_attempts: Annotated[
+        int,
+        typer.Option(
+            "--api-retry-attempts",
+            help="Retry attempts for transient API errors before skipping.",
+            min=0,
+            show_default=str(DEFAULT_API_RETRY_ATTEMPTS),
+        ),
+    ] = DEFAULT_API_RETRY_ATTEMPTS,
+    api_retry_backoff_seconds: Annotated[
+        float,
+        typer.Option(
+            "--api-retry-backoff-seconds",
+            help="Initial exponential backoff delay for transient API retries.",
+            min=0.0,
+            show_default=str(DEFAULT_API_RETRY_BACKOFF_SECONDS),
+        ),
+    ] = DEFAULT_API_RETRY_BACKOFF_SECONDS,
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
@@ -611,6 +644,9 @@ def main(
         max_judge_tokens=max_judge_tokens,
         sample_judge=sample_judge,
         use_4bit_judge=use_4bit_judge,
+        api_skip_errors=api_skip_errors,
+        api_retry_attempts=api_retry_attempts,
+        api_retry_backoff_seconds=api_retry_backoff_seconds,
         sampling_config=SamplingConfig(
             do_sample=sample,
             temperature=temperature,

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict
@@ -30,10 +32,18 @@ DEFAULT_API_BATCH_MULTIPLIER = 5
 
 
 Message = dict[str, str]
+ApiGenerationError = dict[str, str | int | bool]
 
 
 class ApiEvalEngineError(RuntimeError):
     """Raised when API inference fails before a valid model response exists."""
+
+
+@dataclass(frozen=True)
+class _ErrorClassification:
+    kind: str
+    skippable: bool = False
+    retriable: bool = False
 
 
 class _CompletionKwargs(BaseModel):
@@ -100,6 +110,7 @@ class ApiEvalEngine(PromptEvalEngine):
         self._max_input_tokens: int | None = None
         self._token_truncation_warning_logged = False
         self._message_trim_warning_logged = False
+        self._last_generation_errors: list[ApiGenerationError | None] = []
         self._concurrency = _read_env_int(
             "LLM_EVAL_API_CONCURRENCY",
             DEFAULT_API_BATCH_CONCURRENCY,
@@ -132,6 +143,228 @@ class ApiEvalEngine(PromptEvalEngine):
     def get_raw_text_truncator(self) -> Callable[[str, int], str] | None:
         return self._truncate_text_to_model_tokens
 
+    def get_batch_size(self) -> int:
+        configured = (
+            self.eval_config.judge_batch_size
+            if self.is_judge
+            else self.eval_config.batch_size
+        )
+        if configured is not None:
+            return max(1, configured)
+        return self._get_default_api_batch_size()
+
+    def free_model(self) -> None:
+        return None
+
+    def _validate_model_identifier(self) -> None:
+        try:
+            _model, provider, *_rest = self._litellm.get_llm_provider(
+                model=self.model_name
+            )
+        except Exception as exc:
+            raise self._build_api_error(exc) from exc
+        if provider == "azure":
+            self._validate_azure_environment()
+
+    def _validate_azure_environment(self) -> None:
+        has_token = any(
+            os.getenv(name)
+            for name in (
+                "AZURE_OPENAI_API_KEY",
+                "AZURE_OPENAI_AD_TOKEN",
+                "AZURE_API_KEY",
+            )
+        )
+        if has_token:
+            return
+        raise ApiEvalEngineError(
+            "LiteLLM API calls for Azure require Azure OpenAI credentials. "
+            "Set AZURE_OPENAI_API_KEY or AZURE_OPENAI_AD_TOKEN before running "
+            f"model '{self.model_name}'. The current environment appears to only "
+            "have non-Azure credentials available."
+        )
+
+    def _build_api_error(self, error: Exception) -> ApiEvalEngineError:
+        role = "judge" if self.is_judge else "model"
+        provider_prefix = self.model_name.split("/", 1)[0]
+        provider_values = [
+            provider.value if hasattr(provider, "value") else str(provider)
+            for provider in self._litellm.provider_list
+        ]
+        provider_hint = ", ".join(sorted(provider_values))
+        return ApiEvalEngineError(
+            f"LiteLLM API {role} call failed for model '{self.model_name}' "
+            f"with {type(error).__name__}: {error}. "
+            f"Configured provider prefix: '{provider_prefix}'. "
+            f"Valid LiteLLM provider prefixes include: {provider_hint}."
+        )
+
+    def _should_retry_or_skip(self, classification: _ErrorClassification) -> bool:
+        return self.eval_config.api_skip_errors and (
+            classification.skippable or classification.retriable
+        )
+
+    def _sleep_before_retry(self, retry_count: int) -> None:
+        backoff = max(0.0, self.eval_config.api_retry_backoff_seconds)
+        if backoff <= 0:
+            return
+        time.sleep(backoff * (2 ** max(0, retry_count - 1)))
+
+    def _record_api_skip(
+        self,
+        prompt_index: int,
+        error: Exception,
+        error_kind: str,
+        retry_count: int,
+    ) -> None:
+        error_record: ApiGenerationError = {
+            "api_error_type": type(error).__name__,
+            "api_error_message": str(error),
+            "api_error_kind": error_kind,
+            "api_error_retry_count": retry_count,
+            "api_error_skipped": True,
+        }
+        self._last_generation_errors[prompt_index] = error_record
+        logging.warning(
+            "Skipping API %s response for model '%s' at prompt index %s after %s retries: %s: %s",
+            "judge" if self.is_judge else "model",
+            self.model_name,
+            prompt_index,
+            retry_count,
+            type(error).__name__,
+            error,
+        )
+
+    @staticmethod
+    def _litellm_error_classes() -> tuple[
+        tuple[type[Exception], ...],
+        tuple[type[Exception], ...],
+        tuple[type[Exception], ...],
+    ]:
+        from litellm import (
+            APIConnectionError,
+            BadGatewayError,
+            BadRequestError,
+            ContentPolicyViolationError,
+            InternalServerError,
+            InvalidRequestError,
+            RateLimitError,
+            RouterRateLimitError,
+            ServiceUnavailableError,
+            Timeout,
+        )
+
+        return (
+            (ContentPolicyViolationError,),
+            (BadRequestError, InvalidRequestError),
+            (
+                APIConnectionError,
+                BadGatewayError,
+                InternalServerError,
+                RateLimitError,
+                RouterRateLimitError,
+                ServiceUnavailableError,
+                Timeout,
+            ),
+        )
+
+    @staticmethod
+    def _classify_api_error(error: Exception) -> _ErrorClassification:
+        (
+            content_policy_errors,
+            content_policy_wrappers,
+            transient_errors,
+        ) = ApiEvalEngine._litellm_error_classes()
+
+        if isinstance(error, content_policy_errors):
+            return _ErrorClassification("content_policy", skippable=True)
+
+        # Azure/LiteLLM sometimes wraps ContentPolicyViolationError in a
+        # BadRequestError while preserving the concrete exception name in the
+        # message. Keep this wrapper-specific check narrow so unrelated
+        # BadRequestError/InvalidRequestError failures remain fatal.
+        if isinstance(
+            error, content_policy_wrappers
+        ) and "ContentPolicyViolationError" in str(error):
+            return _ErrorClassification("content_policy", skippable=True)
+
+        if isinstance(error, transient_errors):
+            return _ErrorClassification("transient", retriable=True)
+
+        return _ErrorClassification("fatal")
+
+    def _generate_chunk_with_retries(
+        self,
+        chunk_messages: list[list[Message]],
+        completion_kwargs: dict[str, Any],
+        *,
+        start_index: int,
+    ) -> list[str]:
+        answers: list[str | None] = [None for _ in chunk_messages]
+        pending = list(range(len(chunk_messages)))
+        retry_counts = {index: 0 for index in pending}
+        max_retries = max(0, self.eval_config.api_retry_attempts)
+
+        while pending:
+            pending_messages = [chunk_messages[index] for index in pending]
+            try:
+                responses = self._litellm.batch_completion(
+                    model=self.model_name,
+                    messages=pending_messages,
+                    **completion_kwargs,
+                )
+            except Exception as exc:
+                classification = self._classify_api_error(exc)
+                if not self._should_retry_or_skip(classification):
+                    raise self._build_api_error(exc) from exc
+                responses = [exc for _ in pending]
+
+            if len(responses) != len(pending):
+                raise ApiEvalEngineError(
+                    "LiteLLM API batch_completion returned an unexpected number "
+                    f"of responses ({len(responses)} for {len(pending)} prompts)."
+                )
+
+            next_pending: list[int] = []
+            for local_index, response in zip(pending, responses, strict=True):
+                if not isinstance(response, Exception):
+                    answers[local_index] = self._extract_content(response)
+                    continue
+
+                classification = self._classify_api_error(response)
+                if not self._should_retry_or_skip(classification):
+                    raise self._build_api_error(response) from response
+
+                if classification.retriable and retry_counts[local_index] < max_retries:
+                    retry_counts[local_index] += 1
+                    next_pending.append(local_index)
+                    continue
+
+                if classification.skippable or classification.retriable:
+                    retry_count = retry_counts[local_index]
+                    self._record_api_skip(
+                        start_index + local_index,
+                        response,
+                        classification.kind,
+                        retry_count,
+                    )
+                    answers[local_index] = ""
+                    continue
+
+                raise self._build_api_error(response) from response
+
+            pending = next_pending
+            if pending:
+                self._sleep_before_retry(max(retry_counts[index] for index in pending))
+
+        return [answer or "" for answer in answers]
+
+    @staticmethod
+    def _messages_for_completion(prompt: JudgePrompt) -> list[Message]:
+        if isinstance(prompt, str):
+            return [{"role": "user", "content": prompt}]
+        return prompt
+
     def generate_answers_from_prompts(
         self,
         prompts: Sequence[JudgePrompt],
@@ -144,6 +377,7 @@ class ApiEvalEngine(PromptEvalEngine):
         base_kwargs = self._build_base_completion_kwargs(sampling_config)
         completion_kwargs = base_kwargs.model_dump(exclude_none=True)
         all_messages = [self._messages_for_completion(prompt) for prompt in prompts]
+        self._last_generation_errors = [None for _ in all_messages]
         if self._max_input_tokens is not None:
             all_messages = [
                 self._trim_messages_to_limit(messages) for messages in all_messages
@@ -162,57 +396,17 @@ class ApiEvalEngine(PromptEvalEngine):
             total=(len(all_messages) + concurrency - 1) // concurrency,
         ):
             chunk_messages = all_messages[i : i + concurrency]
-            responses = self._litellm.batch_completion(
-                model=self.model_name,
-                messages=chunk_messages,
-                **completion_kwargs,
+            chunk_answers = self._generate_chunk_with_retries(
+                chunk_messages,
+                completion_kwargs,
+                start_index=i,
             )
-            for response in responses:
-                if isinstance(response, Exception):
-                    raise self._build_api_error(response)
-                answers.append(self._extract_content(response))
+            answers.extend(chunk_answers)
 
         return answers
 
-    def get_batch_size(self) -> int:
-        configured = (
-            self.eval_config.judge_batch_size
-            if self.is_judge
-            else self.eval_config.batch_size
-        )
-        if configured is not None:
-            return max(1, configured)
-        return self._get_default_api_batch_size()
-
-    def free_model(self) -> None:
-        return None
-
-    def _validate_model_identifier(self) -> None:
-        try:
-            self._litellm.get_llm_provider(model=self.model_name)
-        except Exception as exc:
-            raise self._build_api_error(exc) from exc
-
-    def _build_api_error(self, error: Exception) -> ApiEvalEngineError:
-        role = "judge" if self.is_judge else "model"
-        provider_prefix = self.model_name.split("/", 1)[0]
-        provider_values = [
-            provider.value if hasattr(provider, "value") else str(provider)
-            for provider in self._litellm.provider_list
-        ]
-        provider_hint = ", ".join(sorted(provider_values))
-        return ApiEvalEngineError(
-            f"LiteLLM API {role} call failed for model '{self.model_name}' "
-            f"with {type(error).__name__}: {error}. "
-            f"Configured provider prefix: '{provider_prefix}'. "
-            f"Valid LiteLLM provider prefixes include: {provider_hint}."
-        )
-
-    @staticmethod
-    def _messages_for_completion(prompt: JudgePrompt) -> list[Message]:
-        if isinstance(prompt, str):
-            return [{"role": "user", "content": prompt}]
-        return prompt
+    def get_last_generation_errors(self) -> list[ApiGenerationError | None]:
+        return list(self._last_generation_errors)
 
     def _truncate_text_to_model_tokens(self, text: str, max_tokens: int) -> str:
         if max_tokens <= 0:

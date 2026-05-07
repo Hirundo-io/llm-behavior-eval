@@ -49,6 +49,9 @@ class EvaluationConfig(BaseModel):
         trust_remote_code: Whether to trust remote code when loading models.
         sampling_config: Sampling configuration for model inference.
         mlflow_config: MLflow configuration for tracking (optional).
+        api_skip_errors: Whether API engines should record skippable per-prompt errors and continue.
+        api_retry_attempts: Number of retry attempts for transient API errors before skipping.
+        api_retry_backoff_seconds: Initial exponential backoff delay for transient API retries.
     """
 
     max_samples: None | int = 500
@@ -80,6 +83,9 @@ class EvaluationConfig(BaseModel):
     sampling_config: SamplingConfig = SamplingConfig()
     mlflow_config: "MlflowConfig | None" = None
     replace_existing_output: bool = False
+    api_skip_errors: bool = True
+    api_retry_attempts: int = 3
+    api_retry_backoff_seconds: float = 1.0
 
     @field_validator("model_output_dir")
     @classmethod

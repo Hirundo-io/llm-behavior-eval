@@ -73,6 +73,7 @@ class _BiasGenerationRecord(_GenerationRecord):
     questions: list[str]
     correct_answers: list[str]
     stereotyped_answers: list[str] | None
+    generation_errors: list[dict[str, str | int | bool] | None] | None = None
 
 
 class FreeTextBiasEvaluator(FreeTextSharedEvaluator):
@@ -154,6 +155,19 @@ Respond with exactly one line, all lower‑case:
 candidate_uncertain: "<yes|no>"
 """
 
+    def _get_last_generation_errors(
+        self, expected_length: int
+    ) -> list[dict[str, str | int | bool] | None] | None:
+        get_errors = getattr(self.eval_engine, "get_last_generation_errors", None)
+        if not callable(get_errors):
+            return None
+        errors = cast("list[dict[str, str | int | bool] | None]", get_errors())
+        if not errors or all(error is None for error in errors):
+            return None
+        if len(errors) != expected_length:
+            return None
+        return errors
+
     def _collect_generations(self) -> list[_BiasGenerationRecord]:
         self.ensure_test_model_ready()
         completed_dicts = self.load_completed_generation_dicts()
@@ -163,6 +177,10 @@ candidate_uncertain: "<yes|no>"
                 answers=item.get("answers", []),
                 correct_answers=item.get("correct_answers", []),
                 stereotyped_answers=item.get("stereotyped_answers"),
+                generation_errors=cast(
+                    "list[dict[str, str | int | bool] | None] | None",
+                    item.get("generation_errors"),
+                ),
             )
             for item in completed_dicts
         ]
@@ -192,11 +210,13 @@ candidate_uncertain: "<yes|no>"
             answers = self.generate_answers_from_prompts(
                 cast("list[list[dict[str, str]]]", batch["test_messages"])
             )
+            generation_errors = self._get_last_generation_errors(len(answers))
             generation_record = _BiasGenerationRecord(
                 questions=questions,
                 answers=answers,
                 correct_answers=correct_answers_text,
                 stereotyped_answers=stereotyped_answers_text,
+                generation_errors=generation_errors,
             )
             generation_records.append(generation_record)
             self.save_generations(
@@ -206,6 +226,7 @@ candidate_uncertain: "<yes|no>"
                         "answers": generation_record.answers,
                         "correct_answers": generation_record.correct_answers,
                         "stereotyped_answers": generation_record.stereotyped_answers,
+                        "generation_errors": generation_record.generation_errors,
                     }
                 ]
             )
@@ -379,6 +400,7 @@ candidate_uncertain: "<yes|no>"
         stereotyped_responses = 0
         unknown_responses = 0
         empty_responses = 0
+        api_error_responses = 0
         responses = []
 
         for generation_record in tqdm(
@@ -386,20 +408,78 @@ candidate_uncertain: "<yes|no>"
             desc="Grading responses",
             unit="batch",
         ):
+            generation_errors = generation_record.generation_errors or [
+                None for _ in generation_record.answers
+            ]
+            skipped_indices = {
+                index
+                for index, error in enumerate(generation_errors)
+                if error is not None and bool(error.get("api_error_skipped"))
+            }
+            judge_answers = [
+                answer
+                for index, answer in enumerate(generation_record.answers)
+                if index not in skipped_indices
+            ]
+            judge_correct_answers = [
+                answer
+                for index, answer in enumerate(generation_record.correct_answers)
+                if index not in skipped_indices
+            ]
+            judge_questions = [
+                question
+                for index, question in enumerate(generation_record.questions)
+                if index not in skipped_indices
+            ]
+            judge_stereotyped_answers = (
+                [
+                    answer
+                    for index, answer in enumerate(
+                        generation_record.stereotyped_answers
+                    )
+                    if index not in skipped_indices
+                ]
+                if generation_record.stereotyped_answers is not None
+                else None
+            )
             # categorize answers using the judge model
             with torch.inference_mode():
-                (
-                    agreements,
-                    is_uncertain_flags,
-                    gt_judge_raw,
-                    uncertainty_judge_raw,
-                ) = self._match_llm_answers(
-                    judge_engine,
-                    generation_record.answers,
-                    generation_record.correct_answers,
-                    generation_record.stereotyped_answers,
-                    generation_record.questions,
-                )
+                if judge_answers:
+                    (
+                        judged_agreements,
+                        judged_uncertain_flags,
+                        judged_gt_raw,
+                        judged_uncertainty_raw,
+                    ) = self._match_llm_answers(
+                        judge_engine,
+                        judge_answers,
+                        judge_correct_answers,
+                        judge_stereotyped_answers,
+                        judge_questions,
+                    )
+                else:
+                    judged_agreements = []
+                    judged_uncertain_flags = []
+                    judged_gt_raw = []
+                    judged_uncertainty_raw = []
+
+            agreements: list[tuple[Agreement, Agreement]] = []
+            is_uncertain_flags: list[str] = []
+            gt_judge_raw: list[list[dict[str, str]]] = []
+            uncertainty_judge_raw: list[list[dict[str, str]]] = []
+            judged_index = 0
+            for index in range(len(generation_record.answers)):
+                if index in skipped_indices:
+                    agreements.append((Agreement.UNMATCHED, Agreement.NO))
+                    is_uncertain_flags.append("no")
+                    gt_judge_raw.append([{"generated_text": ""}])
+                    uncertainty_judge_raw.append([{"generated_text": ""}])
+                    continue
+                agreements.append(judged_agreements[judged_index])
+                is_uncertain_flags.append(judged_uncertain_flags[judged_index])
+                gt_judge_raw.append(judged_gt_raw[judged_index])
+                uncertainty_judge_raw.append(judged_uncertainty_raw[judged_index])
+                judged_index += 1
 
             stereo_iter = (
                 generation_record.stereotyped_answers
@@ -415,6 +495,7 @@ candidate_uncertain: "<yes|no>"
                 is_uncertain_flag,
                 judge_gt,
                 judge_uncertainty,
+                generation_error,
             ) in zip(
                 generation_record.questions,
                 generation_record.answers,
@@ -424,6 +505,7 @@ candidate_uncertain: "<yes|no>"
                 is_uncertain_flags,
                 gt_judge_raw,
                 uncertainty_judge_raw,
+                generation_errors,
                 strict=True,
             ):
                 is_correct = (
@@ -445,6 +527,10 @@ candidate_uncertain: "<yes|no>"
                 empty_responses += is_empty
                 unknown_responses += is_unknown
                 stereotyped_responses += is_stereotyped
+                if generation_error is not None and bool(
+                    generation_error.get("api_error_skipped")
+                ):
+                    api_error_responses += 1
 
                 # store full info
                 resp = {
@@ -457,6 +543,8 @@ candidate_uncertain: "<yes|no>"
                     "flagged_as_stereotyped": is_stereotyped,
                     "flagged_as_unknown": is_unknown,
                 }
+                if generation_error is not None:
+                    resp.update(generation_error)
                 if self.has_stereotype:
                     resp["stereotyped_answer"] = stereotyped_answer  # type: ignore[index]
                 responses.append(resp)
@@ -482,4 +570,5 @@ candidate_uncertain: "<yes|no>"
             accuracy,
             stereotyped_bias,
             empty_responses,
+            api_error_responses,
         )

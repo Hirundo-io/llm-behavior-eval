@@ -4,6 +4,7 @@ import logging
 from types import SimpleNamespace
 from typing import Any
 
+import litellm
 import pytest
 
 from llm_behavior_eval.evaluation_utils.api_eval_engine import (
@@ -42,6 +43,30 @@ class FakeLiteLLM:
         """Batch completion returns a list of responses, one per message list."""
         self.calls.append({"model": model, "messages": messages, **kwargs})
         return [_make_response("ok") for _ in messages]
+
+
+def _content_policy_error() -> Exception:
+    return litellm.ContentPolicyViolationError(
+        "response was filtered",
+        model="openai/gpt-4o",
+        llm_provider="openai",
+    )
+
+
+def _rate_limit_error() -> Exception:
+    return litellm.RateLimitError(
+        "rate limited",
+        model="openai/gpt-4o",
+        llm_provider="openai",
+    )
+
+
+def _auth_error() -> Exception:
+    return litellm.AuthenticationError(
+        "bad key",
+        model="openai/gpt-4o",
+        llm_provider="openai",
+    )
 
 
 def patch_litellm(monkeypatch) -> FakeLiteLLM:
@@ -118,6 +143,7 @@ def test_api_eval_engine_model_uses_answer_tokens(tmp_path, monkeypatch) -> None
 
 def test_api_eval_engine_omits_default_top_p(tmp_path, monkeypatch) -> None:
     fake_litellm = patch_litellm(monkeypatch)
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
     evaluation_config = EvaluationConfig(
         model_path_or_repo_id="azure/models/gpt-5.4-nano",
         model_engine="api",
@@ -400,6 +426,30 @@ def test_api_eval_engine_rejects_unrecognized_litellm_provider_prefix(
     assert "azure" in message
 
 
+def test_api_eval_engine_rejects_azure_without_credentials(
+    tmp_path, monkeypatch
+) -> None:
+    patch_litellm(monkeypatch)
+    monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("AZURE_OPENAI_AD_TOKEN", raising=False)
+    monkeypatch.delenv("AZURE_API_KEY", raising=False)
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="azure/gpt-5.4-nano",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    with pytest.raises(ApiEvalEngineError) as exc_info:
+        engine.generate_answers_from_prompts(
+            ["Explain this."],
+            SamplingConfig(do_sample=False),
+        )
+
+    assert "require Azure OpenAI credentials" in str(exc_info.value)
+    assert "AZURE_OPENAI_API_KEY" in str(exc_info.value)
+
+
 def test_api_eval_engine_raises_on_batch_completion_exception(
     tmp_path, monkeypatch
 ) -> None:
@@ -429,6 +479,178 @@ def test_api_eval_engine_raises_on_batch_completion_exception(
     assert "LiteLLM API model call failed" in message
     assert "RuntimeError: provider rejected request" in message
     assert "openai/gpt-4o" in message
+
+
+def test_api_eval_engine_records_content_policy_error_and_continues(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    class FakeLiteLLMWithPolicyFailure(FakeLiteLLM):
+        def batch_completion(self, model, messages, **kwargs) -> list[Any]:
+            self.calls.append({"model": model, "messages": messages, **kwargs})
+            return [_make_response("ok"), _content_policy_error()]
+
+    fake_litellm = FakeLiteLLMWithPolicyFailure()
+    monkeypatch.setattr(
+        ApiEvalEngine, "_load_litellm", staticmethod(lambda: fake_litellm)
+    )
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    caplog.set_level(logging.WARNING)
+    answers = engine.generate_answers_from_prompts(
+        [
+            [{"role": "user", "content": "allowed"}],
+            [{"role": "user", "content": "blocked"}],
+        ],
+        SamplingConfig(do_sample=False),
+    )
+
+    assert answers == ["ok", ""]
+    assert fake_litellm.calls[0]["messages"] == [
+        [{"role": "user", "content": "allowed"}],
+        [{"role": "user", "content": "blocked"}],
+    ]
+    assert engine.get_last_generation_errors() == [
+        None,
+        {
+            "api_error_type": "ContentPolicyViolationError",
+            "api_error_message": "litellm.BadRequestError: litellm.ContentPolicyViolationError: response was filtered",
+            "api_error_kind": "content_policy",
+            "api_error_retry_count": 0,
+            "api_error_skipped": True,
+        },
+    ]
+    assert "Skipping API model response" in caplog.text
+
+
+def test_api_eval_engine_retries_transient_error_then_records_skip(
+    tmp_path, monkeypatch
+) -> None:
+    class FakeLiteLLMWithTransientFailure(FakeLiteLLM):
+        def batch_completion(self, model, messages, **kwargs) -> list[Any]:
+            self.calls.append({"model": model, "messages": messages, **kwargs})
+            return [_rate_limit_error() for _ in messages]
+
+    fake_litellm = FakeLiteLLMWithTransientFailure()
+    monkeypatch.setattr(
+        ApiEvalEngine, "_load_litellm", staticmethod(lambda: fake_litellm)
+    )
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.api_eval_engine.time.sleep",
+        lambda _seconds: None,
+    )
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+        api_retry_attempts=3,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    answers = engine.generate_answers_from_prompts(
+        [[{"role": "user", "content": "hello"}]],
+        SamplingConfig(do_sample=False),
+    )
+
+    assert answers == [""]
+    assert len(fake_litellm.calls) == 4
+    assert engine.get_last_generation_errors()[0] == {
+        "api_error_type": "RateLimitError",
+        "api_error_message": "litellm.RateLimitError: rate limited",
+        "api_error_kind": "transient",
+        "api_error_retry_count": 3,
+        "api_error_skipped": True,
+    }
+
+
+def test_api_eval_engine_retries_transient_error_until_success(
+    tmp_path, monkeypatch
+) -> None:
+    class FakeLiteLLMWithTransientThenSuccess(FakeLiteLLM):
+        def batch_completion(self, model, messages, **kwargs) -> list[Any]:
+            self.calls.append({"model": model, "messages": messages, **kwargs})
+            if len(self.calls) == 1:
+                return [_rate_limit_error() for _ in messages]
+            return [_make_response("ok") for _ in messages]
+
+    fake_litellm = FakeLiteLLMWithTransientThenSuccess()
+    monkeypatch.setattr(
+        ApiEvalEngine, "_load_litellm", staticmethod(lambda: fake_litellm)
+    )
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.api_eval_engine.time.sleep",
+        lambda _seconds: None,
+    )
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    answers = engine.generate_answers_from_prompts(
+        [[{"role": "user", "content": "hello"}]],
+        SamplingConfig(do_sample=False),
+    )
+
+    assert answers == ["ok"]
+    assert len(fake_litellm.calls) == 2
+    assert engine.get_last_generation_errors() == [None]
+
+
+def test_api_eval_engine_fatal_error_still_raises(tmp_path, monkeypatch) -> None:
+    class FakeLiteLLMWithFatalFailure(FakeLiteLLM):
+        def batch_completion(self, model, messages, **kwargs) -> list[Any]:
+            self.calls.append({"model": model, "messages": messages, **kwargs})
+            return [_auth_error()]
+
+    fake_litellm = FakeLiteLLMWithFatalFailure()
+    monkeypatch.setattr(
+        ApiEvalEngine, "_load_litellm", staticmethod(lambda: fake_litellm)
+    )
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    with pytest.raises(ApiEvalEngineError):
+        engine.generate_answers_from_prompts(
+            [[{"role": "user", "content": "hello"}]],
+            SamplingConfig(do_sample=False),
+        )
+
+
+def test_api_eval_engine_no_api_skip_errors_restores_fail_fast(
+    tmp_path, monkeypatch
+) -> None:
+    class FakeLiteLLMWithPolicyFailure(FakeLiteLLM):
+        def batch_completion(self, model, messages, **kwargs) -> list[Any]:
+            self.calls.append({"model": model, "messages": messages, **kwargs})
+            return [_content_policy_error()]
+
+    fake_litellm = FakeLiteLLMWithPolicyFailure()
+    monkeypatch.setattr(
+        ApiEvalEngine, "_load_litellm", staticmethod(lambda: fake_litellm)
+    )
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+        api_skip_errors=False,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    with pytest.raises(ApiEvalEngineError):
+        engine.generate_answers_from_prompts(
+            [[{"role": "user", "content": "hello"}]],
+            SamplingConfig(do_sample=False),
+        )
 
 
 def test_api_eval_engine_normalizes_string_prompts(tmp_path, monkeypatch) -> None:
