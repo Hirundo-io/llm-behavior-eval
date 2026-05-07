@@ -10,6 +10,13 @@ import typer
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv is optional
+
 from llm_behavior_eval.evaluation_utils.dataset_config import (
     DatasetConfig,
     PreprocessConfig,
@@ -50,6 +57,11 @@ DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
 DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
 DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
 DEFAULT_MAX_LORA_RANK = VllmConfig.model_fields["max_lora_rank"].default
+DEFAULT_API_SKIP_ERRORS = EvaluationConfig.model_fields["api_skip_errors"].default
+DEFAULT_API_RETRY_ATTEMPTS = EvaluationConfig.model_fields["api_retry_attempts"].default
+DEFAULT_API_RETRY_BACKOFF_SECONDS = EvaluationConfig.model_fields[
+    "api_retry_backoff_seconds"
+].default
 
 
 def _default_results_dir() -> Path:
@@ -177,6 +189,28 @@ def main(
             "--model-token", help="HuggingFace token for the model (optional)"
         ),
     ] = None,
+    model_tokenizer_path_or_repo_id: Annotated[
+        str | None,
+        typer.Option(
+            "--model-tokenizer",
+            help=(
+                "Tokenizer repo id or path for the evaluated model (optional). "
+                "Use when the model repo differs from the tokenizer repo. "
+                "Not supported with --model-engine=api."
+            ),
+        ),
+    ] = None,
+    judge_tokenizer_path_or_repo_id: Annotated[
+        str | None,
+        typer.Option(
+            "--judge-tokenizer",
+            help=(
+                "Tokenizer repo id or path for the judge model (optional). "
+                "Use when the judge model repo differs from the tokenizer repo. "
+                "Not supported with --judge-engine=api."
+            ),
+        ),
+    ] = None,
     judge_token: Annotated[
         str | None,
         typer.Option(
@@ -185,7 +219,13 @@ def main(
     ] = None,
     judge_model: Annotated[
         str,
-        typer.Option("--judge-model", help="Judge repo id or path (optional)"),
+        typer.Option(
+            "--judge-model",
+            help=(
+                "Judge repo id or path (optional). Use API model identifiers "
+                "when --judge-engine=api (e.g. openai/gpt-4o-mini)."
+            ),
+        ),
     ] = "google/gemma-3-12b-it",
     use_mlflow: Annotated[
         bool,
@@ -195,10 +235,7 @@ def main(
     ] = False,
     mlflow_tracking_uri: Annotated[
         str | None,
-        typer.Option(
-            "--mlflow-tracking-uri",
-            help="MLflow tracking URI (optional). For auth, set MLFLOW_TRACKING_USERNAME and MLFLOW_TRACKING_PASSWORD environment variables or use --mlflow-username / --mlflow-password.",
-        ),
+        typer.Option("--mlflow-tracking-uri", help="MLflow tracking URI (optional)"),
     ] = None,
     mlflow_experiment_name: Annotated[
         str | None,
@@ -249,10 +286,14 @@ def main(
         ),
     ] = None,
     inference_engine: Annotated[
-        Literal["vllm", "transformers"] | None,
+        Literal["vllm", "transformers", "api"] | None,
         typer.Option(
             "--inference-engine",
-            help="""Inference engine to use for model and judge inference. "vllm" or "transformers". Overrides model_engine and judge_engine arguments.""",
+            help=(
+                "Inference engine to use for both model and judge inference. "
+                '"vllm", "transformers", or "api". '
+                "Overrides model_engine and judge_engine arguments."
+            ),
         ),
     ] = None,
     trust_remote_code: Annotated[
@@ -266,10 +307,14 @@ def main(
         ),
     ] = None,
     model_engine: Annotated[
-        Literal["vllm", "transformers"],
+        Literal["vllm", "transformers", "api"],
         typer.Option(
             "--model-engine",
-            help="""Model engine to use for model inference. "vllm" or "transformers". DO NOT combine with the inference_engine argument.""",
+            help=(
+                'Model inference backend: "transformers" (default, local HF models), '
+                '"vllm" (local vLLM for faster inference), or "api" (remote endpoints '
+                "via LiteLLM - supports OpenAI, Azure, Anthropic, remote vLLM servers, etc.)."
+            ),
         ),
     ] = "transformers",
     vllm_max_model_len: Annotated[
@@ -280,10 +325,14 @@ def main(
         ),
     ] = None,
     judge_engine: Annotated[
-        Literal["vllm", "transformers"],
+        Literal["vllm", "transformers", "api"],
         typer.Option(
             "--judge-engine",
-            help="""Judge engine to use for judge model inference. "vllm" or "transformers". DO NOT combine with the inference_engine argument.""",
+            help=(
+                'Judge model inference backend: "transformers" (default, local HF models), '
+                '"vllm" (local vLLM for faster inference), or "api" (remote endpoints '
+                "via LiteLLM - supports OpenAI, Azure, Anthropic, etc.)."
+            ),
         ),
     ] = "transformers",
     vllm_judge_max_model_len: Annotated[
@@ -301,14 +350,14 @@ def main(
         ),
     ] = None,
     vllm_config_format: Annotated[
-        str | None,
+        str,
         typer.Option(
             "--vllm-config-format",
             help="Model config format hint forwarded to vLLM.",
         ),
     ] = "auto",
     vllm_load_format: Annotated[
-        str | None,
+        str,
         typer.Option(
             "--vllm-load-format",
             help="Checkpoint load format hint forwarded to vLLM.",
@@ -473,6 +522,34 @@ def main(
             show_default=str(DEFAULT_MAX_JUDGE_TOKENS),
         ),
     ] = DEFAULT_MAX_JUDGE_TOKENS,
+    api_skip_errors: Annotated[
+        bool,
+        typer.Option(
+            "--api-skip-errors/--no-api-skip-errors",
+            help=(
+                "For API engines, record skippable per-prompt provider errors "
+                "and continue instead of failing the whole evaluation."
+            ),
+        ),
+    ] = DEFAULT_API_SKIP_ERRORS,
+    api_retry_attempts: Annotated[
+        int,
+        typer.Option(
+            "--api-retry-attempts",
+            help="Retry attempts for transient API errors before skipping.",
+            min=0,
+            show_default=str(DEFAULT_API_RETRY_ATTEMPTS),
+        ),
+    ] = DEFAULT_API_RETRY_ATTEMPTS,
+    api_retry_backoff_seconds: Annotated[
+        float,
+        typer.Option(
+            "--api-retry-backoff-seconds",
+            help="Initial exponential backoff delay for transient API retries.",
+            min=0.0,
+            show_default=str(DEFAULT_API_RETRY_BACKOFF_SECONDS),
+        ),
+    ] = DEFAULT_API_RETRY_BACKOFF_SECONDS,
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
@@ -497,7 +574,6 @@ def main(
         or mlflow_run_name
         or mlflow_run_id
     ):
-        # Set MLflow auth env vars so the client can authenticate (MLflow reads MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD)
         if mlflow_username is not None:
             os.environ["MLFLOW_TRACKING_USERNAME"] = mlflow_username
         if mlflow_password is not None:
@@ -517,13 +593,15 @@ def main(
 
     # Compose vLLM config separately, only if using vLLM
     vllm_related_args = [inference_engine, model_engine, judge_engine]
-    using_vllm = any([arg == "vllm" for arg in vllm_related_args])
+    using_vllm = any(arg == "vllm" for arg in vllm_related_args)
     if using_vllm:
         vllm_config = VllmConfig(
             max_model_len=vllm_max_model_len,
-            judge_max_model_len=vllm_judge_max_model_len
-            if vllm_judge_max_model_len is not None
-            else vllm_max_model_len,
+            judge_max_model_len=(
+                vllm_judge_max_model_len
+                if vllm_judge_max_model_len is not None
+                else vllm_max_model_len
+            ),
             tokenizer_mode=vllm_tokenizer_mode,
             config_format=vllm_config_format,
             load_format=vllm_load_format,
@@ -540,8 +618,10 @@ def main(
         model_path_or_repo_id=model_path_or_repo_id,
         model_output_dir=model_output_dir,
         model_token=model_token,
+        model_tokenizer_path_or_repo_id=model_tokenizer_path_or_repo_id,
         lora_path_or_repo_id=lora_path_or_repo_id,
         judge_path_or_repo_id=judge_path_or_repo_id,
+        judge_tokenizer_path_or_repo_id=judge_tokenizer_path_or_repo_id,
         judge_token=judge_token,
         results_dir=result_dir,
         mlflow_config=mlflow_config,
@@ -564,6 +644,9 @@ def main(
         max_judge_tokens=max_judge_tokens,
         sample_judge=sample_judge,
         use_4bit_judge=use_4bit_judge,
+        api_skip_errors=api_skip_errors,
+        api_retry_attempts=api_retry_attempts,
+        api_retry_backoff_seconds=api_retry_backoff_seconds,
         sampling_config=SamplingConfig(
             do_sample=sample,
             temperature=temperature,
@@ -621,6 +704,8 @@ def main(
             ):
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
                 evaluator.update_dataset_config(dataset_config)
+                if judge is not None:
+                    judge.set_dataset(evaluator.eval_dataset)
                 with evaluator.dataset_mlflow_run():
                     evaluator.grade(generations, judge)
         evaluation_error = False

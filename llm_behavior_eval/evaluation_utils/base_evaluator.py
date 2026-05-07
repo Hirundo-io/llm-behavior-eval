@@ -10,46 +10,50 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypedDict, cast
 
 import pandas as pd
 import torch
 import typer
 from accelerate.utils import find_executable_batch_size
-from torch.utils.data import DataLoader, Dataset
-from transformers.data.data_collator import default_data_collator
+from torch.utils.data import DataLoader
+from torch.utils.data import Dataset as TorchDataset
 from transformers.trainer_utils import set_seed
 
-from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
-    TransformersEvalEngine,
-)
-from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
-
+from .api_eval_engine import ApiEvalEngine
 from .custom_dataset import CustomDataset
 from .enums import DatasetType
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
+from .transformers_eval_engine import TransformersEvalEngine
 from .util_functions import (
     empty_cuda_cache_if_available,
     get_lora_slug,
     load_tokenizer_with_transformers,
+    raw_text_collator,
+    safe_apply_chat_template,
 )
+from .vllm_eval_engine import VllmEvalEngine
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
 
     from datasets import Dataset as HFDataset
-    from torch import Tensor
+    from mlflow.entities import Run
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
-
-    from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 
     from .dataset_config import DatasetConfig
     from .eval_config import EvaluationConfig, MlflowConfig
+    from .eval_engine import JudgePrompt, PromptEvalEngine
 
 
 class SamplingParamsProtocol(Protocol):
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+
+
+JsonScalar: TypeAlias = str | int | float | bool | None
+JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
+ResponseRecord: TypeAlias = dict[str, JsonValue]
 
 
 # Optional MLflow imports
@@ -85,6 +89,43 @@ class _GenerationRecord:
 
 
 class BaseEvaluator(ABC):
+    def _build_eval_engine(
+        self,
+        engine_name: str,
+        *,
+        is_judge: bool,
+    ) -> PromptEvalEngine:
+        match engine_name:
+            case "vllm":
+                return VllmEvalEngine(self.eval_config, is_judge=is_judge)
+            case "api":
+                return ApiEvalEngine(self.eval_config, is_judge=is_judge)
+            case _:
+                return TransformersEvalEngine(self.eval_config, is_judge=is_judge)
+
+    def _resolved_dataset_shuffle_seed(self) -> int:
+        """
+        Return the deterministic seed used when shuffling datasets.
+        """
+        if self.dataset_config.seed is not None:
+            return self.dataset_config.seed
+        sampling_seed = self.eval_config.sampling_config.seed
+        if sampling_seed is not None:
+            return sampling_seed
+        return 0
+
+    def _resolved_sampling_seed(self) -> int | None:
+        """
+        Return the seed used for generation sampling.
+
+        Sampling seed precedence is explicit dataset seed first, then the
+        configured sampling seed. Unlike dataset shuffling, this intentionally
+        does not force a fallback 0.
+        """
+        if self.dataset_config.seed is not None:
+            return self.dataset_config.seed
+        return self.eval_config.sampling_config.seed
+
     def __init__(
         self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
     ) -> None:
@@ -100,88 +141,122 @@ class BaseEvaluator(ABC):
         """
         self.eval_config = eval_config
         self.dataset_config = dataset_config
-        self.models_tokenizers_pairs = {}
+        self.models_tokenizers_pairs: dict[str, PreTrainedTokenizerBase | None] = {}
         self.inference_engine = eval_config.inference_engine
         self.model_engine = eval_config.inference_engine or eval_config.model_engine
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
+        self._selected_sample_indices: list[int] = []
         self._skip_current_run = False
-        self.eval_engine: EvalEngine
-        self.eval_dataset: HFDataset
-        self.eval_loader: DataLoader
 
         self._set_seed()
 
         # MLflow config (optional)
-        self.mlflow_config: MlflowConfig | None = (
-            self.eval_config.mlflow_config
-            if hasattr(self.eval_config, "mlflow_config")
-            else None
-        )
-        self.mlflow_run = None
-        self.parent_run = None
+        self.mlflow_config: MlflowConfig | None = self.eval_config.mlflow_config
+        self.mlflow_run: Run | None = None
+        self.parent_run: Run | None = None
         self._started_mlflow_run = False
+        self._mlflow_run_artifact_timestamp: str | None = None
         if self.mlflow_config:
             self._init_mlflow()
 
-        self.data_collator = default_data_collator
-        if self.model_engine == "vllm":
-            max_model_len = (
-                self.eval_config.vllm_config.max_model_len
-                if self.eval_config.vllm_config
-                else None
-            )
-            self.eval_engine = VllmEvalEngine(
-                self.eval_config,
-                max_model_len=max_model_len,
-            )
-        else:
-            self.eval_engine = TransformersEvalEngine(
-                self.data_collator,
-                self.eval_config,
-            )
-        self.tokenizer = self.eval_engine.tokenizer
+        self.eval_engine: PromptEvalEngine = self._build_eval_engine(
+            self.model_engine, is_judge=False
+        )
+        self.tokenizer: PreTrainedTokenizerBase | None = None
+        self.data_collator = raw_text_collator
         self.trust_remote_code = self.eval_config.trust_remote_code
         self.prepare_dataloader()
         self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
-        self.tokenizer.padding_side = "left"
-        # set stereotype availability flag from underlying dataset
-        self.has_stereotype: bool = getattr(self, "has_stereotype", False)
         self._remembered_run_config_action: str | None = None
         self._remember_choice_prompt_asked = False
         if self.eval_config.mlflow_config and mlflow:
-            mlflow.log_metric("num_samples_evaluated", float(self.num_samples))
+            mlflow.log_param("num_samples_evaluated", self.num_samples)
 
         self._ensure_run_configuration_allowed()
 
-    def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
-        tokenizer = self.judge_tokenizer
-        if tokenizer is None:
-            raise RuntimeError("Judge tokenizer is not initialized.")
-        return tokenizer
-
-    def _model_name_slug(self) -> str:
-        """Last path segment of model_path_or_repo_id (e.g. rank_8_alpha_64).
-
-        Returns:
-            The final path component, or "model" if empty.
+    def prepare_judge_tokenizer(self) -> None:
         """
-        path = self.eval_config.model_path_or_repo_id.rstrip("/")
-        return Path(path).name or (path.split("/")[-1] if path else "model")
+        Load only the judge tokenizer so we can format probe prompts before
+        initializing the full judge pipeline. This keeps memory lower while
+        constructing representative prompts used for batch-size probing.
+        """
+        if self.judge_tokenizer is not None:
+            return
+        # Prompt-only provider engines do not need a local tokenizer.
+        if self.judge_engine == "api":
+            return
+        judge_tokenizer_path_or_repo_id = (
+            self.eval_config.judge_tokenizer_path_or_repo_id
+            or self.eval_config.judge_path_or_repo_id
+        )
+        self.judge_tokenizer = load_tokenizer_with_transformers(
+            judge_tokenizer_path_or_repo_id,
+            token=self.eval_config.judge_token,
+            trust_remote_code=self.eval_config.trust_remote_code,
+        )
+        # left padding is useful when batch-generating variable-length prompts
+        self.judge_tokenizer.padding_side = "left"
+        # ensure we have a pad token for the judge model as not all models have it
+        if not self.judge_tokenizer.pad_token:
+            self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
+
+    def format_judge_messages(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        judge_engine: PromptEvalEngine | None = None,
+        is_multimodal: bool | None = None,
+        max_answer_tokens: int | None = None,
+        reasoning: bool | None = None,
+        pass_max_answer_tokens: bool | None = None,
+    ) -> JudgePrompt:
+        judge_tokenizer = judge_engine.tokenizer if judge_engine is not None else None
+        if judge_tokenizer is None:
+            self.prepare_judge_tokenizer()
+            judge_tokenizer = self.judge_tokenizer
+        if judge_tokenizer is None:
+            # Provider-backed engines (e.g., API) consume raw messages.
+            return messages
+        resolved_reasoning = (
+            self.eval_config.reasoning if reasoning is None else reasoning
+        )
+        resolved_pass_max_answer_tokens = (
+            self.eval_config.pass_max_answer_tokens
+            if pass_max_answer_tokens is None
+            else pass_max_answer_tokens
+        )
+        resolved_max_answer_tokens = (
+            self.eval_config.max_judge_tokens
+            if max_answer_tokens is None
+            else max_answer_tokens
+        )
+        resolved_is_multimodal = (
+            judge_engine.is_multimodal
+            if judge_engine is not None
+            else False
+            if is_multimodal is None
+            else is_multimodal
+        )
+        return safe_apply_chat_template(
+            judge_tokenizer,
+            messages,
+            is_multimodal=resolved_is_multimodal,
+            max_answer_tokens=resolved_max_answer_tokens,
+            reasoning=resolved_reasoning,
+            pass_max_answer_tokens=resolved_pass_max_answer_tokens,
+        )
 
     def get_model_slug(self) -> str:
-        """Get the slug for the model, used for building output directories.
-
-        Uses the last path segment so that paths with or without a trailing slash
-        (e.g. .../bias_0_1 or .../bias_0_1/) both yield the same folder name.
+        """Get the slug for the model, used for building output directories
 
         Returns:
-            The slug for the model (and optional -lora- suffix).
+            The slug for the model.
         """
         if self.eval_config.model_output_dir:
             return self.eval_config.model_output_dir
 
-        model_slug = self._model_name_slug()
+        model_slug = self.eval_config.model_path_or_repo_id.split("/")[-1]
         if self.eval_config.lora_path_or_repo_id:
             mlflow_tracking_uri = (
                 self.eval_config.mlflow_config.mlflow_tracking_uri
@@ -229,59 +304,72 @@ class BaseEvaluator(ABC):
         custom_dataset = CustomDataset(
             self.dataset_config.file_path, self.dataset_config.dataset_type
         )
+        self.data_collator = raw_text_collator
+        preprocess_config = self.dataset_config.preprocess_config
+        self.eval_engine.set_preprocess_limits(
+            preprocess_config.max_length,
+            preprocess_config.gt_max_length,
+        )
         test_dataset = custom_dataset.preprocess(
-            self.tokenizer,
-            self.dataset_config.preprocess_config,
-            trust_remote_code=self.trust_remote_code,
-            max_answer_tokens=self.eval_config.max_answer_tokens,
-            reasoning=self.eval_config.reasoning,
-            pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
-            token=self.eval_config.model_token,
+            preprocess_config,
+            raw_text_truncator=self.eval_engine.get_raw_text_truncator(),
         )
         # Deterministic shuffle before sampling
-        test_dataset = test_dataset.shuffle(seed=self.dataset_config.seed)
+        test_dataset = cast(
+            "HFDataset",
+            test_dataset.shuffle(seed=self._resolved_dataset_shuffle_seed()),
+        )
         self.num_samples = (
             min(len(test_dataset), self.eval_config.max_samples)
             if self.eval_config.max_samples
             else len(test_dataset)
         )
-        test_dataset = cast("HFDataset", test_dataset)
-        self.eval_dataset = cast(
-            "HFDataset", test_dataset.select(range(self.num_samples))
-        )
+        self._selected_sample_indices = list(range(self.num_samples))
+        self.eval_dataset = test_dataset.select(self._selected_sample_indices)
         self.eval_engine.set_dataset(self.eval_dataset)
 
         self.eval_loader = DataLoader(
-            cast("Dataset", self.eval_dataset),
+            cast("TorchDataset", self.eval_dataset),
             batch_size=self.eval_engine.get_batch_size(),
             shuffle=False,
             collate_fn=self.data_collator,
         )
         # propagate flag
-        self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
+        self.has_stereotype = custom_dataset.has_stereotype
 
-    def generate_answers(
+    def generate_answers_from_prompts(
         self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
+        prompts: Sequence[JudgePrompt],
         do_sample: bool | None = None,
     ) -> list[str]:
-        return self.eval_engine.generate_answers(
-            input_ids,
-            attention_mask,
-            sampling_config=SamplingConfig(
-                do_sample=(
-                    do_sample
-                    if do_sample is not None
-                    else self.eval_config.sampling_config.do_sample
-                    if self.eval_config.sampling_config.do_sample is not None
-                    else self.eval_config.sample
-                ),
-                temperature=self.eval_config.sampling_config.temperature,
-                top_p=self.eval_config.sampling_config.top_p,
-                top_k=self.eval_config.sampling_config.top_k,
-                seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
-            ),
+        return self.eval_engine.generate_answers_from_prompts(
+            list(prompts),
+            sampling_config=self._build_model_sampling_config(do_sample),
+        )
+
+    def _build_model_sampling_config(self, do_sample: bool | None) -> SamplingConfig:
+        return self._build_sampling_config(do_sample, is_judge=False)
+
+    def _build_sampling_config(
+        self,
+        do_sample: bool | None,
+        *,
+        is_judge: bool,
+    ) -> SamplingConfig:
+        if do_sample is not None:
+            resolved_do_sample = do_sample
+        elif is_judge:
+            resolved_do_sample = self.eval_config.sample_judge
+        else:
+            resolved_do_sample = self.eval_config.sampling_config.do_sample
+            if resolved_do_sample is None:
+                resolved_do_sample = self.eval_config.sample
+        return SamplingConfig(
+            do_sample=resolved_do_sample,
+            temperature=self.eval_config.sampling_config.temperature,
+            top_p=self.eval_config.sampling_config.top_p,
+            top_k=self.eval_config.sampling_config.top_k,
+            seed=self._resolved_sampling_seed(),
         )
 
     @abstractmethod
@@ -292,6 +380,15 @@ class BaseEvaluator(ABC):
         This is an abstract method that must be implemented by subclasses.
         """
         raise NotImplementedError("Subclasses must implement evaluate().")
+
+    def _run_with_cleanup(self, run: Callable[[], None]) -> None:
+        error = True
+        try:
+            run()
+            error = False
+        finally:
+            if self.started_mlflow_run:
+                self.cleanup(error=error)
 
     @abstractmethod
     def generate(self) -> Sequence[_GenerationRecord]:
@@ -305,7 +402,7 @@ class BaseEvaluator(ABC):
     def grade(
         self,
         generations: Sequence[_GenerationRecord],
-        judge_engine: EvalEngine | None = None,
+        judge_engine: PromptEvalEngine | None = None,
     ) -> None:
         """
         Grade the answers for the evaluation.
@@ -325,7 +422,7 @@ class BaseEvaluator(ABC):
     def _grade_impl(
         self,
         generations: Sequence[_GenerationRecord],
-        judge_engine: EvalEngine | None = None,
+        judge_engine: PromptEvalEngine | None = None,
     ) -> None:
         """
         Grade the answers for the evaluation.
@@ -340,8 +437,44 @@ class BaseEvaluator(ABC):
         """
         self.dataset_config = dataset_config
         self._set_seed()
-        self.prepare_dataloader()
+        if hasattr(self, "eval_engine"):
+            self.prepare_dataloader()
+        else:
+            self.prepare_dataset_for_grading()
         self._ensure_run_configuration_allowed()
+
+    def prepare_dataset_for_grading(self) -> None:
+        """
+        Prepare dataset metadata after the test model has been freed.
+
+        Free-text CLI evaluation generates all datasets first, frees the test
+        model, then switches dataset configs while grading. At that point
+        `eval_engine` no longer exists, but grading still needs the selected
+        dataset, sample count, and stereotype flag for metrics and judge setup.
+        """
+        custom_dataset = CustomDataset(
+            self.dataset_config.file_path, self.dataset_config.dataset_type
+        )
+        preprocess_config = self.dataset_config.preprocess_config
+        test_dataset = custom_dataset.preprocess(preprocess_config)
+        test_dataset = cast(
+            "HFDataset",
+            test_dataset.shuffle(seed=self._resolved_dataset_shuffle_seed()),
+        )
+        self.num_samples = (
+            min(len(test_dataset), self.eval_config.max_samples)
+            if self.eval_config.max_samples
+            else len(test_dataset)
+        )
+        self._selected_sample_indices = list(range(self.num_samples))
+        self.eval_dataset = test_dataset.select(self._selected_sample_indices)
+        self.eval_loader = DataLoader(
+            cast("TorchDataset", self.eval_dataset),
+            batch_size=self.eval_config.batch_size or 1,
+            shuffle=False,
+            collate_fn=self.data_collator,
+        )
+        self.has_stereotype = custom_dataset.has_stereotype
 
     @abstractmethod
     def get_grading_context(self) -> AbstractContextManager:
@@ -354,10 +487,11 @@ class BaseEvaluator(ABC):
 
     def save_results(
         self,
-        responses: list[dict],
+        responses: list[ResponseRecord],
         accuracy: float,
         stereotyped_bias: float | None,
         empty_responses: int,
+        api_error_responses: int = 0,
     ) -> None:
         """
         Save the evaluation results to files.
@@ -367,6 +501,7 @@ class BaseEvaluator(ABC):
             accuracy: The accuracy of the evaluation.
             stereotyped_bias: A score representing the stereotyped bias.
             empty_responses: A count of empty response.
+            api_error_responses: A count of responses skipped because of API errors.
         """
         model_slug = self.get_model_slug()
         dataset_slug = self.get_dataset_slug()
@@ -408,12 +543,16 @@ class BaseEvaluator(ABC):
         stereo_percent = (
             stereotyped_bias * 100.0 if stereotyped_bias is not None else None
         )
+        api_error_count_value = api_error_responses if api_error_responses > 0 else None
         results = pd.DataFrame(
             {
                 metric_column_name: [metric_percentage_value],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
+                ],
+                "API Error Responses": [
+                    api_error_count_value,
                 ],
             }
         )
@@ -452,6 +591,7 @@ class BaseEvaluator(ABC):
                 "Attack success rate (%) ⬇️": [full_attack_success_rate],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [empty_responses],
+                "API Error Responses": [api_error_count_value],
             }
         )
         self._append_summary_row(full_summary_path, summary_row)
@@ -510,6 +650,7 @@ class BaseEvaluator(ABC):
                 "accuracy": accuracy,
                 "error": 1 - accuracy,
                 "empty_responses": float(empty_responses),
+                "api_error_responses": float(api_error_responses),
                 "num_samples": float(self.num_samples),
             }
             if stereotyped_bias is not None:
@@ -529,29 +670,26 @@ class BaseEvaluator(ABC):
     ) -> None:
         if summary_file_path.exists():
             existing_summary = pd.read_csv(summary_file_path)
-            existing_clean = self._drop_empty_columns(existing_summary)
-            row_clean = self._drop_empty_columns(summary_row)
             combined_summary = pd.concat(
-                [existing_clean, row_clean], ignore_index=True, sort=False
+                [existing_summary, summary_row], ignore_index=True, sort=False
             )
         else:
-            combined_summary = self._drop_empty_columns(summary_row)
+            combined_summary = summary_row
 
         combined_summary = self._drop_empty_columns(combined_summary)
         combined_summary.to_csv(summary_file_path, index=False, float_format="%.3f")
 
     @property
     def started_mlflow_run(self) -> bool:
-        """True if this evaluator started the current MLflow run (and thus should end it in cleanup)."""
+        """True if this evaluator started the current MLflow run."""
         return self._started_mlflow_run
 
     def cleanup(self, error: bool = False) -> None:
         """
-        End the active MLflow run and set its status. Call only when this evaluator
-        started the run (check started_mlflow_run); otherwise gate at the call site and do not call cleanup.
+        Cleanup the active MLFlow run if it exists, and set its status accordingly.
 
         Args:
-            error: If True, the run is marked as FAILED, otherwise FINISHED.
+            error: Flag indicating if the evaluation failed. If True, the run is marked as FAILED, otherwise FINISHED.
         """
         if not self.mlflow_config or not mlflow:
             return
@@ -632,19 +770,19 @@ class BaseEvaluator(ABC):
             self._started_mlflow_run = True
             logging.info("Started MLflow main run: %s", run_name)
 
-        # One timestamp per run when subfolder is "timestamp".
         self._mlflow_run_artifact_timestamp = datetime.now().strftime(
             "%Y-%m-%d_%H-%M-%S"
         )
 
-        # Run config is uploaded as JSON in artifacts (e.g. run_config.json), not logged as params/metrics.
-
     @contextmanager
-    def dataset_mlflow_run(self) -> Generator[None, None, None]:
+    def dataset_mlflow_run(self, run_name: str | None = None) -> Generator[None]:
         """
-        Log dataset-specific params to the current MLflow run and yield.
-        Child runs are never started; behavior is consistent whether or not mlflow_run_id was provided.
+        Initialize a new MLFlow run for a specific dataset evaluation, and make sure it is closed after the context is exited.
+
+        Args:
+            run_name: The name of the run. If not provided, the dataset file path will be used.
         """
+        del run_name
         if mlflow and self.mlflow_config:
             if not self.parent_run:
                 raise RuntimeError(
@@ -657,7 +795,6 @@ class BaseEvaluator(ABC):
                     self.dataset_config.file_path,
                     self.dataset_config.dataset_type,
                 )
-            # Dataset config is in uploaded artifacts; log a metric so this attachment is visible in MLflow.
             mlflow.log_metric("dataset_attached", 1.0)
         yield
 
@@ -674,25 +811,14 @@ class BaseEvaluator(ABC):
         mlflow.log_metrics(metrics)
 
     def _sanitize_mlflow_key(self, name: str) -> str:
-        """Return a key safe for MLflow params/metrics: alphanumeric and underscores only.
-
-        Returns:
-            Sanitized key (e.g. "Attack_success_rate" from "Attack success rate (%) ⬇️").
-        """
-        # Keep only letters, digits, spaces; replace % and other symbols with nothing
-        s = re.sub(r"[^a-zA-Z0-9\s]", "", name)
-        s = re.sub(r"\s+", "_", s.strip("_"))
-        s = re.sub(r"_+", "_", s).strip("_")
-        return s or "value"
+        """Return a key safe for MLflow params/metrics."""
+        sanitized = re.sub(r"[^a-zA-Z0-9\s]", "", name)
+        sanitized = re.sub(r"\s+", "_", sanitized.strip("_"))
+        sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+        return sanitized or "value"
 
     def _log_mlflow_artifacts(self) -> None:
-        """Log evaluation artifacts to MLflow.
-
-        Logs summary_full.csv numeric columns as metrics only (no prefix; string columns skipped).
-        Uploads all files under results_dir/model_slug. When mlflow_artifact_path_subfolder
-        is not set, artifacts go to run root; when set (or "timestamp"), go under
-        llm-behavior-eval/<subfolder>.
-        """
+        """Log evaluation artifacts (responses, metrics files) to MLflow."""
         if not self.eval_config.mlflow_config or not mlflow:
             return
 
@@ -711,29 +837,25 @@ class BaseEvaluator(ABC):
         else:
             artifact_path = ""
 
-        # Log summary_full.csv numeric columns as metrics only (no prefix; string columns skipped)
         summary_full_path = model_results_dir / "summary_full.csv"
         if summary_full_path.exists():
             try:
                 summary_df = pd.read_csv(summary_full_path)
                 if not summary_df.empty:
                     last_row = summary_df.iloc[-1]
-                    for col in summary_df.columns:
-                        key = self._sanitize_mlflow_key(col)
-                        if not key:
-                            continue
-                        val = last_row[col]
-                        if pd.isna(val):
+                    for column_name in summary_df.columns:
+                        value = last_row[column_name]
+                        if pd.isna(value):
                             continue
                         try:
-                            num = float(val)
-                            mlflow.log_metric(key, num)
+                            mlflow.log_metric(
+                                self._sanitize_mlflow_key(column_name), float(value)
+                            )
                         except (TypeError, ValueError):
-                            pass  # skip non-numeric columns (MLflow metrics are numeric only)
-            except Exception as e:
-                logging.warning("Could not log summary_full.csv to MLflow: %s", e)
+                            pass
+            except Exception as exc:
+                logging.warning("Could not log summary_full.csv to MLflow: %s", exc)
 
-        # Upload entire results dir for this model under the structured path only
         if model_results_dir.exists():
             try:
                 mlflow.log_artifacts(
@@ -744,8 +866,8 @@ class BaseEvaluator(ABC):
                     model_results_dir,
                     artifact_path,
                 )
-            except Exception as e:
-                logging.warning("Could not upload artifacts to MLflow: %s", e)
+            except Exception as exc:
+                logging.warning("Could not upload artifacts to MLflow: %s", exc)
 
     def run_config_path(self) -> Path:
         return self.get_output_dir() / "run_config.json"
@@ -754,8 +876,8 @@ class BaseEvaluator(ABC):
         return self.get_output_dir() / "metrics.csv"
 
     class RunConfig(TypedDict):
-        evaluation_config: dict[str, Any]
-        dataset_config: dict[str, Any]
+        evaluation_config: dict[str, JsonValue]
+        dataset_config: dict[str, JsonValue]
 
     def free_test_model(self) -> None:
         self.eval_engine.free_model()
@@ -904,41 +1026,12 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     - Initialize and free judge pipeline
     """
 
-    def _run_with_cleanup(self, run_fn: Callable[[], None]) -> None:
-        """
-        Execute run_fn and, when appropriate, call cleanup in a finally block.
-
-        Args:
-            run_fn: A no-argument callable executed by this helper. Typically
-                contains generate, free_test_model, and grade logic.
-
-        Returns:
-            None.
-
-        Raises:
-            Any exception raised by run_fn is re-raised after cleanup runs.
-            If run_fn raises, cleanup is invoked with error=True before the
-            exception is propagated. Exceptions raised by cleanup itself are
-            not suppressed.
-
-        Side effects:
-            cleanup(error) is called only when self.started_mlflow_run is True,
-            with error=True if run_fn raised, otherwise error=False.
-        """
-        error = True
-        try:
-            run_fn()
-            error = False
-        finally:
-            if self.started_mlflow_run:
-                self.cleanup(error)
-
     def generations_path(self, filename: str = "generations.jsonl") -> Path:
         return Path(self.get_output_dir()) / filename
 
     def load_generations(
         self, filename: str = "generations.jsonl"
-    ) -> list[dict] | None:
+    ) -> list[ResponseRecord] | None:
         path = self.generations_path(filename)
         if path.exists():
             with open(path) as file_handle:
@@ -952,7 +1045,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             path.unlink()
 
     def save_generations(
-        self, items: list[dict], filename: str = "generations.jsonl"
+        self, items: list[ResponseRecord], filename: str = "generations.jsonl"
     ) -> None:
         path = self.generations_path(filename)
         with open(path, "a") as file_handle:
@@ -962,7 +1055,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
     def load_completed_generation_dicts(
         self, filename: str = "generations.jsonl"
-    ) -> list[dict]:
+    ) -> list[ResponseRecord]:
         """
         Load completed generations, logging reuse before appending new batches.
         """
@@ -979,37 +1072,19 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         )
         return existing_generations
 
-    def prepare_judge_tokenizer(self) -> None:
-        """
-        Load only the judge tokenizer so we can format probe prompts before
-        initializing the full judge pipeline. This keeps memory lower while
-        constructing representative prompts used for batch-size probing.
-        """
-        if getattr(self, "judge_tokenizer", None) is None:
-            self.judge_tokenizer = load_tokenizer_with_transformers(
-                self.eval_config.judge_path_or_repo_id,
-                token=self.eval_config.judge_token,
-                trust_remote_code=self.eval_config.trust_remote_code,
-            )
-            # left padding is useful when batch-generating variable-length prompts
-            self.judge_tokenizer.padding_side = "left"
-            # ensure we have a pad token for the judge model as not all models have it
-            if not self.judge_tokenizer.pad_token:
-                self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
-
-    def free_judge(self, judge_engine: EvalEngine | None = None) -> None:
+    def free_judge(self, judge_engine: PromptEvalEngine | None = None) -> None:
         if judge_engine is not None:
             judge_engine.free_model()
         if hasattr(self, "judge_tokenizer") and self.judge_tokenizer is not None:
-            del self.judge_tokenizer
+            self.judge_tokenizer = None
         empty_cuda_cache_if_available()
         gc.collect()
 
     @torch.no_grad()
     def run_judge_with_backoff(
         self,
-        judge_engine: EvalEngine,
-        prompts: list[str],
+        judge_engine: PromptEvalEngine,
+        prompts: Sequence[JudgePrompt],
     ) -> list[list[dict[str, str]]]:
         """
         Execute the judge by probing an executable batch size that can
@@ -1028,8 +1103,12 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             fixed_batch_size = max(1, self.eval_config.judge_batch_size)
             outputs_fixed: list[list[dict[str, str]]] = []
             for start in range(0, len(prompts), fixed_batch_size):
-                chunk = prompts[start : start + fixed_batch_size]
-                result = self._process_judge_prompts_batch(judge_engine, chunk)
+                chunk = list(prompts[start : start + fixed_batch_size])
+                result = self._process_judge_prompts_batch(
+                    judge_engine,
+                    chunk,
+                    fixed_batch_size,
+                )
                 outputs_fixed.extend(result)
             return outputs_fixed
 
@@ -1054,9 +1133,11 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             outputs = []
             try:
                 for start in range(0, len(prompts), candidate_batch_size):
-                    chunk = prompts[start : start + candidate_batch_size]
+                    chunk = list(prompts[start : start + candidate_batch_size])
                     res = self._process_judge_prompts_batch(
-                        judge_engine, chunk, candidate_batch_size
+                        judge_engine,
+                        chunk,
+                        candidate_batch_size,
                     )
                     outputs.extend(res)
                 return candidate_batch_size
@@ -1077,9 +1158,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
     def _process_judge_prompts_batch(
         self,
-        judge_engine: EvalEngine,
-        prompts: list[str],
-        batch_size: int | None = None,
+        judge_engine: PromptEvalEngine,
+        prompts: Sequence[JudgePrompt],
+        expected_batch_size: int | None = None,
         do_sample: bool | None = None,
     ) -> list[list[dict[str, str]]]:
         """
@@ -1087,91 +1168,61 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
         Args:
             judge_engine: The judge eval engine to use.
-            prompts: List of prompt strings.
-            batch_size: Optional batch size override for the engine (used during backoff).
+            prompts: List of prompts (strings for tokenizer engines, messages for API).
+            expected_batch_size: Optional expected chunk size used to validate
+                backoff/fixed-batch chunking behavior.
             do_sample: Whether to sample from the model.
 
         Returns:
             List where each element is [{"generated_text": answer}, ...] for that prompt.
         """
-        judge_tokenizer = self._get_judge_tokenizer()
+        if not prompts:
+            return []
+        if expected_batch_size is not None and len(prompts) > expected_batch_size:
+            raise ValueError(
+                "Judge prompt chunk exceeded expected batch size "
+                f"({len(prompts)} > {expected_batch_size})."
+            )
 
-        # Tokenize prompts
-        tokenized = judge_tokenizer(
-            prompts,
-            return_tensors="pt",
-            padding=True,
+        sampling_config = self._build_sampling_config(
+            do_sample,
+            is_judge=True,
         )
-        # transformers' tokenizer classes don't have the correct type hints for the return_tensors argument
-        input_ids = cast("Tensor", tokenized["input_ids"])
-        attention_mask = cast("Tensor", tokenized["attention_mask"])
 
-        # Generate answers using judge engine for deterministic judging
-        resolved_do_sample = (
-            self.eval_config.sample_judge if do_sample is None else do_sample
-        )
-        answers = judge_engine.generate_answers(
-            input_ids,
-            attention_mask,
-            sampling_config=SamplingConfig(
-                do_sample=resolved_do_sample,
-                temperature=self.eval_config.sampling_config.temperature,
-                top_p=self.eval_config.sampling_config.top_p,
-                top_k=self.eval_config.sampling_config.top_k,
-                seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
-            ),
+        answers = judge_engine.generate_answers_from_prompts(
+            list(prompts),
+            sampling_config=sampling_config,
         )
 
         # Format output to match pipeline format: [{"generated_text": answer}, ...] per prompt
-        result: list[list[dict[str, str]]] = []
-        for answer in answers:
-            result.append([{"generated_text": answer}])
+        return [[{"generated_text": answer}] for answer in answers]
 
-        return result
-
-    def get_grading_context(self) -> AbstractContextManager[EvalEngine]:
+    def get_grading_context(self) -> AbstractContextManager[PromptEvalEngine]:
         """
         Context manager for the grading process.
         """
         return self.get_judge_engine_context()
 
     @contextmanager
-    def get_judge_engine_context(self) -> Generator[EvalEngine, None, None]:
+    def get_judge_engine_context(self) -> Generator[PromptEvalEngine, None, None]:
         """
         Context manager for the judge engine. Creates an eval engine instance
-        (either VllmEvalEngine or TransformersEvalEngine) based on configuration.
+        (either VllmEvalEngine, TransformersEvalEngine, or ApiEvalEngine) based on configuration.
 
         Yields:
             The judge eval engine instance.
         """
+        judge_engine: PromptEvalEngine = self._build_eval_engine(
+            self.judge_engine,
+            is_judge=True,
+        )
+        judge_engine.set_dataset(self.eval_dataset)
+        preprocess_config = self.dataset_config.preprocess_config
+        judge_engine.set_preprocess_limits(
+            preprocess_config.max_length,
+            preprocess_config.gt_max_length,
+        )
         try:
-            if not (hasattr(self, "eval_engine") and self.eval_engine.is_judge):
-                judge_engine = None
-
-                self.prepare_judge_tokenizer()
-
-                # Create appropriate judge engine based on config
-                if self.judge_engine == "vllm":
-                    max_model_len = (
-                        self.eval_config.vllm_config.judge_max_model_len
-                        if self.eval_config.vllm_config
-                        else None
-                    )
-                    judge_engine = VllmEvalEngine(
-                        self.eval_config,
-                        is_judge=True,
-                        max_model_len=max_model_len,
-                    )
-                else:
-                    judge_engine = TransformersEvalEngine(
-                        self.data_collator,
-                        self.eval_config,
-                        is_judge=True,
-                    )
-                judge_engine.set_dataset(self.eval_dataset)
-
-                self.eval_engine = judge_engine
-            yield self.eval_engine
+            yield judge_engine
         finally:
-            if hasattr(self, "eval_engine"):
-                self.free_judge(self.eval_engine)
+            self.free_judge(judge_engine)

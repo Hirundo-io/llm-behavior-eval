@@ -21,22 +21,68 @@ from transformers.models.auto.tokenization_auto import AutoTokenizer
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.utils.quantization_config import BitsAndBytesConfig
 
-from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+from .vllm_config import VllmConfig
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
     from pydantic import BaseModel
-    from transformers import SentencePieceBackend, TokenizersBackend
     from transformers._typing import GenerativePreTrainedModel
-    from vllm import LLM
-    from vllm.model_executor.layers.quantization import QuantizationMethods
 
     from .vllm_types import TokenizerModeOption
 
 VLLMDType = Literal["bfloat16", "float16", "float32"]
+VLLMQuantization = Literal[
+    "awq",
+    "fp8",
+    "ptpc_fp8",
+    "fbgemm_fp8",
+    "fp_quant",
+    "bitsandbytes",
+]
+
+if TYPE_CHECKING:
+    from vllm import LLM
 
 DIGEST_SIZE_FOR_PEFT_PATHS = 8
+
+
+def raw_text_collator(batch: list[dict[str, Any]]) -> dict[str, list[Any]]:
+    if not batch:
+        return {}
+    return {key: [item[key] for item in batch] for key in batch[0]}
+
+
+def truncate_text_by_whitespace(text: str, max_tokens: int) -> str:
+    """Approximate token truncation by splitting on whitespace."""
+    if max_tokens <= 0:
+        return ""
+    tokens = text.split()
+    if len(tokens) <= max_tokens:
+        return text
+    return " ".join(tokens[:max_tokens])
+
+
+def truncate_text_with_tokenizer(
+    tokenizer: PreTrainedTokenizerBase,
+    text: str,
+    max_tokens: int,
+) -> str:
+    """Truncate text to at most `max_tokens` tokenizer tokens."""
+    if max_tokens <= 0:
+        return ""
+    token_ids = tokenizer.encode(text, add_special_tokens=False)
+    if len(token_ids) <= max_tokens:
+        return text
+    truncated_ids = token_ids[:max_tokens]
+    return cast(
+        "str",
+        tokenizer.decode(
+            truncated_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        ),
+    )
 
 
 def empty_cuda_cache_if_available() -> None:
@@ -47,7 +93,7 @@ def empty_cuda_cache_if_available() -> None:
 
 
 @contextmanager
-def _hf_token(token: str | None) -> Generator[None, None, None]:
+def _hf_token(token: str | None) -> Generator[None]:
     """
     If `token` is truthy, temporarily set HF_TOKEN for Hugging Face API calls;
     otherwise, do nothing.
@@ -200,7 +246,7 @@ def load_tokenizer_with_transformers(
     model_name: str,
     token: str | None = None,
     trust_remote_code: bool = False,
-) -> TokenizersBackend | SentencePieceBackend:
+) -> PreTrainedTokenizerBase:
     """
     Load a tokenizer by first trying the standard method and, if a ValueError
     is encountered, retry loading from a local path.
@@ -232,11 +278,8 @@ def load_tokenizer_with_transformers(
             trust_remote_code=trust_remote_code,
         )
         logging.info("Tokenizer loaded successfully from the local files.")
-    # Required for type checking
-    if tokenizer is None:
-        raise ValueError("Tokenizer is not supported!")
 
-    return tokenizer
+    return cast("PreTrainedTokenizerBase", tokenizer)
 
 
 def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
@@ -254,19 +297,24 @@ def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
 
 
 def is_model_multimodal(
-    repo_id: str, trust_remote_code: bool = False, token: str | None = None
+    repo_id: str,
+    trust_remote_code: bool = False,
+    token: str | None = None,
+    *,
+    allow_remote_lookup: bool = True,
 ) -> bool:
     """
     Decide whether the model should be loaded with a vision-capable architecture.
 
     This checks the model configuration for multimodal/vision hints and explicitly
-    enables the vision architecture when the config's ``model_type`` is listed for
-    ``AutoModelForImageTextToText`` in ``transformers`` (image / vision-language checkpoints).
+    enables the vision architecture when the config's model_type is in the SUPPORTED_MULTIMODAL_MODELS list.
 
     Args:
         repo_id: The repo-id or local path of the model to load.
         trust_remote_code: Whether to trust remote code.
         token: The HuggingFace token to use for accessing gated models.
+        allow_remote_lookup: Whether to fall back to a remote config lookup when
+            local cache resolution fails.
 
     Returns:
         True if the model should be loaded with a vision-capable architecture, False otherwise.
@@ -280,6 +328,8 @@ def is_model_multimodal(
             token=token,
         )
     except Exception:
+        if not allow_remote_lookup:
+            return False
         # Fallback to remote if not cached locally
         config = AutoConfig.from_pretrained(
             repo_id, trust_remote_code=trust_remote_code, token=token
@@ -318,7 +368,7 @@ def load_vllm_model(
     token: str | None = None,
     tensor_parallel_size: int | None = None,
     enforce_eager: bool = False,
-    quantization: QuantizationMethods | None = None,
+    quantization: VLLMQuantization | None = None,
     max_model_len: int | None = None,
     tokenizer_mode: TokenizerModeOption | None = None,
     config_format: str | None = None,
@@ -350,15 +400,14 @@ def load_vllm_model(
     Returns:
         An initialized ``vllm.LLM`` instance.
     """
+
     try:
         from vllm import LLM
         from vllm.config import CompilationConfig
-    except ModuleNotFoundError as exc:
-        raise ModuleNotFoundError(
+    except ImportError as exc:
+        raise ImportError(
             "vLLM is not installed. Install it with `uv pip install llm-behavior-eval[vllm]` to enable vllm for inference (e.g. when using the --inference-engine argument)."
         ) from exc
-
-    os.environ.setdefault("VLLM_USE_AOT_COMPILE", "0")
 
     dtype_literal = torch_dtype_to_str(dtype)
 
@@ -376,7 +425,7 @@ def load_vllm_model(
             trust_remote_code=trust_remote_code,
             dtype=dtype_literal,
             enforce_eager=enforce_eager,
-            quantization=quantization,
+            quantization=cast("Any", quantization),
             tensor_parallel_size=tensor_parallel
             if tensor_parallel is not None
             else default_tensor_parallel,
@@ -392,7 +441,6 @@ def load_vllm_model(
             language_model_only=language_model_only,
             compilation_config=CompilationConfig(cudagraph_specialize_lora=False),
         )
-
     return llm_instance
 
 
@@ -420,6 +468,8 @@ def load_transformers_model_and_tokenizer(
     use_4bit: bool = False,
     device_map: str | dict[str, int] | None = "auto",
     trust_remote_code: bool = False,
+    *,
+    tokenizer_name_or_path: str | None = None,
 ) -> tuple[PreTrainedTokenizerBase, GenerativePreTrainedModel]:
     """
     Load a tokenizer and a causal language model based on the model name/path,
@@ -434,6 +484,8 @@ def load_transformers_model_and_tokenizer(
         use_4bit: If True, load the model in 4-bit mode using bitsandbytes.
         device_map: The device map to use for the model.
         trust_remote_code: Whether to trust remote code.
+        tokenizer_name_or_path: Optional tokenizer repo-id or local path.
+            Defaults to `model_name` when omitted.
 
     Returns:
         A tuple containing the loaded tokenizer and model.
@@ -442,12 +494,17 @@ def load_transformers_model_and_tokenizer(
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = pick_best_dtype(device)
     logging.info("Using dtype: %s", dtype)
+
     # Load tokenizer
+    resolved_tokenizer_name = tokenizer_name_or_path or model_name
     tokenizer = load_tokenizer_with_transformers(
-        model_name, token=token, trust_remote_code=trust_remote_code
+        resolved_tokenizer_name,
+        token=token,
+        trust_remote_code=trust_remote_code,
     )
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
         raise ValueError("Tokenizer is not supported!")
+
     # Optionally adjust the tokenizer settings (e.g., for padding)
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
@@ -466,7 +523,7 @@ def load_transformers_model_and_tokenizer(
     if is_model_multimodal(model_name, trust_remote_code, token):
         model = AutoModelForImageTextToText.from_pretrained(
             model_name,
-            dtype=dtype,
+            torch_dtype=dtype,
             device_map=device_map,
             low_cpu_mem_usage=True,
             quantization_config=quantization_config,
@@ -476,7 +533,7 @@ def load_transformers_model_and_tokenizer(
     else:
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            dtype=dtype,
+            torch_dtype=dtype,
             device_map=device_map,
             low_cpu_mem_usage=True,
             quantization_config=quantization_config,
