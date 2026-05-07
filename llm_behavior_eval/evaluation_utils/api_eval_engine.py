@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
+from pydantic import BaseModel, ConfigDict
 from tqdm import tqdm
 
 from .eval_engine import EvalDataset, JudgePrompt, PromptEvalEngine
@@ -28,6 +29,47 @@ DEFAULT_API_BATCH_CONCURRENCY = 10
 DEFAULT_API_BATCH_MULTIPLIER = 5
 
 
+Message = dict[str, str]
+
+
+class ApiEvalEngineError(RuntimeError):
+    """Raised when API inference fails before a valid model response exists."""
+
+
+class _CompletionKwargs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_tokens: int
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    seed: int | None = None
+
+
+class _LiteLLMMessage(Protocol):
+    @property
+    def content(self) -> str | None: ...
+
+
+class _LiteLLMChoice(Protocol):
+    @property
+    def message(self) -> _LiteLLMMessage: ...
+
+
+class _LiteLLMResponse(Protocol):
+    @property
+    def id(self) -> str | None: ...
+
+    @property
+    def model(self) -> str | None: ...
+
+    @property
+    def object(self) -> str | None: ...
+
+    @property
+    def choices(self) -> Sequence[_LiteLLMChoice]: ...
+
+
 def _read_env_int(name: str, default: int, *, min_value: int | None = None) -> int:
     value = os.getenv(name)
     if value is None:
@@ -42,9 +84,6 @@ def _read_env_int(name: str, default: int, *, min_value: int | None = None) -> i
 
 
 class ApiEvalEngine(PromptEvalEngine):
-    # API engines do not load a local tokenizer; the provider handles formatting.
-    tokenizer: None = None
-
     def __init__(
         self, eval_config: EvaluationConfig, *, is_judge: bool = False
     ) -> None:
@@ -101,11 +140,10 @@ class ApiEvalEngine(PromptEvalEngine):
         if not prompts:
             return []
 
-        # Build base kwargs (shared params)
+        self._validate_model_identifier()
         base_kwargs = self._build_base_completion_kwargs(sampling_config)
-
-        # Normalize all messages
-        all_messages = [self._normalize_messages(prompt) for prompt in prompts]
+        completion_kwargs = base_kwargs.model_dump(exclude_none=True)
+        all_messages = [self._messages_for_completion(prompt) for prompt in prompts]
         if self._max_input_tokens is not None:
             all_messages = [
                 self._trim_messages_to_limit(messages) for messages in all_messages
@@ -127,9 +165,11 @@ class ApiEvalEngine(PromptEvalEngine):
             responses = self._litellm.batch_completion(
                 model=self.model_name,
                 messages=chunk_messages,
-                **base_kwargs,
+                **completion_kwargs,
             )
             for response in responses:
+                if isinstance(response, Exception):
+                    raise self._build_api_error(response)
                 answers.append(self._extract_content(response))
 
         return answers
@@ -147,8 +187,29 @@ class ApiEvalEngine(PromptEvalEngine):
     def free_model(self) -> None:
         return None
 
+    def _validate_model_identifier(self) -> None:
+        try:
+            self._litellm.get_llm_provider(model=self.model_name)
+        except Exception as exc:
+            raise self._build_api_error(exc) from exc
+
+    def _build_api_error(self, error: Exception) -> ApiEvalEngineError:
+        role = "judge" if self.is_judge else "model"
+        provider_prefix = self.model_name.split("/", 1)[0]
+        provider_values = [
+            provider.value if hasattr(provider, "value") else str(provider)
+            for provider in self._litellm.provider_list
+        ]
+        provider_hint = ", ".join(sorted(provider_values))
+        return ApiEvalEngineError(
+            f"LiteLLM API {role} call failed for model '{self.model_name}' "
+            f"with {type(error).__name__}: {error}. "
+            f"Configured provider prefix: '{provider_prefix}'. "
+            f"Valid LiteLLM provider prefixes include: {provider_hint}."
+        )
+
     @staticmethod
-    def _normalize_messages(prompt: JudgePrompt) -> list[dict[str, str]]:
+    def _messages_for_completion(prompt: JudgePrompt) -> list[Message]:
         if isinstance(prompt, str):
             return [{"role": "user", "content": prompt}]
         return prompt
@@ -178,8 +239,8 @@ class ApiEvalEngine(PromptEvalEngine):
 
     def _trim_messages_to_limit(
         self,
-        messages: list[dict[str, str]],
-    ) -> list[dict[str, str]]:
+        messages: list[Message],
+    ) -> list[Message]:
         max_tokens = self._max_input_tokens
         if max_tokens is None:
             return messages
@@ -200,7 +261,7 @@ class ApiEvalEngine(PromptEvalEngine):
     def _build_base_completion_kwargs(
         self,
         sampling_config: SamplingConfig,
-    ) -> dict[str, Any]:
+    ) -> _CompletionKwargs:
         """Build completion kwargs without model/messages.
 
         Args:
@@ -214,22 +275,23 @@ class ApiEvalEngine(PromptEvalEngine):
         if do_sample is False:
             temperature = 0.0
 
-        kwargs: dict[str, Any] = {
-            "max_tokens": (
+        kwargs = _CompletionKwargs(
+            max_tokens=(
                 self.eval_config.max_judge_tokens
                 if self.is_judge
                 else self.eval_config.max_answer_tokens
-            ),
-        }
+            )
+        )
         if temperature is not None:
-            kwargs["temperature"] = temperature
-        if sampling_config.top_p is not None:
-            kwargs["top_p"] = sampling_config.top_p
+            kwargs.temperature = temperature
+        # Avoid sending neutral sampling defaults that some LiteLLM providers reject.
+        if sampling_config.top_p is not None and sampling_config.top_p != 1.0:
+            kwargs.top_p = sampling_config.top_p
         # Only pass top_k if it's a positive value (some providers like Azure don't support it)
         if sampling_config.top_k is not None and sampling_config.top_k > 0:
-            kwargs["top_k"] = sampling_config.top_k
+            kwargs.top_k = sampling_config.top_k
         if sampling_config.seed is not None:
-            kwargs["seed"] = sampling_config.seed
+            kwargs.seed = sampling_config.seed
         return kwargs
 
     def _get_default_api_batch_size(self) -> int:
@@ -253,16 +315,32 @@ class ApiEvalEngine(PromptEvalEngine):
                 return max(1, min(len(self.dataset), estimated))
             except TypeError:
                 # Some dataset implementations may not support len(); fall back.
+                logging.info(
+                    "Dataset %s does not support len(); using default API batch size %s.",
+                    type(self.dataset).__name__,
+                    estimated,
+                )
                 return estimated
         return estimated
 
     @staticmethod
-    def _extract_content(response: Any) -> str:
-        try:
-            return str(response.choices[0].message.content or "")
-        except Exception:
+    def _extract_content(response: Any | None) -> str:
+        if response is None:
             return ""
-
-    def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
-        """For API engines, return messages unchanged (no tokenization needed)."""
-        return messages
+        try:
+            content = response.choices[0].message.content
+        except (AttributeError, IndexError):
+            return ""
+        if content is None:
+            response_id = response.id if hasattr(response, "id") else None
+            response_model = response.model if hasattr(response, "model") else None
+            response_object = response.object if hasattr(response, "object") else None
+            logging.debug(
+                "LiteLLM response had empty message content "
+                "(response_id=%s, response_model=%s, response_object=%s).",
+                response_id,
+                response_model,
+                response_object,
+            )
+            return ""
+        return content

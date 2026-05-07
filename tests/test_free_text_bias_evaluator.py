@@ -6,7 +6,11 @@ from typing import cast
 import pytest
 
 pytest.importorskip("torch")
+from datasets import Dataset
 
+from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
+from llm_behavior_eval.evaluation_utils.enums import DatasetType
+from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
 from llm_behavior_eval.evaluation_utils.eval_engine import EvalDataset, PromptEvalEngine
 from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
     Agreement,
@@ -126,3 +130,51 @@ def test_match_llm_answers_combined_path_matches_split_path(
     ]
     assert len(combined_batches) == 1
     assert len(split_batches) == 3
+
+
+def test_update_dataset_config_after_freeing_test_engine_uses_grading_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    evaluator = FreeTextBiasEvaluator.__new__(FreeTextBiasEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        max_samples=1,
+        batch_size=4,
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path="old-dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator.data_collator = lambda batch: batch
+    evaluator._selected_sample_indices = []
+
+    class FakeCustomDataset:
+        has_stereotype = True
+
+        def __init__(self, file_path: str, dataset_type: DatasetType) -> None:
+            assert file_path == "new-dataset"
+            assert dataset_type == DatasetType.UNBIAS
+
+        def preprocess(self, preprocess_config, *, raw_text_truncator=None):
+            assert raw_text_truncator is None
+            del preprocess_config
+            return Dataset.from_dict({"questions": ["q1", "q2"]})
+
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.base_evaluator.CustomDataset",
+        FakeCustomDataset,
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "_ensure_run_configuration_allowed",
+        lambda: None,
+    )
+
+    evaluator.update_dataset_config(
+        DatasetConfig(file_path="new-dataset", dataset_type=DatasetType.UNBIAS)
+    )
+
+    assert evaluator.num_samples == 1
+    assert len(evaluator.eval_dataset) == 1
+    assert evaluator.has_stereotype is True

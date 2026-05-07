@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import logging
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
-from llm_behavior_eval.evaluation_utils.api_eval_engine import ApiEvalEngine
+from llm_behavior_eval.evaluation_utils.api_eval_engine import (
+    ApiEvalEngine,
+    ApiEvalEngineError,
+)
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
 from llm_behavior_eval.evaluation_utils.eval_engine import PromptEvalEngine
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 
-def _make_response(content: str) -> object:
+def _make_response(content: str | None) -> Any:
     """Build a ModelResponse-shaped object matching LiteLLM's real return type."""
     message = SimpleNamespace(content=content)
     choice = SimpleNamespace(message=message)
@@ -20,14 +24,21 @@ def _make_response(content: str) -> object:
 
 class FakeLiteLLM:
     def __init__(self) -> None:
-        self.calls: list[dict[str, object]] = []
+        self.calls: list[dict[str, Any]] = []
         self.suppress_debug_info = False
+        self.provider_list = ["azure", "openai"]
 
-    def completion(self, **kwargs):
+    def completion(self, **kwargs) -> Any:
         self.calls.append(kwargs)
         return _make_response("ok")
 
-    def batch_completion(self, model, messages, **kwargs):
+    def get_llm_provider(self, *, model: str) -> tuple[str, str, None, None]:
+        provider_prefix = model.split("/", 1)[0]
+        if provider_prefix not in self.provider_list:
+            raise ValueError("LLM Provider NOT provided")
+        return model, provider_prefix, None, None
+
+    def batch_completion(self, model, messages, **kwargs) -> list[Any]:
         """Batch completion returns a list of responses, one per message list."""
         self.calls.append({"model": model, "messages": messages, **kwargs})
         return [_make_response("ok") for _ in messages]
@@ -105,6 +116,24 @@ def test_api_eval_engine_model_uses_answer_tokens(tmp_path, monkeypatch) -> None
     assert call_kwargs["max_tokens"] == evaluation_config.max_answer_tokens
 
 
+def test_api_eval_engine_omits_default_top_p(tmp_path, monkeypatch) -> None:
+    fake_litellm = patch_litellm(monkeypatch)
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="azure/models/gpt-5.4-nano",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    answers = engine.generate_answers_from_prompts(
+        [[{"role": "user", "content": "hello"}]],
+        SamplingConfig(do_sample=False, top_p=1.0),
+    )
+
+    assert answers == ["ok"]
+    assert "top_p" not in fake_litellm.calls[0]
+
+
 def test_api_eval_engine_allows_missing_model_tokenizer(tmp_path, monkeypatch) -> None:
     patch_litellm(monkeypatch)
 
@@ -155,7 +184,7 @@ def test_api_eval_engine_default_batch_size_uses_env_and_dataset(
         def __len__(self) -> int:
             return 7
 
-        def __getitem__(self, index: int) -> object:
+        def __getitem__(self, index: int) -> Any:
             raise IndexError
 
     engine.set_dataset(FakeDataset())
@@ -183,7 +212,7 @@ def test_api_eval_engine_default_judge_batch_size_uses_env_and_dataset(
         def __len__(self) -> int:
             return 5
 
-        def __getitem__(self, index: int) -> object:
+        def __getitem__(self, index: int) -> Any:
             raise IndexError
 
     engine.set_dataset(FakeDataset())
@@ -223,8 +252,8 @@ def test_api_eval_engine_raw_text_truncator_uses_model_tokenization(
     class FakeLiteLLMWithTokenizer(FakeLiteLLM):
         def __init__(self) -> None:
             super().__init__()
-            self.encode_calls: list[dict[str, object]] = []
-            self.decode_calls: list[dict[str, object]] = []
+            self.encode_calls: list[dict[str, Any]] = []
+            self.decode_calls: list[dict[str, Any]] = []
 
         def encode(self, model: str, text: str, **kwargs):
             self.encode_calls.append({"model": model, "text": text})
@@ -281,7 +310,7 @@ def test_api_eval_engine_raw_text_truncator_warns_and_falls_back(
 def test_api_eval_engine_applies_prompt_level_message_trimming(
     tmp_path, monkeypatch
 ) -> None:
-    trim_calls: list[dict[str, object]] = []
+    trim_calls: list[dict[str, Any]] = []
 
     def fake_trim_messages(messages, model=None, max_tokens=None, **kwargs):
         trim_calls.append(
@@ -329,6 +358,14 @@ def test_api_eval_engine_extract_content_from_response_object(
     assert ApiEvalEngine._extract_content(response) == "hello world"
 
 
+def test_api_eval_engine_extract_content_preserves_valid_empty_response(
+    tmp_path, monkeypatch
+) -> None:
+    """A valid LiteLLM response with null content remains a model empty response."""
+    response = _make_response(None)
+    assert ApiEvalEngine._extract_content(response) == ""
+
+
 def test_api_eval_engine_extract_content_returns_empty_on_error(
     tmp_path, monkeypatch
 ) -> None:
@@ -336,6 +373,62 @@ def test_api_eval_engine_extract_content_returns_empty_on_error(
     assert ApiEvalEngine._extract_content(None) == ""
     assert ApiEvalEngine._extract_content(SimpleNamespace(choices=[])) == ""
     assert ApiEvalEngine._extract_content(SimpleNamespace()) == ""
+
+
+def test_api_eval_engine_rejects_unrecognized_litellm_provider_prefix(
+    tmp_path, monkeypatch
+) -> None:
+    patch_litellm(monkeypatch)
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="azure-openai/models/gpt-5.4-nano",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    with pytest.raises(ApiEvalEngineError) as exc_info:
+        engine.generate_answers_from_prompts(
+            ["Explain this."],
+            SamplingConfig(do_sample=False),
+        )
+
+    message = str(exc_info.value)
+    assert "LiteLLM API model call failed" in message
+    assert "azure-openai/models/gpt-5.4-nano" in message
+    assert "Configured provider prefix: 'azure-openai'" in message
+    assert "Valid LiteLLM provider prefixes include" in message
+    assert "azure" in message
+
+
+def test_api_eval_engine_raises_on_batch_completion_exception(
+    tmp_path, monkeypatch
+) -> None:
+    class FakeLiteLLMWithFailure(FakeLiteLLM):
+        def batch_completion(self, model, messages, **kwargs) -> list[Any]:
+            self.calls.append({"model": model, "messages": messages, **kwargs})
+            return [RuntimeError("provider rejected request")]
+
+    fake_litellm = FakeLiteLLMWithFailure()
+    monkeypatch.setattr(
+        ApiEvalEngine, "_load_litellm", staticmethod(lambda: fake_litellm)
+    )
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="openai/gpt-4o",
+        model_engine="api",
+        results_dir=tmp_path,
+    )
+    engine = ApiEvalEngine(evaluation_config, is_judge=False)
+
+    with pytest.raises(ApiEvalEngineError) as exc_info:
+        engine.generate_answers_from_prompts(
+            [[{"role": "user", "content": "hello"}]],
+            SamplingConfig(do_sample=False),
+        )
+
+    message = str(exc_info.value)
+    assert "LiteLLM API model call failed" in message
+    assert "RuntimeError: provider rejected request" in message
+    assert "openai/gpt-4o" in message
 
 
 def test_api_eval_engine_normalizes_string_prompts(tmp_path, monkeypatch) -> None:

@@ -668,6 +668,8 @@ def main(
             ):
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
                 evaluator.update_dataset_config(dataset_config)
+                if judge is not None:
+                    judge.set_dataset(evaluator.eval_dataset)
                 with evaluator.dataset_mlflow_run():
                     evaluator.grade(generations, judge)
         evaluation_error = False

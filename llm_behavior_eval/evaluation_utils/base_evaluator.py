@@ -10,7 +10,7 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypedDict, cast
 
 import pandas as pd
 import torch
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
 
     from datasets import Dataset as HFDataset
+    from mlflow.entities import Run
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
     from .dataset_config import DatasetConfig
@@ -48,6 +49,11 @@ if TYPE_CHECKING:
 
 class SamplingParamsProtocol(Protocol):
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+
+
+JsonScalar: TypeAlias = str | int | float | bool | None
+JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
+ResponseRecord: TypeAlias = dict[str, JsonValue]
 
 
 # Optional MLflow imports
@@ -135,7 +141,7 @@ class BaseEvaluator(ABC):
         """
         self.eval_config = eval_config
         self.dataset_config = dataset_config
-        self.models_tokenizers_pairs = {}
+        self.models_tokenizers_pairs: dict[str, PreTrainedTokenizerBase | None] = {}
         self.inference_engine = eval_config.inference_engine
         self.model_engine = eval_config.inference_engine or eval_config.model_engine
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
@@ -146,13 +152,9 @@ class BaseEvaluator(ABC):
         self._set_seed()
 
         # MLflow config (optional)
-        self.mlflow_config: MlflowConfig | None = (
-            self.eval_config.mlflow_config
-            if hasattr(self.eval_config, "mlflow_config")
-            else None
-        )
-        self.mlflow_run = None
-        self.parent_run = None
+        self.mlflow_config: MlflowConfig | None = self.eval_config.mlflow_config
+        self.mlflow_run: Run | None = None
+        self.parent_run: Run | None = None
         self._started_mlflow_run = False
         self._mlflow_run_artifact_timestamp: str | None = None
         if self.mlflow_config:
@@ -166,8 +168,6 @@ class BaseEvaluator(ABC):
         self.trust_remote_code = self.eval_config.trust_remote_code
         self.prepare_dataloader()
         self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
-        # set stereotype availability flag from underlying dataset
-        self.has_stereotype: bool = getattr(self, "has_stereotype", False)
         self._remembered_run_config_action: str | None = None
         self._remember_choice_prompt_asked = False
         if self.eval_config.mlflow_config and mlflow:
@@ -181,7 +181,7 @@ class BaseEvaluator(ABC):
         initializing the full judge pipeline. This keeps memory lower while
         constructing representative prompts used for batch-size probing.
         """
-        if getattr(self, "judge_tokenizer", None) is not None:
+        if self.judge_tokenizer is not None:
             return
         # Prompt-only provider engines do not need a local tokenizer.
         if self.judge_engine == "api":
@@ -211,7 +211,7 @@ class BaseEvaluator(ABC):
         reasoning: bool | None = None,
         pass_max_answer_tokens: bool | None = None,
     ) -> JudgePrompt:
-        judge_tokenizer = getattr(judge_engine, "tokenizer", None)
+        judge_tokenizer = judge_engine.tokenizer if judge_engine is not None else None
         if judge_tokenizer is None:
             self.prepare_judge_tokenizer()
             judge_tokenizer = self.judge_tokenizer
@@ -232,7 +232,9 @@ class BaseEvaluator(ABC):
             else max_answer_tokens
         )
         resolved_is_multimodal = (
-            getattr(judge_engine, "is_multimodal", False)
+            judge_engine.is_multimodal
+            if judge_engine is not None
+            else False
             if is_multimodal is None
             else is_multimodal
         )
@@ -333,7 +335,7 @@ class BaseEvaluator(ABC):
             collate_fn=self.data_collator,
         )
         # propagate flag
-        self.has_stereotype = getattr(custom_dataset, "has_stereotype", False)
+        self.has_stereotype = custom_dataset.has_stereotype
 
     def generate_answers_from_prompts(
         self,
@@ -435,8 +437,44 @@ class BaseEvaluator(ABC):
         """
         self.dataset_config = dataset_config
         self._set_seed()
-        self.prepare_dataloader()
+        if hasattr(self, "eval_engine"):
+            self.prepare_dataloader()
+        else:
+            self.prepare_dataset_for_grading()
         self._ensure_run_configuration_allowed()
+
+    def prepare_dataset_for_grading(self) -> None:
+        """
+        Prepare dataset metadata after the test model has been freed.
+
+        Free-text CLI evaluation generates all datasets first, frees the test
+        model, then switches dataset configs while grading. At that point
+        `eval_engine` no longer exists, but grading still needs the selected
+        dataset, sample count, and stereotype flag for metrics and judge setup.
+        """
+        custom_dataset = CustomDataset(
+            self.dataset_config.file_path, self.dataset_config.dataset_type
+        )
+        preprocess_config = self.dataset_config.preprocess_config
+        test_dataset = custom_dataset.preprocess(preprocess_config)
+        test_dataset = cast(
+            "HFDataset",
+            test_dataset.shuffle(seed=self._resolved_dataset_shuffle_seed()),
+        )
+        self.num_samples = (
+            min(len(test_dataset), self.eval_config.max_samples)
+            if self.eval_config.max_samples
+            else len(test_dataset)
+        )
+        self._selected_sample_indices = list(range(self.num_samples))
+        self.eval_dataset = test_dataset.select(self._selected_sample_indices)
+        self.eval_loader = DataLoader(
+            cast("TorchDataset", self.eval_dataset),
+            batch_size=self.eval_config.batch_size or 1,
+            shuffle=False,
+            collate_fn=self.data_collator,
+        )
+        self.has_stereotype = custom_dataset.has_stereotype
 
     @abstractmethod
     def get_grading_context(self) -> AbstractContextManager:
@@ -449,7 +487,7 @@ class BaseEvaluator(ABC):
 
     def save_results(
         self,
-        responses: list[dict],
+        responses: list[ResponseRecord],
         accuracy: float,
         stereotyped_bias: float | None,
         empty_responses: int,
@@ -830,8 +868,8 @@ class BaseEvaluator(ABC):
         return self.get_output_dir() / "metrics.csv"
 
     class RunConfig(TypedDict):
-        evaluation_config: dict[str, Any]
-        dataset_config: dict[str, Any]
+        evaluation_config: dict[str, JsonValue]
+        dataset_config: dict[str, JsonValue]
 
     def free_test_model(self) -> None:
         self.eval_engine.free_model()
@@ -985,7 +1023,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
     def load_generations(
         self, filename: str = "generations.jsonl"
-    ) -> list[dict] | None:
+    ) -> list[ResponseRecord] | None:
         path = self.generations_path(filename)
         if path.exists():
             with open(path) as file_handle:
@@ -999,7 +1037,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             path.unlink()
 
     def save_generations(
-        self, items: list[dict], filename: str = "generations.jsonl"
+        self, items: list[ResponseRecord], filename: str = "generations.jsonl"
     ) -> None:
         path = self.generations_path(filename)
         with open(path, "a") as file_handle:
@@ -1009,7 +1047,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
 
     def load_completed_generation_dicts(
         self, filename: str = "generations.jsonl"
-    ) -> list[dict]:
+    ) -> list[ResponseRecord]:
         """
         Load completed generations, logging reuse before appending new batches.
         """

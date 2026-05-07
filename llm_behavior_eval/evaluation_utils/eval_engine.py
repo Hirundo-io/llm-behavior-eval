@@ -18,6 +18,8 @@ JudgePrompt = str | list[dict[str, str]]
 
 class PromptEvalEngine(ABC):
     is_judge: bool = False
+    is_multimodal: bool = False
+    tokenizer: PreTrainedTokenizerBase | None = None
 
     @abstractmethod
     def set_dataset(self, eval_dataset: EvalDataset) -> None:
@@ -70,10 +72,9 @@ class PromptEvalEngine(ABC):
         """
         return False
 
-    @abstractmethod
     def format_prompt(self, messages: list[dict[str, str]]) -> JudgePrompt:
         """Format messages into a prompt suitable for this engine."""
-        raise NotImplementedError("Subclasses must implement format_prompt().")
+        return messages
 
     def normalize_prompts_to_strings(self, prompts: list[JudgePrompt]) -> list[str]:
         """Normalize mixed prompt inputs into string prompts.
