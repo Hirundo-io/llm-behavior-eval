@@ -4,13 +4,16 @@ import logging
 import os
 from typing import Any, cast
 
+LITELLM_LOGGER_NAMES = ("LiteLLM", "litellm")
+
 
 def suppress_litellm_logging(litellm_module: Any) -> None:
     """Suppress verbose LiteLLM logs unless debug mode is explicitly enabled."""
     if os.getenv("LITELLM_DEBUG"):
         return
     cast("Any", litellm_module).suppress_debug_info = True
-    logging.getLogger("litellm").setLevel(logging.WARNING)
+    for logger_name in LITELLM_LOGGER_NAMES:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
 def call_litellm_encode(
