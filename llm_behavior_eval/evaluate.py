@@ -358,7 +358,7 @@ def main(
     enable_thinking: Annotated[
         bool,
         typer.Option(
-            "--thinking_on/--thinking_off",
+            "--thinking-on/--thinking-off",
             help="Enable thinking (if supported by the tokenizer and model)",
         ),
     ] = False,
