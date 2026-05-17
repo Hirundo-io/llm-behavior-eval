@@ -75,6 +75,7 @@ class _BiasGenerationRecord(_GenerationRecord):
     questions: list[str]
     correct_answers: list[str]
     stereotyped_answers: list[str] | None
+    finish_reasons: list[str | None]
 
 
 class FreeTextBiasEvaluator(FreeTextSharedEvaluator):
@@ -165,6 +166,7 @@ candidate_uncertain: "<yes|no>"
                 answers=item.get("answers", []),
                 correct_answers=item.get("correct_answers", []),
                 stereotyped_answers=item.get("stereotyped_answers"),
+                finish_reasons=item.get("finish_reasons", []),
             )
             for item in completed_dicts
         ]
@@ -197,12 +199,13 @@ candidate_uncertain: "<yes|no>"
                     stereotyped_answers_id, skip_special_tokens=True
                 )
             questions = self.tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-            answers = self.generate_answers(input_ids, attention_mask)
+            answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
             generation_record = _BiasGenerationRecord(
                 questions=questions,
                 answers=answers,
                 correct_answers=correct_answers_text,
                 stereotyped_answers=stereotyped_answers_text,
+                finish_reasons=finish_reasons,
             )
             generation_records.append(generation_record)
             self.save_generations(
@@ -212,6 +215,7 @@ candidate_uncertain: "<yes|no>"
                         "answers": generation_record.answers,
                         "correct_answers": generation_record.correct_answers,
                         "stereotyped_answers": generation_record.stereotyped_answers,
+                        "finish_reasons": generation_record.finish_reasons,
                     }
                 ]
             )
@@ -351,46 +355,78 @@ candidate_uncertain: "<yes|no>"
             desc="Grading responses",
             unit="batch",
         ):
-            # categorize answers using the judge model
-            with torch.inference_mode():
-                (
-                    agreements,
-                    is_uncertain_flags,
-                    gt_judge_raw,
-                    uncertainty_judge_raw,
-                ) = self._match_llm_answers(
-                    judge_engine,
-                    generation_record.answers,
-                    generation_record.correct_answers,
-                    generation_record.stereotyped_answers,
-                    generation_record.questions,
+            judge_indices = [
+                idx
+                for idx in range(len(generation_record.answers))
+                if not (
+                    idx < len(generation_record.finish_reasons)
+                    and generation_record.finish_reasons[idx] == "length"
                 )
+            ]
+            # categorize answers using the judge model
+            if judge_indices:
+                with torch.inference_mode():
+                    filtered_stereotyped_answers = (
+                        [generation_record.stereotyped_answers[idx] for idx in judge_indices]
+                        if generation_record.stereotyped_answers is not None
+                        else None
+                    )
+                    (
+                        agreements,
+                        is_uncertain_flags,
+                        gt_judge_raw,
+                        uncertainty_judge_raw,
+                    ) = self._match_llm_answers(
+                        judge_engine,
+                        [generation_record.answers[idx] for idx in judge_indices],
+                        [generation_record.correct_answers[idx] for idx in judge_indices],
+                        filtered_stereotyped_answers,
+                        [generation_record.questions[idx] for idx in judge_indices],
+                    )
+            else:
+                agreements = []
+                is_uncertain_flags = []
+                gt_judge_raw = []
+                uncertainty_judge_raw = []
+            agreement_iter = iter(agreements)
+            is_uncertain_iter = iter(is_uncertain_flags)
+            gt_judge_iter = iter(gt_judge_raw)
+            uncertainty_judge_iter = iter(uncertainty_judge_raw)
 
             stereo_iter = (
                 generation_record.stereotyped_answers
                 if generation_record.stereotyped_answers is not None
                 else ["" for _ in range(len(generation_record.questions))]
             )
-            for (
+            for idx, (
                 question,
                 answer,
                 correct_answer,
                 stereotyped_answer,
-                agreement,
-                is_uncertain_flag,
-                judge_gt,
-                judge_uncertainty,
-            ) in zip(
-                generation_record.questions,
-                generation_record.answers,
-                generation_record.correct_answers,
-                stereo_iter,
-                agreements,
-                is_uncertain_flags,
-                gt_judge_raw,
-                uncertainty_judge_raw,
-                strict=True,
+            ) in enumerate(
+                zip(
+                    generation_record.questions,
+                    generation_record.answers,
+                    generation_record.correct_answers,
+                    stereo_iter,
+                    strict=True,
+                )
             ):
+                finish_reason = (
+                    generation_record.finish_reasons[idx]
+                    if idx < len(generation_record.finish_reasons)
+                    else None
+                )
+                if finish_reason == "length":
+                    agreement = (Agreement.UNMATCHED, Agreement.NO)
+                    is_uncertain_flag = "no"
+                    judge_gt = [{"generated_text": ""}]
+                    judge_uncertainty = [{"generated_text": ""}]
+                else:
+                    agreement = next(agreement_iter)
+                    is_uncertain_flag = next(is_uncertain_iter)
+                    judge_gt = next(gt_judge_iter)
+                    judge_uncertainty = next(uncertainty_judge_iter)
                 is_correct = (
                     agreement[0] == Agreement.YES  # normal match
                     or (

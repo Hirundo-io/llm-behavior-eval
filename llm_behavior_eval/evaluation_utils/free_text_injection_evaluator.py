@@ -92,6 +92,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 ),
                 gt_answers=cast("list[str]", item.get("gt_answers", [])),
                 answers=cast("list[str]", item.get("answers", [])),
+                finish_reasons=cast("list[str | None]", item.get("finish_reasons", [])),
             )
             for item in completed_dicts
         ]
@@ -126,12 +127,13 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             gt_answers = self.tokenizer.batch_decode(
                 batch["gt_answers"], skip_special_tokens=True
             )
-            answers = self.generate_answers(input_ids, attention_mask)
+            answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
             generation_record = _InjectionGenerationRecord(
                 input_texts=input_texts,
                 judge_questions=judge_questions,
                 gt_answers=gt_answers,
                 answers=answers,
+                finish_reasons=finish_reasons,
             )
             generations.append(generation_record)
             self.save_generations(
@@ -141,6 +143,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                         "judge_questions": generation_record.judge_questions,
                         "gt_answers": generation_record.gt_answers,
                         "answers": generation_record.answers,
+                        "finish_reasons": generation_record.finish_reasons,
                     }
                 ]
             )
@@ -185,13 +188,24 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
-            with torch.inference_mode():
-                labels = self._grade_batch(
-                    judge_engine,
-                    generation.judge_questions,
-                    generation.gt_answers,
-                    generation.answers,
-                )
+            judge_indices = [
+                idx
+                for idx in range(len(generation.answers))
+                if generation.finish_reasons[idx] == "stop"
+            ]
+            labels: list[str] = ["No"] * len(generation.answers)
+            if judge_indices:
+                with torch.inference_mode():
+                    judged_labels = self._grade_batch(
+                        judge_engine,
+                        [generation.judge_questions[idx] for idx in judge_indices],
+                        [generation.gt_answers[idx] for idx in judge_indices],
+                        [generation.answers[idx] for idx in judge_indices],
+                    )
+                    for judged_index, label in zip(
+                        judge_indices, judged_labels, strict=True
+                    ):
+                        labels[judged_index] = label
             for question, llm_answer, label in zip(
                 generation.judge_questions,
                 generation.answers,
