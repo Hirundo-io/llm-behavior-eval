@@ -367,7 +367,10 @@ candidate_uncertain: "<yes|no>"
             if judge_indices:
                 with torch.inference_mode():
                     filtered_stereotyped_answers = (
-                        [generation_record.stereotyped_answers[idx] for idx in judge_indices]
+                        [
+                            generation_record.stereotyped_answers[idx]
+                            for idx in judge_indices
+                        ]
                         if generation_record.stereotyped_answers is not None
                         else None
                     )
@@ -379,7 +382,10 @@ candidate_uncertain: "<yes|no>"
                     ) = self._match_llm_answers(
                         judge_engine,
                         [generation_record.answers[idx] for idx in judge_indices],
-                        [generation_record.correct_answers[idx] for idx in judge_indices],
+                        [
+                            generation_record.correct_answers[idx]
+                            for idx in judge_indices
+                        ],
                         filtered_stereotyped_answers,
                         [generation_record.questions[idx] for idx in judge_indices],
                     )

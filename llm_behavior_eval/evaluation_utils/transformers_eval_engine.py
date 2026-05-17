@@ -112,11 +112,14 @@ class TransformersEvalEngine(EvalEngine):
             )
         sequences = outputs.sequences
         generated_tokens = sequences[:, model_input_ids.shape[1] :].detach().cpu()
-        answers = self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
+        answers = self.tokenizer.batch_decode(
+            generated_tokens, skip_special_tokens=True
+        )
         finish_reasons: list[str | None] = []
         for sample_generated_tokens in generated_tokens:
             if eos_token_ids and any(
-                int(token_id.item()) in eos_token_ids for token_id in sample_generated_tokens
+                int(token_id.item()) in eos_token_ids
+                for token_id in sample_generated_tokens
             ):
                 finish_reasons.append("stop")
             else:

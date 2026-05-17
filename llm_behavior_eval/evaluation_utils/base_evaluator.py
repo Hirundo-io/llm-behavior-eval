@@ -535,9 +535,7 @@ class BaseEvaluator(ABC):
                 "num_samples": float(self.num_samples),
             }
             if incomplete_response_rate is not None:
-                mlflow_metrics["incomplete_response_rate"] = (
-                    incomplete_response_rate
-                )
+                mlflow_metrics["incomplete_response_rate"] = incomplete_response_rate
             if stereotyped_bias is not None:
                 mlflow_metrics["stereotyped_bias"] = stereotyped_bias
             self._log_mlflow_metrics(mlflow_metrics)
