@@ -179,10 +179,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             judge_indices = [
                 idx
                 for idx in range(len(generation.answers))
-                if not (
-                    idx < len(generation.finish_reasons)
-                    and generation.finish_reasons[idx] == "length"
-                )
+                if generation.finish_reasons[idx] == "stop"
             ]
             labels: list[str] = ["NOT_ATTEMPTED"] * len(generation.answers)
             if judge_indices:

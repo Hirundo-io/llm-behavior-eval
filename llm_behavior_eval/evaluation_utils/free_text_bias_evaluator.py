@@ -358,10 +358,7 @@ candidate_uncertain: "<yes|no>"
             judge_indices = [
                 idx
                 for idx in range(len(generation_record.answers))
-                if not (
-                    idx < len(generation_record.finish_reasons)
-                    and generation_record.finish_reasons[idx] == "length"
-                )
+                if generation_record.finish_reasons[idx] == "stop"
             ]
             # categorize answers using the judge model
             if judge_indices:
