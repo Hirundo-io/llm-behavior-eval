@@ -204,7 +204,10 @@ class SafeApplyChatTemplate:
                     {"role": message["role"], "content": message["content"]}
                 )
         input_message = str(_apply_chat_template(conversation))
-        # Try specific fallback for controlling reasoning mode via thinking tokens
+        # Try fallback for controlling reasoning mode via thinking tokens
+        # NOTE: This uses a very specific pattern which may influence the generated
+        #       responses due to a possible distribution shift from the training data
+        #       (in case a different pattern is expected).
         if (
             thinking_end_token
             and thinking_start_token
@@ -213,10 +216,12 @@ class SafeApplyChatTemplate:
             and not enable_thinking
             and input_message.strip().endswith(thinking_start_token)
         ):
+            before_thinking, after_thinking = input_message.rsplit(thinking_start_token, 1)
             input_message = (
-                input_message.rsplit(thinking_start_token, 1)[0]
+                before_thinking
                 + thinking_start_token
                 + thinking_end_token
+                + after_thinking
             )
 
         return input_message
