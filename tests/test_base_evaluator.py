@@ -55,7 +55,10 @@ class CaptureState:
     tokenizer: object | None = None
     trust_remote_code: bool | None = None
     max_answer_tokens: int | None = None
-    reasoning: bool | None = None
+    enable_thinking: bool | None = None
+    enable_thinking_arg_name: str | None = None
+    thinking_start_token: str | None = None
+    thinking_end_token: str | None = None
     pass_max_answer_tokens: bool | None = None
     token: str | None = None
     init_args: tuple[str, DatasetType] | None = None
@@ -161,14 +164,20 @@ def patch_custom_dataset(
             *,
             trust_remote_code: bool,
             max_answer_tokens: int | None,
-            reasoning: bool,
+            enable_thinking: bool | None = None,
+            enable_thinking_arg_name: str | None = None,
+            thinking_start_token: str | None = None,
+            thinking_end_token: str | None = None,
             pass_max_answer_tokens: bool,
             token: str | None = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
             capture_state.trust_remote_code = trust_remote_code
             capture_state.max_answer_tokens = max_answer_tokens
-            capture_state.reasoning = reasoning
+            capture_state.enable_thinking = enable_thinking
+            capture_state.enable_thinking_arg_name = enable_thinking_arg_name
+            capture_state.thinking_start_token = thinking_start_token
+            capture_state.thinking_end_token = thinking_end_token
             capture_state.pass_max_answer_tokens = pass_max_answer_tokens
             capture_state.token = token
             return StubDataset()
