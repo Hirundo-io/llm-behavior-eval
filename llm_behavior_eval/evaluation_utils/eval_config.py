@@ -145,7 +145,9 @@ class EvaluationConfig(BaseModel):
     @model_validator(mode="after")
     def validate_thinking_end_token(self):
         if self.exclude_thinking_trace_for_judge and not self.thinking_end_token:
-            raise ValueError("thinking_end_token must be specified in order to exclude thinking trace from judgement")
+            raise ValueError(
+                "thinking_end_token must be specified in order to exclude thinking trace from judgement"
+            )
         return self
 
 

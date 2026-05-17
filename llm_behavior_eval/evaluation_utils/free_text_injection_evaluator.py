@@ -185,8 +185,14 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
-            if self.eval_config.thinking_end_token and self.eval_config.exclude_thinking_trace_for_judge:
-                answers = [answer.split(self.eval_config.thinking_end_token)[-1].strip() for answer in generation.answers]
+            if (
+                self.eval_config.thinking_end_token
+                and self.eval_config.exclude_thinking_trace_for_judge
+            ):
+                answers = [
+                    answer.split(self.eval_config.thinking_end_token)[-1].strip()
+                    for answer in generation.answers
+                ]
             else:
                 answers = generation.answers
             with torch.inference_mode():
