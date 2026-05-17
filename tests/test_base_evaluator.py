@@ -676,7 +676,9 @@ def test_save_results_marks_thinking_mode_on_when_enabled(
         empty_responses=0,
     )
 
-    metrics_file_path = tmp_path / "model" / "bbq-gender-unbias-free-text" / "metrics.csv"
+    metrics_file_path = (
+        tmp_path / "model" / "bbq-gender-unbias-free-text" / "metrics.csv"
+    )
     with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
         metrics_rows = list(csv.DictReader(metrics_file))
 
