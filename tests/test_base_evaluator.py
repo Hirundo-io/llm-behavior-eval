@@ -55,7 +55,10 @@ class CaptureState:
     tokenizer: object | None = None
     trust_remote_code: bool | None = None
     max_answer_tokens: int | None = None
-    reasoning: bool | None = None
+    enable_thinking: bool | None = None
+    enable_thinking_arg_name: str | None = None
+    thinking_start_token: str | None = None
+    thinking_end_token: str | None = None
     pass_max_answer_tokens: bool | None = None
     token: str | None = None
     init_args: tuple[str, DatasetType] | None = None
@@ -161,14 +164,20 @@ def patch_custom_dataset(
             *,
             trust_remote_code: bool,
             max_answer_tokens: int | None,
-            reasoning: bool,
+            enable_thinking: bool | None = None,
+            enable_thinking_arg_name: str | None = None,
+            thinking_start_token: str | None = None,
+            thinking_end_token: str | None = None,
             pass_max_answer_tokens: bool,
             token: str | None = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
             capture_state.trust_remote_code = trust_remote_code
             capture_state.max_answer_tokens = max_answer_tokens
-            capture_state.reasoning = reasoning
+            capture_state.enable_thinking = enable_thinking
+            capture_state.enable_thinking_arg_name = enable_thinking_arg_name
+            capture_state.thinking_start_token = thinking_start_token
+            capture_state.thinking_end_token = thinking_end_token
             capture_state.pass_max_answer_tokens = pass_max_answer_tokens
             capture_state.token = token
             return StubDataset()
@@ -553,6 +562,7 @@ def test_save_results_drops_empty_metric_columns_and_uses_directional_headers(
         {
             "Attack success rate (%) ⬇️": "25.000",
             "Empty Responses": "0",
+            "Thinking": "off",
         }
     ]
 
@@ -568,6 +578,7 @@ def test_save_results_drops_empty_metric_columns_and_uses_directional_headers(
             "Text Format": "free_text",
             "Attack success rate (%) ⬇️": "25.000",
             "Empty Responses": "0",
+            "Thinking": "off",
         }
     ]
 
@@ -624,10 +635,55 @@ def test_save_results_rewrites_summary_with_non_empty_columns_after_append(
     assert len(summary_rows) == 2
     assert summary_rows[0]["Accuracy (%) ⬆️"] == "80.000"
     assert summary_rows[0]["Error (%) ⬇️"] == ""
+    assert summary_rows[0]["Thinking"] == "off"
     assert summary_rows[1]["Accuracy (%) ⬆️"] == ""
     assert summary_rows[1]["Error (%) ⬇️"] == "40.000"
+    assert summary_rows[1]["Thinking"] == "off"
     assert "Attack success rate (%) ⬇️" not in summary_rows[0]
     assert "Attack success rate (%) ⬇️" not in summary_rows[1]
+
+
+def test_save_results_marks_thinking_mode_on_when_enabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+            enable_thinking=True,
+        ),
+        DatasetConfig(
+            file_path="hirundo-io/bbq-gender-unbias-free-text",
+            dataset_type=DatasetType.UNBIAS,
+        ),
+    )
+
+    evaluator.save_results(
+        responses=[{"prompt": "test", "response": "value"}],
+        accuracy=0.80,
+        stereotyped_bias=None,
+        empty_responses=0,
+    )
+
+    metrics_file_path = (
+        tmp_path / "model" / "bbq-gender-unbias-free-text" / "metrics.csv"
+    )
+    with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics_rows = list(csv.DictReader(metrics_file))
+
+    assert len(metrics_rows) == 1
+    assert metrics_rows[0]["Thinking"] == "on"
 
 
 def test_run_config_mismatch_allows_skip_reusing_existing_outputs(
