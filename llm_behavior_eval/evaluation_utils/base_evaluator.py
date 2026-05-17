@@ -352,6 +352,74 @@ class BaseEvaluator(ABC):
         """
         raise NotImplementedError("Subclasses must implement get_grading_context().")
 
+    def generations_path(self, filename: str = "generations.jsonl") -> Path:
+        return Path(self.get_output_dir()) / filename
+
+    def load_generations(
+        self, filename: str = "generations.jsonl"
+    ) -> list[dict] | None:
+        path = self.generations_path(filename)
+        if path.exists():
+            with open(path) as file_handle:
+                generations = [json.loads(line) for line in file_handle if line.strip()]
+                return generations or None
+        return None
+
+    def reset_generations_file(self, filename: str = "generations.jsonl") -> None:
+        path = self.generations_path(filename)
+        if path.exists():
+            path.unlink()
+
+    def save_generations(
+        self, items: list[dict], filename: str = "generations.jsonl"
+    ) -> None:
+        path = self.generations_path(filename)
+        with open(path, "a") as file_handle:
+            for item in items:
+                file_handle.write(json.dumps(item))
+                file_handle.write("\n")
+
+    def load_completed_generation_dicts(
+        self, filename: str = "generations.jsonl"
+    ) -> list[dict]:
+        """
+        Load completed generations, logging reuse before appending new batches.
+        """
+
+        existing_generations = self.load_generations(filename)
+        if not existing_generations:
+            self.reset_generations_file(filename)
+            return []
+
+        logging.info(
+            "Found %s completed generation batches in %s; new batches will be appended.",
+            len(existing_generations),
+            self.generations_path(filename),
+        )
+        return existing_generations
+
+    def _get_incomplete_response_rate(self) -> float | None:
+        generations = self.load_generations()
+        if not generations:
+            return None
+
+        incomplete_responses = 0
+        known_finish_reasons = 0
+        for generation in generations:
+            finish_reasons = generation.get("finish_reasons")
+            if not isinstance(finish_reasons, list):
+                continue
+            for finish_reason in finish_reasons:
+                if finish_reason not in {"stop", "length"}:
+                    continue
+                known_finish_reasons += 1
+                if finish_reason == "length":
+                    incomplete_responses += 1
+
+        if known_finish_reasons == 0:
+            return None
+        return incomplete_responses / known_finish_reasons
+
     def save_results(
         self,
         responses: list[dict],
@@ -540,28 +608,6 @@ class BaseEvaluator(ABC):
                 mlflow_metrics["stereotyped_bias"] = stereotyped_bias
             self._log_mlflow_metrics(mlflow_metrics)
             self._log_mlflow_artifacts()
-
-    def _get_incomplete_response_rate(self) -> float | None:
-        generations = self.load_generations()
-        if not generations:
-            return None
-
-        incomplete_responses = 0
-        known_finish_reasons = 0
-        for generation in generations:
-            finish_reasons = generation.get("finish_reasons")
-            if not isinstance(finish_reasons, list):
-                continue
-            for finish_reason in finish_reasons:
-                if finish_reason not in {"stop", "length"}:
-                    continue
-                known_finish_reasons += 1
-                if finish_reason == "length":
-                    incomplete_responses += 1
-
-        if known_finish_reasons == 0:
-            return None
-        return incomplete_responses / known_finish_reasons
 
     @staticmethod
     def _drop_empty_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
@@ -978,52 +1024,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         finally:
             if self.started_mlflow_run:
                 self.cleanup(error)
-
-    def generations_path(self, filename: str = "generations.jsonl") -> Path:
-        return Path(self.get_output_dir()) / filename
-
-    def load_generations(
-        self, filename: str = "generations.jsonl"
-    ) -> list[dict] | None:
-        path = self.generations_path(filename)
-        if path.exists():
-            with open(path) as file_handle:
-                generations = [json.loads(line) for line in file_handle if line.strip()]
-                return generations or None
-        return None
-
-    def reset_generations_file(self, filename: str = "generations.jsonl") -> None:
-        path = self.generations_path(filename)
-        if path.exists():
-            path.unlink()
-
-    def save_generations(
-        self, items: list[dict], filename: str = "generations.jsonl"
-    ) -> None:
-        path = self.generations_path(filename)
-        with open(path, "a") as file_handle:
-            for item in items:
-                file_handle.write(json.dumps(item))
-                file_handle.write("\n")
-
-    def load_completed_generation_dicts(
-        self, filename: str = "generations.jsonl"
-    ) -> list[dict]:
-        """
-        Load completed generations, logging reuse before appending new batches.
-        """
-
-        existing_generations = self.load_generations(filename)
-        if not existing_generations:
-            self.reset_generations_file(filename)
-            return []
-
-        logging.info(
-            "Found %s completed generation batches in %s; new batches will be appended.",
-            len(existing_generations),
-            self.generations_path(filename),
-        )
-        return existing_generations
 
     def prepare_judge_tokenizer(self) -> None:
         """
