@@ -216,7 +216,9 @@ class SafeApplyChatTemplate:
             and not enable_thinking
             and input_message.strip().endswith(thinking_start_token)
         ):
-            before_thinking, after_thinking = input_message.rsplit(thinking_start_token, 1)
+            before_thinking, after_thinking = input_message.rsplit(
+                thinking_start_token, 1
+            )
             input_message = (
                 before_thinking
                 + thinking_start_token
