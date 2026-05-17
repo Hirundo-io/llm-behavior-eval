@@ -304,7 +304,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
                     "sampling_config": sampling_config,
                 }
             )
-            return ["yes"] * input_ids.shape[0]
+            return ["yes"] * input_ids.shape[0], [None] * input_ids.shape[0]
 
         def free_model(self) -> None:
             return None
