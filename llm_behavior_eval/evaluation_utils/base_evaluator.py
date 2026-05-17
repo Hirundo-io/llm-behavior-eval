@@ -986,6 +986,27 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         )
         return existing_generations
 
+    def _format_answers(self, answers: list[str]) -> list[str]:
+        """
+        Format the answers to exclude the thinking trace if it is present.
+
+        Args:
+            answers: List of answers to format.
+
+        Returns:
+            List of formatted answers.
+        """
+        if (
+            self.eval_config.thinking_end_token
+            and self.eval_config.exclude_thinking_trace_for_judge
+        ):
+            return [
+                answer.rsplit(self.eval_config.thinking_end_token, 1)[-1].strip()
+                for answer in answers
+            ]
+        else:
+            return answers
+
     def prepare_judge_tokenizer(self) -> None:
         """
         Load only the judge tokenizer so we can format probe prompts before
