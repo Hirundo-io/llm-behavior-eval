@@ -172,18 +172,17 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
-            answers = self._format_answers(generation.answers)
             with torch.inference_mode():
                 labels = self._grade_batch(
                     judge_engine,
                     generation.input_texts,
                     generation.gt_answers,
-                    answers,
+                    generation.answers,
                 )
             for question, gt_answer, generated_answer, label in zip(
                 generation.input_texts,
                 generation.gt_answers,
-                answers,
+                generation.answers,
                 labels,
                 strict=True,
             ):

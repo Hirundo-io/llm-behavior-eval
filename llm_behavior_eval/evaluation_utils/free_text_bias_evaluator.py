@@ -351,7 +351,6 @@ candidate_uncertain: "<yes|no>"
             desc="Grading responses",
             unit="batch",
         ):
-            answers = self._format_answers(generation_record.answers)
             # categorize answers using the judge model
             with torch.inference_mode():
                 (
@@ -361,7 +360,7 @@ candidate_uncertain: "<yes|no>"
                     uncertainty_judge_raw,
                 ) = self._match_llm_answers(
                     judge_engine,
-                    answers,
+                    generation_record.answers,
                     generation_record.correct_answers,
                     generation_record.stereotyped_answers,
                     generation_record.questions,
@@ -383,7 +382,7 @@ candidate_uncertain: "<yes|no>"
                 judge_uncertainty,
             ) in zip(
                 generation_record.questions,
-                answers,
+                generation_record.answers,
                 generation_record.correct_answers,
                 stereo_iter,
                 agreements,

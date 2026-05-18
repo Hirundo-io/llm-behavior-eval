@@ -40,7 +40,6 @@ class EvaluationConfig(BaseModel):
         enable_thinking_arg_name: Enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').
         thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
         thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
-        exclude_thinking_trace_for_judge: Whether to exclude thinking trace from judgement.
         trust_remote_code: Whether to trust remote code when loading models.
         sampling_config: Sampling configuration for model inference.
         mlflow_config: MLflow configuration for tracking (optional).
@@ -72,7 +71,6 @@ class EvaluationConfig(BaseModel):
     enable_thinking_arg_name: str | None = None
     thinking_start_token: str | None = None
     thinking_end_token: str | None = None
-    exclude_thinking_trace_for_judge: bool = False
     trust_remote_code: bool = False
     sampling_config: SamplingConfig = SamplingConfig()
     mlflow_config: "MlflowConfig | None" = None
@@ -139,14 +137,6 @@ class EvaluationConfig(BaseModel):
         if self.lora_path_or_repo_id is not None and not using_vllm:
             raise ValueError(
                 "LoRA usage currently only supported with vLLM (Either inference_engine or model_engine must be set to 'vllm')"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def validate_thinking_end_token(self):
-        if self.exclude_thinking_trace_for_judge and not self.thinking_end_token:
-            raise ValueError(
-                "thinking_end_token must be specified in order to exclude thinking trace from judgement"
             )
         return self
 

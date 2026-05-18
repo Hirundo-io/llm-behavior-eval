@@ -380,16 +380,9 @@ def main(
         str | None,
         typer.Option(
             "--thinking-end-token",
-            help="Thinking end token to use for the model (e.g. '</think>'). Must be specified if `exclude_thinking_trace_for_judge=True`.",
+            help="Thinking end token to use for the model (e.g. '</think>').",
         ),
     ] = None,
-    exclude_thinking_trace_for_judge: Annotated[
-        bool,
-        typer.Option(
-            "--exclude-thinking-trace-for-judge/--include-thinking-trace-for-judge",
-            help="Exclude thinking trace from judgement.",
-        ),
-    ] = False,
     max_samples: Annotated[
         int,
         typer.Option(
@@ -578,7 +571,6 @@ def main(
         enable_thinking_arg_name=enable_thinking_arg_name,
         thinking_start_token=thinking_start_token,
         thinking_end_token=thinking_end_token,
-        exclude_thinking_trace_for_judge=exclude_thinking_trace_for_judge,
         trust_remote_code=trust_remote_code
         if trust_remote_code is not None
         else model_path_or_repo_id.split("/")[0] in TRUSTED_MODEL_PROVIDERS,
