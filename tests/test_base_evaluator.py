@@ -591,7 +591,9 @@ def test_format_answers_splits_on_last_thinking_end_token(
     token_in_answer_body = 'The answer includes "</think>" as a literal marker.'
     terminal_token_only = "scratchpad thoughts </think>"
 
-    assert evaluator._format_answers([token_in_answer_body]) == ['" as a literal marker.']
+    assert evaluator._format_answers([token_in_answer_body]) == [
+        '" as a literal marker.'
+    ]
     assert evaluator._format_answers([terminal_token_only]) == [""]
 
 
