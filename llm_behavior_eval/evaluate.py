@@ -380,7 +380,7 @@ def main(
         str | None,
         typer.Option(
             "--thinking-end-token",
-            help="Thinking end token to use for the model (e.g. '</think>'). Must be specified if `exclude_thinking_trace_for_judge=True`.",
+            help="Thinking end token to use for the model (e.g. '</think>'). Must be specified when running with `--exclude-thinking-trace-for-judge`.",
         ),
     ] = None,
     exclude_thinking_trace_for_judge: Annotated[
