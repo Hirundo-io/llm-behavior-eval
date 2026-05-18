@@ -185,16 +185,17 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
+            answers = self._format_answers(generation.answers)
             with torch.inference_mode():
                 labels = self._grade_batch(
                     judge_engine,
                     generation.judge_questions,
                     generation.gt_answers,
-                    generation.answers,
+                    answers,
                 )
             for question, llm_answer, label in zip(
                 generation.judge_questions,
-                generation.answers,
+                answers,
                 labels,
                 strict=True,
             ):
