@@ -36,7 +36,10 @@ class EvaluationConfig(BaseModel):
         judge_engine: Whether to run judge model inference with vLLM instead of transformers. DO NOT combine with the inference_engine argument.
         vllm_config: vLLM-specific configuration (optional). Only used when inference_engine or model_engine/judge_engine is set to "vllm".
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
-        reasoning: Whether to enable chat-template reasoning (if supported by tokenizer/model).
+        enable_thinking: Whether to enable thinking (if supported by tokenizer/model).
+        enable_thinking_arg_name: Enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').
+        thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
+        thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
         trust_remote_code: Whether to trust remote code when loading models.
         sampling_config: Sampling configuration for model inference.
         mlflow_config: MLflow configuration for tracking (optional).
@@ -64,7 +67,10 @@ class EvaluationConfig(BaseModel):
     judge_engine: Literal["vllm", "transformers"] = "transformers"
     vllm_config: VllmConfig | None = None
     results_dir: Path
-    reasoning: bool = False
+    enable_thinking: bool = False
+    enable_thinking_arg_name: str | None = None
+    thinking_start_token: str | None = None
+    thinking_end_token: str | None = None
     trust_remote_code: bool = False
     sampling_config: SamplingConfig = SamplingConfig()
     mlflow_config: "MlflowConfig | None" = None

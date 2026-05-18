@@ -234,7 +234,10 @@ class BaseEvaluator(ABC):
             self.dataset_config.preprocess_config,
             trust_remote_code=self.trust_remote_code,
             max_answer_tokens=self.eval_config.max_answer_tokens,
-            reasoning=self.eval_config.reasoning,
+            enable_thinking=self.eval_config.enable_thinking,
+            enable_thinking_arg_name=self.eval_config.enable_thinking_arg_name,
+            thinking_start_token=self.eval_config.thinking_start_token,
+            thinking_end_token=self.eval_config.thinking_end_token,
             pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
             token=self.eval_config.model_token,
         )
@@ -477,9 +480,11 @@ class BaseEvaluator(ABC):
         stereo_percent = (
             stereotyped_bias * 100.0 if stereotyped_bias is not None else None
         )
+        thinking_mode = "on" if self.eval_config.enable_thinking else "off"
         results = pd.DataFrame(
             {
                 metric_column_name: [metric_percentage_value],
+                "Thinking": [thinking_mode],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
@@ -523,6 +528,7 @@ class BaseEvaluator(ABC):
                 "Dataset": [dataset_slug],
                 "Dataset Type": [str(self.dataset_config.dataset_type)],
                 "Text Format": ["free_text"],
+                "Thinking": [thinking_mode],
                 "Accuracy (%) ⬆️": [full_acc],
                 "Error (%) ⬇️": [full_err],
                 "Attack success rate (%) ⬇️": [full_attack_success_rate],
@@ -579,6 +585,7 @@ class BaseEvaluator(ABC):
         brief_df = pd.DataFrame(
             {
                 "Dataset": [bias_label],
+                "Thinking": [thinking_mode],
                 "Accuracy (%) ⬆️": [brief_acc],
                 "Error (%) ⬇️": [brief_err],
                 "Attack success rate (%) ⬇️": [brief_attack_success_rate],
