@@ -1000,6 +1000,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             self.eval_config.thinking_end_token
             and self.eval_config.exclude_thinking_trace_for_judge
         ):
+            # NOTE This does not take into account the case where the thinking end token is in the body of the answer.
             return [
                 answer.rsplit(self.eval_config.thinking_end_token, 1)[-1].strip()
                 for answer in answers
