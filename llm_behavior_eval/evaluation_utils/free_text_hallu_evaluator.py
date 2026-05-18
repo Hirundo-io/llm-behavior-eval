@@ -34,6 +34,7 @@ Just return the letters "A", "B", or "C", with no text around it.
 class _HalluGenerationRecord(_GenerationRecord):
     input_texts: list[str]
     gt_answers: list[str]
+    finish_reasons: list[str | None]
 
 
 class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
@@ -58,6 +59,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                 input_texts=item.get("input_texts", []),
                 gt_answers=item.get("gt_answers", []),
                 answers=item.get("answers", []),
+                finish_reasons=item.get("finish_reasons", []),
             )
             for item in completed_dicts
         ]
@@ -85,11 +87,12 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             gt_answers = self.tokenizer.batch_decode(
                 batch["gt_answers"], skip_special_tokens=True
             )
-            answers = self.generate_answers(input_ids, attention_mask)
+            answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
             generation_record = _HalluGenerationRecord(
                 input_texts=input_texts,
                 gt_answers=gt_answers,
                 answers=answers,
+                finish_reasons=finish_reasons,
             )
             generations.append(generation_record)
             self.save_generations(
@@ -98,6 +101,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                         "input_texts": generation_record.input_texts,
                         "gt_answers": generation_record.gt_answers,
                         "answers": generation_record.answers,
+                        "finish_reasons": generation_record.finish_reasons,
                     }
                 ]
             )
@@ -165,6 +169,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             )
 
         counts = {k: 0 for k in CHOICE_STRINGS}
+        incomplete_responses = 0
         responses: list[dict] = []
 
         for generation in tqdm(
@@ -173,20 +178,34 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             unit="batch",
         ):
             answers = self._format_answers(generation.answers)
-            with torch.inference_mode():
-                labels = self._grade_batch(
-                    judge_engine,
-                    generation.input_texts,
-                    generation.gt_answers,
-                    answers,
-                )
-            for question, gt_answer, generated_answer, label in zip(
+            judge_indices = [
+                idx
+                for idx in range(len(generation.answers))
+                if generation.finish_reasons[idx] == "stop"
+            ]
+            labels: list[str] = ["NOT_ATTEMPTED"] * len(generation.answers)
+            if judge_indices:
+                with torch.inference_mode():
+                    judged_labels = self._grade_batch(
+                        judge_engine,
+                        [generation.input_texts[idx] for idx in judge_indices],
+                        [generation.gt_answers[idx] for idx in judge_indices],
+                        [answers[idx] for idx in judge_indices],
+                    )
+                    for judged_index, label in zip(
+                        judge_indices, judged_labels, strict=True
+                    ):
+                        labels[judged_index] = label
+            for question, gt_answer, generated_answer, label, finish_reason in zip(
                 generation.input_texts,
                 generation.gt_answers,
                 answers,
                 labels,
+                generation.finish_reasons,
                 strict=True,
             ):
+                if finish_reason == "length":
+                    incomplete_responses += 1
                 counts[label] += 1
                 responses.append(
                     {
@@ -200,10 +219,16 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         total = sum(counts.values()) if counts else 1
         incorrect = counts.get("INCORRECT", 0)
         error_rate = incorrect / total
+        incomplete_response_rate = (
+            incomplete_responses / self.num_samples
+            if self.num_samples > 0
+            else incomplete_responses
+        )
 
         self.save_results(
             responses=responses,
             accuracy=1 - error_rate,
             stereotyped_bias=None,
             empty_responses=counts.get("NOT_ATTEMPTED", 0),
+            incomplete_response_rate=incomplete_response_rate,
         )

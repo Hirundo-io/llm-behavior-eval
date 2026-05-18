@@ -318,7 +318,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
                     "sampling_config": sampling_config,
                 }
             )
-            return ["yes"] * input_ids.shape[0]
+            return ["yes"] * input_ids.shape[0], [None] * input_ids.shape[0]
 
         def free_model(self) -> None:
             return None
@@ -637,9 +637,10 @@ def test_save_results_drops_empty_metric_columns_and_uses_directional_headers(
 
     assert metrics_rows == [
         {
+            "Thinking": "off",
             "Attack success rate (%) ⬇️": "25.000",
             "Empty Responses": "0",
-            "Thinking": "off",
+            "Incomplete response rate (%) ⬇️": "0.000",
         }
     ]
 
@@ -653,9 +654,10 @@ def test_save_results_drops_empty_metric_columns_and_uses_directional_headers(
             "Dataset": "prompt-injection-purple-llama",
             "Dataset Type": "DatasetType.BIAS",
             "Text Format": "free_text",
+            "Thinking": "off",
             "Attack success rate (%) ⬇️": "25.000",
             "Empty Responses": "0",
-            "Thinking": "off",
+            "Incomplete response rate (%) ⬇️": "0.000",
         }
     ]
 
@@ -761,6 +763,97 @@ def test_save_results_marks_thinking_mode_on_when_enabled(
 
     assert len(metrics_rows) == 1
     assert metrics_rows[0]["Thinking"] == "on"
+
+
+def test_save_results_includes_incomplete_response_rate_when_finish_reasons_exist(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="hirundo-io/prompt-injection-purple-llama",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    generations_path = (
+        tmp_path / "model" / "prompt-injection-purple-llama" / "generations.jsonl"
+    )
+    generations_path.parent.mkdir(parents=True, exist_ok=True)
+    generations_path.write_text(
+        json.dumps(
+            {
+                "answers": ["a1", "a2", "a3", "a4"],
+                "finish_reasons": ["length", "stop", "length", "stop"],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    evaluator.save_results(
+        responses=[{"prompt": "test", "response": "value"}],
+        accuracy=0.75,
+        stereotyped_bias=None,
+        empty_responses=0,
+    )
+
+    metrics_file_path = (
+        tmp_path / "model" / "prompt-injection-purple-llama" / "metrics.csv"
+    )
+    with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics_rows = list(csv.DictReader(metrics_file))
+
+    assert metrics_rows == [
+        {
+            "Thinking": "off",
+            "Attack success rate (%) ⬇️": "25.000",
+            "Empty Responses": "0",
+            "Incomplete response rate (%) ⬇️": "50.000",
+        }
+    ]
+
+    summary_full_path = tmp_path / "model" / "summary_full.csv"
+    with summary_full_path.open(newline="", encoding="utf-8") as summary_file:
+        full_summary_rows = list(csv.DictReader(summary_file))
+    assert full_summary_rows == [
+        {
+            "Model": "model",
+            "Dataset": "prompt-injection-purple-llama",
+            "Dataset Type": "DatasetType.BIAS",
+            "Text Format": "free_text",
+            "Thinking": "off",
+            "Attack success rate (%) ⬇️": "25.000",
+            "Empty Responses": "0",
+            "Incomplete response rate (%) ⬇️": "50.000",
+        }
+    ]
+
+    summary_brief_path = tmp_path / "model" / "summary_brief.csv"
+    with summary_brief_path.open(newline="", encoding="utf-8") as summary_file:
+        brief_summary_rows = list(csv.DictReader(summary_file))
+    assert brief_summary_rows == [
+        {
+            "Dataset": "prompt-injection-purple-llama",
+            "Thinking": "off",
+            "Attack success rate (%) ⬇️": "25.000",
+            "Incomplete response rate (%) ⬇️": "50.000",
+        }
+    ]
 
 
 def test_run_config_mismatch_allows_skip_reusing_existing_outputs(

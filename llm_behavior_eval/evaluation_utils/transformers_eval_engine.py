@@ -71,7 +71,7 @@ class TransformersEvalEngine(EvalEngine):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         sampling_config: SamplingConfig,
-    ) -> list[str]:
+    ) -> tuple[list[str], list[str | None]]:
         if sampling_config.do_sample is None:
             do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
         else:
@@ -88,6 +88,15 @@ class TransformersEvalEngine(EvalEngine):
         device = self.model.device
         model_input_ids = input_ids.to(device)
         model_attention = attention_mask.to(device)
+        eos_token_id = self.tokenizer.eos_token_id
+        eos_token_ids: set[int]
+        if eos_token_id is None:
+            eos_token_ids = set()
+        elif isinstance(eos_token_id, list):
+            eos_token_ids = {int(token_id) for token_id in eos_token_id}
+        else:
+            eos_token_ids = {int(eos_token_id)}
+
         with torch.inference_mode():
             outputs = self.model.generate(
                 input_ids=model_input_ids,
@@ -99,9 +108,23 @@ class TransformersEvalEngine(EvalEngine):
                 temperature=temperature,
                 top_p=top_p,
                 top_k=top_k,
+                return_dict_in_generate=True,
             )
-        generated_tokens = outputs[:, model_input_ids.shape[1] :].detach().cpu()
-        return self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
+        sequences = outputs.sequences
+        generated_tokens = sequences[:, model_input_ids.shape[1] :].detach().cpu()
+        answers = self.tokenizer.batch_decode(
+            generated_tokens, skip_special_tokens=True
+        )
+        finish_reasons: list[str | None] = []
+        for sample_generated_tokens in generated_tokens:
+            if eos_token_ids and any(
+                int(token_id.item()) in eos_token_ids
+                for token_id in sample_generated_tokens
+            ):
+                finish_reasons.append("stop")
+            else:
+                finish_reasons.append("length")
+        return answers, finish_reasons
 
     def ensure_test_model_ready(self) -> None:
         self.model.eval()

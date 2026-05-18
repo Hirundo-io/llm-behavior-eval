@@ -116,7 +116,7 @@ class VllmEvalEngine(EvalEngine):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         sampling_config: SamplingConfig,
-    ) -> list[str]:
+    ) -> tuple[list[str], list[str | None]]:
         prompt_token_ids = build_vllm_prompt_token_ids(input_ids, attention_mask)
         prompts: list[PromptType] = [
             {"prompt_token_ids": tokens} for tokens in prompt_token_ids
@@ -129,14 +129,23 @@ class VllmEvalEngine(EvalEngine):
             lora_request=self.lora_request,
         )
         responses: list[str] = []
+        finish_reasons: list[str | None] = []
         for output in outputs:
             candidates = getattr(output, "outputs", [])
             if not candidates:
                 responses.append("")
+                finish_reasons.append(None)
                 continue
             first_candidate = candidates[0]
             responses.append(getattr(first_candidate, "text", ""))
-        return responses
+            finish_reason = getattr(first_candidate, "finish_reason", None)
+            if finish_reason == "length":
+                finish_reasons.append("length")
+            elif finish_reason == "stop":
+                finish_reasons.append("stop")
+            else:
+                finish_reasons.append(None)
+        return responses, finish_reasons
 
     def _get_vllm_sampling_params(
         self, sampling_config: SamplingConfig

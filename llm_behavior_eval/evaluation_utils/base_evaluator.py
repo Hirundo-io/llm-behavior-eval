@@ -268,7 +268,7 @@ class BaseEvaluator(ABC):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         do_sample: bool | None = None,
-    ) -> list[str]:
+    ) -> tuple[list[str], list[str | None]]:
         return self.eval_engine.generate_answers(
             input_ids,
             attention_mask,
@@ -355,12 +355,81 @@ class BaseEvaluator(ABC):
         """
         raise NotImplementedError("Subclasses must implement get_grading_context().")
 
+    def generations_path(self, filename: str = "generations.jsonl") -> Path:
+        return Path(self.get_output_dir()) / filename
+
+    def load_generations(
+        self, filename: str = "generations.jsonl"
+    ) -> list[dict] | None:
+        path = self.generations_path(filename)
+        if path.exists():
+            with open(path) as file_handle:
+                generations = [json.loads(line) for line in file_handle if line.strip()]
+                return generations or None
+        return None
+
+    def reset_generations_file(self, filename: str = "generations.jsonl") -> None:
+        path = self.generations_path(filename)
+        if path.exists():
+            path.unlink()
+
+    def save_generations(
+        self, items: list[dict], filename: str = "generations.jsonl"
+    ) -> None:
+        path = self.generations_path(filename)
+        with open(path, "a") as file_handle:
+            for item in items:
+                file_handle.write(json.dumps(item))
+                file_handle.write("\n")
+
+    def load_completed_generation_dicts(
+        self, filename: str = "generations.jsonl"
+    ) -> list[dict]:
+        """
+        Load completed generations, logging reuse before appending new batches.
+        """
+
+        existing_generations = self.load_generations(filename)
+        if not existing_generations:
+            self.reset_generations_file(filename)
+            return []
+
+        logging.info(
+            "Found %s completed generation batches in %s; new batches will be appended.",
+            len(existing_generations),
+            self.generations_path(filename),
+        )
+        return existing_generations
+
+    def _get_incomplete_response_rate(self) -> float | None:
+        generations = self.load_generations()
+        if not generations:
+            return None
+
+        incomplete_responses = 0
+        known_finish_reasons = 0
+        for generation in generations:
+            finish_reasons = generation.get("finish_reasons")
+            if not isinstance(finish_reasons, list):
+                continue
+            for finish_reason in finish_reasons:
+                if finish_reason not in {"stop", "length"}:
+                    continue
+                known_finish_reasons += 1
+                if finish_reason == "length":
+                    incomplete_responses += 1
+
+        if known_finish_reasons == 0:
+            return None
+        return incomplete_responses / known_finish_reasons
+
     def save_results(
         self,
         responses: list[dict],
         accuracy: float,
         stereotyped_bias: float | None,
         empty_responses: int,
+        incomplete_response_rate: float | None = None,
     ) -> None:
         """
         Save the evaluation results to files.
@@ -370,6 +439,7 @@ class BaseEvaluator(ABC):
             accuracy: The accuracy of the evaluation.
             stereotyped_bias: A score representing the stereotyped bias.
             empty_responses: A count of empty response.
+            incomplete_response_rate: Optional precomputed incomplete response rate.
         """
         model_slug = self.get_model_slug()
         dataset_slug = self.get_dataset_slug()
@@ -377,6 +447,8 @@ class BaseEvaluator(ABC):
 
         output_responses = output_dir / "responses.json"
         output_metrics = output_dir / "metrics.csv"
+        if incomplete_response_rate is None:
+            incomplete_response_rate = self._get_incomplete_response_rate()
         # Decide column header based on dataset kind:
         # - Hallucination and UNBIAS report Accuracy
         # - Otherwise (BIAS) report Error
@@ -415,11 +487,18 @@ class BaseEvaluator(ABC):
         results = pd.DataFrame(
             {
                 metric_column_name: [metric_percentage_value],
+                "Thinking": [thinking_mode],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
                 ],
-                "Thinking": [thinking_mode],
+                "Incomplete response rate (%) ⬇️": [
+                    (
+                        incomplete_response_rate * 100.0
+                        if incomplete_response_rate is not None
+                        else 0.0
+                    )
+                ],
             }
         )
         results = self._drop_empty_columns(results)
@@ -452,12 +531,19 @@ class BaseEvaluator(ABC):
                 "Dataset": [dataset_slug],
                 "Dataset Type": [str(self.dataset_config.dataset_type)],
                 "Text Format": ["free_text"],
+                "Thinking": [thinking_mode],
                 "Accuracy (%) ⬆️": [full_acc],
                 "Error (%) ⬇️": [full_err],
                 "Attack success rate (%) ⬇️": [full_attack_success_rate],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [empty_responses],
-                "Thinking": [thinking_mode],
+                "Incomplete response rate (%) ⬇️": [
+                    (
+                        incomplete_response_rate * 100.0
+                        if incomplete_response_rate is not None
+                        else 0.0
+                    )
+                ],
             }
         )
         self._append_summary_row(full_summary_path, summary_row)
@@ -502,10 +588,17 @@ class BaseEvaluator(ABC):
         brief_df = pd.DataFrame(
             {
                 "Dataset": [bias_label],
+                "Thinking": [thinking_mode],
                 "Accuracy (%) ⬆️": [brief_acc],
                 "Error (%) ⬇️": [brief_err],
                 "Attack success rate (%) ⬇️": [brief_attack_success_rate],
-                "Thinking": [thinking_mode],
+                "Incomplete response rate (%) ⬇️": [
+                    (
+                        incomplete_response_rate * 100.0
+                        if incomplete_response_rate is not None
+                        else None
+                    )
+                ],
             }
         )
         brief_summary_path = model_results_dir / "summary_brief.csv"
@@ -519,6 +612,8 @@ class BaseEvaluator(ABC):
                 "empty_responses": float(empty_responses),
                 "num_samples": float(self.num_samples),
             }
+            if incomplete_response_rate is not None:
+                mlflow_metrics["incomplete_response_rate"] = incomplete_response_rate
             if stereotyped_bias is not None:
                 mlflow_metrics["stereotyped_bias"] = stereotyped_bias
             self._log_mlflow_metrics(mlflow_metrics)
@@ -940,52 +1035,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             if self.started_mlflow_run:
                 self.cleanup(error)
 
-    def generations_path(self, filename: str = "generations.jsonl") -> Path:
-        return Path(self.get_output_dir()) / filename
-
-    def load_generations(
-        self, filename: str = "generations.jsonl"
-    ) -> list[dict] | None:
-        path = self.generations_path(filename)
-        if path.exists():
-            with open(path) as file_handle:
-                generations = [json.loads(line) for line in file_handle if line.strip()]
-                return generations or None
-        return None
-
-    def reset_generations_file(self, filename: str = "generations.jsonl") -> None:
-        path = self.generations_path(filename)
-        if path.exists():
-            path.unlink()
-
-    def save_generations(
-        self, items: list[dict], filename: str = "generations.jsonl"
-    ) -> None:
-        path = self.generations_path(filename)
-        with open(path, "a") as file_handle:
-            for item in items:
-                file_handle.write(json.dumps(item))
-                file_handle.write("\n")
-
-    def load_completed_generation_dicts(
-        self, filename: str = "generations.jsonl"
-    ) -> list[dict]:
-        """
-        Load completed generations, logging reuse before appending new batches.
-        """
-
-        existing_generations = self.load_generations(filename)
-        if not existing_generations:
-            self.reset_generations_file(filename)
-            return []
-
-        logging.info(
-            "Found %s completed generation batches in %s; new batches will be appended.",
-            len(existing_generations),
-            self.generations_path(filename),
-        )
-        return existing_generations
-
     def _format_answers(self, answers: list[str]) -> list[str]:
         """
         Format the answers to exclude the thinking trace if it is present.
@@ -1139,7 +1188,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         resolved_do_sample = (
             self.eval_config.sample_judge if do_sample is None else do_sample
         )
-        answers = judge_engine.generate_answers(
+        answers, _ = judge_engine.generate_answers(
             input_ids,
             attention_mask,
             sampling_config=SamplingConfig(

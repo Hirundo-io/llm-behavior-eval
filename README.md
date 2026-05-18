@@ -178,16 +178,12 @@ Override the default with `--base-output-dir` when you need a different path. Yo
 Outputs are organised as `results/<model>/<dataset>_<dataset_type>_<text_format>/`.
 Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metrics) and `results/<model>/summary_brief.csv`.
 
-`summary_brief.csv` contains two columns: `Bias Type` and `Error` (1 − accuracy). Labels are inferred as follows:
+`summary_brief.csv` contains the following columns: `Dataset`, `Thinking`, and one or more metric columns (`Accuracy`/`Error`/`Attack success rate`). Labels are inferred as follows:
 
 - BBQ: `BBQ: <gender|race|nationality|physical|age|religion> <bias|unbias>`
 - UNQOVER: `UNQOVER: <religion|gender|race|nationality> <bias>`
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
-
-The metrics are composed of error (1 − accuracy), stereotype bias (when available) and the ratio of empty responses (i.e. the model generating empty string).
-
-See the original papers for the explanation on accuracy. See the BBQ paper for the explanation of the stereotype bias.
 
 ## Tested on
 
