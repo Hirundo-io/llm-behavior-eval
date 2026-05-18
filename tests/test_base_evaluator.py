@@ -4,7 +4,7 @@ import csv
 import json
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -14,6 +14,7 @@ import torch
 from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokenizerBase
 
 import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_module
+import llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator as hallu_module
 from llm_behavior_eval.evaluation_utils.base_evaluator import (
     BaseEvaluator,
     FreeTextSharedEvaluator,
@@ -26,6 +27,10 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
     MlflowConfig,
 )
 from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
+from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
+    FreeTextHaluEvaluator,
+    _HalluGenerationRecord,
+)
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 if TYPE_CHECKING:
@@ -518,6 +523,74 @@ def test_evaluate_flow_can_use_generate_then_grade_in_grading_context(
 
     assert capture_state.grade_generations_count == 1
     assert capture_state.grade_called_with_judge is True
+
+
+def test_format_answers_trims_thinking_trace_and_judge_prompt_uses_trimmed_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evaluator = FreeTextHaluEvaluator.__new__(FreeTextHaluEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        thinking_end_token="</think>",
+        exclude_thinking_trace_for_judge=True,
+    )
+    evaluator.num_samples = 1
+
+    answer_with_trace = "scratchpad thoughts </think> final answer"
+    assert evaluator._format_answers([answer_with_trace]) == ["final answer"]
+
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
+    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
+    monkeypatch.setattr(
+        hallu_module,
+        "safe_apply_chat_template",
+        lambda _tokenizer, messages: messages[-1]["content"],
+    )
+    monkeypatch.setattr(evaluator, "save_results", lambda **_kwargs: None)
+
+    captured_prompts: list[str] = []
+
+    def fake_run_judge_with_backoff(
+        _judge_engine: EvalEngine, prompts: list[str]
+    ) -> list[list[dict[str, str]]]:
+        captured_prompts.extend(prompts)
+        return [[{"generated_text": "A"}] for _ in prompts]
+
+    monkeypatch.setattr(evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff)
+
+    evaluator._grade_impl(
+        [
+            _HalluGenerationRecord(
+                input_texts=["question"],
+                gt_answers=["gold"],
+                answers=[answer_with_trace],
+            )
+        ],
+        judge_engine=cast("EvalEngine", object()),
+    )
+
+    assert len(captured_prompts) == 1
+    assert "Predicted answer: final answer" in captured_prompts[0]
+    assert "scratchpad thoughts" not in captured_prompts[0]
+
+
+def test_format_answers_preserves_literal_and_terminal_thinking_end_token(
+    tmp_path: Path,
+) -> None:
+    evaluator = FreeTextHaluEvaluator.__new__(FreeTextHaluEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        thinking_end_token="</think>",
+        exclude_thinking_trace_for_judge=True,
+    )
+
+    token_in_answer_body = 'The answer includes "</think>" as a literal marker.'
+    terminal_token_only = "scratchpad thoughts </think>"
+
+    assert evaluator._format_answers([token_in_answer_body]) == [token_in_answer_body]
+    assert evaluator._format_answers([terminal_token_only]) == [terminal_token_only]
 
 
 def test_save_results_drops_empty_metric_columns_and_uses_directional_headers(
