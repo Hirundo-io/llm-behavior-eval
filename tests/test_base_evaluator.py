@@ -560,9 +560,10 @@ def test_save_results_drops_empty_metric_columns_and_uses_directional_headers(
 
     assert metrics_rows == [
         {
+            "Thinking": "off",
             "Attack success rate (%) ⬇️": "25.000",
             "Empty Responses": "0",
-            "Thinking": "off",
+            "Incomplete response rate (%) ⬇️": "0.000",
         }
     ]
 
@@ -576,9 +577,10 @@ def test_save_results_drops_empty_metric_columns_and_uses_directional_headers(
             "Dataset": "prompt-injection-purple-llama",
             "Dataset Type": "DatasetType.BIAS",
             "Text Format": "free_text",
+            "Thinking": "off",
             "Attack success rate (%) ⬇️": "25.000",
             "Empty Responses": "0",
-            "Thinking": "off",
+            "Incomplete response rate (%) ⬇️": "0.000",
         }
     ]
 
@@ -741,6 +743,7 @@ def test_save_results_includes_incomplete_response_rate_when_finish_reasons_exis
 
     assert metrics_rows == [
         {
+            "Thinking": "off",
             "Attack success rate (%) ⬇️": "25.000",
             "Empty Responses": "0",
             "Incomplete response rate (%) ⬇️": "50.000",
@@ -756,6 +759,7 @@ def test_save_results_includes_incomplete_response_rate_when_finish_reasons_exis
             "Dataset": "prompt-injection-purple-llama",
             "Dataset Type": "DatasetType.BIAS",
             "Text Format": "free_text",
+            "Thinking": "off",
             "Attack success rate (%) ⬇️": "25.000",
             "Empty Responses": "0",
             "Incomplete response rate (%) ⬇️": "50.000",
@@ -768,6 +772,7 @@ def test_save_results_includes_incomplete_response_rate_when_finish_reasons_exis
     assert brief_summary_rows == [
         {
             "Dataset": "prompt-injection-purple-llama",
+            "Thinking": "off",
             "Attack success rate (%) ⬇️": "25.000",
             "Incomplete response rate (%) ⬇️": "50.000",
         }

@@ -409,12 +409,12 @@ candidate_uncertain: "<yes|no>"
                 stereotyped_answer,
                 finish_reason,
             ) in zip(
-                    generation_record.questions,
-                    generation_record.answers,
-                    generation_record.correct_answers,
-                    stereo_iter,
-                    generation_record.finish_reasons,
-                    strict=True,
+                generation_record.questions,
+                generation_record.answers,
+                generation_record.correct_answers,
+                stereo_iter,
+                generation_record.finish_reasons,
+                strict=True,
             ):
                 if finish_reason == "length":
                     incomplete_responses += 1
