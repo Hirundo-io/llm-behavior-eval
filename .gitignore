@@ -185,4 +185,4 @@ act-events/pr.secrets
 .pixi/*
 !.pixi/config.toml
 
-./results/*
+results/

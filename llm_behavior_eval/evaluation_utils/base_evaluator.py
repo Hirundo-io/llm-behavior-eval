@@ -234,7 +234,10 @@ class BaseEvaluator(ABC):
             self.dataset_config.preprocess_config,
             trust_remote_code=self.trust_remote_code,
             max_answer_tokens=self.eval_config.max_answer_tokens,
-            reasoning=self.eval_config.reasoning,
+            enable_thinking=self.eval_config.enable_thinking,
+            enable_thinking_arg_name=self.eval_config.enable_thinking_arg_name,
+            thinking_start_token=self.eval_config.thinking_start_token,
+            thinking_end_token=self.eval_config.thinking_end_token,
             pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
             token=self.eval_config.model_token,
         )
@@ -408,6 +411,7 @@ class BaseEvaluator(ABC):
         stereo_percent = (
             stereotyped_bias * 100.0 if stereotyped_bias is not None else None
         )
+        thinking_mode = "on" if self.eval_config.enable_thinking else "off"
         results = pd.DataFrame(
             {
                 metric_column_name: [metric_percentage_value],
@@ -415,6 +419,7 @@ class BaseEvaluator(ABC):
                 "Empty Responses": [
                     empty_responses,
                 ],
+                "Thinking": [thinking_mode],
             }
         )
         results = self._drop_empty_columns(results)
@@ -452,6 +457,7 @@ class BaseEvaluator(ABC):
                 "Attack success rate (%) ⬇️": [full_attack_success_rate],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [empty_responses],
+                "Thinking": [thinking_mode],
             }
         )
         self._append_summary_row(full_summary_path, summary_row)
@@ -499,6 +505,7 @@ class BaseEvaluator(ABC):
                 "Accuracy (%) ⬆️": [brief_acc],
                 "Error (%) ⬇️": [brief_err],
                 "Attack success rate (%) ⬇️": [brief_attack_success_rate],
+                "Thinking": [thinking_mode],
             }
         )
         brief_summary_path = model_results_dir / "summary_brief.csv"
