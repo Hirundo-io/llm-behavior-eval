@@ -189,6 +189,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
+            answers = self._format_answers(generation.answers)
             judge_indices = [
                 idx
                 for idx in range(len(generation.answers))
@@ -201,7 +202,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                         judge_engine,
                         [generation.judge_questions[idx] for idx in judge_indices],
                         [generation.gt_answers[idx] for idx in judge_indices],
-                        [generation.answers[idx] for idx in judge_indices],
+                        [answers[idx] for idx in judge_indices],
                     )
                     for judged_index, label in zip(
                         judge_indices, judged_labels, strict=True
@@ -209,7 +210,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                         labels[judged_index] = label
             for question, llm_answer, label, finish_reason in zip(
                 generation.judge_questions,
-                generation.answers,
+                answers,
                 labels,
                 generation.finish_reasons,
                 strict=True,

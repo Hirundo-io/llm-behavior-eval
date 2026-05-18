@@ -356,6 +356,7 @@ candidate_uncertain: "<yes|no>"
             desc="Grading responses",
             unit="batch",
         ):
+            answers = self._format_answers(generation_record.answers)
             judge_indices = [
                 idx
                 for idx in range(len(generation_record.answers))
@@ -379,7 +380,7 @@ candidate_uncertain: "<yes|no>"
                         uncertainty_judge_raw,
                     ) = self._match_llm_answers(
                         judge_engine,
-                        [generation_record.answers[idx] for idx in judge_indices],
+                        [answers[idx] for idx in judge_indices],
                         [
                             generation_record.correct_answers[idx]
                             for idx in judge_indices
@@ -410,7 +411,7 @@ candidate_uncertain: "<yes|no>"
                 finish_reason,
             ) in zip(
                 generation_record.questions,
-                generation_record.answers,
+                answers,
                 generation_record.correct_answers,
                 stereo_iter,
                 generation_record.finish_reasons,

@@ -177,6 +177,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
+            answers = self._format_answers(generation.answers)
             judge_indices = [
                 idx
                 for idx in range(len(generation.answers))
@@ -189,7 +190,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                         judge_engine,
                         [generation.input_texts[idx] for idx in judge_indices],
                         [generation.gt_answers[idx] for idx in judge_indices],
-                        [generation.answers[idx] for idx in judge_indices],
+                        [answers[idx] for idx in judge_indices],
                     )
                     for judged_index, label in zip(
                         judge_indices, judged_labels, strict=True
@@ -198,7 +199,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             for question, gt_answer, generated_answer, label, finish_reason in zip(
                 generation.input_texts,
                 generation.gt_answers,
-                generation.answers,
+                answers,
                 labels,
                 generation.finish_reasons,
                 strict=True,
