@@ -429,6 +429,7 @@ class BaseEvaluator(ABC):
         accuracy: float,
         stereotyped_bias: float | None,
         empty_responses: int,
+        incomplete_response_rate: float | None = None,
     ) -> None:
         """
         Save the evaluation results to files.
@@ -438,6 +439,7 @@ class BaseEvaluator(ABC):
             accuracy: The accuracy of the evaluation.
             stereotyped_bias: A score representing the stereotyped bias.
             empty_responses: A count of empty response.
+            incomplete_response_rate: Optional precomputed incomplete response rate.
         """
         model_slug = self.get_model_slug()
         dataset_slug = self.get_dataset_slug()
@@ -445,7 +447,8 @@ class BaseEvaluator(ABC):
 
         output_responses = output_dir / "responses.json"
         output_metrics = output_dir / "metrics.csv"
-        incomplete_response_rate = self._get_incomplete_response_rate()
+        if incomplete_response_rate is None:
+            incomplete_response_rate = self._get_incomplete_response_rate()
         # Decide column header based on dataset kind:
         # - Hallucination and UNBIAS report Accuracy
         # - Otherwise (BIAS) report Error

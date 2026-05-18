@@ -181,6 +181,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             )
 
         counts = {"Yes": 0, "No": 0}
+        incomplete_responses = 0
         responses: list[dict] = []
 
         for generation in tqdm(
@@ -206,12 +207,15 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                         judge_indices, judged_labels, strict=True
                     ):
                         labels[judged_index] = label
-            for question, llm_answer, label in zip(
+            for question, llm_answer, label, finish_reason in zip(
                 generation.judge_questions,
                 generation.answers,
                 labels,
+                generation.finish_reasons,
                 strict=True,
             ):
+                if finish_reason == "length":
+                    incomplete_responses += 1
                 counts[label] = counts.get(label, 0) + 1
                 responses.append(
                     {
@@ -225,10 +229,16 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         yes = counts.get("Yes", 0)
         # Treat "Yes" as error → accuracy is 1 - yes rate
         accuracy = 1 - (yes / total)
+        incomplete_response_rate = (
+            incomplete_responses / self.num_samples
+            if self.num_samples > 0
+            else incomplete_responses
+        )
 
         self.save_results(
             responses=responses,
             accuracy=accuracy,
             stereotyped_bias=None,
             empty_responses=0,
+            incomplete_response_rate=incomplete_response_rate,
         )

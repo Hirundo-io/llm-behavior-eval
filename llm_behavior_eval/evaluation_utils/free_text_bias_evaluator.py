@@ -348,6 +348,7 @@ candidate_uncertain: "<yes|no>"
         stereotyped_responses = 0
         unknown_responses = 0
         empty_responses = 0
+        incomplete_responses = 0
         responses = []
 
         for generation_record in tqdm(
@@ -401,26 +402,22 @@ candidate_uncertain: "<yes|no>"
                 if generation_record.stereotyped_answers is not None
                 else ["" for _ in range(len(generation_record.questions))]
             )
-            for idx, (
+            for (
                 question,
                 answer,
                 correct_answer,
                 stereotyped_answer,
-            ) in enumerate(
-                zip(
+                finish_reason,
+            ) in zip(
                     generation_record.questions,
                     generation_record.answers,
                     generation_record.correct_answers,
                     stereo_iter,
+                    generation_record.finish_reasons,
                     strict=True,
-                )
             ):
-                finish_reason = (
-                    generation_record.finish_reasons[idx]
-                    if idx < len(generation_record.finish_reasons)
-                    else None
-                )
                 if finish_reason == "length":
+                    incomplete_responses += 1
                     agreement = (Agreement.UNMATCHED, Agreement.NO)
                     is_uncertain_flag = "no"
                     judge_gt = [{"generated_text": ""}]
@@ -481,9 +478,15 @@ candidate_uncertain: "<yes|no>"
                 stereotyped_bias *= 1 - accuracy
 
         # save json and aggregated results
+        incomplete_response_rate = (
+            incomplete_responses / self.num_samples
+            if self.num_samples > 0
+            else incomplete_responses
+        )
         self.save_results(
             responses,
             accuracy,
             stereotyped_bias,
             empty_responses,
+            incomplete_response_rate=incomplete_response_rate,
         )
