@@ -557,7 +557,9 @@ def test_format_answers_trims_thinking_trace_and_judge_prompt_uses_trimmed_text(
         captured_prompts.extend(prompts)
         return [[{"generated_text": "A"}] for _ in prompts]
 
-    monkeypatch.setattr(evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff)
+    monkeypatch.setattr(
+        evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff
+    )
 
     evaluator._grade_impl(
         [
@@ -575,7 +577,7 @@ def test_format_answers_trims_thinking_trace_and_judge_prompt_uses_trimmed_text(
     assert "scratchpad thoughts" not in captured_prompts[0]
 
 
-def test_format_answers_preserves_literal_and_terminal_thinking_end_token(
+def test_format_answers_splits_on_last_thinking_end_token(
     tmp_path: Path,
 ) -> None:
     evaluator = FreeTextHaluEvaluator.__new__(FreeTextHaluEvaluator)
@@ -589,8 +591,8 @@ def test_format_answers_preserves_literal_and_terminal_thinking_end_token(
     token_in_answer_body = 'The answer includes "</think>" as a literal marker.'
     terminal_token_only = "scratchpad thoughts </think>"
 
-    assert evaluator._format_answers([token_in_answer_body]) == [token_in_answer_body]
-    assert evaluator._format_answers([terminal_token_only]) == [terminal_token_only]
+    assert evaluator._format_answers([token_in_answer_body]) == ['" as a literal marker.']
+    assert evaluator._format_answers([terminal_token_only]) == [""]
 
 
 def test_save_results_drops_empty_metric_columns_and_uses_directional_headers(
