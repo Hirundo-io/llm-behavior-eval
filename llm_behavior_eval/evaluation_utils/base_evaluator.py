@@ -1005,6 +1005,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             return [
                 answer.rsplit(self.eval_config.thinking_end_token, 1)[-1].strip()
                 if self.eval_config.thinking_start_token in answer
+                or self.eval_config.thinking_end_token in answer
                 else answer
                 for answer in answers
             ]
