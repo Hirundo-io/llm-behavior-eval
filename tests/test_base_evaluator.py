@@ -567,6 +567,7 @@ def test_format_answers_trims_thinking_trace_and_judge_prompt_uses_trimmed_text(
                 input_texts=["question"],
                 gt_answers=["gold"],
                 answers=[answer_with_trace],
+                finish_reasons=["stop"],
             )
         ],
         judge_engine=cast("EvalEngine", object()),
