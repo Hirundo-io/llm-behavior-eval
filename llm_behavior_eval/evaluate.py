@@ -373,14 +373,20 @@ def main(
         str | None,
         typer.Option(
             "--thinking-start-token",
-            help="Thinking start token to use for the model (e.g. '<think>').",
+            help=(
+                "Thinking start token to use for the model (e.g. '<think>')."
+                "Must be specified when running with `--exclude-thinking-trace-for-judge`."
+            ),
         ),
     ] = None,
     thinking_end_token: Annotated[
         str | None,
         typer.Option(
             "--thinking-end-token",
-            help="Thinking end token to use for the model (e.g. '</think>'). Must be specified when running with `--exclude-thinking-trace-for-judge`.",
+            help=(
+                "Thinking end token to use for the model (e.g. '</think>'). "
+                "Must be specified when running with `--exclude-thinking-trace-for-judge`."
+            ),
         ),
     ] = None,
     exclude_thinking_trace_for_judge: Annotated[

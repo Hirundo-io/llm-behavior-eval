@@ -532,6 +532,7 @@ def test_format_answers_trims_thinking_trace_and_judge_prompt_uses_trimmed_text(
     evaluator.eval_config = EvaluationConfig(
         model_path_or_repo_id="meta/model",
         results_dir=tmp_path,
+        thinking_start_token="<think>",
         thinking_end_token="</think>",
         exclude_thinking_trace_for_judge=True,
     )
@@ -584,6 +585,7 @@ def test_format_answers_splits_on_last_thinking_end_token(
     evaluator.eval_config = EvaluationConfig(
         model_path_or_repo_id="meta/model",
         results_dir=tmp_path,
+        thinking_start_token="<think>",
         thinking_end_token="</think>",
         exclude_thinking_trace_for_judge=True,
     )
