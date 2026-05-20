@@ -1046,12 +1046,16 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             List of formatted answers.
         """
         if (
-            self.eval_config.thinking_end_token
+            self.eval_config.thinking_start_token
+            and self.eval_config.thinking_end_token
             and self.eval_config.exclude_thinking_trace_for_judge
         ):
             # NOTE This does not take into account the case where the thinking end token is in the body of the answer.
             return [
                 answer.rsplit(self.eval_config.thinking_end_token, 1)[-1].strip()
+                if self.eval_config.thinking_start_token in answer
+                or self.eval_config.thinking_end_token in answer
+                else answer
                 for answer in answers
             ]
         else:
