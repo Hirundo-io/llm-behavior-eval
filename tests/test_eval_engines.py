@@ -50,7 +50,10 @@ class DummyTransformersModel:
             dtype=input_ids.dtype,
             device=input_ids.device,
         )
-        return torch.cat([input_ids, extra], dim=1)
+        sequences = torch.cat([input_ids, extra], dim=1)
+        if kwargs.get("return_dict_in_generate", False):
+            return SimpleNamespace(sequences=sequences)
+        return sequences
 
     def eval(self):
         self.eval_called = True
@@ -290,7 +293,7 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
     input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
     attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]])
 
-    responses = engine.generate_answers(
+    responses, finish_reasons = engine.generate_answers(
         input_ids,
         attention_mask,
         sampling_config=SamplingConfig(
@@ -302,6 +305,7 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
         ),
     )
     assert responses == ["first", ""]
+    assert finish_reasons == [None, None]
     assert vllm_bundle.build_recorder.last_input_ids is input_ids
     assert vllm_bundle.build_recorder.last_attention_mask is attention_mask
     call_kwargs = vllm_bundle.sampling_recorder.calls[0]
@@ -329,7 +333,7 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
     input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
     attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]])
 
-    responses = engine.generate_answers(
+    responses, finish_reasons = engine.generate_answers(
         input_ids,
         attention_mask,
         sampling_config=SamplingConfig(
@@ -341,6 +345,7 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
         ),
     )
     assert responses == ["first", ""]
+    assert finish_reasons == [None, None]
     call_kwargs = vllm_bundle.sampling_recorder.calls[-1]
     assert call_kwargs["temperature"] == 1.0
     assert call_kwargs["top_p"] == 0.9
@@ -400,13 +405,14 @@ def test_transformers_eval_engine_generate_answers(
         top_k=5,
         seed=123,
     )
-    answers = engine.generate_answers(
+    answers, finish_reasons = engine.generate_answers(
         input_ids,
         attention_mask,
         sampling_config=sampling_config,
     )
 
     assert answers == ["decoded"]
+    assert finish_reasons == ["length"]
     generate_call = transformers_bundle.model.generate_calls[0]
     assert generate_call["do_sample"] == config.sample
     assert generate_call["max_new_tokens"] == config.max_answer_tokens

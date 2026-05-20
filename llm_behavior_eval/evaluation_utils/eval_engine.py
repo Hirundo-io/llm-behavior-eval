@@ -24,7 +24,7 @@ class EvalEngine(ABC):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         sampling_config: SamplingConfig,
-    ) -> list[str]:
+    ) -> tuple[list[str], list[str | None]]:
         raise NotImplementedError("Subclasses must implement generate_answers().")
 
     def ensure_test_model_ready(self) -> None:
