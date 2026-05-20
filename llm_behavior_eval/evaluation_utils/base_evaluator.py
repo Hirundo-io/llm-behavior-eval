@@ -596,7 +596,7 @@ class BaseEvaluator(ABC):
                     (
                         incomplete_response_rate * 100.0
                         if incomplete_response_rate is not None
-                        else None
+                        else 0.0
                     )
                 ],
             }
