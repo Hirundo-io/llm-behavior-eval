@@ -1,2 +1,6 @@
 ## code changes will send PR to following users
-* @mishana @benglewis @shmuelyo @RotemHir @orr-hirundo
+* @Hirundo-io/hirundo-admins @Hirundo-io/hirundo-dev
+#  ⬆️ Allow Admins and Developers to approve PRs with changes to the repository
+.github/workflows/ @Hirundo-io/hirundo-admins @Hirundo-io/hirundo-devops
+uv.lock @Hirundo-io/hirundo-admins @Hirundo-io/hirundo-devops
+#  ⬆️ Allow Admins and DevOps to approve PRs with changes just to GitHub Actions workflows and uv.lock
