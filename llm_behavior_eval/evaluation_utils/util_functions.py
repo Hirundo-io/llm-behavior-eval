@@ -405,7 +405,7 @@ def load_vllm_model(
     supports_fix_mistral_regex = "fix_mistral_regex" in llm_init_parameters
 
     with _hf_token(token):
-        llm_kwargs: dict[str, object] = {
+        llm_kwargs: dict[str, Any] = {
             "model": model_name,
             "trust_remote_code": trust_remote_code,
             "dtype": dtype_literal,
