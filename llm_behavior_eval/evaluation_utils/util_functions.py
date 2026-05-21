@@ -357,6 +357,7 @@ def load_vllm_model(
     quantization: QuantizationMethods | None = None,
     max_model_len: int | None = None,
     tokenizer_mode: TokenizerModeOption | None = None,
+    fix_mistral_regex: bool | None = None,
     config_format: str | None = None,
     load_format: str | None = None,
     gpu_memory_utilization: float = 0.9,
@@ -377,6 +378,7 @@ def load_vllm_model(
         quantization: Optional quantization backend (for example ``"bitsandbytes"`` for 4-bit inference).
         max_model_len: Optional maximum model length passed to vLLM.
         tokenizer_mode: Optional tokenizer mode string forwarded to vLLM.
+        fix_mistral_regex: Optional vLLM flag that enables Mistral regex compatibility.
         config_format: Optional config format string forwarded to vLLM.
         load_format: Optional checkpoint load format string forwarded to vLLM.
         gpu_memory_utilization: Optional GPU memory utilization passed to vLLM.
@@ -404,6 +406,7 @@ def load_vllm_model(
         tensor_parallel = gpu_count if gpu_count > 0 else None
 
     default_tokenizer_mode = _get_default_from_vllm("tokenizer_mode")
+    default_fix_mistral_regex = _get_default_from_vllm("fix_mistral_regex")
     default_tensor_parallel = _get_default_from_vllm("tensor_parallel_size")
 
     with _hf_token(token):
@@ -420,6 +423,11 @@ def load_vllm_model(
             hf_token=token,
             max_model_len=max_model_len,
             tokenizer_mode=tokenizer_mode or default_tokenizer_mode,
+            fix_mistral_regex=(
+                fix_mistral_regex
+                if fix_mistral_regex is not None
+                else default_fix_mistral_regex
+            ),
             config_format=config_format,
             load_format=load_format,
             gpu_memory_utilization=gpu_memory_utilization,

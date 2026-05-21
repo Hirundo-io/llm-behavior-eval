@@ -359,6 +359,7 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
 
     vllm_config = VllmConfig(
         tokenizer_mode="slow",
+        fix_mistral_regex=True,
         config_format="hf-torch",
         load_format="dummy",
     )
@@ -373,6 +374,7 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
 
     last_call = vllm_bundle.model_loader.calls[-1]["kwargs"]
     assert last_call["tokenizer_mode"] == "slow"
+    assert last_call["fix_mistral_regex"] is True
     assert last_call["config_format"] == "hf-torch"
     assert last_call["load_format"] == "dummy"
 

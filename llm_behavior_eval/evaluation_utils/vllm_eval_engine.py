@@ -75,6 +75,7 @@ class VllmEvalEngine(EvalEngine):
             quantization=quantization,
             max_model_len=max_model_len,
             tokenizer_mode=vllm_config.tokenizer_mode,
+            fix_mistral_regex=vllm_config.fix_mistral_regex,
             config_format=vllm_config.config_format,
             load_format=vllm_config.load_format,
             gpu_memory_utilization=vllm_config.gpu_memory_utilization,

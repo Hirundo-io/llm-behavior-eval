@@ -188,12 +188,14 @@ def test_main_passes_vllm_optional_args(
         "hallu",
         inference_engine="vllm",
         vllm_tokenizer_mode="slow",
+        vllm_fix_mistral_regex=True,
         vllm_config_format="hf",
         vllm_load_format="safetensors",
     )
     eval_config = capture_eval_config[-1]
     assert eval_config.vllm_config is not None
     assert eval_config.vllm_config.tokenizer_mode == "slow"
+    assert eval_config.vllm_config.fix_mistral_regex is True
     assert eval_config.vllm_config.config_format == "hf"
     assert eval_config.vllm_config.load_format == "safetensors"
 

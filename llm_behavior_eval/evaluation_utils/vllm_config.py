@@ -17,6 +17,7 @@ class VllmConfig(BaseModel):
         judge_max_model_len: Maximum model length for vLLM judge inference (optional).
             Defaults to the same value as max_model_len if not specified.
         tokenizer_mode: Tokenizer mode forwarded to vLLM (e.g. 'auto', 'slow', 'mistral', 'custom').
+        fix_mistral_regex: Whether to enable vLLM's Mistral regex compatibility fix.
         config_format: Model config format hint forwarded to vLLM (optional).
         load_format: Checkpoint load format hint forwarded to vLLM (optional).
         enable_lora: Whether to enable LoRA.
@@ -28,6 +29,7 @@ class VllmConfig(BaseModel):
     max_model_len: int | None = None
     judge_max_model_len: int | None = None
     tokenizer_mode: TokenizerModeOption | None = None
+    fix_mistral_regex: bool | None = None
     config_format: str | None = None
     load_format: str | None = None
     gpu_memory_utilization: float = 0.9

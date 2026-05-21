@@ -300,6 +300,13 @@ def main(
             help="Tokenizer mode forwarded to vLLM (e.g. 'auto', 'slow').",
         ),
     ] = None,
+    vllm_fix_mistral_regex: Annotated[
+        bool | None,
+        typer.Option(
+            "--vllm-fix-mistral-regex/--no-vllm-fix-mistral-regex",
+            help="Enable vLLM's compatibility fix for Mistral tokenizer regex parsing.",
+        ),
+    ] = None,
     vllm_config_format: Annotated[
         str | None,
         typer.Option(
@@ -559,6 +566,7 @@ def main(
             if vllm_judge_max_model_len is not None
             else vllm_max_model_len,
             tokenizer_mode=vllm_tokenizer_mode,
+            fix_mistral_regex=vllm_fix_mistral_regex,
             config_format=vllm_config_format,
             load_format=vllm_load_format,
             gpu_memory_utilization=vllm_gpu_memory_utilization,
