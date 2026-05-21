@@ -7,7 +7,7 @@ import shutil
 from contextlib import contextmanager
 from inspect import signature
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import ParseResult, urlparse
 
 import torch
@@ -37,27 +37,6 @@ if TYPE_CHECKING:
 VLLMDType = Literal["bfloat16", "float16", "float32"]
 
 DIGEST_SIZE_FOR_PEFT_PATHS = 8
-
-
-class VllmInitKwargs(TypedDict, total=False):
-    model: str
-    trust_remote_code: bool
-    dtype: VLLMDType
-    enforce_eager: bool
-    quantization: "QuantizationMethods | None"
-    tensor_parallel_size: int
-    max_num_seqs: int
-    hf_token: str | None
-    max_model_len: int | None
-    tokenizer_mode: "TokenizerModeOption | str | None"
-    fix_mistral_regex: bool
-    config_format: str | None
-    load_format: str | None
-    gpu_memory_utilization: float
-    enable_lora: bool
-    max_lora_rank: int
-    language_model_only: bool
-    compilation_config: Any
 
 
 def empty_cuda_cache_if_available() -> None:
@@ -425,34 +404,40 @@ def load_vllm_model(
     default_tensor_parallel = llm_init_parameters["tensor_parallel_size"].default
     supports_fix_mistral_regex = "fix_mistral_regex" in llm_init_parameters
 
-    with _hf_token(token):
-        llm_kwargs: VllmInitKwargs = {
-            "model": model_name,
-            "trust_remote_code": trust_remote_code,
-            "dtype": dtype_literal,
-            "enforce_eager": enforce_eager,
-            "quantization": quantization,
-            "tensor_parallel_size": (
-                tensor_parallel
-                if tensor_parallel is not None
-                else default_tensor_parallel
-            ),
-            "max_num_seqs": batch_size,
-            "hf_token": token,
-            "max_model_len": max_model_len,
-            "tokenizer_mode": tokenizer_mode or default_tokenizer_mode,
-            "config_format": config_format,
-            "load_format": load_format,
-            "gpu_memory_utilization": gpu_memory_utilization,
-            "enable_lora": enable_lora,
-            "max_lora_rank": max_lora_rank,
-            "language_model_only": language_model_only,
-            "compilation_config": CompilationConfig(cudagraph_specialize_lora=False),
-        }
-        if supports_fix_mistral_regex and fix_mistral_regex is not None:
-            llm_kwargs["fix_mistral_regex"] = fix_mistral_regex
+    def _build_llm(fix_mistral_regex_value: bool | None = None) -> LLM:
+        llm_kwargs: dict[str, Any] = {}
+        if fix_mistral_regex_value is not None:
+            llm_kwargs["fix_mistral_regex"] = fix_mistral_regex_value
 
-        llm_instance = LLM(**llm_kwargs)
+        return LLM(
+            model=model_name,
+            trust_remote_code=trust_remote_code,
+            dtype=dtype_literal,
+            enforce_eager=enforce_eager,
+            quantization=quantization,
+            tensor_parallel_size=tensor_parallel
+            if tensor_parallel is not None
+            else default_tensor_parallel,
+            max_num_seqs=batch_size,
+            hf_token=token,
+            max_model_len=max_model_len,
+            tokenizer_mode=tokenizer_mode or default_tokenizer_mode,
+            config_format=config_format,
+            load_format=load_format,
+            gpu_memory_utilization=gpu_memory_utilization,
+            enable_lora=enable_lora,
+            max_lora_rank=max_lora_rank,
+            language_model_only=language_model_only,
+            compilation_config=CompilationConfig(cudagraph_specialize_lora=False),
+            **llm_kwargs,
+        )
+
+    with _hf_token(token):
+        llm_instance = _build_llm(
+            fix_mistral_regex
+            if supports_fix_mistral_regex and fix_mistral_regex is not None
+            else None
+        )
 
     return llm_instance
 
