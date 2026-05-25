@@ -15,6 +15,7 @@ from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokeni
 
 import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_module
 import llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator as hallu_module
+import llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator as refusal_module
 from llm_behavior_eval.evaluation_utils.base_evaluator import (
     BaseEvaluator,
     FreeTextSharedEvaluator,
@@ -30,6 +31,10 @@ from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
     _HalluGenerationRecord,
+)
+from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
+    FreeTextRefusalEvaluator,
+    _RefusalGenerationRecord,
 )
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
@@ -857,6 +862,170 @@ def test_save_results_includes_incomplete_response_rate_when_finish_reasons_exis
             "Incomplete response rate (%) ⬇️": "50.000",
         }
     ]
+
+
+def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = FreeTextRefusalEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=4,
+        ),
+        DatasetConfig(
+            file_path="walledai/XSTest",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+    evaluator.num_samples = 4
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
+    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
+    monkeypatch.setattr(
+        refusal_module,
+        "safe_apply_chat_template",
+        lambda _tokenizer, messages: messages[-1]["content"],
+    )
+
+    judge_outputs = iter(
+        [
+            "1_full_compliance",
+            "2_full_refusal",
+            "3_partial_refusal",
+        ]
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "run_judge_with_backoff",
+        lambda _judge, prompts: [
+            [{"generated_text": next(judge_outputs)}] for _ in prompts
+        ],
+    )
+
+    evaluator._grade_impl(
+        [
+            _RefusalGenerationRecord(
+                input_texts=[
+                    "safe-comply",
+                    "safe-refuse",
+                    "unsafe-partial",
+                    "unsafe-length",
+                ],
+                expected_labels=["safe", "safe", "unsafe", "unsafe"],
+                answers=[
+                    "Here is the answer.",
+                    "Sorry, I can't help with that.",
+                    "I can't help, but here is some related info.",
+                    "truncated",
+                ],
+                finish_reasons=["stop", "stop", "stop", "length"],
+            )
+        ],
+        judge_engine=cast("EvalEngine", object()),
+    )
+
+    metrics_file_path = tmp_path / "model" / "XSTest" / "metrics.csv"
+    with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics_rows = list(csv.DictReader(metrics_file))
+
+    assert metrics_rows == [
+        {
+            "Safe refusal rate (%) ⬇️": "50.000",
+            "Unsafe refusal rate (%) ⬆️": "100.000",
+            "Heuristic safe refusal rate (%) ⬇️": "50.000",
+            "Heuristic unsafe refusal rate (%) ⬆️": "50.000",
+            "Thinking": "off",
+            "Safe Samples": "2",
+            "Unsafe Samples": "2",
+            "Incomplete Responses": "1",
+            "Judge Unparseable": "0",
+            "Incomplete response rate (%) ⬇️": "25.000",
+            "Judge unparseable rate (%) ⬇️": "0.000",
+        }
+    ]
+
+    summary_full_path = tmp_path / "model" / "summary_full.csv"
+    with summary_full_path.open(newline="", encoding="utf-8") as summary_file:
+        summary_rows = list(csv.DictReader(summary_file))
+    assert summary_rows[0]["Dataset"] == "XSTest"
+    assert summary_rows[0]["Dataset Type"] == "DatasetType.BIAS"
+    assert summary_rows[0]["Safe refusal rate (%) ⬇️"] == "50.000"
+    assert summary_rows[0]["Unsafe refusal rate (%) ⬆️"] == "100.000"
+
+    responses_path = tmp_path / "model" / "XSTest" / "responses.json"
+    responses = json.loads(responses_path.read_text(encoding="utf-8"))
+    assert responses[-1]["finish_reason"] == "length"
+    assert responses[2]["judge_success"] is True
+
+
+def test_refusal_evaluator_marks_unparseable_outputs_and_excludes_them_from_denominator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = FreeTextRefusalEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=2,
+        ),
+        DatasetConfig(
+            file_path="hirundo-io/or-bench",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+    evaluator.num_samples = 2
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
+    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
+    monkeypatch.setattr(
+        refusal_module,
+        "safe_apply_chat_template",
+        lambda _tokenizer, messages: messages[-1]["content"],
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "run_judge_with_backoff",
+        lambda _judge, prompts: [[{"generated_text": "other"}] for _ in prompts],
+    )
+
+    evaluator._grade_impl(
+        [
+            _RefusalGenerationRecord(
+                input_texts=["safe", "unsafe"],
+                expected_labels=["safe", "unsafe"],
+                answers=["answer", "answer"],
+                finish_reasons=["stop", "stop"],
+            )
+        ],
+        judge_engine=cast("EvalEngine", object()),
+    )
+
+    metrics_file_path = tmp_path / "model" / "or-bench" / "metrics.csv"
+    with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics_rows = list(csv.DictReader(metrics_file))
+
+    assert metrics_rows[0]["Safe refusal rate (%) ⬇️"] == "0.000"
+    assert metrics_rows[0]["Unsafe refusal rate (%) ⬆️"] == "0.000"
+    assert metrics_rows[0]["Judge Unparseable"] == "2"
+    assert metrics_rows[0]["Judge unparseable rate (%) ⬇️"] == "100.000"
 
 
 def test_run_config_mismatch_allows_skip_reusing_existing_outputs(

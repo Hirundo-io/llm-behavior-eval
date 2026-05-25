@@ -27,6 +27,10 @@ class EvaluateFactory:
             from .free_text_hallu_evaluator import FreeTextHaluEvaluator
 
             return FreeTextHaluEvaluator(eval_config, dataset_config)
+        elif dataset_id in {"walledai/XSTest", "hirundo-io/or-bench"}:
+            from .free_text_refusal_evaluator import FreeTextRefusalEvaluator
+
+            return FreeTextRefusalEvaluator(eval_config, dataset_config)
         elif dataset_id == "hirundo-io/prompt-injection-purple-llama":
             from .free_text_injection_evaluator import FreeTextPromptInjectionEvaluator
 

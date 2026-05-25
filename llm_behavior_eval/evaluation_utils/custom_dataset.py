@@ -2,7 +2,7 @@ import logging
 from copy import copy
 from functools import partial
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import torch
 from datasets import Dataset, DatasetDict, load_dataset
@@ -12,6 +12,11 @@ from .dataset_config import PreprocessConfig
 from .enums import DatasetType
 from .prompts import SYSTEM_PROMPT_DICT
 from .util_functions import is_model_multimodal, safe_apply_chat_template
+
+REFUSAL_PLACEHOLDER_ANSWER = "placeholder"
+SAFE_REFUSAL_LABEL = "safe"
+UNSAFE_REFUSAL_LABEL = "unsafe"
+REFUSAL_DATASETS = {"walledai/XSTest", "hirundo-io/or-bench"}
 
 
 def validate_dataset_columns(hf_dataset: Dataset) -> None:
@@ -27,6 +32,56 @@ def validate_dataset_columns(hf_dataset: Dataset) -> None:
         raise ValueError(
             f"Dataset is missing required columns: {missing}; found {hf_dataset.column_names}"
         )
+
+
+def normalize_refusal_label(raw_label: Any) -> str:
+    label = str(raw_label).strip().lower()
+    if label not in {SAFE_REFUSAL_LABEL, UNSAFE_REFUSAL_LABEL}:
+        raise ValueError(
+            "Refusal dataset label must be "
+            f"{SAFE_REFUSAL_LABEL!r} or {UNSAFE_REFUSAL_LABEL!r}, got {raw_label!r}"
+        )
+    return label
+
+
+def normalize_refusal_dataset(hf_dataset: Dataset) -> Dataset:
+    """Normalize refusal datasets to the free-text schema expected downstream."""
+
+    def _normalize_batch(examples_batch: dict[str, list[Any]]) -> dict[str, list[str]]:
+        prompts = examples_batch.get("question")
+        if prompts is None:
+            prompts = examples_batch.get("prompt")
+        if prompts is None:
+            raise ValueError(
+                "Refusal dataset must contain either a 'question' or 'prompt' column"
+            )
+        labels = examples_batch.get("label")
+        if labels is None:
+            raise ValueError("Refusal dataset must contain a 'label' column")
+
+        normalized_labels = [normalize_refusal_label(label) for label in labels]
+        answers = examples_batch.get("answer")
+        if answers is None:
+            # Free-text preprocessing expects an "answer" column, but our refusal
+            # datasets currently only provide prompt + safe/unsafe label.
+            answers = [REFUSAL_PLACEHOLDER_ANSWER for _ in prompts]
+        else:
+            answers = [
+                answer if str(answer).strip() else REFUSAL_PLACEHOLDER_ANSWER
+                for answer in answers
+            ]
+
+        return {
+            "question": [str(prompt) for prompt in prompts],
+            "answer": [str(answer) for answer in answers],
+            "label": normalized_labels,
+        }
+
+    return hf_dataset.map(
+        _normalize_batch,
+        batched=True,
+        remove_columns=hf_dataset.column_names,
+    )
 
 
 def free_text_preprocess_function(
@@ -76,6 +131,7 @@ def free_text_preprocess_function(
     eval_strings, answer_strings = [], []
     stereotyped_strings: list[str] = []
     judge_questions: list[str] = []
+    refusal_labels: list[int] = []
     for row in rows:
         question_text = row["question"]
         answer_text = row["answer"]
@@ -107,6 +163,12 @@ def free_text_preprocess_function(
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
         judge_questions.append(judge_question_override or question_text)
+        if "label" in row:
+            refusal_labels.append(
+                1
+                if normalize_refusal_label(row["label"]) == UNSAFE_REFUSAL_LABEL
+                else 0
+            )
     # 3) Tokenization
     tokenize = partial(
         tokenizer,
@@ -143,6 +205,8 @@ def free_text_preprocess_function(
     }
     if has_stereotype and tokenized_stereotype is not None:
         result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])
+    if refusal_labels:
+        result["refusal_labels"] = torch.tensor(refusal_labels)
 
     return result
 
@@ -175,7 +239,14 @@ class CustomDataset:
             ) from exc
         if not isinstance(raw, DatasetDict):
             raise ValueError(f"Expected DatasetDict, got {type(raw)}")
-        self.ds = raw["train"]
+        if "train" in raw:
+            self.ds = raw["train"]
+        elif len(raw) == 1:
+            self.ds = next(iter(raw.values()))
+        else:
+            raise ValueError(
+                f"Expected dataset '{self.file_path}' to contain a 'train' split or exactly one split, found {list(raw.keys())}"
+            )
         self.has_stereotype: bool = "stereotyped_answer" in self.ds.column_names
 
     def preprocess(
@@ -214,13 +285,18 @@ class CustomDataset:
             A test dataset with tokenized fields
         """
         preprocess_function = free_text_preprocess_function
-        validate_dataset_columns(self.ds)
-        old_columns = self.ds.column_names
+        dataset = (
+            normalize_refusal_dataset(self.ds)
+            if str(self.file_path) in REFUSAL_DATASETS
+            else self.ds
+        )
+        validate_dataset_columns(dataset)
+        old_columns = dataset.column_names
         # Compute once to avoid per-batch remote config lookups
         is_multimodal = is_model_multimodal(
             tokenizer.name_or_path, trust_remote_code, token
         )
-        processed_dataset = self.ds.map(
+        processed_dataset = dataset.map(
             lambda examples: preprocess_function(
                 examples,
                 tokenizer,

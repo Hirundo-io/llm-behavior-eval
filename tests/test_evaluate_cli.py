@@ -10,6 +10,10 @@ import pytest
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
+from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
+from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
+    FreeTextRefusalEvaluator,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -108,6 +112,21 @@ def test_main_applies_max_samples_option(
     assert capture_eval_config[-1].max_samples == 42
 
 
+def test_behavior_presets_expand_refusal_xstest() -> None:
+    assert evaluate._behavior_presets("refusal:xstest") == ["walledai/XSTest"]
+
+
+def test_behavior_presets_expand_refusal_orbench() -> None:
+    assert evaluate._behavior_presets("refusal:orbench") == ["hirundo-io/or-bench"]
+
+
+def test_behavior_presets_expand_refusal_all() -> None:
+    assert evaluate._behavior_presets("refusal:all") == [
+        "walledai/XSTest",
+        "hirundo-io/or-bench",
+    ]
+
+
 def test_main_runs_full_dataset_when_nonpositive_max_samples(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
@@ -122,11 +141,24 @@ def test_main_passes_judge_quantization_flag(
     assert capture_eval_config[-1].use_4bit_judge is True
 
 
+def test_main_uses_refusal_dataset_type_for_refusal_presets(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "refusal:xstest")
+    assert capture_configs[-1].dataset_config.file_path == "walledai/XSTest"
+    assert capture_configs[-1].dataset_config.dataset_type.value == "bias"
+
+
 def test_main_passes_model_output_dir_override(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
     evaluate.main("fake/model", "hallu", model_output_dir="custom-model-dir")
     assert capture_eval_config[-1].model_output_dir == "custom-model-dir"
+
+
+def test_main_rejects_mixed_evaluator_families() -> None:
+    with pytest.raises(ValueError, match="multiple evaluator families"):
+        evaluate.main("fake/model", "hallu,refusal:all")
 
 
 def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
@@ -140,6 +172,30 @@ def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
         capture_eval_config[-1].mlflow_config.mlflow_tracking_uri
         == "http://tracking.from.env"
     )
+
+
+def test_evaluate_factory_routes_refusal_datasets_to_refusal_evaluator(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sentinel = object()
+
+    def fake_init(
+        self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> None:
+        del eval_config, dataset_config
+        self._sentinel = sentinel
+
+    monkeypatch.setattr(FreeTextRefusalEvaluator, "__init__", fake_init)
+
+    evaluator = EvaluateFactory.create_evaluator(
+        EvaluationConfig(model_path_or_repo_id="fake/model", results_dir=tmp_path),
+        DatasetConfig(
+            file_path="walledai/XSTest", dataset_type=evaluate.DatasetType.BIAS
+        ),
+    )
+
+    assert isinstance(evaluator, FreeTextRefusalEvaluator)
+    assert evaluator._sentinel is sentinel
 
 
 def test_main_sets_inference_engine_and_sampling(

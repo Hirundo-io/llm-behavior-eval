@@ -30,6 +30,7 @@ BIAS_KINDS = {"bias", "unbias"}
 HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
+REFUSAL_ALIAS = {"refusal"}
 TRUSTED_MODEL_PROVIDERS = {
     "hirundo-io",
     "nvidia",
@@ -81,6 +82,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
     - Hallucinations: "hallu" or "hallu-med"
     - Prompt injection: "prompt-injection"
+    - Refusal: "refusal:xstest" | "refusal:orbench" | "refusal:all"
     """
     behavior_parts = [part.strip().lower() for part in behavior.split(":")]
 
@@ -91,6 +93,15 @@ def _behavior_presets(behavior: str) -> list[str]:
         return ["hirundo-io/medhallu"]
     if behavior in INJECTION_ALIAS:
         return ["hirundo-io/prompt-injection-purple-llama"]
+    if len(behavior_parts) == 2 and behavior_parts[0] in REFUSAL_ALIAS:
+        _, refusal_dataset = behavior_parts
+        if refusal_dataset == "xstest":
+            return ["walledai/XSTest"]
+        if refusal_dataset == "orbench":
+            return ["hirundo-io/or-bench"]
+        if refusal_dataset == "all":
+            return ["walledai/XSTest", "hirundo-io/or-bench"]
+        raise ValueError("Refusal supports: xstest, orbench, all")
 
     # Expected structures:
     # [kind, bias_type] for BBQ, where kind in {bias, unbias}
@@ -132,8 +143,20 @@ def _behavior_presets(behavior: str) -> list[str]:
         return [f"hirundo-io/unqover-{bias_type}-{kind}-free-text"]
 
     raise ValueError(
-        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
+        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection' | 'refusal:xstest|orbench|all'"
     )
+
+
+def _evaluator_family_for_dataset(file_path: str) -> str:
+    if file_path in {"hirundo-io/halueval", "hirundo-io/medhallu"}:
+        return "hallucination"
+    if file_path == "hirundo-io/prompt-injection-purple-llama":
+        return "prompt-injection"
+    if file_path in {"walledai/XSTest", "hirundo-io/or-bench"}:
+        return "refusal"
+    if "bbq" in file_path or "unqover" in file_path:
+        return "bias"
+    raise ValueError(f"Unknown dataset: {file_path}")
 
 
 def main(
@@ -146,7 +169,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors within the same evaluator family. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
         ),
     ],
     output_dir: Annotated[
@@ -516,6 +539,15 @@ def main(
     file_paths = []
     for behavior in behaviors:
         file_paths.extend(_behavior_presets(behavior))
+    evaluator_families = {
+        _evaluator_family_for_dataset(file_path) for file_path in file_paths
+    }
+    if len(evaluator_families) > 1:
+        # TODO: Support mixed evaluator families by instantiating a separate
+        # evaluator per dataset instead of reusing one evaluator across the full run.
+        raise ValueError(
+            "Cannot evaluate behaviors from multiple evaluator families in one invocation."
+        )
 
     logging.basicConfig(
         level=logging.INFO,
