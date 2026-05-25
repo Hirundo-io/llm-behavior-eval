@@ -9,6 +9,7 @@ usage() {
 Usage:
   ./batch_run_eval.sh [--dry-run] [--behavior <behavior>] [--model-id <model>] <suffixes_file> <lora_uris_file>
   ./batch_run_eval.sh [--dry-run] [--behavior <behavior>] [--model-id <model>] --mlflow-checkpoints-uri <uri> --suffix-prefix <prefix>
+  ./batch_run_eval.sh [--dry-run] [--behavior <behavior>] [--model-id <model>] --checkpoints-dir <dir> --suffix-prefix <prefix>
 
 Each file should contain one entry per line. Blank lines and lines starting
 with # are ignored. The remaining lines are paired by position and run
@@ -21,11 +22,15 @@ Options:
                          Example for prompt injection: prompt-injection
   --model-id <model>     Base model id passed to llm-behavior-eval.
                          Defaults to: openai/gpt-oss-20b
-                         In MLflow mode, if omitted, script will try to infer
-                         from the first checkpoint's adapter/config metadata.
+                         In checkpoint discovery modes, if omitted, script will
+                         try to infer from the first checkpoint's
+                         adapter/config metadata.
   --mlflow-checkpoints-uri <uri>
                          Base URI containing checkpoint-* directories
                          (for example gs://.../artifacts/hf_checkpoints).
+  --checkpoints-dir <dir>
+                         Local directory containing checkpoint-* directories.
+                         Leading ~/ is expanded automatically.
   --suffix-prefix <prefix>
                          Prefix used to build model suffixes as:
                          <prefix>-checkpoint-<step>.
@@ -36,7 +41,35 @@ Example:
   ./batch_run_eval.sh --dry-run suffixes.txt lora_uris.txt
   ./batch_run_eval.sh --behavior prompt-injection suffixes.txt lora_uris.txt
   ./batch_run_eval.sh --model-id openai/gpt-oss-20b --mlflow-checkpoints-uri gs://.../artifacts/hf_checkpoints --suffix-prefix bias-unlearning-ds
+  ./batch_run_eval.sh --checkpoints-dir ~/checkpoints --suffix-prefix bias-unlearning-ds
 USAGE
+}
+
+expand_path() {
+  local path="$1"
+
+  case "$path" in
+    "~")
+      printf '%s\n' "$HOME"
+      ;;
+    "~/"*)
+      # Quote ~ in the strip pattern; unquoted ~/ is not treated literally by bash.
+      printf '%s/%s\n' "$HOME" "${path#"~"/}"
+      ;;
+    *)
+      printf '%s\n' "$path"
+      ;;
+  esac
+}
+
+print_command() {
+  local -a cmd=("$@")
+
+  printf 'Resolved command:'
+  for arg in "${cmd[@]}"; do
+    printf ' %q' "$arg"
+  done
+  printf '\n'
 }
 
 dry_run=false
@@ -44,7 +77,16 @@ behavior="bias:all,unbias:all,unqover:bias:all"
 model_id="openai/gpt-oss-20b"
 model_id_explicit=false
 mlflow_checkpoints_uri=""
+checkpoints_dir=""
 suffix_prefix=""
+base_output_dir="${HOME}/llm-behavior-eval/results"
+inference_engine="vllm"
+vllm_max_model_len="2048"
+vllm_gpu_memory_utilization="0.9"
+judge_model="google/gemma-3-27b-it"
+batch_size="128"
+judge_batch_size="128"
+vllm_max_lora_rank="16"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -78,6 +120,15 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       mlflow_checkpoints_uri="$2"
+      shift 2
+      ;;
+    --checkpoints-dir)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --checkpoints-dir" >&2
+        usage
+        exit 1
+      fi
+      checkpoints_dir="$2"
       shift 2
       ;;
     --suffix-prefix)
@@ -156,33 +207,27 @@ raise SystemExit(1)
 PY
 }
 
-if [[ -n "$mlflow_checkpoints_uri" || -n "$suffix_prefix" ]]; then
-  if [[ -z "$mlflow_checkpoints_uri" || -z "$suffix_prefix" ]]; then
-    echo "--mlflow-checkpoints-uri and --suffix-prefix must be provided together" >&2
-    usage
-    exit 1
-  fi
-  if [[ $# -ne 0 ]]; then
-    echo "Do not pass <suffixes_file> <lora_uris_file> when using --mlflow-checkpoints-uri mode" >&2
-    usage
-    exit 1
-  fi
+discover_checkpoint_pairs() {
+  local checkpoint_root="$1"
 
-  if ! checkpoint_pairs_raw="$(uv run python - "$mlflow_checkpoints_uri" <<'PY'
+  uv run python - "$checkpoint_root" <<'PY'
 import re
 import sys
+from pathlib import Path
 from urllib.parse import urlparse
 
 import fsspec
 
-base_uri = sys.argv[1].rstrip("/")
+base_arg = sys.argv[1].rstrip("/")
+parsed = urlparse(base_arg)
+base_uri = str(Path(base_arg).expanduser()) if parsed.scheme == "" else base_arg
 parsed = urlparse(base_uri)
 
 fs, _, paths = fsspec.get_fs_token_paths(base_uri)
 base_path = paths[0]
 
 if not fs.exists(base_path):
-    raise SystemExit(f"Checkpoint base URI not found: {base_uri}")
+    raise SystemExit(f"Checkpoint base path not found: {base_uri}")
 
 entries = fs.ls(base_path, detail=True)
 pattern = re.compile(r"checkpoint-(\d+)$")
@@ -214,20 +259,51 @@ if parsed.scheme:
         rel_base = rel_base[len(parsed.netloc) + 1 :]
     normalized_base = f"{parsed.scheme}://{parsed.netloc}/{rel_base}".rstrip("/")
 else:
-    normalized_base = base_path.rstrip("/")
+    normalized_base = str(Path(base_path).expanduser())
 
 for step, dirname in matches:
     print(f"{normalized_base}/{dirname}\t{step}")
 PY
-)"; then
-    echo "Failed to discover checkpoints from: $mlflow_checkpoints_uri" >&2
+}
+
+if [[ -n "$mlflow_checkpoints_uri" && -n "$checkpoints_dir" ]]; then
+  echo "Use only one of --mlflow-checkpoints-uri or --checkpoints-dir" >&2
+  usage
+  exit 1
+fi
+
+checkpoint_source=""
+checkpoint_source_label=""
+
+if [[ -n "$mlflow_checkpoints_uri" ]]; then
+  checkpoint_source="$mlflow_checkpoints_uri"
+  checkpoint_source_label="--mlflow-checkpoints-uri"
+elif [[ -n "$checkpoints_dir" ]]; then
+  checkpoint_source="$(expand_path "$checkpoints_dir")"
+  checkpoint_source_label="--checkpoints-dir"
+fi
+
+if [[ -n "$checkpoint_source" || -n "$suffix_prefix" ]]; then
+  if [[ -z "$checkpoint_source" || -z "$suffix_prefix" ]]; then
+    echo "A checkpoint discovery source (--mlflow-checkpoints-uri or --checkpoints-dir) and --suffix-prefix must be provided together" >&2
+    usage
+    exit 1
+  fi
+  if [[ $# -ne 0 ]]; then
+    echo "Do not pass <suffixes_file> <lora_uris_file> when using checkpoint discovery mode" >&2
+    usage
+    exit 1
+  fi
+
+  if ! checkpoint_pairs_raw="$(discover_checkpoint_pairs "$checkpoint_source")"; then
+    echo "Failed to discover checkpoints from: $checkpoint_source" >&2
     exit 1
   fi
 
   mapfile -t checkpoint_pairs <<< "$checkpoint_pairs_raw"
 
   if [[ ${#checkpoint_pairs[@]} -eq 0 ]]; then
-    echo "No checkpoint-* directories found under: $mlflow_checkpoints_uri" >&2
+    echo "No checkpoint-* directories found under: $checkpoint_source" >&2
     exit 1
   fi
 
@@ -272,7 +348,7 @@ else
   fi
 fi
 
-if [[ "$model_id_explicit" == false && -n "$mlflow_checkpoints_uri" ]]; then
+if [[ "$model_id_explicit" == false && -n "$checkpoint_source" ]]; then
   if detected_model_id="$(detect_model_from_lora_uri "${lora_uris[0]}" 2>/dev/null)"; then
     model_id="$detected_model_id"
     echo "Auto-detected model id from checkpoint metadata: $model_id"
@@ -325,16 +401,34 @@ for i in "${!suffixes[@]}"; do
   suffix="${suffixes[$i]}"
   lora_uri="${lora_uris[$i]}"
   model_output_dir="${model_output_prefix}-${suffix}"
-  output_path="/home/vscode/llm-behavior-eval/results/${model_output_dir}"
+  output_path="${base_output_dir%/}/${model_output_dir}"
+  eval_cmd=(
+    uv run llm-behavior-eval
+    "$model_id"
+    "$behavior"
+    --inference-engine "$inference_engine"
+    --vllm-max-model-len "$vllm_max_model_len"
+    --vllm-gpu-memory-utilization "$vllm_gpu_memory_utilization"
+    --judge-model "$judge_model"
+    --batch-size "$batch_size"
+    --judge-batch-size "$judge_batch_size"
+    --vllm-max-lora-rank "$vllm_max_lora_rank"
+    --base-output-dir "$base_output_dir"
+    --model-output-dir "$model_output_dir"
+    --lora-path-or-repo-id "$lora_uri"
+  )
 
   echo
   echo "[$((i + 1))/${#suffixes[@]}] ${model_output_dir}"
   echo "Model: ${model_id}"
   echo "LoRA URI: ${lora_uri}"
   echo "Behavior: ${behavior}"
+  echo "Base output dir: ${base_output_dir}"
 
   if [[ "$dry_run" == true ]]; then
     line_ok=true
+
+    print_command "${eval_cmd[@]}"
 
     if [[ -e "$output_path" ]]; then
       echo "Output dir check: FAIL (${output_path} already exists)"
@@ -361,19 +455,7 @@ for i in "${!suffixes[@]}"; do
   fi
 
   echo "Running evaluation..."
-  uv run llm-behavior-eval \
-    "$model_id" \
-    "$behavior" \
-    --inference-engine vllm \
-    --vllm-max-model-len 2048 \
-    --vllm-gpu-memory-utilization 0.75 \
-    --judge-model google/gemma-3-27b-it \
-    --batch-size 128 \
-    --judge-batch-size 128 \
-    --vllm-max-lora-rank 64 \
-    --base-output-dir /home/vscode/llm-behavior-eval/results \
-    --model-output-dir "$model_output_dir" \
-    --lora-path-or-repo-id "$lora_uri"
+  "${eval_cmd[@]}"
 done
 
 exit "$overall_status"

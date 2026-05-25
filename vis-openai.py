@@ -78,6 +78,17 @@ def scale_step(method: str, step: int) -> int:
     return step * 1
 
 
+def _metric_score_columns(fieldnames: Iterable[str]) -> tuple[str | None, str | None]:
+    error_column: str | None = None
+    accuracy_column: str | None = None
+    for field_name in fieldnames:
+        if field_name.startswith("Error (%)"):
+            error_column = field_name
+        elif field_name.startswith("Accuracy (%)"):
+            accuracy_column = field_name
+    return error_column, accuracy_column
+
+
 def parse_summary_csv(csv_path: Path) -> dict[str, ScoreEntry]:
     scores: dict[str, ScoreEntry] = {}
     with csv_path.open(newline="", encoding="utf-8") as handle:
@@ -85,25 +96,43 @@ def parse_summary_csv(csv_path: Path) -> dict[str, ScoreEntry]:
         if reader.fieldnames is None:
             return scores
 
-        score_columns = [
-            field_name for field_name in reader.fieldnames if field_name != "Dataset"
+        error_column, accuracy_column = _metric_score_columns(reader.fieldnames)
+        fallback_columns = [
+            field_name
+            for field_name in reader.fieldnames
+            if field_name not in {"Dataset", "Thinking"}
+            and field_name not in {error_column, accuracy_column}
         ]
         for row in reader:
             metric = (row.get("Dataset") or "").strip()
             if not metric:
                 continue
 
-            for column_name in score_columns:
-                raw_value = (row.get(column_name) or "").strip()
-                if not raw_value:
-                    continue
+            raw_value = ""
+            score_kind = ""
+            if error_column is not None:
+                raw_value = (row.get(error_column) or "").strip()
+                if raw_value:
+                    score_kind = error_column
+            if not raw_value and accuracy_column is not None:
+                raw_value = (row.get(accuracy_column) or "").strip()
+                if raw_value:
+                    score_kind = accuracy_column
+            if not raw_value:
+                for column_name in fallback_columns:
+                    candidate = (row.get(column_name) or "").strip()
+                    if candidate:
+                        raw_value = candidate
+                        score_kind = column_name
+                        break
+            if not raw_value:
+                continue
 
-                scores[metric] = ScoreEntry(
-                    metric=metric,
-                    score_kind=column_name,
-                    value=float(raw_value),
-                )
-                break
+            scores[metric] = ScoreEntry(
+                metric=metric,
+                score_kind=score_kind,
+                value=float(raw_value),
+            )
     return scores
 
 
