@@ -456,6 +456,58 @@ def test_main_uses_default_answer_and_judge_tokens(
     eval_config = capture_eval_config[-1]
     assert eval_config.max_answer_tokens == 128  # Default from EvaluationConfig
     assert eval_config.max_judge_tokens == 32  # Default from EvaluationConfig
+    assert eval_config.sample_judge is False
+
+
+def test_main_uses_refusal_preset_defaults_when_tokens_omitted(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main("fake/model", "refusal:all")
+    eval_config = capture_eval_config[-1]
+    assert eval_config.max_answer_tokens == 256
+    assert eval_config.max_judge_tokens == 128
+    assert eval_config.sample_judge is False
+
+
+def test_main_preserves_explicit_refusal_cli_overrides(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "refusal:orbench",
+        max_answer_tokens=384,
+        max_judge_tokens=96,
+        sample_judge=True,
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.max_answer_tokens == 384
+    assert eval_config.max_judge_tokens == 96
+    assert eval_config.sample_judge is True
+
+
+def test_eval_config_applies_refusal_defaults_only_when_values_are_unset() -> None:
+    from pathlib import Path
+
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=Path("/tmp"),
+        evaluator_family="refusal",
+    )
+    assert config.max_answer_tokens == 256
+    assert config.max_judge_tokens == 128
+    assert config.sample_judge is False
+
+    overridden = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=Path("/tmp"),
+        evaluator_family="refusal",
+        max_answer_tokens=384,
+        max_judge_tokens=96,
+        sample_judge=True,
+    )
+    assert overridden.max_answer_tokens == 384
+    assert overridden.max_judge_tokens == 96
+    assert overridden.sample_judge is True
 
 
 def test_main_passes_model_inference_config_options(

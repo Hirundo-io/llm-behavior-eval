@@ -374,7 +374,10 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
         do_sample=None,
     )
 
-    assert outputs == [[{"generated_text": "yes"}], [{"generated_text": "yes"}]]
+    assert outputs == [
+        [{"generated_text": "yes", "finish_reason": None}],
+        [{"generated_text": "yes", "finish_reason": None}],
+    ]
     assert len(judge_engine.calls) == 1
     sampling_config = judge_engine.calls[0]["sampling_config"]
     assert isinstance(sampling_config, SamplingConfig)
@@ -908,7 +911,8 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
         evaluator,
         "run_judge_with_backoff",
         lambda _judge, prompts: [
-            [{"generated_text": next(judge_outputs)}] for _ in prompts
+            [{"generated_text": next(judge_outputs), "finish_reason": "stop"}]
+            for _ in prompts
         ],
     )
 
@@ -949,8 +953,13 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
             "Unsafe Samples": "2",
             "Incomplete Responses": "1",
             "Judge Unparseable": "0",
+            "Judge Attempted Samples": "3",
+            "Judged Samples": "3",
+            "Safe Known Samples": "2",
+            "Unsafe Known Samples": "1",
             "Incomplete response rate (%) ⬇️": "25.000",
             "Judge unparseable rate (%) ⬇️": "0.000",
+            "Judge parse success rate (%) ⬆️": "100.000",
         }
     ]
 
@@ -965,7 +974,12 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
     responses_path = tmp_path / "model" / "XSTest" / "responses.json"
     responses = json.loads(responses_path.read_text(encoding="utf-8"))
     assert responses[-1]["finish_reason"] == "length"
+    assert responses[-1]["judge_finish_reason"] is None
+    assert responses[-1]["judge_label"] is None
+    assert responses[-1]["grading_status"] == "model_incomplete"
     assert responses[2]["judge_success"] is True
+    assert responses[2]["judge_finish_reason"] == "stop"
+    assert responses[2]["grading_status"] == "judged"
 
 
 def test_refusal_evaluator_marks_unparseable_outputs_and_excludes_them_from_denominator(
@@ -1003,7 +1017,9 @@ def test_refusal_evaluator_marks_unparseable_outputs_and_excludes_them_from_deno
     monkeypatch.setattr(
         evaluator,
         "run_judge_with_backoff",
-        lambda _judge, prompts: [[{"generated_text": "other"}] for _ in prompts],
+        lambda _judge, prompts: [
+            [{"generated_text": "other", "finish_reason": "length"}] for _ in prompts
+        ],
     )
 
     evaluator._grade_impl(
@@ -1025,7 +1041,17 @@ def test_refusal_evaluator_marks_unparseable_outputs_and_excludes_them_from_deno
     assert metrics_rows[0]["Safe refusal rate (%) ⬇️"] == "0.000"
     assert metrics_rows[0]["Unsafe refusal rate (%) ⬆️"] == "0.000"
     assert metrics_rows[0]["Judge Unparseable"] == "2"
+    assert metrics_rows[0]["Judge Attempted Samples"] == "2"
+    assert metrics_rows[0]["Judged Samples"] == "0"
+    assert metrics_rows[0]["Safe Known Samples"] == "0"
+    assert metrics_rows[0]["Unsafe Known Samples"] == "0"
     assert metrics_rows[0]["Judge unparseable rate (%) ⬇️"] == "100.000"
+    assert metrics_rows[0]["Judge parse success rate (%) ⬆️"] == "0.000"
+
+    responses_path = tmp_path / "model" / "or-bench" / "responses.json"
+    responses = json.loads(responses_path.read_text(encoding="utf-8"))
+    assert responses[0]["grading_status"] == "judge_unparseable"
+    assert responses[0]["judge_finish_reason"] == "length"
 
 
 def test_run_config_mismatch_allows_skip_reusing_existing_outputs(

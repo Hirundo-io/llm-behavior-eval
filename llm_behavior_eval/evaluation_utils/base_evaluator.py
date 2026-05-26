@@ -1092,7 +1092,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         self,
         judge_engine: EvalEngine,
         prompts: list[str],
-    ) -> list[list[dict[str, str]]]:
+    ) -> list[list[dict[str, str | None]]]:
         """
         Execute the judge by probing an executable batch size that can
         complete a full pass over all prompts without OOM. The probing runs the
@@ -1103,7 +1103,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             prompts: List of prompts to judge.
 
         Returns:
-            List of judge outputs in format [{"generated_text": ...}, ...] per prompt.
+            List of judge outputs in format
+            [{"generated_text": ..., "finish_reason": ...}, ...] per prompt.
         """
         # If a fixed judge batch size is provided, run regularly with that size (no backoff)
         if self.eval_config.judge_batch_size is not None:
@@ -1163,7 +1164,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         prompts: list[str],
         batch_size: int | None = None,
         do_sample: bool | None = None,
-    ) -> list[list[dict[str, str]]]:
+    ) -> list[list[dict[str, str | None]]]:
         """
         Process a batch of prompts through the judge engine.
 
@@ -1174,7 +1175,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             do_sample: Whether to sample from the model.
 
         Returns:
-            List where each element is [{"generated_text": answer}, ...] for that prompt.
+            List where each element is
+            [{"generated_text": answer, "finish_reason": finish_reason}, ...]
+            for that prompt.
         """
         judge_tokenizer = self._get_judge_tokenizer()
 
@@ -1192,7 +1195,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         resolved_do_sample = (
             self.eval_config.sample_judge if do_sample is None else do_sample
         )
-        answers, _ = judge_engine.generate_answers(
+        answers, finish_reasons = judge_engine.generate_answers(
             input_ids,
             attention_mask,
             sampling_config=SamplingConfig(
@@ -1204,10 +1207,10 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             ),
         )
 
-        # Format output to match pipeline format: [{"generated_text": answer}, ...] per prompt
-        result: list[list[dict[str, str]]] = []
-        for answer in answers:
-            result.append([{"generated_text": answer}])
+        # Format output to match pipeline format per prompt.
+        result: list[list[dict[str, str | None]]] = []
+        for answer, finish_reason in zip(answers, finish_reasons, strict=True):
+            result.append([{"generated_text": answer, "finish_reason": finish_reason}])
 
         return result
 

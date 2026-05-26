@@ -1,11 +1,15 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic.functional_validators import model_validator
 
 from .sampling_config import SamplingConfig
 from .vllm_config import VllmConfig
+
+REFUSAL_DEFAULT_MAX_ANSWER_TOKENS = 256
+REFUSAL_DEFAULT_MAX_JUDGE_TOKENS = 128
+REFUSAL_DEFAULT_SAMPLE_JUDGE = False
 
 
 class EvaluationConfig(BaseModel):
@@ -44,6 +48,7 @@ class EvaluationConfig(BaseModel):
         trust_remote_code: Whether to trust remote code when loading models.
         sampling_config: Sampling configuration for model inference.
         mlflow_config: MLflow configuration for tracking (optional).
+        evaluator_family: Evaluator family for the current invocation, if known.
     """
 
     max_samples: None | int = 500
@@ -77,6 +82,26 @@ class EvaluationConfig(BaseModel):
     sampling_config: SamplingConfig = SamplingConfig()
     mlflow_config: "MlflowConfig | None" = None
     replace_existing_output: bool = False
+    evaluator_family: (
+        Literal["bias", "hallucination", "prompt-injection", "refusal"] | None
+    ) = None
+    max_answer_tokens_was_set: bool = Field(default=False, exclude=True, repr=False)
+    max_judge_tokens_was_set: bool = Field(default=False, exclude=True, repr=False)
+    sample_judge_was_set: bool = Field(default=False, exclude=True, repr=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def track_explicit_refusal_override_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        for field_name, tracker_field_name in (
+            ("max_answer_tokens", "max_answer_tokens_was_set"),
+            ("max_judge_tokens", "max_judge_tokens_was_set"),
+            ("sample_judge", "sample_judge_was_set"),
+        ):
+            if tracker_field_name not in data:
+                data[tracker_field_name] = field_name in data
+        return data
 
     @field_validator("model_output_dir")
     @classmethod
@@ -150,6 +175,18 @@ class EvaluationConfig(BaseModel):
             raise ValueError(
                 "thinking_start_token and thinking_end_token must both be specified in order to exclude thinking trace from judgement"
             )
+        return self
+
+    @model_validator(mode="after")
+    def apply_refusal_defaults(self):
+        if self.evaluator_family != "refusal":
+            return self
+        if not self.max_answer_tokens_was_set:
+            self.max_answer_tokens = REFUSAL_DEFAULT_MAX_ANSWER_TOKENS
+        if not self.max_judge_tokens_was_set:
+            self.max_judge_tokens = REFUSAL_DEFAULT_MAX_JUDGE_TOKENS
+        if not self.sample_judge_was_set:
+            self.sample_judge = REFUSAL_DEFAULT_SAMPLE_JUDGE
         return self
 
 

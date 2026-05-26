@@ -5,6 +5,8 @@ import llm_behavior_eval.evaluation_utils.custom_dataset as custom_dataset_modul
 from llm_behavior_eval.evaluation_utils.custom_dataset import (
     REFUSAL_PLACEHOLDER_ANSWER,
     CustomDataset,
+    free_text_preprocess_function,
+    is_refusal_dataset,
     normalize_refusal_dataset,
     validate_dataset_columns,
 )
@@ -54,6 +56,85 @@ def test_normalize_refusal_dataset_rejects_unknown_labels():
 
     with pytest.raises(ValueError, match="must be 'safe' or 'unsafe'"):
         normalize_refusal_dataset(ds)
+
+
+def test_is_refusal_dataset_matches_supported_refusal_datasets():
+    assert is_refusal_dataset("walledai/XSTest")
+    assert is_refusal_dataset("hirundo-io/or-bench")
+    assert not is_refusal_dataset("hirundo-io/halueval")
+
+
+def test_free_text_preprocess_function_omits_default_system_prompt_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured_messages: list[list[dict[str, str]]] = []
+
+    class StubTokenizer:
+        def __call__(self, texts, **_kwargs):
+            if isinstance(texts, str):
+                texts = [texts]
+            return {
+                "input_ids": [[1, 2] for _ in texts],
+                "attention_mask": [[1, 1] for _ in texts],
+            }
+
+    def fake_safe_apply_chat_template(_tokenizer, messages, **_kwargs):
+        captured_messages.append(messages)
+        return "formatted"
+
+    monkeypatch.setattr(
+        custom_dataset_module, "safe_apply_chat_template", fake_safe_apply_chat_template
+    )
+
+    free_text_preprocess_function(
+        {"question": ["q1"], "answer": ["a1"], "label": ["safe"]},
+        StubTokenizer(),
+        max_length=8,
+        gt_max_length=4,
+        has_stereotype=False,
+        include_default_system_prompt=False,
+    )
+
+    assert captured_messages == [[{"role": "user", "content": "q1\n"}]]
+
+
+def test_free_text_preprocess_function_uses_default_system_prompt_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured_messages: list[list[dict[str, str]]] = []
+
+    class StubTokenizer:
+        def __call__(self, texts, **_kwargs):
+            if isinstance(texts, str):
+                texts = [texts]
+            return {
+                "input_ids": [[1, 2] for _ in texts],
+                "attention_mask": [[1, 1] for _ in texts],
+            }
+
+    def fake_safe_apply_chat_template(_tokenizer, messages, **_kwargs):
+        captured_messages.append(messages)
+        return "formatted"
+
+    monkeypatch.setattr(
+        custom_dataset_module, "safe_apply_chat_template", fake_safe_apply_chat_template
+    )
+
+    free_text_preprocess_function(
+        {"question": ["q1"], "answer": ["a1"]},
+        StubTokenizer(),
+        max_length=8,
+        gt_max_length=4,
+        has_stereotype=False,
+        include_default_system_prompt=True,
+    )
+
+    assert captured_messages == [
+        [
+            custom_dataset_module.SYSTEM_PROMPT_DICT,
+            {"role": "user", "content": "q1\n"},
+        ]
+    ]
 
 
 def test_custom_dataset_uses_train_split_when_present(

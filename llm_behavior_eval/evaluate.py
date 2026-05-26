@@ -459,12 +459,13 @@ def main(
         ),
     ] = DEFAULT_JUDGE_BATCH_SIZE,
     sample_judge: Annotated[
-        bool,
+        bool | None,
         typer.Option(
             "--sample-judge/--no-sample-judge",
             help="Whether to sample outputs from the judge model.",
+            show_default=str(DEFAULT_SAMPLE_JUDGE),
         ),
-    ] = DEFAULT_SAMPLE_JUDGE,
+    ] = None,
     use_4bit_judge: Annotated[
         bool,
         typer.Option(
@@ -508,13 +509,13 @@ def main(
         ),
     ] = DEFAULT_SEED,
     max_answer_tokens: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--max-answer-tokens",
             help="Maximum number of tokens to generate per answer.",
             show_default=str(DEFAULT_MAX_ANSWER_TOKENS),
         ),
-    ] = DEFAULT_MAX_ANSWER_TOKENS,
+    ] = None,
     pass_max_answer_tokens: Annotated[
         bool,
         typer.Option(
@@ -523,13 +524,13 @@ def main(
         ),
     ] = False,
     max_judge_tokens: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--max-judge-tokens",
             help="Maximum number of tokens to generate with the judge model.",
             show_default=str(DEFAULT_MAX_JUDGE_TOKENS),
         ),
-    ] = DEFAULT_MAX_JUDGE_TOKENS,
+    ] = None,
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
@@ -548,6 +549,7 @@ def main(
         raise ValueError(
             "Cannot evaluate behaviors from multiple evaluator families in one invocation."
         )
+    evaluator_family = next(iter(evaluator_families), None)
 
     logging.basicConfig(
         level=logging.INFO,
@@ -602,6 +604,14 @@ def main(
     else:
         vllm_config = None
 
+    refusal_override_kwargs: dict[str, object] = {}
+    if max_answer_tokens is not None:
+        refusal_override_kwargs["max_answer_tokens"] = max_answer_tokens
+    if max_judge_tokens is not None:
+        refusal_override_kwargs["max_judge_tokens"] = max_judge_tokens
+    if sample_judge is not None:
+        refusal_override_kwargs["sample_judge"] = sample_judge
+
     eval_config = EvaluationConfig(
         model_path_or_repo_id=model_path_or_repo_id,
         model_output_dir=model_output_dir,
@@ -628,11 +638,8 @@ def main(
         batch_size=batch_size,
         use_4bit=use_4bit,
         device_map=device_map,
-        max_answer_tokens=max_answer_tokens,
         pass_max_answer_tokens=pass_max_answer_tokens,
         judge_batch_size=judge_batch_size,
-        max_judge_tokens=max_judge_tokens,
-        sample_judge=sample_judge,
         use_4bit_judge=use_4bit_judge,
         sampling_config=SamplingConfig(
             do_sample=sample,
@@ -641,6 +648,8 @@ def main(
             top_k=top_k,
             seed=seed,
         ),
+        evaluator_family=evaluator_family,
+        **refusal_override_kwargs,
     )
 
     evaluator = None

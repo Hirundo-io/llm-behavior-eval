@@ -19,6 +19,10 @@ UNSAFE_REFUSAL_LABEL = "unsafe"
 REFUSAL_DATASETS = {"walledai/XSTest", "hirundo-io/or-bench"}
 
 
+def is_refusal_dataset(file_path: Path | str) -> bool:
+    return str(file_path) in REFUSAL_DATASETS
+
+
 def validate_dataset_columns(hf_dataset: Dataset) -> None:
     """
     Validates that the dataset contains the required columns based on the text format.
@@ -97,6 +101,7 @@ def free_text_preprocess_function(
     pass_max_answer_tokens: bool = False,
     thinking_start_token: str | None = None,
     thinking_end_token: str | None = None,
+    include_default_system_prompt: bool = True,
 ) -> dict[str, torch.Tensor]:
     """
     Preprocesses a batch of examples for free-text datasets.
@@ -114,6 +119,8 @@ def free_text_preprocess_function(
         thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
         thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
         pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
+        include_default_system_prompt: Whether to prepend the shared free-text system prompt
+            when no per-row system prompt override is provided.
 
     Returns:
         A dictionary containing the tokenized input and ground truth sequences.
@@ -141,15 +148,18 @@ def free_text_preprocess_function(
         judge_question_override = row.get("judge_question")
 
         user_msg = {"role": "user", "content": f"{question_text}\n"}
-        system_msg = (
-            {"role": "system", "content": system_override}
-            if system_override
-            else copy(SYSTEM_PROMPT_DICT)
-        )
+        messages = [user_msg]
+        if system_override:
+            messages = [
+                {"role": "system", "content": system_override},
+                user_msg,
+            ]
+        elif include_default_system_prompt:
+            messages = [copy(SYSTEM_PROMPT_DICT), user_msg]
         eval_strings.append(
             safe_apply_chat_template(
                 tokenizer,
-                [system_msg, user_msg],
+                messages,
                 is_multimodal=is_multimodal,
                 max_answer_tokens=max_answer_tokens,
                 enable_thinking=enable_thinking,
@@ -285,11 +295,8 @@ class CustomDataset:
             A test dataset with tokenized fields
         """
         preprocess_function = free_text_preprocess_function
-        dataset = (
-            normalize_refusal_dataset(self.ds)
-            if str(self.file_path) in REFUSAL_DATASETS
-            else self.ds
-        )
+        refusal_dataset = is_refusal_dataset(self.file_path)
+        dataset = normalize_refusal_dataset(self.ds) if refusal_dataset else self.ds
         validate_dataset_columns(dataset)
         old_columns = dataset.column_names
         # Compute once to avoid per-batch remote config lookups
@@ -310,6 +317,7 @@ class CustomDataset:
                 thinking_start_token=thinking_start_token,
                 thinking_end_token=thinking_end_token,
                 pass_max_answer_tokens=pass_max_answer_tokens,
+                include_default_system_prompt=not refusal_dataset,
             ),
             batched=True,
             remove_columns=old_columns,
