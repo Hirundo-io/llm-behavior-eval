@@ -1054,6 +1054,68 @@ def test_refusal_evaluator_marks_unparseable_outputs_and_excludes_them_from_deno
     assert responses[0]["judge_finish_reason"] == "length"
 
 
+def test_refusal_evaluator_only_counts_stop_rows_as_judge_attempts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = FreeTextRefusalEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=2,
+        ),
+        DatasetConfig(
+            file_path="hirundo-io/or-bench",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+    evaluator.num_samples = 2
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
+    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
+    monkeypatch.setattr(
+        refusal_module,
+        "safe_apply_chat_template",
+        lambda _tokenizer, messages: messages[-1]["content"],
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "run_judge_with_backoff",
+        lambda _judge, prompts: [
+            [{"generated_text": "[[direct_refusal]]", "finish_reason": "stop"}]
+            for _ in prompts
+        ],
+    )
+
+    evaluator._grade_impl(
+        [
+            _RefusalGenerationRecord(
+                input_texts=["stop-row", "unknown-finish-row"],
+                expected_labels=["unsafe", "unsafe"],
+                answers=["I won't help with that.", "answer"],
+                finish_reasons=["stop", None],
+            )
+        ],
+        judge_engine=cast("EvalEngine", object()),
+    )
+
+    metrics_file_path = tmp_path / "model" / "or-bench" / "metrics.csv"
+    with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics_rows = list(csv.DictReader(metrics_file))
+
+    assert metrics_rows[0]["Judge Attempted Samples"] == "1"
+    assert metrics_rows[0]["Judged Samples"] == "1"
+    assert metrics_rows[0]["Judge parse success rate (%) ⬆️"] == "100.000"
+
+
 def test_run_config_mismatch_allows_skip_reusing_existing_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

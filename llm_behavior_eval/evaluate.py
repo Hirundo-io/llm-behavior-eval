@@ -15,7 +15,10 @@ from llm_behavior_eval.evaluation_utils.dataset_config import (
     PreprocessConfig,
 )
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
-from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.eval_config import (
+    EvaluationConfig,
+    EvaluatorFamily,
+)
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.util_functions import (
@@ -145,21 +148,6 @@ def _behavior_presets(behavior: str) -> list[str]:
     raise ValueError(
         "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection' | 'refusal:xstest|orbench|all'"
     )
-
-
-EvaluatorFamily = Literal["bias", "hallucination", "prompt-injection", "refusal"]
-
-
-def _evaluator_family_for_dataset(file_path: str) -> EvaluatorFamily:
-    if file_path in {"hirundo-io/halueval", "hirundo-io/medhallu"}:
-        return "hallucination"
-    if file_path == "hirundo-io/prompt-injection-purple-llama":
-        return "prompt-injection"
-    if file_path in {"walledai/XSTest", "hirundo-io/or-bench"}:
-        return "refusal"
-    if "bbq" in file_path or "unqover" in file_path:
-        return "bias"
-    raise ValueError(f"Unknown dataset: {file_path}")
 
 
 def main(
@@ -544,7 +532,7 @@ def main(
     for behavior in behaviors:
         file_paths.extend(_behavior_presets(behavior))
     evaluator_families: set[EvaluatorFamily] = {
-        _evaluator_family_for_dataset(file_path) for file_path in file_paths
+        EvaluateFactory.get_evaluator_family(file_path) for file_path in file_paths
     }
     if len(evaluator_families) > 1:
         # TODO: Support mixed evaluator families by instantiating a separate

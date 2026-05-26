@@ -10,6 +10,7 @@ from .vllm_config import VllmConfig
 REFUSAL_DEFAULT_MAX_ANSWER_TOKENS = 256
 REFUSAL_DEFAULT_MAX_JUDGE_TOKENS = 128
 REFUSAL_DEFAULT_SAMPLE_JUDGE = False
+EvaluatorFamily = Literal["bias", "hallucination", "prompt-injection", "refusal"]
 
 
 class EvaluationConfig(BaseModel):
@@ -82,9 +83,7 @@ class EvaluationConfig(BaseModel):
     sampling_config: SamplingConfig = SamplingConfig()
     mlflow_config: "MlflowConfig | None" = None
     replace_existing_output: bool = False
-    evaluator_family: (
-        Literal["bias", "hallucination", "prompt-injection", "refusal"] | None
-    ) = None
+    evaluator_family: EvaluatorFamily | None = None
     max_answer_tokens_was_set: bool = Field(default=False, exclude=True, repr=False)
     max_judge_tokens_was_set: bool = Field(default=False, exclude=True, repr=False)
     sample_judge_was_set: bool = Field(default=False, exclude=True, repr=False)

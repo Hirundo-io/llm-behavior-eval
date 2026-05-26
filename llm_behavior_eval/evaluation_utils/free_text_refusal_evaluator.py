@@ -476,6 +476,7 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
                 for idx in range(len(generation.answers))
                 if generation.finish_reasons[idx] == "stop"
             ]
+            judge_attempted_samples += len(judge_indices)
             judgments = [RefusalJudgment.UNPARSEABLE] * len(generation.answers)
             raw_judge_outputs = [""] * len(generation.answers)
             judge_finish_reasons: list[str | None] = [None] * len(generation.answers)
@@ -545,7 +546,6 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
                     )
                     continue
 
-                judge_attempted_samples += 1
                 if judgment == RefusalJudgment.UNPARSEABLE:
                     judge_unparseable += 1
                     responses.append(

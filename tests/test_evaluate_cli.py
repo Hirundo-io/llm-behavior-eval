@@ -198,6 +198,18 @@ def test_evaluate_factory_routes_refusal_datasets_to_refusal_evaluator(
     assert cast("Any", evaluator)._sentinel is sentinel
 
 
+def test_evaluate_factory_reports_evaluator_family() -> None:
+    assert EvaluateFactory.get_evaluator_family("walledai/XSTest") == "refusal"
+    assert (
+        EvaluateFactory.get_evaluator_family("hirundo-io/prompt-injection-purple-llama")
+        == "prompt-injection"
+    )
+    assert (
+        EvaluateFactory.get_evaluator_family("hirundo-io/bbq-gender-bias-free-text")
+        == "bias"
+    )
+
+
 def test_main_sets_inference_engine_and_sampling(
     capture_configs: list[CapturedConfigs],
 ) -> None:
