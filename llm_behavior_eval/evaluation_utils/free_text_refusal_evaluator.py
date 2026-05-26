@@ -11,10 +11,9 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
-from .base_evaluator import _GenerationRecord
+from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .custom_dataset import SAFE_REFUSAL_LABEL, UNSAFE_REFUSAL_LABEL
 from .eval_engine import EvalEngine
-from .free_text_hallu_evaluator import FreeTextHaluEvaluator
 from .util_functions import safe_apply_chat_template
 
 OR_BENCH_DATASET = "hirundo-io/or-bench"
@@ -177,7 +176,24 @@ class _RefusalGenerationRecord(_GenerationRecord):
     finish_reasons: list[str | None]
 
 
-class FreeTextRefusalEvaluator(FreeTextHaluEvaluator):
+class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
+    def generate(self) -> Sequence[_GenerationRecord]:
+        with torch.inference_mode():
+            generations = self._collect_generations()
+        return generations
+
+    def evaluate(self) -> None:
+        def _run() -> None:
+            generations = self.generate()
+            self.free_test_model()
+            with (
+                self.dataset_mlflow_run(),
+                self.get_judge_engine_context() as judge_engine,
+            ):
+                self.grade(generations, judge_engine)
+
+        self._run_with_cleanup(_run)
+
     @staticmethod
     def _decode_expected_labels(raw_labels: Any) -> list[str]:
         if isinstance(raw_labels, torch.Tensor):
@@ -283,9 +299,9 @@ class FreeTextRefusalEvaluator(FreeTextHaluEvaluator):
                 )
             )
         raw = self.run_judge_with_backoff(judge_engine, prompts)
-        raw_texts = [item[0].get("generated_text", "") for item in raw]
-        judge_finish_reasons = [
-            cast("str | None", item[0].get("finish_reason")) for item in raw
+        raw_texts: list[str] = [item[0].get("generated_text") or "" for item in raw]
+        judge_finish_reasons: list[str | None] = [
+            item[0].get("finish_reason") for item in raw
         ]
         return (
             [self._parse_judge_text(text) for text in raw_texts],
@@ -462,7 +478,7 @@ class FreeTextRefusalEvaluator(FreeTextHaluEvaluator):
             ]
             judgments = [RefusalJudgment.UNPARSEABLE] * len(generation.answers)
             raw_judge_outputs = [""] * len(generation.answers)
-            judge_finish_reasons = [None] * len(generation.answers)
+            judge_finish_reasons: list[str | None] = [None] * len(generation.answers)
             if judge_indices:
                 with torch.inference_mode():
                     batch_judgments, batch_raw, batch_finish_reasons = (

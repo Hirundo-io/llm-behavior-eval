@@ -1,5 +1,5 @@
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
@@ -39,10 +39,12 @@ class _HalluGenerationRecord(_GenerationRecord):
 
 class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
     @staticmethod
-    def _map_judge_outputs(judge_raw: list[list[dict[str, str]]]) -> list[str]:
+    def _map_judge_outputs(
+        judge_raw: Sequence[Sequence[Mapping[str, str | None]]],
+    ) -> list[str]:
         labels = []
         for item in judge_raw:
-            generated_text = item[0].get("generated_text", "")
+            generated_text = item[0].get("generated_text") or ""
             multiple_choice_answer = re.search(r"\b([ABC])\b", generated_text)
             labels.append(
                 CHOICE_TO_STRING.get(multiple_choice_answer.group(1), "NOT_ATTEMPTED")

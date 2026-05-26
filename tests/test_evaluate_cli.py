@@ -4,7 +4,7 @@ import os
 import sys
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -195,7 +195,7 @@ def test_evaluate_factory_routes_refusal_datasets_to_refusal_evaluator(
     )
 
     assert isinstance(evaluator, FreeTextRefusalEvaluator)
-    assert evaluator._sentinel is sentinel
+    assert cast("Any", evaluator)._sentinel is sentinel
 
 
 def test_main_sets_inference_engine_and_sampling(

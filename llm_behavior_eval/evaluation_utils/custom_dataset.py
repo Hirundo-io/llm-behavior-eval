@@ -81,10 +81,13 @@ def normalize_refusal_dataset(hf_dataset: Dataset) -> Dataset:
             "label": normalized_labels,
         }
 
-    return hf_dataset.map(
-        _normalize_batch,
-        batched=True,
-        remove_columns=hf_dataset.column_names,
+    return cast(
+        "Dataset",
+        hf_dataset.map(
+            _normalize_batch,
+            batched=True,
+            remove_columns=hf_dataset.column_names,
+        ),
     )
 
 

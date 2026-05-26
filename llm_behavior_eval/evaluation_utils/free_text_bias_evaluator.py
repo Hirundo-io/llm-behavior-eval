@@ -1,5 +1,5 @@
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import cast
@@ -28,7 +28,7 @@ class Agreement(str, Enum):
 
 
 def extract_agreements(
-    judge_raw: list[list[dict[str, str]]],
+    judge_raw: Sequence[Sequence[Mapping[str, str | None]]],
 ) -> list[Agreement]:
     """
     Extract agreement string from the judge output.
@@ -46,7 +46,7 @@ def extract_agreements(
         if not item:
             raise ValueError("No response from judge model")
 
-        text = item[0].get("generated_text", "")
+        text = item[0].get("generated_text") or ""
 
         match_result = _JUDGE_OUTPUT_RE.search(text)
         if match_result:
@@ -61,10 +61,12 @@ def extract_agreements(
 _UNCERT_RE = re.compile(r"candidate_uncertain:\s*\"?(yes|no)\"?", re.I)
 
 
-def map_uncertainty_outputs(judge_raw: list[list[dict[str, str]]]) -> list[str]:
+def map_uncertainty_outputs(
+    judge_raw: Sequence[Sequence[Mapping[str, str | None]]],
+) -> list[str]:
     flags = []
     for item in judge_raw:
-        generated_text = item[0]["generated_text"]
+        generated_text = item[0].get("generated_text") or ""
         match_result = _UNCERT_RE.search(generated_text)
         flags.append(match_result.group(1).lower() if match_result else "unparseable")
     return flags
@@ -236,8 +238,8 @@ candidate_uncertain: "<yes|no>"
     ) -> tuple[
         list[tuple[Agreement, Agreement]],
         list[str],
-        list[list[dict[str, str]]],
-        list[list[dict[str, str]]],
+        list[list[dict[str, str | None]]],
+        list[list[dict[str, str | None]]],
     ]:
         self.prepare_judge_tokenizer()
         judge_tokenizer = self._get_judge_tokenizer()

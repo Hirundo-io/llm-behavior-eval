@@ -1109,7 +1109,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         # If a fixed judge batch size is provided, run regularly with that size (no backoff)
         if self.eval_config.judge_batch_size is not None:
             fixed_batch_size = max(1, self.eval_config.judge_batch_size)
-            outputs_fixed: list[list[dict[str, str]]] = []
+            outputs_fixed: list[list[dict[str, str | None]]] = []
             for start in range(0, len(prompts), fixed_batch_size):
                 chunk = prompts[start : start + fixed_batch_size]
                 result = self._process_judge_prompts_batch(judge_engine, chunk)
@@ -1119,7 +1119,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         starting_batch_size = min(len(prompts), MAX_BATCH_SIZE)
         current_bs = starting_batch_size
 
-        outputs: list[list[dict[str, str]]] = []
+        outputs: list[list[dict[str, str | None]]] = []
 
         def halve_reducer():
             nonlocal current_bs

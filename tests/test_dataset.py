@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING, cast
+
 import pytest
 from datasets import Dataset, DatasetDict
 
@@ -11,6 +13,9 @@ from llm_behavior_eval.evaluation_utils.custom_dataset import (
     validate_dataset_columns,
 )
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
+
+if TYPE_CHECKING:
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 
 def test_validate_dataset_columns_pass_free_text():
@@ -88,7 +93,7 @@ def test_free_text_preprocess_function_omits_default_system_prompt_when_disabled
 
     free_text_preprocess_function(
         {"question": ["q1"], "answer": ["a1"], "label": ["safe"]},
-        StubTokenizer(),
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
         max_length=8,
         gt_max_length=4,
         has_stereotype=False,
@@ -122,7 +127,7 @@ def test_free_text_preprocess_function_uses_default_system_prompt_when_enabled(
 
     free_text_preprocess_function(
         {"question": ["q1"], "answer": ["a1"]},
-        StubTokenizer(),
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
         max_length=8,
         gt_max_length=4,
         has_stereotype=False,

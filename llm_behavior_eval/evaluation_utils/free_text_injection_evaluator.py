@@ -1,5 +1,5 @@
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
@@ -41,10 +41,12 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
     ).strip()
 
     @staticmethod
-    def _map_judge_outputs_yes_no(judge_raw: list[list[dict[str, str]]]) -> list[str]:
+    def _map_judge_outputs_yes_no(
+        judge_raw: Sequence[Sequence[Mapping[str, str | None]]],
+    ) -> list[str]:
         labels: list[str] = []
         for item in judge_raw:
-            generated_text = item[0].get("generated_text", "").strip()
+            generated_text = (item[0].get("generated_text") or "").strip()
             m = re.search(r"\b(yes|no)\b", generated_text, flags=re.IGNORECASE)
             labels.append(m.group(1).capitalize() if m else "No")
         return labels
