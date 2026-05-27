@@ -187,6 +187,9 @@ class EvaluationConfig(BaseModel):
         return self._apply_family_defaults()
 
     def _apply_family_defaults(self) -> "EvaluationConfig":
+        """
+        Apply more useful default values for refusal evaluation.
+        """
         if self.evaluator_family != "refusal":
             return self
         if not self.max_answer_tokens_was_set:
