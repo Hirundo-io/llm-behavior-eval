@@ -10,7 +10,20 @@ import pytest
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
+from llm_behavior_eval.evaluation_utils.eval_config import (
+    REFUSAL_DEFAULT_MAX_ANSWER_TOKENS,
+    REFUSAL_DEFAULT_MAX_JUDGE_TOKENS,
+)
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
+from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
+    FreeTextBiasEvaluator,
+)
+from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
+    FreeTextHaluEvaluator,
+)
+from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
+    FreeTextPromptInjectionEvaluator,
+)
 from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
     FreeTextRefusalEvaluator,
 )
@@ -174,8 +187,23 @@ def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
     )
 
 
-def test_evaluate_factory_routes_refusal_datasets_to_refusal_evaluator(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize(
+    ("dataset_id", "expected_class"),
+    [
+        ("hirundo-io/halueval", FreeTextHaluEvaluator),
+        ("hirundo-io/or-bench", FreeTextRefusalEvaluator),
+        (
+            "hirundo-io/prompt-injection-purple-llama",
+            FreeTextPromptInjectionEvaluator,
+        ),
+        ("hirundo-io/bbq-gender-bias-free-text", FreeTextBiasEvaluator),
+    ],
+)
+def test_evaluate_factory_routes_each_family_to_the_expected_evaluator(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    dataset_id: str,
+    expected_class: type[object],
 ) -> None:
     sentinel = object()
 
@@ -185,17 +213,59 @@ def test_evaluate_factory_routes_refusal_datasets_to_refusal_evaluator(
         del eval_config, dataset_config
         self._sentinel = sentinel
 
-    monkeypatch.setattr(FreeTextRefusalEvaluator, "__init__", fake_init)
+    for evaluator_class in (
+        FreeTextHaluEvaluator,
+        FreeTextRefusalEvaluator,
+        FreeTextPromptInjectionEvaluator,
+        FreeTextBiasEvaluator,
+    ):
+        monkeypatch.setattr(evaluator_class, "__init__", fake_init)
 
     evaluator = EvaluateFactory.create_evaluator(
         EvaluationConfig(model_path_or_repo_id="fake/model", results_dir=tmp_path),
+        DatasetConfig(file_path=dataset_id, dataset_type=evaluate.DatasetType.BIAS),
+    )
+
+    assert isinstance(evaluator, expected_class)
+    assert cast("Any", evaluator)._sentinel is sentinel
+
+
+def test_evaluate_factory_applies_refusal_defaults_for_programmatic_callers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_init(
+        self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> None:
+        del self, dataset_config
+        captured["evaluator_family"] = eval_config.evaluator_family
+        captured["max_answer_tokens"] = eval_config.max_answer_tokens
+        captured["max_judge_tokens"] = eval_config.max_judge_tokens
+        captured["sample_judge"] = eval_config.sample_judge
+
+    monkeypatch.setattr(FreeTextRefusalEvaluator, "__init__", fake_init)
+
+    original_config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+    )
+    EvaluateFactory.create_evaluator(
+        original_config,
         DatasetConfig(
-            file_path="walledai/XSTest", dataset_type=evaluate.DatasetType.BIAS
+            file_path="hirundo-io/or-bench", dataset_type=evaluate.DatasetType.BIAS
         ),
     )
 
-    assert isinstance(evaluator, FreeTextRefusalEvaluator)
-    assert cast("Any", evaluator)._sentinel is sentinel
+    assert captured == {
+        "evaluator_family": "refusal",
+        "max_answer_tokens": REFUSAL_DEFAULT_MAX_ANSWER_TOKENS,
+        "max_judge_tokens": REFUSAL_DEFAULT_MAX_JUDGE_TOKENS,
+        "sample_judge": False,
+    }
+    assert original_config.evaluator_family is None
+    assert original_config.max_answer_tokens == 128
+    assert original_config.max_judge_tokens == 32
 
 
 def test_evaluate_factory_reports_evaluator_family() -> None:

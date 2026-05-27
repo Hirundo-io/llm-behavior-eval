@@ -170,3 +170,100 @@ def test_custom_dataset_falls_back_to_only_available_split(
     custom_dataset = CustomDataset("repo/dataset", DatasetType.BIAS)
 
     assert custom_dataset.ds == ds
+
+
+@pytest.mark.parametrize(
+    ("dataset_id", "dataset", "expected_messages"),
+    [
+        (
+            "hirundo-io/or-bench",
+            Dataset.from_dict({"prompt": ["q1"], "label": ["safe"]}),
+            [[{"role": "user", "content": "q1\n"}]],
+        ),
+        (
+            "hirundo-io/halueval",
+            Dataset.from_dict({"question": ["q1"], "answer": ["a1"]}),
+            [
+                [
+                    custom_dataset_module.SYSTEM_PROMPT_DICT,
+                    {"role": "user", "content": "q1\n"},
+                ]
+            ],
+        ),
+    ],
+)
+def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_family(
+    monkeypatch: pytest.MonkeyPatch,
+    dataset_id: str,
+    dataset: Dataset,
+    expected_messages: list[list[dict[str, str]]],
+):
+    captured_messages: list[list[dict[str, str]]] = []
+
+    class StubMappedDataset:
+        def __init__(self, payload: dict[str, list[object]]) -> None:
+            self.payload = payload
+            self.column_names = list(payload.keys())
+
+        def map(self, function, **_kwargs):
+            return StubMappedDataset(function(self.payload))
+
+        def __getitem__(self, key: str) -> list[object]:
+            return self.payload[key]
+
+    class StubTokenizer:
+        name_or_path = "fake/model"
+
+        def __call__(self, texts, **_kwargs):
+            if isinstance(texts, str):
+                texts = [texts]
+            return {
+                "input_ids": [[1, 2] for _ in texts],
+                "attention_mask": [[1, 1] for _ in texts],
+            }
+
+        def batch_decode(self, sequences, **_kwargs):
+            return ["decoded" for _ in sequences]
+
+    def fake_safe_apply_chat_template(_tokenizer, messages, **_kwargs):
+        captured_messages.append(messages)
+        return "formatted"
+
+    monkeypatch.setattr(
+        custom_dataset_module,
+        "load_dataset",
+        lambda _path: DatasetDict({"train": dataset}),
+    )
+    monkeypatch.setattr(custom_dataset_module, "is_model_multimodal", lambda *_: False)
+    monkeypatch.setattr(
+        custom_dataset_module, "safe_apply_chat_template", fake_safe_apply_chat_template
+    )
+
+    custom_dataset = CustomDataset(dataset_id, DatasetType.BIAS)
+    if dataset_id == "hirundo-io/or-bench":
+        monkeypatch.setattr(
+            custom_dataset_module,
+            "normalize_refusal_dataset",
+            lambda _dataset: StubMappedDataset(
+                {
+                    "question": ["q1"],
+                    "answer": [REFUSAL_PLACEHOLDER_ANSWER],
+                    "label": ["safe"],
+                }
+            ),
+        )
+    else:
+        custom_dataset.ds = cast(
+            "Dataset",
+            StubMappedDataset({"question": ["q1"], "answer": ["a1"]}),
+        )
+    custom_dataset.preprocess(
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
+        custom_dataset_module.PreprocessConfig(
+            max_length=8,
+            gt_max_length=4,
+            preprocess_batch_size=1,
+        ),
+    )
+
+    assert captured_messages == expected_messages

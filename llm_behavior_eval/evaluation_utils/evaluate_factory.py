@@ -36,21 +36,26 @@ class EvaluateFactory:
         """
         dataset_id = dataset_config.file_path
         evaluator_family = EvaluateFactory.get_evaluator_family(dataset_id)
+        resolved_eval_config = eval_config.model_copy().apply_evaluator_family(
+            evaluator_family
+        )
         if evaluator_family == "hallucination":
             from .free_text_hallu_evaluator import FreeTextHaluEvaluator
 
-            return FreeTextHaluEvaluator(eval_config, dataset_config)
+            return FreeTextHaluEvaluator(resolved_eval_config, dataset_config)
         elif evaluator_family == "refusal":
             from .free_text_refusal_evaluator import FreeTextRefusalEvaluator
 
-            return FreeTextRefusalEvaluator(eval_config, dataset_config)
+            return FreeTextRefusalEvaluator(resolved_eval_config, dataset_config)
         elif evaluator_family == "prompt-injection":
             from .free_text_injection_evaluator import FreeTextPromptInjectionEvaluator
 
-            return FreeTextPromptInjectionEvaluator(eval_config, dataset_config)
+            return FreeTextPromptInjectionEvaluator(
+                resolved_eval_config, dataset_config
+            )
         elif evaluator_family == "bias":
             from .free_text_bias_evaluator import FreeTextBiasEvaluator
 
-            return FreeTextBiasEvaluator(eval_config, dataset_config)
+            return FreeTextBiasEvaluator(resolved_eval_config, dataset_config)
         else:
             raise ValueError(f"Unknown dataset: {dataset_id}")

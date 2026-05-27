@@ -177,7 +177,16 @@ class EvaluationConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def apply_refusal_defaults(self):
+    def apply_family_defaults(self):
+        return self._apply_family_defaults()
+
+    def apply_evaluator_family(
+        self, evaluator_family: EvaluatorFamily
+    ) -> "EvaluationConfig":
+        self.evaluator_family = evaluator_family
+        return self._apply_family_defaults()
+
+    def _apply_family_defaults(self) -> "EvaluationConfig":
         if self.evaluator_family != "refusal":
             return self
         if not self.max_answer_tokens_was_set:
