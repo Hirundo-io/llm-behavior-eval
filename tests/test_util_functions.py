@@ -8,6 +8,7 @@ import torch
 
 from llm_behavior_eval.evaluation_utils.util_functions import (
     build_vllm_prompt_token_ids,
+    extract_mlflow_run_id_from_adapter_ref,
     get_lora_slug,
     infer_mlflow_metric_step_from_lora_path,
     is_model_multimodal,
@@ -298,6 +299,18 @@ def test_infer_mlflow_metric_step_from_lora_path(
     adapter_ref: str | None, expected_step: int | None
 ) -> None:
     assert infer_mlflow_metric_step_from_lora_path(adapter_ref) == expected_step
+
+
+def test_extract_mlflow_run_id_from_adapter_ref_mlflow_scheme() -> None:
+    run_id = "abc123def45678901234567890123456"
+    assert (
+        extract_mlflow_run_id_from_adapter_ref(f"mlflow://{run_id}/checkpoint-1")
+        == run_id
+    )
+
+
+def test_extract_mlflow_run_id_from_adapter_ref_non_mlflow_path() -> None:
+    assert extract_mlflow_run_id_from_adapter_ref("/tmp/checkpoint-1") is None
 
 
 def test_maybe_download_adapter_mlflow_scheme_missing_mlflow(

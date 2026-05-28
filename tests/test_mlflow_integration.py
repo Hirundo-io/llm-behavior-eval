@@ -333,4 +333,38 @@ def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step(
 
     metrics_call = mlflow_mock.log_metrics.call_args
     assert metrics_call is not None
+    assert metrics_call.kwargs.get("step") is None
+
+
+def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step_same_run(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    lora_run_id = "abc123def45678901234567890123456"
+    config_with_lora_checkpoint = EvaluationConfig(
+        model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
+        results_dir=evaluation_config.results_dir,
+        batch_size=evaluation_config.batch_size,
+        lora_path_or_repo_id=f"mlflow://{lora_run_id}/hf_checkpoints/checkpoint-000020",
+        mlflow_config=MlflowConfig(
+            mlflow_tracking_uri=evaluation_config.mlflow_config.mlflow_tracking_uri,  # type: ignore[union-attr]
+            mlflow_experiment_name=evaluation_config.mlflow_config.mlflow_experiment_name,  # type: ignore[union-attr]
+            mlflow_run_id=lora_run_id,
+        ),
+    )
+    existing_run = _make_run(lora_run_id, "existing")
+    mlflow_mock.get_run.return_value = existing_run
+    mlflow_mock.active_run.return_value = existing_run
+    evaluator = DummyEvaluator(config_with_lora_checkpoint, dataset_config)
+    mlflow_mock.reset_mock()
+
+    evaluator.save_results(
+        responses=[{"prompt": "a", "response": "b"}],
+        accuracy=0.5,
+        empty_responses=0,
+    )
+
+    metrics_call = mlflow_mock.log_metrics.call_args
+    assert metrics_call is not None
     assert metrics_call.kwargs.get("step") == 20

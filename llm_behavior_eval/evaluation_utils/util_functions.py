@@ -784,5 +784,18 @@ def infer_mlflow_metric_step_from_lora_path(adapter_ref: str | None) -> int | No
     return None
 
 
+def extract_mlflow_run_id_from_adapter_ref(
+    adapter_ref: str | None, mlflow_tracking_uri: str | None = None
+) -> str | None:
+    """Extract MLflow run ID from adapter ref when ref points to an MLflow run."""
+    if not adapter_ref:
+        return None
+    parsed_url = urlparse(adapter_ref.strip(), allow_fragments=False)
+    is_mlflow_url, run_id = check_mlflow_url(parsed_url, mlflow_tracking_uri)
+    if is_mlflow_url and run_id:
+        return run_id
+    return None
+
+
 def config_to_dict(obj_to_convert: BaseModel, keys: list[str]) -> dict[str, Any]:
     return {key: getattr(obj_to_convert, key) for key in keys}
