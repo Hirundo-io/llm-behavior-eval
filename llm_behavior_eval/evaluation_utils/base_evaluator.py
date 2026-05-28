@@ -721,7 +721,7 @@ class BaseEvaluator(ABC):
         # Generate run name if not specified
         model_slug = self.get_model_slug()
 
-        requested_run_id = self.mlflow_config.mlflow_run_id or self._lora_mlflow_run_id
+        requested_run_id = self.mlflow_config.mlflow_run_id
         active_run = mlflow.active_run()
 
         if requested_run_id:
@@ -745,6 +745,16 @@ class BaseEvaluator(ABC):
             logging.warning(
                 "Using existing active run %s as main run",
                 active_run.info.run_id,
+            )
+        elif self._lora_mlflow_run_id:
+            existing = mlflow.get_run(self._lora_mlflow_run_id)
+            mlflow.set_experiment(experiment_id=existing.info.experiment_id)
+            mlflow.start_run(run_id=self._lora_mlflow_run_id)
+            self.parent_run = self.mlflow_run = mlflow.active_run()
+            self._started_mlflow_run = True
+            logging.info(
+                "Logging to MLflow run inferred from LoRA adapter: %s",
+                self._lora_mlflow_run_id,
             )
         else:
             run_name = self.mlflow_config.mlflow_run_name or f"{model_slug}"

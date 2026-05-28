@@ -185,6 +185,31 @@ def test_init_mlflow_uses_existing_active_run(
     assert evaluator.mlflow_run is active_run
 
 
+def test_init_mlflow_prefers_active_run_over_lora_inferred_run_id(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    active_run = _make_run("active-run", "existing")
+    mlflow_mock.active_run.return_value = active_run
+
+    config_with_lora = EvaluationConfig(
+        model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
+        results_dir=evaluation_config.results_dir,
+        batch_size=evaluation_config.batch_size,
+        vllm_config=VllmConfig(),
+        judge_engine="vllm",
+        lora_path_or_repo_id="mlflow://abc123def45678901234567890123456",
+        mlflow_config=evaluation_config.mlflow_config,
+    )
+    evaluator = DummyEvaluator(config_with_lora, dataset_config)
+
+    mlflow_mock.get_run.assert_not_called()
+    mlflow_mock.start_run.assert_not_called()
+    assert evaluator.parent_run is active_run
+    assert evaluator.mlflow_run is active_run
+
+
 def test_init_mlflow_reuses_lora_run_id_from_http_tracking_uri_ref(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
@@ -207,6 +232,33 @@ def test_init_mlflow_reuses_lora_run_id_from_http_tracking_uri_ref(
             f"http://tracking.example/runs/{lora_run_id}/"
             "hf_checkpoints/checkpoint-000020"
         ),
+        mlflow_config=evaluation_config.mlflow_config,
+    )
+    DummyEvaluator(config_with_lora, dataset_config)
+
+    mlflow_mock.get_run.assert_called_once_with(lora_run_id)
+    mlflow_mock.start_run.assert_called_once_with(run_id=lora_run_id)
+
+
+def test_init_mlflow_reuses_lora_run_id_when_no_user_or_active_run(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    lora_run_id = "abc123def45678901234567890123456"
+    existing_run = _make_run(lora_run_id, "training")
+    existing_run.info.experiment_id = "exp-1"
+    mlflow_mock.get_run.return_value = existing_run
+    mlflow_mock.active_run.return_value = None
+    mlflow_mock.start_run.return_value = existing_run
+
+    config_with_lora = EvaluationConfig(
+        model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
+        results_dir=evaluation_config.results_dir,
+        batch_size=evaluation_config.batch_size,
+        vllm_config=VllmConfig(),
+        judge_engine="vllm",
+        lora_path_or_repo_id=f"mlflow://{lora_run_id}",
         mlflow_config=evaluation_config.mlflow_config,
     )
     DummyEvaluator(config_with_lora, dataset_config)
