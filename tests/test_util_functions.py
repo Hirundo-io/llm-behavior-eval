@@ -284,6 +284,15 @@ def test_get_lora_slug_uses_mlflow_run_id_for_matching_tracking_uri() -> None:
     assert slug == f"adapter_{run_id}"
 
 
+def test_get_lora_slug_uses_run_id_not_checkpoint_for_tracking_uri_subpath() -> None:
+    run_id = "abc123def45678901234567890123456"
+    adapter_ref = (
+        f"http://mlflow.example.com/runs/{run_id}/hf_checkpoints/checkpoint-000020"
+    )
+    slug = get_lora_slug(adapter_ref, mlflow_tracking_uri="http://mlflow.example.com")
+    assert slug == f"adapter_{run_id}"
+
+
 @pytest.mark.parametrize(
     ("adapter_ref", "expected_step"),
     [
@@ -311,6 +320,27 @@ def test_extract_mlflow_run_id_from_adapter_ref_mlflow_scheme() -> None:
 
 def test_extract_mlflow_run_id_from_adapter_ref_non_mlflow_path() -> None:
     assert extract_mlflow_run_id_from_adapter_ref("/tmp/checkpoint-1") is None
+
+
+def test_extract_mlflow_run_id_from_adapter_ref_http_tracking_uri_subpath() -> None:
+    run_id = "abc123def45678901234567890123456"
+    adapter_ref = (
+        f"http://mlflow.example.com/runs/{run_id}/hf_checkpoints/checkpoint-000020"
+    )
+    assert (
+        extract_mlflow_run_id_from_adapter_ref(
+            adapter_ref, mlflow_tracking_uri="http://mlflow.example.com"
+        )
+        == run_id
+    )
+
+
+def test_extract_mlflow_run_id_from_adapter_ref_runs_scheme() -> None:
+    run_id = "abc123def45678901234567890123456"
+    assert (
+        extract_mlflow_run_id_from_adapter_ref(f"runs:/{run_id}/hf_checkpoint/peft")
+        == run_id
+    )
 
 
 def test_maybe_download_adapter_mlflow_scheme_missing_mlflow(
@@ -492,10 +522,59 @@ def test_maybe_download_adapter_http_with_mlflow_run_id(
             mlflow_tracking_uri="http://mlflow.example.com",
         )
 
-        assert len(mock_download_artifacts_calls) == 1
+        assert mock_download_artifacts_calls
         assert mock_download_artifacts_calls[0][0] == run_id
+        assert mock_download_artifacts_calls[0][1] == "hf_checkpoint/peft"
     finally:
         # Clean up
+        if "mlflow" in sys.modules:
+            del sys.modules["mlflow"]
+        if "mlflow.artifacts" in sys.modules:
+            del sys.modules["mlflow.artifacts"]
+
+
+def test_maybe_download_adapter_http_tracking_uri_with_artifact_subpath(
+    tmp_path: Path,
+) -> None:
+    """HTTP tracking URI refs parse /runs/<run_id>/<artifact> for download."""
+    import sys
+
+    run_id = "abc123def45678901234567890123456"
+    artifact_path = "hf_checkpoints/checkpoint-000020"
+    mock_download_artifacts_calls: list[tuple[str, str, str]] = []
+
+    def mock_download_artifacts(*args: object, **kwargs: object) -> str:
+        call_run_id = str(kwargs.get("run_id", args[0] if args else ""))
+        call_artifact_path = str(
+            kwargs.get("artifact_path", args[1] if len(args) > 1 else "")
+        )
+        dst_path = str(kwargs.get("dst_path", args[2] if len(args) > 2 else ""))
+        mock_download_artifacts_calls.append(
+            (call_run_id, call_artifact_path, dst_path)
+        )
+        result_dir = Path(dst_path) / call_artifact_path
+        result_dir.mkdir(parents=True, exist_ok=True)
+        return str(result_dir)
+
+    mock_mlflow = types.ModuleType("mlflow")
+    mock_mlflow.set_tracking_uri = lambda uri: None  # type: ignore[attr-defined]
+    mock_artifacts = types.ModuleType("mlflow.artifacts")
+    mock_artifacts.download_artifacts = mock_download_artifacts  # type: ignore[attr-defined]
+
+    sys.modules["mlflow"] = mock_mlflow
+    sys.modules["mlflow.artifacts"] = mock_artifacts
+
+    try:
+        maybe_download_adapter(
+            f"http://mlflow.example.com/runs/{run_id}/{artifact_path}",
+            cache_dir=str(tmp_path),
+            mlflow_tracking_uri="http://mlflow.example.com",
+        )
+
+        assert len(mock_download_artifacts_calls) == 1
+        assert mock_download_artifacts_calls[0][0] == run_id
+        assert mock_download_artifacts_calls[0][1] == artifact_path
+    finally:
         if "mlflow" in sys.modules:
             del sys.modules["mlflow"]
         if "mlflow.artifacts" in sys.modules:

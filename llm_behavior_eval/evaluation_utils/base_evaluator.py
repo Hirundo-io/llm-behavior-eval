@@ -721,7 +721,7 @@ class BaseEvaluator(ABC):
         # Generate run name if not specified
         model_slug = self.get_model_slug()
 
-        requested_run_id = self.mlflow_config.mlflow_run_id
+        requested_run_id = self.mlflow_config.mlflow_run_id or self._lora_mlflow_run_id
         active_run = mlflow.active_run()
 
         if requested_run_id:
@@ -792,10 +792,7 @@ class BaseEvaluator(ABC):
         """Log evaluation metrics to MLflow."""
         if not self.eval_config.mlflow_config or not mlflow:
             return
-        if self._inferred_mlflow_metric_step is not None:
-            mlflow.log_metrics(metrics, step=self._inferred_mlflow_metric_step)
-            return
-        mlflow.log_metrics(metrics)
+        mlflow.log_metrics(metrics, step=self._inferred_mlflow_metric_step)
 
     def _resolve_mlflow_metric_step(self, inferred_step: int | None) -> int | None:
         """Use inferred checkpoint step only when logging back to same MLflow run."""

@@ -15,6 +15,7 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
     EvaluationConfig,
     MlflowConfig,
 )
+from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -184,6 +185,36 @@ def test_init_mlflow_uses_existing_active_run(
     assert evaluator.mlflow_run is active_run
 
 
+def test_init_mlflow_reuses_lora_run_id_from_http_tracking_uri_ref(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    lora_run_id = "abc123def45678901234567890123456"
+    existing_run = _make_run(lora_run_id, "training")
+    existing_run.info.experiment_id = "exp-1"
+    mlflow_mock.get_run.return_value = existing_run
+    mlflow_mock.active_run.return_value = None
+    mlflow_mock.start_run.return_value = existing_run
+
+    config_with_lora = EvaluationConfig(
+        model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
+        results_dir=evaluation_config.results_dir,
+        batch_size=evaluation_config.batch_size,
+        vllm_config=VllmConfig(),
+        judge_engine="vllm",
+        lora_path_or_repo_id=(
+            f"http://tracking.example/runs/{lora_run_id}/"
+            "hf_checkpoints/checkpoint-000020"
+        ),
+        mlflow_config=evaluation_config.mlflow_config,
+    )
+    DummyEvaluator(config_with_lora, dataset_config)
+
+    mlflow_mock.get_run.assert_called_once_with(lora_run_id)
+    mlflow_mock.start_run.assert_called_once_with(run_id=lora_run_id)
+
+
 def test_init_without_mlflow_config_does_not_touch_mlflow(
     evaluation_config_no_mlflow: EvaluationConfig,
     dataset_config: DatasetConfig,
@@ -287,7 +318,7 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
     metrics_call = mlflow_mock.log_metrics.call_args
     assert metrics_call is not None
     metrics = metrics_call.args[0]
-    assert "step" not in metrics_call.kwargs
+    assert metrics_call.kwargs.get("step") is None
     assert metrics == {
         "accuracy": 0.75,
         "error": 0.25,
@@ -319,6 +350,8 @@ def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step(
         model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
         results_dir=evaluation_config.results_dir,
         batch_size=evaluation_config.batch_size,
+        vllm_config=VllmConfig(),
+        judge_engine="vllm",
         lora_path_or_repo_id="mlflow://abc123/hf_checkpoints/checkpoint-000020",
         mlflow_config=evaluation_config.mlflow_config,
     )
@@ -328,6 +361,7 @@ def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step(
     evaluator.save_results(
         responses=[{"prompt": "a", "response": "b"}],
         accuracy=0.5,
+        stereotyped_bias=None,
         empty_responses=0,
     )
 
@@ -346,6 +380,8 @@ def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step_same_run
         model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
         results_dir=evaluation_config.results_dir,
         batch_size=evaluation_config.batch_size,
+        vllm_config=VllmConfig(),
+        judge_engine="vllm",
         lora_path_or_repo_id=f"mlflow://{lora_run_id}/hf_checkpoints/checkpoint-000020",
         mlflow_config=MlflowConfig(
             mlflow_tracking_uri=evaluation_config.mlflow_config.mlflow_tracking_uri,  # type: ignore[union-attr]
@@ -362,6 +398,7 @@ def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step_same_run
     evaluator.save_results(
         responses=[{"prompt": "a", "response": "b"}],
         accuracy=0.5,
+        stereotyped_bias=None,
         empty_responses=0,
     )
 
