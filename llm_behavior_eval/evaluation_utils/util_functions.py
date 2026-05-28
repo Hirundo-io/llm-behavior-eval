@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import shutil
 from contextlib import contextmanager
 from inspect import signature
@@ -765,6 +766,35 @@ def get_lora_slug(adapter_ref: str, mlflow_tracking_uri: str | None = None) -> s
         adapter_ref.encode("utf-8"), digest_size=DIGEST_SIZE_FOR_PEFT_PATHS
     ).hexdigest()
     return f"adapter_{digest}"
+
+
+def infer_mlflow_metric_step_from_lora_path(adapter_ref: str | None) -> int | None:
+    """Infer MLflow metric step from LoRA adapter references containing checkpoint segments.
+
+    Matches path segments like ``checkpoint-000020`` and returns ``20``.
+    Returns ``None`` when no checkpoint segment is present.
+    """
+    if not adapter_ref:
+        return None
+
+    for segment in adapter_ref.strip().split("/"):
+        checkpoint_match = re.fullmatch(r"checkpoint-(\d+)", segment)
+        if checkpoint_match:
+            return int(checkpoint_match.group(1))
+    return None
+
+
+def extract_mlflow_run_id_from_adapter_ref(
+    adapter_ref: str | None, mlflow_tracking_uri: str | None = None
+) -> str | None:
+    """Extract MLflow run ID from adapter ref when ref points to an MLflow run."""
+    if not adapter_ref:
+        return None
+    parsed_url = urlparse(adapter_ref.strip(), allow_fragments=False)
+    is_mlflow_url, run_id = check_mlflow_url(parsed_url, mlflow_tracking_uri)
+    if is_mlflow_url and run_id:
+        return run_id
+    return None
 
 
 def config_to_dict(obj_to_convert: BaseModel, keys: list[str]) -> dict[str, Any]:

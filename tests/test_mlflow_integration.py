@@ -287,6 +287,7 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
     metrics_call = mlflow_mock.log_metrics.call_args
     assert metrics_call is not None
     metrics = metrics_call.args[0]
+    assert "step" not in metrics_call.kwargs
     assert metrics == {
         "accuracy": 0.75,
         "error": 0.25,
@@ -307,3 +308,89 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
     assert (output_dir / "metrics.csv").exists()
     assert (uploaded_dir / "bbq-gender-bias-free-text" / "responses.json").exists()
     assert (uploaded_dir / "bbq-gender-bias-free-text" / "metrics.csv").exists()
+
+
+def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    config_with_lora_checkpoint = EvaluationConfig(
+        model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
+        results_dir=evaluation_config.results_dir,
+        batch_size=evaluation_config.batch_size,
+        lora_path_or_repo_id="mlflow://abc123/hf_checkpoints/checkpoint-000020",
+        mlflow_config=evaluation_config.mlflow_config,
+    )
+    evaluator = DummyEvaluator(config_with_lora_checkpoint, dataset_config)
+    mlflow_mock.reset_mock()
+
+    evaluator.save_results(
+        responses=[{"prompt": "a", "response": "b"}],
+        accuracy=0.5,
+        empty_responses=0,
+    )
+
+    metrics_call = mlflow_mock.log_metrics.call_args
+    assert metrics_call is not None
+    assert metrics_call.kwargs.get("step") is None
+
+
+def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step_same_run(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    lora_run_id = "abc123def45678901234567890123456"
+    config_with_lora_checkpoint = EvaluationConfig(
+        model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
+        results_dir=evaluation_config.results_dir,
+        batch_size=evaluation_config.batch_size,
+        lora_path_or_repo_id=f"mlflow://{lora_run_id}/hf_checkpoints/checkpoint-000020",
+        mlflow_config=MlflowConfig(
+            mlflow_tracking_uri=evaluation_config.mlflow_config.mlflow_tracking_uri,  # type: ignore[union-attr]
+            mlflow_experiment_name=evaluation_config.mlflow_config.mlflow_experiment_name,  # type: ignore[union-attr]
+            mlflow_run_id=lora_run_id,
+        ),
+    )
+    existing_run = _make_run(lora_run_id, "existing")
+    mlflow_mock.get_run.return_value = existing_run
+    mlflow_mock.active_run.return_value = existing_run
+    evaluator = DummyEvaluator(config_with_lora_checkpoint, dataset_config)
+    mlflow_mock.reset_mock()
+
+    evaluator.save_results(
+        responses=[{"prompt": "a", "response": "b"}],
+        accuracy=0.5,
+        empty_responses=0,
+    )
+
+    metrics_call = mlflow_mock.log_metrics.call_args
+    assert metrics_call is not None
+    assert metrics_call.kwargs.get("step") == 20
+
+
+def test_init_mlflow_infers_run_id_from_lora_ref_when_not_provided(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    lora_run_id = "abc123def45678901234567890123456"
+    config_with_lora_mlflow_run = EvaluationConfig(
+        model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
+        results_dir=evaluation_config.results_dir,
+        batch_size=evaluation_config.batch_size,
+        lora_path_or_repo_id=f"mlflow://{lora_run_id}/hf_checkpoints/checkpoint-000020",
+        mlflow_config=MlflowConfig(
+            mlflow_tracking_uri=evaluation_config.mlflow_config.mlflow_tracking_uri,  # type: ignore[union-attr]
+            mlflow_experiment_name=evaluation_config.mlflow_config.mlflow_experiment_name,  # type: ignore[union-attr]
+        ),
+    )
+    existing_run = _make_run(lora_run_id, "existing")
+    mlflow_mock.active_run.return_value = None
+    mlflow_mock.get_run.return_value = existing_run
+
+    DummyEvaluator(config_with_lora_mlflow_run, dataset_config)
+
+    mlflow_mock.get_run.assert_called_once_with(lora_run_id)
+    mlflow_mock.start_run.assert_called()

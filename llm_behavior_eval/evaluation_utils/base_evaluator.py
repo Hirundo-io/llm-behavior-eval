@@ -31,7 +31,9 @@ from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import (
     empty_cuda_cache_if_available,
+    extract_mlflow_run_id_from_adapter_ref,
     get_lora_slug,
+    infer_mlflow_metric_step_from_lora_path,
     load_tokenizer_with_transformers,
 )
 
@@ -121,8 +123,25 @@ class BaseEvaluator(ABC):
         self.mlflow_run = None
         self.parent_run = None
         self._started_mlflow_run = False
+        self._inferred_mlflow_metric_step: int | None = None
+        inferred_step = infer_mlflow_metric_step_from_lora_path(
+            self.eval_config.lora_path_or_repo_id
+        )
+        if inferred_step is not None:
+            logging.info(
+                "Inferred MLflow metric step %s from LoRA checkpoint path %s",
+                inferred_step,
+                self.eval_config.lora_path_or_repo_id,
+            )
+        self._lora_mlflow_run_id = extract_mlflow_run_id_from_adapter_ref(
+            self.eval_config.lora_path_or_repo_id,
+            self.mlflow_config.mlflow_tracking_uri if self.mlflow_config else None,
+        )
         if self.mlflow_config:
             self._init_mlflow()
+            self._inferred_mlflow_metric_step = self._resolve_mlflow_metric_step(
+                inferred_step
+            )
 
         self.data_collator = default_data_collator
         if self.model_engine == "vllm":
@@ -703,6 +722,12 @@ class BaseEvaluator(ABC):
         model_slug = self.get_model_slug()
 
         requested_run_id = self.mlflow_config.mlflow_run_id
+        if not requested_run_id and self._lora_mlflow_run_id:
+            requested_run_id = self._lora_mlflow_run_id
+            logging.info(
+                "No mlflow_run_id provided; reusing LoRA source run %s for metric logging",
+                requested_run_id,
+            )
         active_run = mlflow.active_run()
 
         if requested_run_id:
@@ -773,7 +798,27 @@ class BaseEvaluator(ABC):
         """Log evaluation metrics to MLflow."""
         if not self.eval_config.mlflow_config or not mlflow:
             return
+        if self._inferred_mlflow_metric_step is not None:
+            mlflow.log_metrics(metrics, step=self._inferred_mlflow_metric_step)
+            return
         mlflow.log_metrics(metrics)
+
+    def _resolve_mlflow_metric_step(self, inferred_step: int | None) -> int | None:
+        """Use inferred checkpoint step only when logging back to same MLflow run."""
+        if inferred_step is None:
+            return None
+        if self._lora_mlflow_run_id is None:
+            return None
+        current_run_id = self.parent_run.info.run_id if self.parent_run else None
+        if current_run_id == self._lora_mlflow_run_id:
+            return inferred_step
+        logging.info(
+            "Skipping inferred MLflow metric step %s: LoRA run %s differs from logging run %s",
+            inferred_step,
+            self._lora_mlflow_run_id,
+            current_run_id,
+        )
+        return None
 
     def _sanitize_mlflow_key(self, name: str) -> str:
         """Return a key safe for MLflow params/metrics: alphanumeric and underscores only.
