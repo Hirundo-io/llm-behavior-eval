@@ -9,6 +9,7 @@ import torch
 from llm_behavior_eval.evaluation_utils.util_functions import (
     build_vllm_prompt_token_ids,
     get_lora_slug,
+    infer_mlflow_metric_step_from_lora_path,
     is_model_multimodal,
     maybe_download_adapter,
     pick_best_dtype,
@@ -280,6 +281,23 @@ def test_get_lora_slug_uses_mlflow_run_id_for_matching_tracking_uri() -> None:
     adapter_ref = f"http://mlflow.example.com/runs/{run_id}"
     slug = get_lora_slug(adapter_ref, mlflow_tracking_uri="http://mlflow.example.com")
     assert slug == f"adapter_{run_id}"
+
+
+@pytest.mark.parametrize(
+    ("adapter_ref", "expected_step"),
+    [
+        ("mlflow://abc123/hf_checkpoints/checkpoint-000020", 20),
+        ("mlflow://abc123/checkpoint-40", 40),
+        ("https://example.com/path/checkpoint-000001/adapter", 1),
+        ("/tmp/my_adapter", None),
+        ("mlflow://abc123/no-checkpoint-here", None),
+        (None, None),
+    ],
+)
+def test_infer_mlflow_metric_step_from_lora_path(
+    adapter_ref: str | None, expected_step: int | None
+) -> None:
+    assert infer_mlflow_metric_step_from_lora_path(adapter_ref) == expected_step
 
 
 def test_maybe_download_adapter_mlflow_scheme_missing_mlflow(

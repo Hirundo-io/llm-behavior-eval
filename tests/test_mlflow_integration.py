@@ -287,6 +287,7 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
     metrics_call = mlflow_mock.log_metrics.call_args
     assert metrics_call is not None
     metrics = metrics_call.args[0]
+    assert "step" not in metrics_call.kwargs
     assert metrics == {
         "accuracy": 0.75,
         "error": 0.25,
@@ -307,3 +308,29 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
     assert (output_dir / "metrics.csv").exists()
     assert (uploaded_dir / "bbq-gender-bias-free-text" / "responses.json").exists()
     assert (uploaded_dir / "bbq-gender-bias-free-text" / "metrics.csv").exists()
+
+
+def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    config_with_lora_checkpoint = EvaluationConfig(
+        model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
+        results_dir=evaluation_config.results_dir,
+        batch_size=evaluation_config.batch_size,
+        lora_path_or_repo_id="mlflow://abc123/hf_checkpoints/checkpoint-000020",
+        mlflow_config=evaluation_config.mlflow_config,
+    )
+    evaluator = DummyEvaluator(config_with_lora_checkpoint, dataset_config)
+    mlflow_mock.reset_mock()
+
+    evaluator.save_results(
+        responses=[{"prompt": "a", "response": "b"}],
+        accuracy=0.5,
+        empty_responses=0,
+    )
+
+    metrics_call = mlflow_mock.log_metrics.call_args
+    assert metrics_call is not None
+    assert metrics_call.kwargs.get("step") == 20

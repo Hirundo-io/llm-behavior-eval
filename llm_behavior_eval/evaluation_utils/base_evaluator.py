@@ -32,6 +32,7 @@ from .sampling_config import SamplingConfig
 from .util_functions import (
     empty_cuda_cache_if_available,
     get_lora_slug,
+    infer_mlflow_metric_step_from_lora_path,
     load_tokenizer_with_transformers,
 )
 
@@ -121,6 +122,15 @@ class BaseEvaluator(ABC):
         self.mlflow_run = None
         self.parent_run = None
         self._started_mlflow_run = False
+        self._inferred_mlflow_metric_step = infer_mlflow_metric_step_from_lora_path(
+            self.eval_config.lora_path_or_repo_id
+        )
+        if self._inferred_mlflow_metric_step is not None:
+            logging.info(
+                "Inferred MLflow metric step %s from LoRA checkpoint path %s",
+                self._inferred_mlflow_metric_step,
+                self.eval_config.lora_path_or_repo_id,
+            )
         if self.mlflow_config:
             self._init_mlflow()
 
@@ -772,6 +782,9 @@ class BaseEvaluator(ABC):
     def _log_mlflow_metrics(self, metrics: dict[str, Any]) -> None:
         """Log evaluation metrics to MLflow."""
         if not self.eval_config.mlflow_config or not mlflow:
+            return
+        if self._inferred_mlflow_metric_step is not None:
+            mlflow.log_metrics(metrics, step=self._inferred_mlflow_metric_step)
             return
         mlflow.log_metrics(metrics)
 
