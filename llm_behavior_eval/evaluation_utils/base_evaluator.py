@@ -127,21 +127,21 @@ class BaseEvaluator(ABC):
         inferred_step = infer_mlflow_metric_step_from_lora_path(
             self.eval_config.lora_path_or_repo_id
         )
-        if inferred_step is not None:
-            logging.info(
-                "Inferred MLflow metric step %s from LoRA checkpoint path %s",
-                inferred_step,
-                self.eval_config.lora_path_or_repo_id,
-            )
         self._lora_mlflow_run_id = extract_mlflow_run_id_from_adapter_ref(
             self.eval_config.lora_path_or_repo_id,
             self.mlflow_config.mlflow_tracking_uri if self.mlflow_config else None,
         )
         if self.mlflow_config:
             self._init_mlflow()
-            self._inferred_mlflow_metric_step = self._resolve_mlflow_metric_step(
-                inferred_step
-            )
+            if inferred_step is not None:
+                logging.info(
+                    "Inferred MLflow metric step %s from LoRA checkpoint path %s",
+                    inferred_step,
+                    self.eval_config.lora_path_or_repo_id,
+                )
+                self._inferred_mlflow_metric_step = self._resolve_mlflow_metric_step(
+                    inferred_step
+                )
 
         self.data_collator = default_data_collator
         if self.model_engine == "vllm":
@@ -733,12 +733,7 @@ class BaseEvaluator(ABC):
                     requested_run_id,
                 )
             else:
-                existing = mlflow.get_run(requested_run_id)
-                mlflow.set_experiment(experiment_id=existing.info.experiment_id)
-                mlflow.start_run(run_id=requested_run_id)
-                self.parent_run = self.mlflow_run = mlflow.active_run()
-                self._started_mlflow_run = True
-                logging.info("Logging to existing MLflow run: %s", requested_run_id)
+                self._attach_existing_mlflow_run(requested_run_id, "Requested run ID")
         elif active_run is not None:
             self.parent_run = self.mlflow_run = active_run
             self._started_mlflow_run = False
@@ -747,15 +742,7 @@ class BaseEvaluator(ABC):
                 active_run.info.run_id,
             )
         elif self._lora_mlflow_run_id:
-            existing = mlflow.get_run(self._lora_mlflow_run_id)
-            mlflow.set_experiment(experiment_id=existing.info.experiment_id)
-            mlflow.start_run(run_id=self._lora_mlflow_run_id)
-            self.parent_run = self.mlflow_run = mlflow.active_run()
-            self._started_mlflow_run = True
-            logging.info(
-                "Logging to MLflow run inferred from LoRA adapter: %s",
-                self._lora_mlflow_run_id,
-            )
+            self._attach_existing_mlflow_run(self._lora_mlflow_run_id, "Run inferred from LoRA adapter")
         else:
             run_name = self.mlflow_config.mlflow_run_name or f"{model_slug}"
             self.mlflow_run = mlflow.start_run(run_name=run_name)
@@ -769,6 +756,17 @@ class BaseEvaluator(ABC):
         )
 
         # Run config is uploaded as JSON in artifacts (e.g. run_config.json), not logged as params/metrics.
+
+    def _attach_existing_mlflow_run(self, run_id: str, description: str) -> None:
+        """Attach an existing MLflow run to the current run."""
+        if not mlflow:
+            return
+        existing = mlflow.get_run(run_id)
+        mlflow.set_experiment(experiment_id=existing.info.experiment_id)
+        mlflow.start_run(run_id=run_id)
+        self.parent_run = self.mlflow_run = mlflow.active_run()
+        self._started_mlflow_run = True
+        logging.info(f"Attached existing MLflow run: {run_id} ({description})")
 
     @contextmanager
     def dataset_mlflow_run(self) -> Generator[None, None, None]:
@@ -805,7 +803,6 @@ class BaseEvaluator(ABC):
         mlflow.log_metrics(metrics, step=self._inferred_mlflow_metric_step)
 
     def _resolve_mlflow_metric_step(self, inferred_step: int | None) -> int | None:
-        """Use inferred checkpoint step only when logging back to same MLflow run."""
         if inferred_step is None:
             return None
         if self._lora_mlflow_run_id is None:
@@ -813,7 +810,7 @@ class BaseEvaluator(ABC):
         current_run_id = self.parent_run.info.run_id if self.parent_run else None
         if current_run_id == self._lora_mlflow_run_id:
             return inferred_step
-        logging.info(
+        logging.debug(
             "Skipping inferred MLflow metric step %s: LoRA run %s differs from logging run %s",
             inferred_step,
             self._lora_mlflow_run_id,

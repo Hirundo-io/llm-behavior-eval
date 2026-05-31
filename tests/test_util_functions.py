@@ -1,7 +1,9 @@
 import sys
 import types
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 import torch
@@ -20,6 +22,23 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
 
 if TYPE_CHECKING:
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+
+
+def _patch_mlflow_for_lazy_import(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    download_artifacts: Callable[..., str],
+    set_tracking_uri: Callable[[str], None] | None = None,
+) -> MagicMock:
+    """Stub mlflow for lazy imports inside maybe_download_adapter."""
+    mock_mlflow = MagicMock()
+    mock_artifacts = MagicMock()
+    mock_artifacts.download_artifacts.side_effect = download_artifacts
+    if set_tracking_uri is not None:
+        mock_mlflow.set_tracking_uri.side_effect = set_tracking_uri
+    monkeypatch.setitem(sys.modules, "mlflow", mock_mlflow)
+    monkeypatch.setitem(sys.modules, "mlflow.artifacts", mock_artifacts)
+    return mock_artifacts
 
 
 class MockConfig:
@@ -368,75 +387,47 @@ def test_maybe_download_adapter_mlflow_scheme_no_run_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Test that mlflow:// without run_id raises ValueError."""
-    # Mock mlflow import - need to mock sys.modules since it's imported inside the function
-    mock_mlflow = types.ModuleType("mlflow")
-    mock_mlflow.set_tracking_uri = lambda uri: None  # type: ignore[attr-defined]
+    _patch_mlflow_for_lazy_import(
+        monkeypatch,
+        download_artifacts=lambda run_id, artifact_path, dst_path: str(dst_path),
+    )
 
-    def mock_download_artifacts(run_id, artifact_path, dst_path):
-        return str(dst_path)
-
-    mock_artifacts = types.ModuleType("mlflow.artifacts")
-    mock_artifacts.download_artifacts = mock_download_artifacts  # type: ignore[attr-defined]
-
-    sys.modules["mlflow"] = mock_mlflow
-    sys.modules["mlflow.artifacts"] = mock_artifacts
-
-    try:
-        with pytest.raises(ValueError, match="Invalid mlflow ref \\(missing run id\\)"):
-            maybe_download_adapter("mlflow://")
-    finally:
-        # Clean up
-        if "mlflow" in sys.modules:
-            del sys.modules["mlflow"]
-        if "mlflow.artifacts" in sys.modules:
-            del sys.modules["mlflow.artifacts"]
+    with pytest.raises(ValueError, match="Invalid mlflow ref \\(missing run id\\)"):
+        maybe_download_adapter("mlflow://")
 
 
 def test_maybe_download_adapter_mlflow_scheme_with_run_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Test mlflow:// scheme with run_id downloads artifacts."""
-    import sys
-
     run_id = "abc123def45678901234567890123456"
     artifact_path = "hf_checkpoint/peft"
 
-    # Mock mlflow
     mock_download_artifacts_calls: list[tuple[str, str, str]] = []
 
     def mock_download_artifacts(*args, **kwargs) -> str:
-        run_id = kwargs.get("run_id", args[0] if args else "")
-        artifact_path = kwargs.get("artifact_path", args[1] if len(args) > 1 else "")
+        call_run_id = kwargs.get("run_id", args[0] if args else "")
+        call_artifact_path = kwargs.get("artifact_path", args[1] if len(args) > 1 else "")
         dst_path = kwargs.get("dst_path", args[2] if len(args) > 2 else "")
-        mock_download_artifacts_calls.append((run_id, artifact_path, dst_path))
-        # Create the directory structure - return the directory, not a file
-        result_dir = Path(dst_path) / artifact_path
+        mock_download_artifacts_calls.append(
+            (call_run_id, call_artifact_path, dst_path)
+        )
+        result_dir = Path(dst_path) / call_artifact_path
         result_dir.mkdir(parents=True, exist_ok=True)
         return str(result_dir)
 
-    mock_mlflow = types.ModuleType("mlflow")
-    mock_mlflow.set_tracking_uri = lambda uri: None  # type: ignore[attr-defined]
-    mock_artifacts = types.ModuleType("mlflow.artifacts")
-    mock_artifacts.download_artifacts = mock_download_artifacts  # type: ignore[attr-defined]
+    _patch_mlflow_for_lazy_import(
+        monkeypatch, download_artifacts=mock_download_artifacts
+    )
 
-    sys.modules["mlflow"] = mock_mlflow
-    sys.modules["mlflow.artifacts"] = mock_artifacts
+    result = maybe_download_adapter(
+        f"mlflow://{run_id}/{artifact_path}", cache_dir=str(tmp_path)
+    )
 
-    try:
-        result = maybe_download_adapter(
-            f"mlflow://{run_id}/{artifact_path}", cache_dir=str(tmp_path)
-        )
-
-        assert len(mock_download_artifacts_calls) == 1
-        assert mock_download_artifacts_calls[0][0] == run_id
-        assert mock_download_artifacts_calls[0][1] == artifact_path
-        assert "peft_adapters" in result
-    finally:
-        # Clean up
-        if "mlflow" in sys.modules:
-            del sys.modules["mlflow"]
-        if "mlflow.artifacts" in sys.modules:
-            del sys.modules["mlflow.artifacts"]
+    assert len(mock_download_artifacts_calls) == 1
+    assert mock_download_artifacts_calls[0][0] == run_id
+    assert mock_download_artifacts_calls[0][1] == artifact_path
+    assert "peft_adapters" in result
 
 
 def test_maybe_download_adapter_mlflow_scheme_default_artifact_paths(
@@ -445,100 +436,74 @@ def test_maybe_download_adapter_mlflow_scheme_default_artifact_paths(
     """Test mlflow:// scheme tries default artifact paths when none specified."""
     run_id = "abc123def45678901234567890123456"
 
-    # Mock mlflow - first call fails, second succeeds
     mock_download_artifacts_calls: list[tuple[str, str, str]] = []
 
     def mock_download_artifacts(*args, **kwargs) -> str:
-        run_id = kwargs.get("run_id", args[0] if args else "")
-        artifact_path = kwargs.get("artifact_path", args[1] if len(args) > 1 else "")
+        call_run_id = kwargs.get("run_id", args[0] if args else "")
+        call_artifact_path = kwargs.get("artifact_path", args[1] if len(args) > 1 else "")
         dst_path = kwargs.get("dst_path", args[2] if len(args) > 2 else "")
-        mock_download_artifacts_calls.append((run_id, artifact_path, dst_path))
-        if artifact_path == "hf_checkpoint/peft":
+        mock_download_artifacts_calls.append(
+            (call_run_id, call_artifact_path, dst_path)
+        )
+        if call_artifact_path == "hf_checkpoint/peft":
             raise Exception("Not found")
-        # Create the directory structure - return the directory
-        result_dir = Path(dst_path) / artifact_path
+        result_dir = Path(dst_path) / call_artifact_path
         result_dir.mkdir(parents=True, exist_ok=True)
         return str(result_dir)
 
-    mock_mlflow = types.ModuleType("mlflow")
-    mock_mlflow.set_tracking_uri = lambda uri: None  # type: ignore[attr-defined]
-    mock_artifacts = types.ModuleType("mlflow.artifacts")
-    mock_artifacts.download_artifacts = mock_download_artifacts  # type: ignore[attr-defined]
+    _patch_mlflow_for_lazy_import(
+        monkeypatch, download_artifacts=mock_download_artifacts
+    )
 
-    sys.modules["mlflow"] = mock_mlflow
-    sys.modules["mlflow.artifacts"] = mock_artifacts
+    result = maybe_download_adapter(f"mlflow://{run_id}", cache_dir=str(tmp_path))
 
-    try:
-        result = maybe_download_adapter(f"mlflow://{run_id}", cache_dir=str(tmp_path))
-
-        assert len(mock_download_artifacts_calls) == 2
-        assert mock_download_artifacts_calls[0][1] == "hf_checkpoint/peft"
-        assert mock_download_artifacts_calls[1][1] == "hf_checkpoint"
-        assert "hf_checkpoint" in result
-    finally:
-        # Clean up
-        if "mlflow" in sys.modules:
-            del sys.modules["mlflow"]
-        if "mlflow.artifacts" in sys.modules:
-            del sys.modules["mlflow.artifacts"]
+    assert len(mock_download_artifacts_calls) == 2
+    assert mock_download_artifacts_calls[0][1] == "hf_checkpoint/peft"
+    assert mock_download_artifacts_calls[1][1] == "hf_checkpoint"
+    assert "hf_checkpoint" in result
 
 
 def test_maybe_download_adapter_http_with_mlflow_run_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Test http:// URL with mlflow run_id in path."""
-    import sys
-    import types
-
     run_id = "abc123def45678901234567890123456"
 
     mock_download_artifacts_calls: list[tuple[str, str, str]] = []
 
     def mock_download_artifacts(*args, **kwargs) -> str:
-        run_id = kwargs.get("run_id", args[0] if args else "")
-        artifact_path = kwargs.get("artifact_path", args[1] if len(args) > 1 else "")
+        call_run_id = kwargs.get("run_id", args[0] if args else "")
+        call_artifact_path = kwargs.get("artifact_path", args[1] if len(args) > 1 else "")
         dst_path = kwargs.get("dst_path", args[2] if len(args) > 2 else "")
-        mock_download_artifacts_calls.append((run_id, artifact_path, dst_path))
-        # For http URLs, artifact_path might be the full path, so handle it
-        if artifact_path:
-            result_dir = Path(dst_path) / artifact_path
+        mock_download_artifacts_calls.append(
+            (call_run_id, call_artifact_path, dst_path)
+        )
+        if call_artifact_path:
+            result_dir = Path(dst_path) / call_artifact_path
         else:
             result_dir = Path(dst_path)
         result_dir.mkdir(parents=True, exist_ok=True)
         return str(result_dir)
 
-    mock_mlflow = types.ModuleType("mlflow")
-    mock_mlflow.set_tracking_uri = lambda uri: None  # type: ignore[attr-defined]
-    mock_artifacts = types.ModuleType("mlflow.artifacts")
-    mock_artifacts.download_artifacts = mock_download_artifacts  # type: ignore[attr-defined]
+    _patch_mlflow_for_lazy_import(
+        monkeypatch, download_artifacts=mock_download_artifacts
+    )
 
-    sys.modules["mlflow"] = mock_mlflow
-    sys.modules["mlflow.artifacts"] = mock_artifacts
+    maybe_download_adapter(
+        f"http://mlflow.example.com/runs/{run_id}",
+        cache_dir=str(tmp_path),
+        mlflow_tracking_uri="http://mlflow.example.com",
+    )
 
-    try:
-        maybe_download_adapter(
-            f"http://mlflow.example.com/runs/{run_id}",
-            cache_dir=str(tmp_path),
-            mlflow_tracking_uri="http://mlflow.example.com",
-        )
-
-        assert mock_download_artifacts_calls
-        assert mock_download_artifacts_calls[0][0] == run_id
-        assert mock_download_artifacts_calls[0][1] == "hf_checkpoint/peft"
-    finally:
-        # Clean up
-        if "mlflow" in sys.modules:
-            del sys.modules["mlflow"]
-        if "mlflow.artifacts" in sys.modules:
-            del sys.modules["mlflow.artifacts"]
+    assert mock_download_artifacts_calls
+    assert mock_download_artifacts_calls[0][0] == run_id
+    assert mock_download_artifacts_calls[0][1] == "hf_checkpoint/peft"
 
 
 def test_maybe_download_adapter_http_tracking_uri_with_artifact_subpath(
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """HTTP tracking URI refs parse /runs/<run_id>/<artifact> for download."""
-    import sys
-
     run_id = "abc123def45678901234567890123456"
     artifact_path = "hf_checkpoints/checkpoint-000020"
     mock_download_artifacts_calls: list[tuple[str, str, str]] = []
@@ -556,64 +521,40 @@ def test_maybe_download_adapter_http_tracking_uri_with_artifact_subpath(
         result_dir.mkdir(parents=True, exist_ok=True)
         return str(result_dir)
 
-    mock_mlflow = types.ModuleType("mlflow")
-    mock_mlflow.set_tracking_uri = lambda uri: None  # type: ignore[attr-defined]
-    mock_artifacts = types.ModuleType("mlflow.artifacts")
-    mock_artifacts.download_artifacts = mock_download_artifacts  # type: ignore[attr-defined]
+    _patch_mlflow_for_lazy_import(
+        monkeypatch, download_artifacts=mock_download_artifacts
+    )
 
-    sys.modules["mlflow"] = mock_mlflow
-    sys.modules["mlflow.artifacts"] = mock_artifacts
+    maybe_download_adapter(
+        f"http://mlflow.example.com/runs/{run_id}/{artifact_path}",
+        cache_dir=str(tmp_path),
+        mlflow_tracking_uri="http://mlflow.example.com",
+    )
 
-    try:
-        maybe_download_adapter(
-            f"http://mlflow.example.com/runs/{run_id}/{artifact_path}",
-            cache_dir=str(tmp_path),
-            mlflow_tracking_uri="http://mlflow.example.com",
-        )
-
-        assert len(mock_download_artifacts_calls) == 1
-        assert mock_download_artifacts_calls[0][0] == run_id
-        assert mock_download_artifacts_calls[0][1] == artifact_path
-    finally:
-        if "mlflow" in sys.modules:
-            del sys.modules["mlflow"]
-        if "mlflow.artifacts" in sys.modules:
-            del sys.modules["mlflow.artifacts"]
+    assert len(mock_download_artifacts_calls) == 1
+    assert mock_download_artifacts_calls[0][0] == run_id
+    assert mock_download_artifacts_calls[0][1] == artifact_path
 
 
 def test_maybe_download_adapter_mlflow_artifact_is_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Test that mlflow artifact pointing to file raises ValueError."""
-    import sys
-
     run_id = "abc123def45678901234567890123456"
 
     def mock_download_artifacts(*args, **kwargs) -> str:
-        # Return a file path instead of directory
         dst_path = kwargs.get("dst_path", args[2] if len(args) > 2 else "")
         file_path = Path(dst_path) / "file.txt"
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text("test")
         return str(file_path)
 
-    mock_mlflow = types.ModuleType("mlflow")
-    mock_mlflow.set_tracking_uri = lambda uri: None  # type: ignore[attr-defined]
-    mock_artifacts = types.ModuleType("mlflow.artifacts")
-    mock_artifacts.download_artifacts = mock_download_artifacts  # type: ignore[attr-defined]
+    _patch_mlflow_for_lazy_import(
+        monkeypatch, download_artifacts=mock_download_artifacts
+    )
 
-    sys.modules["mlflow"] = mock_mlflow
-    sys.modules["mlflow.artifacts"] = mock_artifacts
-
-    try:
-        with pytest.raises(ValueError, match="MLflow artifact resolved to a file"):
-            maybe_download_adapter(f"mlflow://{run_id}", cache_dir=str(tmp_path))
-    finally:
-        # Clean up
-        if "mlflow" in sys.modules:
-            del sys.modules["mlflow"]
-        if "mlflow.artifacts" in sys.modules:
-            del sys.modules["mlflow.artifacts"]
+    with pytest.raises(ValueError, match="MLflow artifact resolved to a file"):
+        maybe_download_adapter(f"mlflow://{run_id}", cache_dir=str(tmp_path))
 
 
 def test_maybe_download_adapter_git_scheme_missing_gitpython(
@@ -905,7 +846,6 @@ def test_maybe_download_adapter_mlflow_tracking_uri(
     def mock_download_artifacts(*args, **kwargs) -> str:
         artifact_path = kwargs.get("artifact_path", args[1] if len(args) > 1 else "")
         dst_path = kwargs.get("dst_path", args[2] if len(args) > 2 else "")
-        # Return a directory, not a file
         if artifact_path:
             result_dir = Path(dst_path) / artifact_path
         else:
@@ -913,25 +853,16 @@ def test_maybe_download_adapter_mlflow_tracking_uri(
         result_dir.mkdir(parents=True, exist_ok=True)
         return str(result_dir)
 
-    mock_mlflow = types.ModuleType("mlflow")
-    mock_mlflow.set_tracking_uri = mock_set_tracking_uri  # type: ignore[attr-defined]
-    mock_artifacts = types.ModuleType("mlflow.artifacts")
-    mock_artifacts.download_artifacts = mock_download_artifacts  # type: ignore[attr-defined]
+    _patch_mlflow_for_lazy_import(
+        monkeypatch,
+        download_artifacts=mock_download_artifacts,
+        set_tracking_uri=mock_set_tracking_uri,
+    )
 
-    sys.modules["mlflow"] = mock_mlflow
-    sys.modules["mlflow.artifacts"] = mock_artifacts
+    maybe_download_adapter(
+        f"mlflow://{run_id}",
+        cache_dir=str(tmp_path),
+        mlflow_tracking_uri=tracking_uri,
+    )
 
-    try:
-        maybe_download_adapter(
-            f"mlflow://{run_id}",
-            cache_dir=str(tmp_path),
-            mlflow_tracking_uri=tracking_uri,
-        )
-
-        assert tracking_uri in mock_set_tracking_uri_calls
-    finally:
-        # Clean up
-        if "mlflow" in sys.modules:
-            del sys.modules["mlflow"]
-        if "mlflow.artifacts" in sys.modules:
-            del sys.modules["mlflow.artifacts"]
+    assert tracking_uri in mock_set_tracking_uri_calls

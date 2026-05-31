@@ -393,7 +393,7 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
     assert (uploaded_dir / "bbq-gender-bias-free-text" / "metrics.csv").exists()
 
 
-def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step(
+def test_save_results_logs_mlflow_metrics_without_inferred_checkpoint_step(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
     mlflow_mock: MagicMock,

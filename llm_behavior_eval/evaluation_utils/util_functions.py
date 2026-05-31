@@ -540,7 +540,8 @@ def parse_mlflow_adapter_url(
 
     Supported forms:
       - ``mlflow://<run_id>`` and ``mlflow://<run_id>/<artifact/path>``
-      - ``runs:/<run_id>`` and ``runs:/<run_id>/<artifact/path>``
+      - ``runs:/<run_id>`` and ``runs:/<run_id>/<artifact/path>`` (MLflow artifact URI;
+        ``runs://`` is also accepted)
       - ``http(s)://<tracking-host>/runs/<run_id>`` (and optional artifact suffix)
         when scheme+netloc match ``mlflow_tracking_uri`` or ``MLFLOW_TRACKING_URI``
       - Legacy ``http(s)://<tracking-host>/<run_id>`` (single path segment)
@@ -854,7 +855,16 @@ def infer_mlflow_metric_step_from_lora_path(adapter_ref: str | None) -> int | No
 def extract_mlflow_run_id_from_adapter_ref(
     adapter_ref: str | None, mlflow_tracking_uri: str | None = None
 ) -> str | None:
-    """Extract MLflow run ID from adapter ref when ref points to an MLflow run."""
+    """
+    Extract MLflow run ID from adapter ref when ref points to an MLflow run.
+    
+    Args:
+        adapter_ref: The adapter reference from which to extract the MLflow run ID.
+        mlflow_tracking_uri: The MLflow tracking URI.
+
+    Returns:
+        The MLflow run ID, or ``None`` if the adapter reference does not point to an MLflow run.
+    """
     if not adapter_ref:
         return None
     parsed_url = urlparse(adapter_ref.strip(), allow_fragments=False)
