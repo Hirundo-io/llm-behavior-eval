@@ -857,7 +857,7 @@ def extract_mlflow_run_id_from_adapter_ref(
 ) -> str | None:
     """
     Extract MLflow run ID from adapter ref when ref points to an MLflow run.
-    
+
     Args:
         adapter_ref: The adapter reference from which to extract the MLflow run ID.
         mlflow_tracking_uri: The MLflow tracking URI.

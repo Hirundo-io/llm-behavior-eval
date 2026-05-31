@@ -742,7 +742,9 @@ class BaseEvaluator(ABC):
                 active_run.info.run_id,
             )
         elif self._lora_mlflow_run_id:
-            self._attach_existing_mlflow_run(self._lora_mlflow_run_id, "Run inferred from LoRA adapter")
+            self._attach_existing_mlflow_run(
+                self._lora_mlflow_run_id, "Run inferred from LoRA adapter"
+            )
         else:
             run_name = self.mlflow_config.mlflow_run_name or f"{model_slug}"
             self.mlflow_run = mlflow.start_run(run_name=run_name)
@@ -758,7 +760,12 @@ class BaseEvaluator(ABC):
         # Run config is uploaded as JSON in artifacts (e.g. run_config.json), not logged as params/metrics.
 
     def _attach_existing_mlflow_run(self, run_id: str, description: str) -> None:
-        """Attach an existing MLflow run to the current run."""
+        """Attach an existing MLflow run to the current run.
+
+        Args:
+            run_id: The ID of the existing MLflow run to attach.
+            description: A description of the run to attach.
+        """
         if not mlflow:
             return
         existing = mlflow.get_run(run_id)

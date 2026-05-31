@@ -407,7 +407,9 @@ def test_maybe_download_adapter_mlflow_scheme_with_run_id(
 
     def mock_download_artifacts(*args, **kwargs) -> str:
         call_run_id = kwargs.get("run_id", args[0] if args else "")
-        call_artifact_path = kwargs.get("artifact_path", args[1] if len(args) > 1 else "")
+        call_artifact_path = kwargs.get(
+            "artifact_path", args[1] if len(args) > 1 else ""
+        )
         dst_path = kwargs.get("dst_path", args[2] if len(args) > 2 else "")
         mock_download_artifacts_calls.append(
             (call_run_id, call_artifact_path, dst_path)
@@ -440,7 +442,9 @@ def test_maybe_download_adapter_mlflow_scheme_default_artifact_paths(
 
     def mock_download_artifacts(*args, **kwargs) -> str:
         call_run_id = kwargs.get("run_id", args[0] if args else "")
-        call_artifact_path = kwargs.get("artifact_path", args[1] if len(args) > 1 else "")
+        call_artifact_path = kwargs.get(
+            "artifact_path", args[1] if len(args) > 1 else ""
+        )
         dst_path = kwargs.get("dst_path", args[2] if len(args) > 2 else "")
         mock_download_artifacts_calls.append(
             (call_run_id, call_artifact_path, dst_path)
@@ -473,7 +477,9 @@ def test_maybe_download_adapter_http_with_mlflow_run_id(
 
     def mock_download_artifacts(*args, **kwargs) -> str:
         call_run_id = kwargs.get("run_id", args[0] if args else "")
-        call_artifact_path = kwargs.get("artifact_path", args[1] if len(args) > 1 else "")
+        call_artifact_path = kwargs.get(
+            "artifact_path", args[1] if len(args) > 1 else ""
+        )
         dst_path = kwargs.get("dst_path", args[2] if len(args) > 2 else "")
         mock_download_artifacts_calls.append(
             (call_run_id, call_artifact_path, dst_path)
