@@ -1,0 +1,132 @@
+name: Reviewer approval gate
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  pull_request_review:
+    types:
+      - submitted
+      - dismissed
+  pull_request_review_comment:
+    types:
+      - created
+      - edited
+      - deleted
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  reviewer-approval-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish PR review quality status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const statusContext = "pr-review-quality-gate";
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const pull_number = context.payload.pull_request?.number;
+
+            if (!Number.isInteger(pull_number) || pull_number < 1) {
+              core.setFailed("Unable to determine pull request number from event payload.");
+              return;
+            }
+
+            let pull;
+            try {
+              const response = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number,
+              });
+              pull = response.data;
+            } catch (error) {
+              core.setFailed(`Unable to evaluate PR #${pull_number}: ${error.message}`);
+              return;
+            }
+
+            const reviews = await github.paginate(
+              github.rest.pulls.listReviews,
+              {
+                owner,
+                repo,
+                pull_number,
+                per_page: 100,
+              },
+            );
+
+            const isBot = (user) => {
+              const login = user?.login ?? "";
+              return user?.type === "Bot" || login.toLowerCase().endsWith("[bot]");
+            };
+
+            const latestReviewByUser = new Map();
+            for (const review of reviews) {
+              const user = review.user?.login;
+              if (!user || isBot(review.user)) {
+                continue;
+              }
+
+              const current = latestReviewByUser.get(user);
+              if (!current || new Date(review.submitted_at) >= new Date(current.submitted_at)) {
+                latestReviewByUser.set(user, review);
+              }
+            }
+
+            const approvingReviews = [...latestReviewByUser.values()].filter(
+              (review) => review.state === "APPROVED",
+            );
+            const approvingReviewers = new Set(
+              approvingReviews.map((review) => review.user.login),
+            );
+
+            let state = "success";
+            let description = "Review quality gate passed.";
+
+            if (approvingReviewers.size === 0) {
+              state = "pending";
+              description = "No current human approving reviewers.";
+            } else if (approvingReviewers.size > 1) {
+              description = `${approvingReviewers.size} current approving reviewers.`;
+            } else {
+              const reviewComments = await github.paginate(
+                github.rest.pulls.listReviewComments,
+                {
+                  owner,
+                  repo,
+                  pull_number,
+                  per_page: 100,
+                },
+              );
+              const approvingReviewerComment = reviewComments.find((comment) =>
+                !isBot(comment.user) && approvingReviewers.has(comment.user?.login),
+              );
+
+              if (approvingReviewerComment) {
+                description = "Sole approving reviewer left a file-level review comment.";
+              } else {
+                const [approver] = approvingReviewers;
+                state = "pending";
+                description = `${approver} is the only approver and left no file comments.`;
+              }
+            }
+
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: pull.head.sha,
+              state,
+              context: statusContext,
+              description,
+              target_url: runUrl,
+            });
+
+            core.info(`Published ${statusContext}=${state}: ${description}`);
