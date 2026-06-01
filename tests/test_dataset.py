@@ -5,14 +5,18 @@ from datasets import Dataset, DatasetDict
 
 import llm_behavior_eval.evaluation_utils.custom_dataset as custom_dataset_module
 from llm_behavior_eval.evaluation_utils.custom_dataset import (
-    REFUSAL_PLACEHOLDER_ANSWER,
     CustomDataset,
     free_text_preprocess_function,
-    is_refusal_dataset,
-    normalize_refusal_dataset,
     validate_dataset_columns,
 )
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
+from llm_behavior_eval.evaluation_utils.refusal_utils import (
+    OR_BENCH_DATASET,
+    REFUSAL_PLACEHOLDER_ANSWER,
+    XSTEST_DATASET,
+    is_refusal_dataset,
+    normalize_refusal_dataset,
+)
 
 if TYPE_CHECKING:
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -64,8 +68,8 @@ def test_normalize_refusal_dataset_rejects_unknown_labels():
 
 
 def test_is_refusal_dataset_matches_supported_refusal_datasets():
-    assert is_refusal_dataset("walledai/XSTest")
-    assert is_refusal_dataset("hirundo-io/or-bench")
+    assert is_refusal_dataset(XSTEST_DATASET)
+    assert is_refusal_dataset(OR_BENCH_DATASET)
     assert not is_refusal_dataset("hirundo-io/halueval")
 
 
@@ -176,7 +180,7 @@ def test_custom_dataset_falls_back_to_only_available_split(
     ("dataset_id", "dataset", "expected_messages"),
     [
         (
-            "hirundo-io/or-bench",
+            OR_BENCH_DATASET,
             Dataset.from_dict({"prompt": ["q1"], "label": ["safe"]}),
             [[{"role": "user", "content": "q1\n"}]],
         ),
@@ -240,7 +244,7 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
     )
 
     custom_dataset = CustomDataset(dataset_id, DatasetType.BIAS)
-    if dataset_id == "hirundo-io/or-bench":
+    if dataset_id == OR_BENCH_DATASET:
         monkeypatch.setattr(
             custom_dataset_module,
             "normalize_refusal_dataset",

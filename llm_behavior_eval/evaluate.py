@@ -20,6 +20,10 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
     EvaluatorFamily,
 )
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
+from llm_behavior_eval.evaluation_utils.refusal_utils import (
+    OR_BENCH_DATASET,
+    XSTEST_DATASET,
+)
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
@@ -99,11 +103,11 @@ def _behavior_presets(behavior: str) -> list[str]:
     if len(behavior_parts) == 2 and behavior_parts[0] in REFUSAL_ALIAS:
         _, refusal_dataset = behavior_parts
         if refusal_dataset == "xstest":
-            return ["walledai/XSTest"]
+            return [XSTEST_DATASET]
         if refusal_dataset == "orbench":
-            return ["hirundo-io/or-bench"]
+            return [OR_BENCH_DATASET]
         if refusal_dataset == "all":
-            return ["walledai/XSTest", "hirundo-io/or-bench"]
+            return [XSTEST_DATASET, OR_BENCH_DATASET]
         raise ValueError("Refusal supports: xstest, orbench, all")
 
     # Expected structures:

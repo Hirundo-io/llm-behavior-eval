@@ -36,6 +36,10 @@ from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
     FreeTextRefusalEvaluator,
     _RefusalGenerationRecord,
 )
+from llm_behavior_eval.evaluation_utils.refusal_utils import (
+    OR_BENCH_DATASET,
+    XSTEST_DATASET,
+)
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 if TYPE_CHECKING:
@@ -887,7 +891,7 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
             max_samples=4,
         ),
         DatasetConfig(
-            file_path="walledai/XSTest",
+            file_path=XSTEST_DATASET,
             dataset_type=DatasetType.BIAS,
         ),
     )
@@ -1002,7 +1006,7 @@ def test_refusal_evaluator_marks_unparseable_outputs_and_excludes_them_from_deno
             max_samples=2,
         ),
         DatasetConfig(
-            file_path="hirundo-io/or-bench",
+            file_path=OR_BENCH_DATASET,
             dataset_type=DatasetType.BIAS,
         ),
     )
@@ -1074,7 +1078,7 @@ def test_refusal_evaluator_only_counts_stop_rows_as_judge_attempts(
             max_samples=2,
         ),
         DatasetConfig(
-            file_path="hirundo-io/or-bench",
+            file_path=OR_BENCH_DATASET,
             dataset_type=DatasetType.BIAS,
         ),
     )

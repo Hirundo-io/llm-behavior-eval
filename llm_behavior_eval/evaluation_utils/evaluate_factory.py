@@ -1,6 +1,7 @@
 from .base_evaluator import BaseEvaluator
 from .dataset_config import DatasetConfig
 from .eval_config import EvaluationConfig, EvaluatorFamily
+from .refusal_utils import REFUSAL_DATASETS
 
 
 class EvaluateFactory:
@@ -12,7 +13,7 @@ class EvaluateFactory:
     def get_evaluator_family(dataset_id: str) -> EvaluatorFamily:
         if dataset_id in {"hirundo-io/halueval", "hirundo-io/medhallu"}:
             return "hallucination"
-        if dataset_id in {"walledai/XSTest", "hirundo-io/or-bench"}:
+        if dataset_id in REFUSAL_DATASETS:
             return "refusal"
         if dataset_id == "hirundo-io/prompt-injection-purple-llama":
             return "prompt-injection"

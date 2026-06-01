@@ -12,12 +12,14 @@ import torch
 from tqdm import tqdm
 
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
-from .custom_dataset import SAFE_REFUSAL_LABEL, UNSAFE_REFUSAL_LABEL
 from .eval_engine import EvalEngine
+from .refusal_utils import (
+    OR_BENCH_DATASET,
+    SAFE_REFUSAL_LABEL,
+    UNSAFE_REFUSAL_LABEL,
+)
 from .util_functions import safe_apply_chat_template
 
-OR_BENCH_DATASET = "hirundo-io/or-bench"
-XSTEST_DATASET = "walledai/XSTest"
 GRADING_STATUS_MODEL_INCOMPLETE = "model_incomplete"
 GRADING_STATUS_JUDGE_UNPARSEABLE = "judge_unparseable"
 GRADING_STATUS_JUDGED = "judged"

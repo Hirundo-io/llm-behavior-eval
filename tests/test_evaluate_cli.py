@@ -27,6 +27,10 @@ from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
 from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
     FreeTextRefusalEvaluator,
 )
+from llm_behavior_eval.evaluation_utils.refusal_utils import (
+    OR_BENCH_DATASET,
+    XSTEST_DATASET,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -126,17 +130,17 @@ def test_main_applies_max_samples_option(
 
 
 def test_behavior_presets_expand_refusal_xstest() -> None:
-    assert evaluate._behavior_presets("refusal:xstest") == ["walledai/XSTest"]
+    assert evaluate._behavior_presets("refusal:xstest") == [XSTEST_DATASET]
 
 
 def test_behavior_presets_expand_refusal_orbench() -> None:
-    assert evaluate._behavior_presets("refusal:orbench") == ["hirundo-io/or-bench"]
+    assert evaluate._behavior_presets("refusal:orbench") == [OR_BENCH_DATASET]
 
 
 def test_behavior_presets_expand_refusal_all() -> None:
     assert evaluate._behavior_presets("refusal:all") == [
-        "walledai/XSTest",
-        "hirundo-io/or-bench",
+        XSTEST_DATASET,
+        OR_BENCH_DATASET,
     ]
 
 
@@ -158,7 +162,7 @@ def test_main_uses_refusal_dataset_type_for_refusal_presets(
     capture_configs: list[CapturedConfigs],
 ) -> None:
     evaluate.main("fake/model", "refusal:xstest")
-    assert capture_configs[-1].dataset_config.file_path == "walledai/XSTest"
+    assert capture_configs[-1].dataset_config.file_path == XSTEST_DATASET
     assert capture_configs[-1].dataset_config.dataset_type.value == "bias"
 
 
@@ -191,7 +195,7 @@ def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
     ("dataset_id", "expected_class"),
     [
         ("hirundo-io/halueval", FreeTextHaluEvaluator),
-        ("hirundo-io/or-bench", FreeTextRefusalEvaluator),
+        (OR_BENCH_DATASET, FreeTextRefusalEvaluator),
         (
             "hirundo-io/prompt-injection-purple-llama",
             FreeTextPromptInjectionEvaluator,
@@ -253,7 +257,7 @@ def test_evaluate_factory_applies_refusal_defaults_for_programmatic_callers(
     EvaluateFactory.create_evaluator(
         original_config,
         DatasetConfig(
-            file_path="hirundo-io/or-bench", dataset_type=evaluate.DatasetType.BIAS
+            file_path=OR_BENCH_DATASET, dataset_type=evaluate.DatasetType.BIAS
         ),
     )
 
@@ -269,7 +273,7 @@ def test_evaluate_factory_applies_refusal_defaults_for_programmatic_callers(
 
 
 def test_evaluate_factory_reports_evaluator_family() -> None:
-    assert EvaluateFactory.get_evaluator_family("walledai/XSTest") == "refusal"
+    assert EvaluateFactory.get_evaluator_family(XSTEST_DATASET) == "refusal"
     assert (
         EvaluateFactory.get_evaluator_family("hirundo-io/prompt-injection-purple-llama")
         == "prompt-injection"
