@@ -4,36 +4,54 @@ on:
   pull_request:
     types:
       - opened
-      - reopened
       - synchronize
+      - reopened
       - ready_for_review
-      - review_requested
-      - review_request_removed
   pull_request_review:
     types:
       - submitted
-      - edited
       - dismissed
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  pull_request_review_comment:
+    types:
+      - created
+      - edited
+      - deleted
 
 permissions:
   contents: read
   pull-requests: read
+  statuses: write
 
 jobs:
   reviewer-approval-gate:
-    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
-      - name: Check approving reviewer comments
+      - name: Publish PR review quality status
         uses: actions/github-script@v7
         with:
           script: |
             const {owner, repo} = context.repo;
-            const pull_number = context.payload.pull_request.number;
+            const statusContext = "pr-review-quality-gate";
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const pull_number = context.payload.pull_request?.number;
+
+            if (!Number.isInteger(pull_number) || pull_number < 1) {
+              core.setFailed("Unable to determine pull request number from event payload.");
+              return;
+            }
+
+            let pull;
+            try {
+              const response = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number,
+              });
+              pull = response.data;
+            } catch (error) {
+              core.setFailed(`Unable to evaluate PR #${pull_number}: ${error.message}`);
+              return;
+            }
 
             const reviews = await github.paginate(
               github.rest.pulls.listReviews,
@@ -45,10 +63,15 @@ jobs:
               },
             );
 
+            const isBot = (user) => {
+              const login = user?.login ?? "";
+              return user?.type === "Bot" || login.toLowerCase().endsWith("[bot]");
+            };
+
             const latestReviewByUser = new Map();
             for (const review of reviews) {
               const user = review.user?.login;
-              if (!user) {
+              if (!user || isBot(review.user)) {
                 continue;
               }
 
@@ -65,35 +88,45 @@ jobs:
               approvingReviews.map((review) => review.user.login),
             );
 
+            let state = "success";
+            let description = "Review quality gate passed.";
+
             if (approvingReviewers.size === 0) {
-              core.info("No approving reviewers found.");
-              return;
+              state = "pending";
+              description = "No current human approving reviewers.";
+            } else if (approvingReviewers.size > 1) {
+              description = `${approvingReviewers.size} current approving reviewers.`;
+            } else {
+              const reviewComments = await github.paginate(
+                github.rest.pulls.listReviewComments,
+                {
+                  owner,
+                  repo,
+                  pull_number,
+                  per_page: 100,
+                },
+              );
+              const approvingReviewerComment = reviewComments.find((comment) =>
+                !isBot(comment.user) && approvingReviewers.has(comment.user?.login),
+              );
+
+              if (approvingReviewerComment) {
+                description = "Sole approving reviewer left a file-level review comment.";
+              } else {
+                const [approver] = approvingReviewers;
+                state = "pending";
+                description = `${approver} is the only approver and left no file comments.`;
+              }
             }
 
-            if (approvingReviewers.size > 1) {
-              core.info(`Gate passed: ${approvingReviewers.size} reviewers approved this PR.`);
-              return;
-            }
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: pull.head.sha,
+              state,
+              context: statusContext,
+              description,
+              target_url: runUrl,
+            });
 
-            const reviewComments = await github.paginate(
-              github.rest.pulls.listReviewComments,
-              {
-                owner,
-                repo,
-                pull_number,
-                per_page: 100,
-              },
-            );
-            const approvingReviewerComment = reviewComments.find((comment) =>
-              approvingReviewers.has(comment.user?.login),
-            );
-
-            if (approvingReviewerComment) {
-              core.info("Gate passed: the approving reviewer left at least one inline review comment.");
-              return;
-            }
-
-            const [approver] = approvingReviewers;
-            core.setFailed(
-              `Gate failed: ${approver} is the only approving reviewer and did not leave any comments.`,
-            );
+            core.info(`Published ${statusContext}=${state}: ${description}`);
