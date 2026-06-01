@@ -695,6 +695,22 @@ class BaseEvaluator(ABC):
     def should_include_dataset_type_in_output_dir(self) -> bool:
         return False
 
+    def _attach_existing_mlflow_run(self, run_id: str, description: str) -> None:
+        """Attach an existing MLflow run to the current run.
+
+        Args:
+            run_id: The ID of the existing MLflow run to attach.
+            description: A description of the run to attach.
+        """
+        if not mlflow:
+            return
+        existing = mlflow.get_run(run_id)
+        mlflow.set_experiment(experiment_id=existing.info.experiment_id)
+        mlflow.start_run(run_id=run_id)
+        self.parent_run = self.mlflow_run = mlflow.active_run()
+        self._started_mlflow_run = True
+        logging.info(f"Attached existing MLflow run: {run_id} ({description})")
+
     def _init_mlflow(self) -> None:
         """Initialize MLflow tracking if enabled and available."""
         if not mlflow:
@@ -758,22 +774,6 @@ class BaseEvaluator(ABC):
         )
 
         # Run config is uploaded as JSON in artifacts (e.g. run_config.json), not logged as params/metrics.
-
-    def _attach_existing_mlflow_run(self, run_id: str, description: str) -> None:
-        """Attach an existing MLflow run to the current run.
-
-        Args:
-            run_id: The ID of the existing MLflow run to attach.
-            description: A description of the run to attach.
-        """
-        if not mlflow:
-            return
-        existing = mlflow.get_run(run_id)
-        mlflow.set_experiment(experiment_id=existing.info.experiment_id)
-        mlflow.start_run(run_id=run_id)
-        self.parent_run = self.mlflow_run = mlflow.active_run()
-        self._started_mlflow_run = True
-        logging.info(f"Attached existing MLflow run: {run_id} ({description})")
 
     @contextmanager
     def dataset_mlflow_run(self) -> Generator[None, None, None]:
