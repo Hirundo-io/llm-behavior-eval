@@ -16,6 +16,9 @@ on:
       - created
       - edited
       - deleted
+  merge_group:
+    types:
+      - checks_requested
 
 permissions:
   contents: read
@@ -33,6 +36,20 @@ jobs:
             const {owner, repo} = context.repo;
             const statusContext = "pr-review-quality-gate";
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            if (context.eventName === "merge_group") {
+              await github.rest.repos.createCommitStatus({
+                owner,
+                repo,
+                sha: context.sha,
+                state: "success",
+                context: statusContext,
+                description: "Review quality gate registered for merge queue.",
+                target_url: runUrl,
+              });
+              return;
+            }
+
             const pull_number = context.payload.pull_request?.number;
 
             if (!Number.isInteger(pull_number) || pull_number < 1) {
