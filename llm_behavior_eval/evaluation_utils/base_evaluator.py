@@ -155,21 +155,7 @@ class BaseEvaluator(ABC):
         )
 
         self.data_collator = default_data_collator
-        if self.model_engine == "vllm":
-            max_model_len = (
-                self.eval_config.vllm_config.max_model_len
-                if self.eval_config.vllm_config
-                else None
-            )
-            self.eval_engine = VllmEvalEngine(
-                self.eval_config,
-                max_model_len=max_model_len,
-            )
-        else:
-            self.eval_engine = TransformersEvalEngine(
-                self.data_collator,
-                self.eval_config,
-            )
+        self.eval_engine = self._create_eval_engine()
         self.tokenizer = self.eval_engine.tokenizer
         self.trust_remote_code = self.eval_config.trust_remote_code
         self.tokenizer.padding_side = "left"
@@ -194,6 +180,28 @@ class BaseEvaluator(ABC):
             mlflow.log_metric("num_samples_evaluated", float(self.num_samples))
 
         self._ensure_run_configuration_allowed()
+
+    def _create_eval_engine(self) -> EvalEngine:
+        """Create the eval engine for the model under test.
+
+        Subclasses may override to customize model loading (e.g. the garak
+        behavior forces an in-process vLLM engine or skips loading when a remote
+        endpoint is provided).
+        """
+        if self.model_engine == "vllm":
+            max_model_len = (
+                self.eval_config.vllm_config.max_model_len
+                if self.eval_config.vllm_config
+                else None
+            )
+            return VllmEvalEngine(
+                self.eval_config,
+                max_model_len=max_model_len,
+            )
+        return TransformersEvalEngine(
+            self.data_collator,
+            self.eval_config,
+        )
 
     def _get_judge_tokenizer(self) -> PreTrainedTokenizerBase:
         tokenizer = self.judge_tokenizer

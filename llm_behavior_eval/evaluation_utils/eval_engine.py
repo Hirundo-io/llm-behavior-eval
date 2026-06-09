@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import torch
     from datasets import Dataset
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
     from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
 
 class EvalEngine(ABC):
     is_judge: bool
+    tokenizer: PreTrainedTokenizerBase
 
     @abstractmethod
     def set_dataset(self, eval_dataset: Dataset) -> None:
