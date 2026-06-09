@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
-import copy
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast

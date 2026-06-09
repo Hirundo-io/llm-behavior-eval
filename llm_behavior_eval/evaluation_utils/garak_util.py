@@ -293,6 +293,9 @@ class _BaseGarakGenerator:
     def clear_history(self) -> None:
         return None
 
+    def generate(self, prompt: Any, generations_this_call: int = 1) -> list[Any]:
+        raise NotImplementedError("Subclasses must implement generate().")
+
     def generate_batch(
         self, prompts: Sequence[Any], generations_this_call: int = 1
     ) -> list[list[Any]]:

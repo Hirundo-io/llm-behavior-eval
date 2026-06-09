@@ -20,7 +20,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from pathlib import Path
 
-    from llm_behavior_eval.evaluation_utils.base_evaluator import _GenerationRecord
+    from llm_behavior_eval.evaluation_utils.base_evaluator import (
+        BaseEvaluator,
+        _GenerationRecord,
+    )
     from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 
 
@@ -107,7 +110,7 @@ def test_factory_routes_garak_to_garak_evaluator(
 
 def test_garak_run_config_comparison_ignores_batch_size() -> None:
     evaluator = object.__new__(GarakEvaluator)
-    base_config = {
+    base_config: BaseEvaluator.RunConfig = {
         "evaluation_config": {
             "model_path_or_repo_id": "fake/model",
             "batch_size": 1,
@@ -115,7 +118,7 @@ def test_garak_run_config_comparison_ignores_batch_size() -> None:
         },
         "dataset_config": {"file_path": "garak"},
     }
-    changed_batch = {
+    changed_batch: BaseEvaluator.RunConfig = {
         "evaluation_config": {
             "model_path_or_repo_id": "fake/model",
             "batch_size": 64,
