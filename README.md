@@ -170,8 +170,27 @@ Reasoning state is reflected in the output folder name, e.g. `--thinking-on` wri
 
 Garak runs can be long, and they are resumable. Each completed attempt is appended to `generations.jsonl` and flushed immediately; if the job is interrupted before final artifacts are written, rerun the same command with the same output location and configuration. The evaluator will skip completed attempts and continue from the next missing sequence.
 
-For long local vLLM runs, prefer running under `nohup` and logging to a file
-To resume correctly, keep the resume-defining options unchanged: model path, `--model-output-dir`, `--base-output-dir`, thinking mode, garak probe selection (`--garak-probes` / `--garak-probe-tags`), and the garak/vLLM settings recorded in `run_config.json`. Do not pass `--replace-existing-output` unless you intentionally want to delete the partial `generations.jsonl` and start over.
+For long local vLLM runs, prefer running under `nohup` and logging to a file:
+```bash
+mkdir -p logs
+
+nohup llm-behavior-eval Qwen/Qwen3.5-27B garak \
+  --inference-engine vllm \
+  --trust-remote-code \
+  --vllm-language-model-only \
+  --vllm-max-model-len 8192 \
+  --vllm-gpu-memory-utilization 0.90 \
+  --batch-size 1 \
+  --garak-num-generations 3 \
+  --max-answer-tokens 100 \
+  --model-output-dir qwen3_5_27b_hf \
+  --base-output-dir /home/ubuntu/llm-behavior-eval/results/garak \
+  >> logs/garak_eval_llm_behavior.log 2>&1 &
+```
+
+To resume correctly, keep the resume-defining options unchanged: model path, `--model-output-dir`, `--base-output-dir`, thinking mode, garak probe selection (`--garak-probes` / `--garak-probe-tags`), `--garak-num-generations`, generation settings (`--max-answer-tokens`, `--temperature`, `--top-p`, `--top-k`, `--seed`), and the garak/vLLM settings recorded in `run_config.json`. Do not pass `--replace-existing-output` unless you intentionally want to delete the partial `generations.jsonl` and start over.
+
+Pay special attention to `--base-output-dir`: if it is omitted or expands to an empty shell variable, the rerun writes to a different output tree and starts again from `seq 0`. On a successful resume, the log should say something like `Running probe encoding.InjectBase32 from seq 112 to 255`, not restart at the first probe. The final files (`metrics.csv`, `responses.json`, `garak_summary.json`, and per-model `summary_*.csv`) are written only after all probes finish; their absence during an interrupted run is expected.
 
 ### CLI options
 
@@ -185,6 +204,8 @@ To resume correctly, keep the resume-defining options unchanged: model path, `--
 - `--enable-thinking-arg-name` — enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').
 - `--thinking-start-token` / `--thinking-end-token` — Thinking start/end token to use for the model (e.g. '<think>'/'</think>').
 - `--garak-num-generations <N>` — garak only: number of sampled outputs per garak attempt (defaults to 5). Lower values run faster but reduce sampling coverage.
+- `--max-answer-tokens <N>` — maximum model output length. For garak, this controls the maximum tokens per sampled output; when omitted, garak keeps its own default of 150 tokens.
+- `--temperature`, `--top-p`, `--top-k`, and `--seed` — model generation sampling controls. For garak, `--temperature` overrides garak's default temperature, while non-default `--top-k` and non-default `--seed` are forwarded when supported by the backend.
 - `--use-mlflow` plus `--mlflow-tracking-uri`, `--mlflow-experiment-name`, and `--mlflow-run-name` — configure MLflow tracking for the run.
 
 Need more control or wrappers around the library? Explore the scripts in `examples/` to see how to call the evaluators from Python directly, customize additional knobs, or embed the run inside your own orchestration logic.

@@ -179,8 +179,10 @@ class GarakEvaluator(BaseEvaluator):
                 api_key=api_key,
                 temperature=garak_config.temperature,
                 top_p=garak_config.top_p,
+                top_k=garak_config.top_k,
                 max_tokens=garak_config.max_tokens,
                 stop=garak_config.stop,
+                seed=garak_config.seed,
                 chat_template_kwargs=self._chat_template_kwargs(),
             )
 
@@ -194,9 +196,10 @@ class GarakEvaluator(BaseEvaluator):
             model_name=self.eval_config.model_path_or_repo_id,
             temperature=garak_config.temperature,
             top_p=garak_config.top_p,
+            top_k=garak_config.top_k,
             max_tokens=garak_config.max_tokens,
             stop=garak_config.stop,
-            seed=seed,
+            seed=garak_config.seed if garak_config.seed is not None else seed,
             chat_template_kwargs=self._chat_template_kwargs(),
         )
 

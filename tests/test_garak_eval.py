@@ -115,6 +115,11 @@ def test_main_builds_garak_config_for_garak_behavior(
         garak_base_url="http://127.0.0.1:8765/v1/",
         garak_api_key="secret",
         garak_num_generations=3,
+        max_answer_tokens=64,
+        temperature=0.2,
+        top_p=0.8,
+        top_k=40,
+        seed=123,
     )
     eval_config = capture_eval_config[-1]
     assert eval_config.evaluator_family == "garak"
@@ -127,6 +132,47 @@ def test_main_builds_garak_config_for_garak_behavior(
     assert eval_config.garak_config.base_url == "http://127.0.0.1:8765/v1/"
     assert eval_config.garak_config.api_key == "secret"
     assert eval_config.garak_config.num_generations == 3
+    assert eval_config.garak_config.max_tokens == 64
+    assert eval_config.garak_config.temperature == 0.2
+    assert eval_config.garak_config.top_p == 0.8
+    assert eval_config.garak_config.top_k == 40
+    assert eval_config.garak_config.seed == 123
+
+
+def test_in_process_vllm_generator_serializes_greedy_multi_generation() -> None:
+    class _Content:
+        text = "hello"
+
+    class _Turn:
+        role = "user"
+        content = _Content()
+
+    class _Prompt:
+        turns = [_Turn()]
+
+    class _Candidate:
+        text = "response"
+
+    class _Output:
+        outputs = [_Candidate()]
+
+    class _FakeLlm:
+        def __init__(self) -> None:
+            self.requested_n: list[int] = []
+
+        def chat(self, **kwargs):
+            self.requested_n.append(kwargs["sampling_params"].n)
+            return [_Output()]
+
+    llm = _FakeLlm()
+    generator = garak_util.InProcessVllmGenerator(
+        llm, "fake/model", temperature=0.0
+    )
+
+    outputs = generator.generate(_Prompt(), generations_this_call=3)
+
+    assert len(outputs) == 3
+    assert llm.requested_n == [1, 1, 1]
 
 
 def test_main_ignores_garak_flags_for_non_garak_behavior(

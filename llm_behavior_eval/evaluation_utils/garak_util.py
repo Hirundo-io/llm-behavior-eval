@@ -139,6 +139,12 @@ class GarakConfig(BaseModel):
             cache invalidation.
         system_prompt_hash: Stable hash of the system prompt used for the run.
         num_generations: Number of model generations to sample per garak prompt.
+        temperature: Sampling temperature for garak generations.
+        top_p: Nucleus sampling parameter for garak generations.
+        top_k: Top-k sampling parameter for garak generations when supported by
+            the backend.
+        seed: Sampling seed for garak generations when supported by the backend.
+        max_tokens: Maximum number of tokens per sampled output.
     """
 
     probes: list[str] | None = None
@@ -150,6 +156,8 @@ class GarakConfig(BaseModel):
     num_generations: int = DEFAULT_NUM_GENERATIONS
     temperature: float = DEFAULT_TEMPERATURE
     top_p: float = DEFAULT_TOP_P
+    top_k: int | None = None
+    seed: int | None = None
     max_tokens: int = DEFAULT_MAX_TOKENS
     stop: list[str] = Field(default_factory=lambda: list(DEFAULT_STOP))
 
@@ -299,6 +307,7 @@ class InProcessVllmGenerator(_BaseGarakGenerator):
         *,
         temperature: float = DEFAULT_TEMPERATURE,
         top_p: float = DEFAULT_TOP_P,
+        top_k: int | None = None,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         stop: Sequence[str] | None = None,
         seed: int | None = None,
@@ -308,6 +317,7 @@ class InProcessVllmGenerator(_BaseGarakGenerator):
         self.name = model_name
         self.temperature = temperature
         self.top_p = top_p
+        self.top_k = top_k
         self.max_tokens = max_tokens
         self.stop = list(stop) if stop is not None else list(DEFAULT_STOP)
         self.seed = seed
@@ -317,17 +327,26 @@ class InProcessVllmGenerator(_BaseGarakGenerator):
         from garak.attempt import Message
         from vllm import SamplingParams
 
+        if self.temperature == 0 and generations_this_call > 1:
+            outputs: list[Any] = []
+            for _ in range(generations_this_call):
+                outputs.extend(self.generate(prompt, generations_this_call=1))
+            return outputs
+
         messages = [
             {"role": turn.role, "content": turn.content.text} for turn in prompt.turns
         ]
-        sampling_params = SamplingParams(
-            n=generations_this_call,
-            temperature=self.temperature,
-            top_p=self.top_p,
-            max_tokens=self.max_tokens,
-            stop=self.stop,
-            seed=self.seed,
-        )
+        sampling_kwargs: dict[str, Any] = {
+            "n": generations_this_call,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "max_tokens": self.max_tokens,
+            "stop": self.stop,
+            "seed": self.seed,
+        }
+        if self.top_k is not None:
+            sampling_kwargs["top_k"] = self.top_k
+        sampling_params = SamplingParams(**sampling_kwargs)
         chat_kwargs: dict[str, Any] = {
             "messages": messages,
             "sampling_params": sampling_params,
@@ -357,8 +376,10 @@ class OpenAICompatGenerator(_BaseGarakGenerator):
         *,
         temperature: float = DEFAULT_TEMPERATURE,
         top_p: float = DEFAULT_TOP_P,
+        top_k: int | None = None,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         stop: Sequence[str] | None = None,
+        seed: int | None = None,
         chat_template_kwargs: Mapping[str, Any] | None = None,
     ) -> None:
         from openai import OpenAI
@@ -367,8 +388,10 @@ class OpenAICompatGenerator(_BaseGarakGenerator):
         self.client = OpenAI(base_url=base_url, api_key=api_key)
         self.temperature = temperature
         self.top_p = top_p
+        self.top_k = top_k
         self.max_tokens = max_tokens
         self.stop = list(stop) if stop is not None else list(DEFAULT_STOP)
+        self.seed = seed
         self.chat_template_kwargs = dict(
             chat_template_kwargs or {"enable_thinking": False}
         )
@@ -379,6 +402,11 @@ class OpenAICompatGenerator(_BaseGarakGenerator):
         messages = [
             {"role": turn.role, "content": turn.content.text} for turn in prompt.turns
         ]
+        extra_body: dict[str, Any] = {
+            "chat_template_kwargs": self.chat_template_kwargs
+        }
+        if self.top_k is not None:
+            extra_body["top_k"] = self.top_k
         kwargs: dict[str, Any] = {
             "model": self.name,
             "messages": messages,
@@ -386,8 +414,10 @@ class OpenAICompatGenerator(_BaseGarakGenerator):
             "top_p": self.top_p,
             "max_tokens": self.max_tokens,
             "stop": self.stop,
-            "extra_body": {"chat_template_kwargs": self.chat_template_kwargs},
+            "extra_body": extra_body,
         }
+        if self.seed is not None:
+            kwargs["seed"] = self.seed
         create = self.client.chat.completions.create
         if self.temperature == 0 and generations_this_call > 1:
             outputs = []

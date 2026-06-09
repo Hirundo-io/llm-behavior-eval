@@ -33,6 +33,8 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.garak_util import (
     DEFAULT_NUM_GENERATIONS as DEFAULT_GARAK_NUM_GENERATIONS,
+)
+from llm_behavior_eval.evaluation_utils.garak_util import (
     GARAK_DATASET_ID,
 )
 from llm_behavior_eval.evaluation_utils.refusal_utils import (
@@ -684,6 +686,7 @@ def main(
     if evaluator_family == "garak":
         from llm_behavior_eval.evaluation_utils.garak_util import GarakConfig
 
+        garak_defaults = GarakConfig.model_fields
         garak_config = GarakConfig(
             probes=(
                 [p.strip() for p in garak_probes.split(",") if p.strip()]
@@ -702,6 +705,15 @@ def main(
                 if garak_num_generations is not None
                 else DEFAULT_GARAK_NUM_GENERATIONS
             ),
+            temperature=temperature
+            if temperature is not None
+            else garak_defaults["temperature"].default,
+            top_p=top_p,
+            top_k=top_k if top_k != DEFAULT_TOP_K else None,
+            seed=seed if seed != DEFAULT_SEED else None,
+            max_tokens=max_answer_tokens
+            if max_answer_tokens is not None
+            else garak_defaults["max_tokens"].default,
         )
     else:
         garak_config = None
