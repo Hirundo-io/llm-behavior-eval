@@ -49,7 +49,18 @@ dependencies = [
 [project.optional-dependencies]
 mlflow = ["mlflow>=2.0.0"]
 vllm = ["vllm>=0.15.0"]
+blackwell-vllm = [
+  "vllm>=0.21.0",
+  "torch>=2.11.0,<3.0.0",
+  "cuda-bindings>=13.2.0,<14.0.0",
+  "cuda-python>=13.2.0,<14.0.0",
+  "cuda-toolkit>=13.0.2,<14.0.0",
+  "flashinfer-cubin>=0.6.8.post1",
+  "flashinfer-python>=0.6.8.post1",
+  "xgrammar>=0.2.1",
+]
 gcs = ["google-cloud-storage"]
+azure = ["azure-storage-blob","azure-identity"]
 gpt-oss = ["opencv-python-headless>=4.12.0.88"]
 
 [dependency-groups]
@@ -58,7 +69,7 @@ dev = [
   "bumpver>=2024.1130",
   "pytest>=8.3.5",
   "pre-commit>=4.3.0",
-  "llm-behavior-eval[mlflow,vllm,gcs]",
+  "llm-behavior-eval[mlflow,vllm,gcs,azure]",
   "pyrefly>=0.63.1",
   "types-tqdm",
 ]
