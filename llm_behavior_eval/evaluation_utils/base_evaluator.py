@@ -977,6 +977,9 @@ class BaseEvaluator(ABC):
         with open(self.run_config_path(), "w") as file_handle:
             json.dump(run_config, file_handle, indent=2)
 
+    def _run_config_for_comparison(self, run_config: RunConfig) -> RunConfig:
+        return run_config
+
     def _clear_output_files(self) -> None:
         for filename in ["responses.json", "metrics.csv", "generations.jsonl"]:
             output_file = self.get_output_dir() / filename
@@ -994,7 +997,9 @@ class BaseEvaluator(ABC):
         with open(config_path) as file_handle:
             existing_run_config = json.load(file_handle)
 
-        if existing_run_config == run_config:
+        if self._run_config_for_comparison(
+            existing_run_config
+        ) == self._run_config_for_comparison(run_config):
             logging.info(
                 "Existing outputs at %s match current configuration; continuing with cached generations if present.",
                 config_path,

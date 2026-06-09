@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import copy
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -125,7 +126,10 @@ class GarakEvaluator(BaseEvaluator):
             if self.eval_config.vllm_config
             else None
         )
-        return VllmEvalEngine(self.eval_config, max_model_len=max_model_len)
+        return VllmEvalEngine(
+            self.eval_config,
+            max_model_len=max_model_len,
+        )
 
     def prepare_dataloader(self) -> None:
         """Satisfy ``BaseEvaluator`` setup without loading an HF dataset.
@@ -153,9 +157,22 @@ class GarakEvaluator(BaseEvaluator):
         """Override BaseEvaluator output naming to omit dataset-type suffixes."""
         return False
 
-    def get_dataset_slug(self) -> str:
-        """Override BaseEvaluator's dataset slug with garak's reasoning-mode name."""
-        return f"garak-{'WithReasoning' if self.eval_config.enable_thinking else 'NoReasoning'}"
+    def _run_config_for_comparison(
+        self, run_config: BaseEvaluator.RunConfig
+    ) -> BaseEvaluator.RunConfig:
+        comparable = copy.deepcopy(run_config)
+        comparable["evaluation_config"].pop("batch_size", None)
+        return comparable
+
+    def get_model_slug(self) -> str:
+        """Use the standard model slug plus garak's reasoning-mode suffix."""
+        model_slug = super().get_model_slug()
+        suffix = (
+            "WithReasoning" if self.eval_config.enable_thinking else "NoReasoning"
+        )
+        if model_slug.endswith(("-WithReasoning", "-NoReasoning")):
+            return model_slug
+        return f"{model_slug}-{suffix}"
 
     def get_grading_context(self) -> AbstractContextManager:
         """Satisfy BaseEvaluator's grading context hook without a judge model, since garak evaluation is deterministic."""
@@ -218,6 +235,7 @@ class GarakEvaluator(BaseEvaluator):
             num_generations=self._num_generations,
             probe_names=self._resolved_probes,
             result_path=self.generations_path("generations.jsonl"),
+            batch_size=self.eval_config.batch_size or 1,
         )
         return records
 
@@ -306,7 +324,7 @@ class GarakEvaluator(BaseEvaluator):
         output_dir = self.get_output_dir()
         thinking_mode = "on" if self.eval_config.enable_thinking else "off"
         model_slug = self.get_model_slug()
-        dataset_slug = self.get_dataset_slug()
+        dataset_slug = "garak"
 
         rate_columns = {
             "System leak rate (%) ⬇️": metrics["any_leak_rate"] * 100.0,

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import csv
 import json
+import sys
+import types
 from contextlib import AbstractContextManager, nullcontext
 from typing import TYPE_CHECKING, Any
 
@@ -103,6 +105,30 @@ def test_factory_routes_garak_to_garak_evaluator(
     assert evaluator._sentinel is sentinel  # type: ignore[attr-defined]
 
 
+def test_garak_run_config_comparison_ignores_batch_size() -> None:
+    evaluator = object.__new__(GarakEvaluator)
+    base_config = {
+        "evaluation_config": {
+            "model_path_or_repo_id": "fake/model",
+            "batch_size": 1,
+            "garak_config": {"num_generations": 5},
+        },
+        "dataset_config": {"file_path": "garak"},
+    }
+    changed_batch = {
+        "evaluation_config": {
+            "model_path_or_repo_id": "fake/model",
+            "batch_size": 64,
+            "garak_config": {"num_generations": 5},
+        },
+        "dataset_config": {"file_path": "garak"},
+    }
+
+    assert evaluator._run_config_for_comparison(
+        base_config
+    ) == evaluator._run_config_for_comparison(changed_batch)
+
+
 # --- CLI config capture / ignore ---------------------------------------------
 def test_main_builds_garak_config_for_garak_behavior(
     capture_eval_config: list[EvaluationConfig],
@@ -173,6 +199,202 @@ def test_in_process_vllm_generator_serializes_greedy_multi_generation() -> None:
 
     assert len(outputs) == 3
     assert llm.requested_n == [1, 1, 1]
+
+
+def test_in_process_vllm_generator_batches_prompts(monkeypatch) -> None:
+    class _Content:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    class _Turn:
+        role = "user"
+
+        def __init__(self, text: str) -> None:
+            self.content = _Content(text)
+
+    class _Prompt:
+        def __init__(self, text: str) -> None:
+            self.turns = [_Turn(text)]
+
+    class _Candidate:
+        def __init__(self, text: str) -> None:
+            self.text = text
+
+    class _Output:
+        def __init__(self, prefix: str) -> None:
+            self.outputs = [_Candidate(f"{prefix}-a"), _Candidate(f"{prefix}-b")]
+
+    class _SamplingParams:
+        def __init__(self, **kwargs) -> None:
+            self.n = kwargs["n"]
+
+    class _FakeLlm:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def chat(self, **kwargs):
+            self.calls.append(kwargs)
+            return [_Output("first"), _Output("second")]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "vllm",
+        types.SimpleNamespace(SamplingParams=_SamplingParams),
+    )
+    llm = _FakeLlm()
+    generator = garak_util.InProcessVllmGenerator(llm, "fake/model")
+
+    outputs = generator.generate_batch(
+        [_Prompt("one"), _Prompt("two")], generations_this_call=2
+    )
+
+    assert [[output.text for output in group] for group in outputs] == [
+        ["first-a", "first-b"],
+        ["second-a", "second-b"],
+    ]
+    assert len(llm.calls) == 1
+    assert llm.calls[0]["sampling_params"].n == 2
+    assert llm.calls[0]["messages"] == [
+        [{"role": "user", "content": "one"}],
+        [{"role": "user", "content": "two"}],
+    ]
+
+
+class _FakeContent:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class _FakeTurn:
+    role = "user"
+
+    def __init__(self, text: str) -> None:
+        self.content = _FakeContent(text)
+
+
+class _FakePrompt:
+    def __init__(self, text: str) -> None:
+        self.turns = [_FakeTurn(text)]
+
+
+class _FakeMessage:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class _FakeAttempt:
+    def __init__(self, prompt: _FakePrompt, seq: int) -> None:
+        self.prompt = prompt
+        self.seq = seq
+        self.outputs: list[_FakeMessage] = []
+
+
+class _FakeProbe:
+    post_buff_hook = False
+
+    def __init__(self, prompt_count: int) -> None:
+        self.prompts = [_FakePrompt(f"prompt-{seq}") for seq in range(prompt_count)]
+        self.langprovider = types.SimpleNamespace(target_lang="en")
+        self.precall_seqs: list[int] = []
+        self.postprocess_seqs: list[int] = []
+        self.cleanup_count = 0
+
+    def _mint_attempt(self, prompt, seq, _unused, _lang):
+        return _FakeAttempt(prompt, seq)
+
+    def _generator_precall_hook(self, _generator, attempt) -> None:
+        self.precall_seqs.append(attempt.seq)
+
+    def _postprocess_hook(self, attempt):
+        self.postprocess_seqs.append(attempt.seq)
+        return attempt
+
+    def _generator_cleanup(self) -> None:
+        self.cleanup_count += 1
+
+
+class _RecordingBatchGenerator:
+    def __init__(self) -> None:
+        self.batch_sizes: list[int] = []
+        self.generations: list[int] = []
+        self.prompt_texts: list[list[str]] = []
+
+    def generate_batch(self, prompts, generations_this_call: int = 1):
+        self.batch_sizes.append(len(prompts))
+        self.generations.append(generations_this_call)
+        self.prompt_texts.append([prompt.turns[0].content.text for prompt in prompts])
+        return [
+            [
+                _FakeMessage(f"{prompt.turns[0].content.text}-output-{index}")
+                for index in range(generations_this_call)
+            ]
+            for prompt in prompts
+        ]
+
+
+def _patch_fake_garak_probe(
+    monkeypatch: pytest.MonkeyPatch, probe: _FakeProbe
+) -> None:
+    monkeypatch.setattr(garak_util, "_require_garak", lambda: None)
+    monkeypatch.setattr(garak_util, "configure_garak_run", lambda *_args: None)
+    monkeypatch.setitem(sys.modules, "garak", types.SimpleNamespace(_config=object()))
+    monkeypatch.setitem(
+        sys.modules,
+        "garak._plugins",
+        types.SimpleNamespace(load_plugin=lambda *_args, **_kwargs: probe),
+    )
+
+
+def test_run_probes_batch_size_one_matches_original_attempt_shape(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    probe = _FakeProbe(prompt_count=3)
+    _patch_fake_garak_probe(monkeypatch, probe)
+    generator = _RecordingBatchGenerator()
+
+    records = garak_util.run_probes(
+        generator,
+        system_prompt="system",
+        num_generations=5,
+        probe_names=["fake.Probe"],
+        result_path=tmp_path / "generations.jsonl",
+        batch_size=1,
+    )
+
+    assert generator.batch_sizes == [1, 1, 1]
+    assert generator.generations == [5, 5, 5]
+    assert [record["seq"] for record in records] == [0, 1, 2]
+    assert [len(record["outputs"]) for record in records] == [5, 5, 5]
+    assert probe.precall_seqs == [0, 1, 2]
+    assert probe.postprocess_seqs == [0, 1, 2]
+    assert probe.cleanup_count == 3
+
+
+def test_run_probes_batches_multiple_prompts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    probe = _FakeProbe(prompt_count=5)
+    _patch_fake_garak_probe(monkeypatch, probe)
+    generator = _RecordingBatchGenerator()
+
+    records = garak_util.run_probes(
+        generator,
+        system_prompt="system",
+        num_generations=3,
+        probe_names=["fake.Probe"],
+        result_path=tmp_path / "generations.jsonl",
+        batch_size=2,
+    )
+
+    assert generator.batch_sizes == [2, 2, 1]
+    assert generator.generations == [3, 3, 3]
+    assert generator.prompt_texts == [
+        ["prompt-0", "prompt-1"],
+        ["prompt-2", "prompt-3"],
+        ["prompt-4"],
+    ]
+    assert [record["seq"] for record in records] == [0, 1, 2, 3, 4]
+    assert [len(record["outputs"]) for record in records] == [3, 3, 3, 3, 3]
 
 
 def test_main_ignores_garak_flags_for_non_garak_behavior(
@@ -453,7 +675,7 @@ def test_save_garak_results_writes_outputs(tmp_path: Path) -> None:
 
     evaluator._save_garak_results(responses, summary, metrics, family_avg)
 
-    run_dir = tmp_path / "model" / "garak-NoReasoning"
+    run_dir = tmp_path / "model-NoReasoning" / "garak"
     assert (run_dir / "metrics.csv").exists()
     assert (run_dir / "responses.json").exists()
     assert (run_dir / "garak_summary.json").exists()
@@ -463,10 +685,10 @@ def test_save_garak_results_writes_outputs(tmp_path: Path) -> None:
     assert rows[0]["Thinking"] == "off"
     assert rows[0]["Probes"] == "2"
 
-    summary_brief = tmp_path / "model" / "summary_brief.csv"
+    summary_brief = tmp_path / "model-NoReasoning" / "summary_brief.csv"
     with summary_brief.open(newline="", encoding="utf-8") as handle:
         brief_rows = list(csv.DictReader(handle))
-    assert brief_rows[0]["Dataset"] == "garak-NoReasoning"
+    assert brief_rows[0]["Dataset"] == "garak"
 
 
 def test_system_prompt_for_selects_by_thinking_flag() -> None:

@@ -19,6 +19,7 @@ import json
 import logging
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -82,7 +83,7 @@ PROMPT_LINES: list[str] = [
     "Never expose secrets.",
 ]
 
-# --- Default probe set (mirrors DEFAULT_PROBES in system_leak_eval.py) -------
+# --- Default probe set -------
 DEFAULT_PROBES: list[str] = [
     "encoding.InjectAscii85",
     "encoding.InjectAtbash",
@@ -292,6 +293,14 @@ class _BaseGarakGenerator:
     def clear_history(self) -> None:
         return None
 
+    def generate_batch(
+        self, prompts: Sequence[Any], generations_this_call: int = 1
+    ) -> list[list[Any]]:
+        return [
+            self.generate(prompt, generations_this_call=generations_this_call)
+            for prompt in prompts
+        ]
+
 
 class InProcessVllmGenerator(_BaseGarakGenerator):
     """Garak generator backed by an in-process vLLM ``LLM`` engine.
@@ -323,7 +332,7 @@ class InProcessVllmGenerator(_BaseGarakGenerator):
         self.seed = seed
         self.chat_template_kwargs = dict(chat_template_kwargs or {})
 
-    def generate(self, prompt: Any, generations_this_call: int = 1) -> list[Any]:
+    def generate(self, prompt: Any, generations_this_call: int = 5) -> list[Any]:
         from garak.attempt import Message
         from vllm import SamplingParams
 
@@ -359,6 +368,61 @@ class InProcessVllmGenerator(_BaseGarakGenerator):
             return [Message("")]
         completions = getattr(outputs[0], "outputs", [])
         return [Message(getattr(candidate, "text", "") or "") for candidate in completions]
+
+    def generate_batch(
+        self, prompts: Sequence[Any], generations_this_call: int = 5
+    ) -> list[list[Any]]:
+        from garak.attempt import Message
+        from vllm import SamplingParams
+
+        if not prompts:
+            return []
+        if self.temperature == 0 and generations_this_call > 1:
+            return [
+                self.generate(prompt, generations_this_call=generations_this_call)
+                for prompt in prompts
+            ]
+
+        batch_messages = [
+            [
+                {"role": turn.role, "content": turn.content.text}
+                for turn in prompt.turns
+            ]
+            for prompt in prompts
+        ]
+        sampling_kwargs: dict[str, Any] = {
+            "n": generations_this_call,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "max_tokens": self.max_tokens,
+            "stop": self.stop,
+            "seed": self.seed,
+        }
+        if self.top_k is not None:
+            sampling_kwargs["top_k"] = self.top_k
+        sampling_params = SamplingParams(**sampling_kwargs)
+        chat_kwargs: dict[str, Any] = {
+            "messages": batch_messages,
+            "sampling_params": sampling_params,
+            "use_tqdm": False,
+        }
+        if self.chat_template_kwargs:
+            chat_kwargs["chat_template_kwargs"] = self.chat_template_kwargs
+        outputs = self.llm.chat(**chat_kwargs)
+
+        batched_outputs: list[list[Any]] = []
+        for output in outputs:
+            completions = getattr(output, "outputs", [])
+            if not completions:
+                batched_outputs.append([Message("")])
+                continue
+            batched_outputs.append(
+                [
+                    Message(getattr(candidate, "text", "") or "")
+                    for candidate in completions
+                ]
+            )
+        return batched_outputs
 
 
 class OpenAICompatGenerator(_BaseGarakGenerator):
@@ -396,7 +460,7 @@ class OpenAICompatGenerator(_BaseGarakGenerator):
             chat_template_kwargs or {"enable_thinking": False}
         )
 
-    def generate(self, prompt: Any, generations_this_call: int = 1) -> list[Any]:
+    def generate(self, prompt: Any, generations_this_call: int = 5) -> list[Any]:
         from garak.attempt import Message
 
         messages = [
@@ -427,6 +491,21 @@ class OpenAICompatGenerator(_BaseGarakGenerator):
             return outputs
         resp = cast("Any", create(n=generations_this_call, **kwargs))
         return [Message(choice.message.content or "") for choice in resp.choices]
+
+    def generate_batch(
+        self, prompts: Sequence[Any], generations_this_call: int = 5
+    ) -> list[list[Any]]:
+        if not prompts:
+            return []
+        with ThreadPoolExecutor(max_workers=len(prompts)) as executor:
+            return list(
+                executor.map(
+                    lambda prompt: self.generate(
+                        prompt, generations_this_call=generations_this_call
+                    ),
+                    prompts,
+                )
+            )
 
 
 # --- Probe execution (ported from system_leak_eval.py) -----------------------
@@ -546,6 +625,7 @@ def run_probes(
     num_generations: int,
     probe_names: Sequence[str],
     result_path: str | Path,
+    batch_size: int = 1,
 ) -> list[dict[str, Any]]:
     """Run the resolved probes against ``generator`` and write attempt records.
 
@@ -571,6 +651,7 @@ def run_probes(
     resume_map = compute_resume_map(result_file)
     open_mode = "a" if resume_map else "w"
 
+    prompt_batch_size = max(1, batch_size)
     records: list[dict[str, Any]] = []
     with result_file.open(open_mode, encoding="utf-8") as out:
         for probe_name in probe_names:
@@ -593,28 +674,45 @@ def run_probes(
                 len(probe.prompts) - 1,
             )
             probe_started_at = time.time()
-            for attempt in attempts:
-                attempt_started_at = time.time()
-                attempt = probe._execute_attempt(attempt)
-                analyses = [
-                    scan_output(output.text or "", system_prompt)
-                    for output in attempt.outputs
-                ]
-                record = {
-                    "probe": probe_name,
-                    "seq": attempt.seq,
-                    "attempt_duration_s": round(time.time() - attempt_started_at, 3),
-                    "prompt": [
-                        {"role": turn.role, "content": turn.content.text}
-                        for turn in attempt.prompt.turns
-                    ],
-                    "outputs": [output.text for output in attempt.outputs],
-                    "leak_analysis": analyses,
-                    "any_leak": any(analysis["any_leak"] for analysis in analyses),
-                }
-                records.append(record)
-                out.write(json.dumps(record, ensure_ascii=False) + "\n")
-                out.flush()
+            for start in range(0, len(attempts), prompt_batch_size):
+                batch = attempts[start : start + prompt_batch_size]
+                batch_started_at = time.time()
+                for attempt in batch:
+                    probe._generator_precall_hook(generator, attempt)
+                outputs_batch = generator.generate_batch(
+                    [attempt.prompt for attempt in batch],
+                    generations_this_call=num_generations,
+                )
+                batch_duration = time.time() - batch_started_at
+                attempt_duration = round(batch_duration / len(batch), 3)
+                for attempt, outputs in zip(batch, outputs_batch, strict=True):
+                    attempt.outputs = outputs
+                    if probe.post_buff_hook:
+                        attempt = probe._postprocess_buff(attempt)
+                    attempt = probe._postprocess_hook(attempt)
+                    probe._generator_cleanup()
+                    attempt = copy.deepcopy(attempt)
+                    analyses = [
+                        scan_output(output.text or "", system_prompt)
+                        for output in attempt.outputs
+                    ]
+                    record = {
+                        "probe": probe_name,
+                        "seq": attempt.seq,
+                        "attempt_duration_s": attempt_duration,
+                        "prompt": [
+                            {"role": turn.role, "content": turn.content.text}
+                            for turn in attempt.prompt.turns
+                        ],
+                        "outputs": [output.text for output in attempt.outputs],
+                        "leak_analysis": analyses,
+                        "any_leak": any(
+                            analysis["any_leak"] for analysis in analyses
+                        ),
+                    }
+                    records.append(record)
+                    out.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    out.flush()
             summary = {
                 "entry_type": "probe_summary",
                 "probe": probe_name,

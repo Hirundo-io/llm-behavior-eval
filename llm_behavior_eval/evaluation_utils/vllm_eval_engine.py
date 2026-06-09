@@ -43,8 +43,6 @@ class VllmEvalEngine(EvalEngine):
         )
         model_token = self._get_model_token(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
-        batch_size_config = self._get_batch_size_from_config(eval_config, is_judge)
-        batch_size = batch_size_config or 256
 
         self.tokenizer = load_tokenizer_with_transformers(
             model_path_or_repo_id,
@@ -60,8 +58,7 @@ class VllmEvalEngine(EvalEngine):
         vllm_config = eval_config.vllm_config or VllmConfig()
 
         logging.info(
-            "Initializing vLLM with max_num_seqs=%s and gpu_memory_utilization=%s",
-            batch_size,
+            "Initializing vLLM with default max_num_seqs and gpu_memory_utilization=%s",
             vllm_config.gpu_memory_utilization,
         )
 
@@ -69,7 +66,6 @@ class VllmEvalEngine(EvalEngine):
             model_path_or_repo_id,
             dtype,
             eval_config.trust_remote_code,
-            batch_size,
             model_token,
             enforce_eager=vllm_config.enforce_eager,
             quantization=quantization,

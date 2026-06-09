@@ -166,31 +166,15 @@ Reuse an already-running OpenAI-compatible endpoint instead of loading the model
 ```bash
 llm-behavior-eval /path/to/model garak --garak-base-url http://127.0.0.1:8765/v1/
 ```
-Reasoning state is reflected in the output folder name, e.g. `--thinking-on` writes to `results/<model>/garak-WithReasoning/` and `--thinking-off` to `results/<model>/garak-NoReasoning/`.
+Reasoning state is reflected in the model output folder name, e.g. `--thinking-on` writes garak outputs to `results/<model>-WithReasoning/garak/` and `--thinking-off` writes to `results/<model>-NoReasoning/garak/`.
 
-Garak runs can be long, and they are resumable. Each completed attempt is appended to `generations.jsonl` and flushed immediately; if the job is interrupted before final artifacts are written, rerun the same command with the same output location and configuration. The evaluator will skip completed attempts and continue from the next missing sequence.
+Garak runs are resumable. Each completed attempt is appended to `generations.jsonl` and flushed immediately. To resume, rerun with the same output directory and the same run configuration; the evaluator reads `generations.jsonl`, skips completed probe sequences, and continues at the next missing sequence.
+If the saved `run_config.json` differs from the current command, a non-interactive run stops instead of mixing incompatible outputs. Passing `--replace-existing-output` deletes the old `generations.jsonl`, `responses.json`, and `metrics.csv`, then starts over. Final summaries are written only after all probes finish.
 
-For long local vLLM runs, prefer running under `nohup` and logging to a file:
-```bash
-mkdir -p logs
+For long local vLLM runs, prefer running under `nohup` and logging to a file.
 
-nohup llm-behavior-eval Qwen/Qwen3.5-27B garak \
-  --inference-engine vllm \
-  --trust-remote-code \
-  --vllm-language-model-only \
-  --vllm-max-model-len 8192 \
-  --vllm-gpu-memory-utilization 0.90 \
-  --batch-size 1 \
-  --garak-num-generations 3 \
-  --max-answer-tokens 100 \
-  --model-output-dir qwen3_5_27b_hf \
-  --base-output-dir /home/ubuntu/llm-behavior-eval/results/garak \
-  >> logs/garak_eval_llm_behavior.log 2>&1 &
-```
+For garak, `--batch-size` controls how many garak prompts are issued together; each prompt still samples `--garak-num-generations` outputs. vLLM uses its own default sequence scheduler capacity.
 
-To resume correctly, keep the resume-defining options unchanged: model path, `--model-output-dir`, `--base-output-dir`, thinking mode, garak probe selection (`--garak-probes` / `--garak-probe-tags`), `--garak-num-generations`, generation settings (`--max-answer-tokens`, `--temperature`, `--top-p`, `--top-k`, `--seed`), and the garak/vLLM settings recorded in `run_config.json`. Do not pass `--replace-existing-output` unless you intentionally want to delete the partial `generations.jsonl` and start over.
-
-Pay special attention to `--base-output-dir`: if it is omitted or expands to an empty shell variable, the rerun writes to a different output tree and starts again from `seq 0`. On a successful resume, the log should say something like `Running probe encoding.InjectBase32 from seq 112 to 255`, not restart at the first probe. The final files (`metrics.csv`, `responses.json`, `garak_summary.json`, and per-model `summary_*.csv`) are written only after all probes finish; their absence during an interrupted run is expected.
 
 ### CLI options
 
@@ -246,7 +230,7 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 - Bloom: `Bloom: <age> <bias|unbias>`
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
-- System leak (garak): `garak-WithReasoning` or `garak-NoReasoning`; metrics include `System leak rate`, `Attempt leak rate`, `Exact secret value leak rate`, `Instruction leak rate`, and `Full prompt leak rate`. Per-probe/per-family detail is written to `garak_summary.json`.
+- System leak (garak): `garak`; metrics include `System leak rate`, `Attempt leak rate`, `Exact secret value leak rate`, `Instruction leak rate`, and `Full prompt leak rate`. Per-probe/per-family detail is written to `garak_summary.json`.
 
 ## Tested on
 
