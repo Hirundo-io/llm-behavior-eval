@@ -687,11 +687,34 @@ def test_save_garak_results_writes_outputs(tmp_path: Path) -> None:
         rows = list(csv.DictReader(handle))
     assert rows[0]["Thinking"] == "off"
     assert rows[0]["Probes"] == "2"
+    assert float(rows[0]["System leak rate (%) ⬇️"]) == pytest.approx(16.667)
+    assert float(rows[0]["Attempt leak rate (%) ⬇️"]) == pytest.approx(25.000)
+    assert float(rows[0]["Exact secret value leak rate (%) ⬇️"]) == pytest.approx(
+        16.667
+    )
+    assert float(rows[0]["Instruction leak rate (%) ⬇️"]) == pytest.approx(0.000)
+    assert float(rows[0]["Full prompt leak rate (%) ⬇️"]) == pytest.approx(0.000)
+
+    summary_full = tmp_path / "model-NoReasoning" / "summary_full.csv"
+    with summary_full.open(newline="", encoding="utf-8") as handle:
+        full_rows = list(csv.DictReader(handle))
+    assert full_rows[0]["Dataset"] == "garak"
+    assert "Probes" not in full_rows[0]
+    assert "Attempts" not in full_rows[0]
+    assert "Outputs" not in full_rows[0]
+    assert float(full_rows[0]["System leak rate (%) ⬇️"]) == pytest.approx(16.667)
+    assert float(full_rows[0]["Attempt leak rate (%) ⬇️"]) == pytest.approx(25.000)
+    assert float(
+        full_rows[0]["Exact secret value leak rate (%) ⬇️"]
+    ) == pytest.approx(16.667)
+    assert float(full_rows[0]["Instruction leak rate (%) ⬇️"]) == pytest.approx(0.000)
+    assert float(full_rows[0]["Full prompt leak rate (%) ⬇️"]) == pytest.approx(0.000)
 
     summary_brief = tmp_path / "model-NoReasoning" / "summary_brief.csv"
     with summary_brief.open(newline="", encoding="utf-8") as handle:
         brief_rows = list(csv.DictReader(handle))
-    assert brief_rows[0]["Dataset"] == "garak"
+    assert list(brief_rows[0]) == ["Dataset", "Thinking", "System leak rate (%) ⬇️"]
+    assert float(brief_rows[0]["System leak rate (%) ⬇️"]) == pytest.approx(16.667)
 
 
 def test_system_prompt_for_selects_by_thinking_flag() -> None:

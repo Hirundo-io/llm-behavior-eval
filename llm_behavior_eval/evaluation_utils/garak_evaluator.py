@@ -315,31 +315,31 @@ class GarakEvaluator(BaseEvaluator):
         """Write garak metrics, detailed responses, summaries, and MLflow artifacts.
 
         Output layout (single source of truth for full detail is garak_summary.json):
-        - metrics.csv: one-row, output-weighted overall rates + counts for this run.
+        - metrics.csv: one-row family macro-average rates + counts for this run.
         - garak_summary.json: per-probe and per-family detail (grows with probes).
-        - shared summary_full.csv / summary_brief.csv: a single, fixed-width
-          headline (family macro-average system-leak rate) plus counts, so adding
-          probe families later never widens the cross-behavior comparison files.
+        - shared summary_full.csv / summary_brief.csv: fixed-width family
+          macro-average rates for cross-behavior comparison.
         """
         output_dir = self.get_output_dir()
         thinking_mode = "on" if self.eval_config.enable_thinking else "off"
         model_slug = self.get_model_slug()
         dataset_slug = "garak"
 
+        # Family macro-average rates give each probe family one vote, avoiding
+        # bias toward families that contain more probes or attempts.
         rate_columns = {
-            "System leak rate (%) ⬇️": metrics["any_leak_rate"] * 100.0,
-            "Attempt leak rate (%) ⬇️": metrics["attempt_leak_rate"] * 100.0,
-            "Exact secret value leak rate (%) ⬇️": metrics["exact_value_rate"] * 100.0,
-            "Instruction leak rate (%) ⬇️": metrics["instruction_rate"] * 100.0,
-            "Full prompt leak rate (%) ⬇️": metrics["full_prompt_rate"] * 100.0,
+            "System leak rate (%) ⬇️": family_avg["any_leak_rate"] * 100.0,
+            "Attempt leak rate (%) ⬇️": family_avg["attempt_leak_rate"] * 100.0,
+            "Exact secret value leak rate (%) ⬇️": family_avg["exact_value_rate"]
+            * 100.0,
+            "Instruction leak rate (%) ⬇️": family_avg["instruction_rate"] * 100.0,
+            "Full prompt leak rate (%) ⬇️": family_avg["full_prompt_rate"] * 100.0,
         }
         count_columns = {
             "Probes": metrics["probes"],
             "Attempts": metrics["attempts"],
             "Outputs": metrics["outputs"],
         }
-        headline_column = "System leak rate (family avg %) ⬇️"
-        family_leak_headline = family_avg["any_leak_rate"] * 100.0
 
         # metrics.csv
         metrics_df = pd.DataFrame(
@@ -370,15 +370,14 @@ class GarakEvaluator(BaseEvaluator):
                 "Dataset Type": [str(self.dataset_config.dataset_type)],
                 "Text Format": ["garak"],
                 "Thinking": [thinking_mode],
-                headline_column: [family_leak_headline],
-                **{key: [value] for key, value in count_columns.items()},
+                **{key: [value] for key, value in rate_columns.items()},
             }
         )
         summary_brief = pd.DataFrame(
             {
                 "Dataset": [dataset_slug],
                 "Thinking": [thinking_mode],
-                headline_column: [family_leak_headline],
+                "System leak rate (%) ⬇️": [rate_columns["System leak rate (%) ⬇️"]],
             }
         )
         self._append_summary_row(model_results_dir / "summary_full.csv", summary_full)
@@ -387,18 +386,17 @@ class GarakEvaluator(BaseEvaluator):
         if self.mlflow_config:
             self._log_mlflow_metrics(
                 {
-                    "system_leak_rate": float(metrics["any_leak_rate"]),
-                    "attempt_leak_rate": float(metrics["attempt_leak_rate"]),
-                    "exact_value_leak_rate": float(metrics["exact_value_rate"]),
-                    "instruction_leak_rate": float(metrics["instruction_rate"]),
-                    "full_prompt_leak_rate": float(metrics["full_prompt_rate"]),
+                    "system_leak_rate": float(family_avg["any_leak_rate"]),
+                    "attempt_leak_rate": float(family_avg["attempt_leak_rate"]),
+                    "exact_value_leak_rate": float(family_avg["exact_value_rate"]),
+                    "instruction_leak_rate": float(family_avg["instruction_rate"]),
+                    "full_prompt_leak_rate": float(family_avg["full_prompt_rate"]),
                     "system_leak_rate_family_avg": float(family_avg["any_leak_rate"]),
                     "attempt_leak_rate_family_avg": float(
                         family_avg["attempt_leak_rate"]
                     ),
                     "probes": float(metrics["probes"]),
                     "attempts": float(metrics["attempts"]),
-                    "outputs": float(metrics["outputs"]),
                 }
             )
             self._log_mlflow_artifacts()
