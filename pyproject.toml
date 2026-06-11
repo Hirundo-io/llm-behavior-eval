@@ -44,17 +44,12 @@ dependencies = [
   "bitsandbytes<1.0.0; platform_system != \"Darwin\"",
   "protobuf<7.0.0",                                    # needed for Mistral models
   "sentencepiece<1.0.0",                               # needed for Mistral models
-  "uvloop",
 ]
 
 [project.optional-dependencies]
 mlflow = ["mlflow>=2.0.0"]
-vllm = ["vllm>=0.15.0,<0.20.0"]
-blackwell-vllm = [
-  "vllm>=0.21.0",
-]
+vllm = ["vllm>=0.15.0"]
 gcs = ["google-cloud-storage"]
-azure = ["azure-storage-blob","azure-identity"]
 gpt-oss = ["opencv-python-headless>=4.12.0.88"]
 
 [dependency-groups]
@@ -63,7 +58,7 @@ dev = [
   "bumpver>=2024.1130",
   "pytest>=8.3.5",
   "pre-commit>=4.3.0",
-  "llm-behavior-eval[mlflow,vllm,gcs,azure]",
+  "llm-behavior-eval[mlflow,vllm,gcs]",
   "pyrefly>=0.63.1",
   "types-tqdm",
 ]
@@ -74,14 +69,6 @@ docs = { requires-python = ">=3.11.4" }
 
 [tool.uv.sources]
 llm-behavior-eval = { path = ".", editable = true }
-
-[tool.uv]
-conflicts = [
-  [
-    { extra = "vllm"},
-    { extra = "blackwell-vllm"},
-  ],
-]
 
 [tool.setuptools.packages.find]
 include = ["llm_behavior_eval*"]
