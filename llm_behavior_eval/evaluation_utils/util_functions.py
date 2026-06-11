@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import shutil
 from contextlib import contextmanager
+from dataclasses import dataclass
 from inspect import signature
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -523,6 +525,69 @@ def load_transformers_model_and_tokenizer(
     return tokenizer, cast("GenerativePreTrainedModel", model)
 
 
+@dataclass(frozen=True)
+class MlflowAdapterRef:
+    """Parsed MLflow run reference with optional run-relative artifact path."""
+
+    run_id: str
+    artifact_path: str | None = None
+
+
+def parse_mlflow_adapter_url(
+    parsed_url: ParseResult, mlflow_tracking_uri: str | None
+) -> MlflowAdapterRef | None:
+    """Parse an MLflow adapter URL into a run ID and optional artifact subpath.
+
+    Supported forms:
+      - ``mlflow://<run_id>`` and ``mlflow://<run_id>/<artifact/path>``
+      - ``runs:/<run_id>`` and ``runs:/<run_id>/<artifact/path>`` (MLflow artifact URI;
+        ``runs://`` is also accepted)
+      - ``http(s)://<tracking-host>/runs/<run_id>`` (and optional artifact suffix)
+        when scheme+netloc match ``mlflow_tracking_uri`` or ``MLFLOW_TRACKING_URI``
+      - Legacy ``http(s)://<tracking-host>/<run_id>`` (single path segment)
+    """
+    scheme = parsed_url.scheme.lower()
+    path_parts = [part for part in parsed_url.path.split("/") if part]
+
+    if scheme == "mlflow":
+        run_id = parsed_url.netloc
+        if not run_id:
+            return None
+        artifact_path = parsed_url.path.lstrip("/") or None
+        return MlflowAdapterRef(run_id=run_id, artifact_path=artifact_path)
+
+    if scheme == "runs":
+        if parsed_url.netloc:
+            run_id = parsed_url.netloc
+            artifact_path = parsed_url.path.lstrip("/") or None
+        else:
+            if not path_parts:
+                return None
+            run_id = path_parts[0]
+            artifact_path = "/".join(path_parts[1:]) if len(path_parts) > 1 else None
+        return MlflowAdapterRef(run_id=run_id, artifact_path=artifact_path)
+
+    tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
+    if not tracking_uri:
+        return None
+
+    tracking_parsed = urlparse(tracking_uri)
+    adapter_scheme_netloc = f"{parsed_url.scheme}://{parsed_url.netloc}"
+    tracking_scheme_netloc = f"{tracking_parsed.scheme}://{tracking_parsed.netloc}"
+    if adapter_scheme_netloc != tracking_scheme_netloc:
+        return None
+
+    if path_parts[:1] == ["runs"] and len(path_parts) >= 2:
+        run_id = path_parts[1]
+        artifact_path = "/".join(path_parts[2:]) if len(path_parts) > 2 else None
+        return MlflowAdapterRef(run_id=run_id, artifact_path=artifact_path)
+
+    if len(path_parts) == 1:
+        return MlflowAdapterRef(run_id=path_parts[0], artifact_path=None)
+
+    return None
+
+
 def check_mlflow_url(
     parsed_url: ParseResult, mlflow_tracking_uri: str | None
 ) -> tuple[bool, str | None]:
@@ -536,18 +601,10 @@ def check_mlflow_url(
     Returns:
         A tuple containing a boolean indicating if the URL is an MLflow URL and the run ID.
     """
-    run_id = None
-    tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
-    is_mlflow_scheme = parsed_url.scheme.lower() == "mlflow"
-    if is_mlflow_scheme:
-        run_id = parsed_url.netloc
-    elif not is_mlflow_scheme and tracking_uri:
-        tracking_parsed = urlparse(tracking_uri)
-        adapter_scheme_netloc = f"{parsed_url.scheme}://{parsed_url.netloc}"
-        tracking_scheme_netloc = f"{tracking_parsed.scheme}://{tracking_parsed.netloc}"
-        is_mlflow_scheme = adapter_scheme_netloc == tracking_scheme_netloc
-        run_id = parsed_url.path.split("/")[-1]
-    return is_mlflow_scheme, run_id
+    mlflow_ref = parse_mlflow_adapter_url(parsed_url, mlflow_tracking_uri)
+    if mlflow_ref is None:
+        return False, None
+    return True, mlflow_ref.run_id
 
 
 def maybe_download_adapter(
@@ -609,9 +666,12 @@ def maybe_download_adapter(
     digest_path.mkdir(parents=True, exist_ok=True)
 
     tracking_uri = mlflow_tracking_uri or os.environ.get("MLFLOW_TRACKING_URI")
-    is_mlflow_url, run_id = check_mlflow_url(parsed_url, tracking_uri)
+    if scheme == "mlflow" and not parsed_url.netloc:
+        raise ValueError(f"Invalid mlflow ref (missing run id): {adapter_ref!r}")
 
-    if is_mlflow_url:
+    mlflow_ref = parse_mlflow_adapter_url(parsed_url, tracking_uri)
+
+    if mlflow_ref is not None:
         try:
             import mlflow
             from mlflow.artifacts import download_artifacts
@@ -620,10 +680,8 @@ def maybe_download_adapter(
                 "mlflow is required for mlflow:// refs. Install: [uv] pip install mlflow"
             ) from mlflow_exception
 
-        if not run_id:
-            raise ValueError(f"Invalid mlflow ref (missing run id): {adapter_ref!r}")
-
-        artifact_path = parsed_url.path.lstrip("/") or None
+        run_id = mlflow_ref.run_id
+        artifact_path = mlflow_ref.artifact_path
 
         if tracking_uri:
             mlflow.set_tracking_uri(tracking_uri)
@@ -756,15 +814,64 @@ def get_lora_slug(adapter_ref: str, mlflow_tracking_uri: str | None = None) -> s
 
     parsed_url = urlparse(adapter_ref, allow_fragments=False)
 
-    is_mlflow_url, run_id = check_mlflow_url(parsed_url, mlflow_tracking_uri)
+    mlflow_ref = parse_mlflow_adapter_url(parsed_url, mlflow_tracking_uri)
 
-    if is_mlflow_url and run_id:
-        return f"adapter_{run_id}"
+    if mlflow_ref is not None:
+        return f"adapter_{mlflow_ref.run_id}"
 
     digest = hashlib.blake2b(
         adapter_ref.encode("utf-8"), digest_size=DIGEST_SIZE_FOR_PEFT_PATHS
     ).hexdigest()
     return f"adapter_{digest}"
+
+
+def infer_mlflow_metric_step_from_lora_path(adapter_ref: str | None) -> int | None:
+    """Infer MLflow metric step from LoRA adapter references containing checkpoint segments.
+
+    Matches path segments like ``checkpoint-000020`` and returns ``20``.
+    Returns ``None`` when no checkpoint segment is present.
+
+    Examples:
+        >>> infer_mlflow_metric_step_from_lora_path("mlflow://abc123/hf_checkpoints/checkpoint-000020")
+        20
+        >>> infer_mlflow_metric_step_from_lora_path("https://example.com/path/checkpoint-000001/adapter")
+        1
+    Args:
+        adapter_ref: The adapter reference to infer the metric step from.
+
+    Returns:
+        The metric step, or ``None`` if no checkpoint segment is present.
+    """
+    if not adapter_ref:
+        return None
+
+    for segment in adapter_ref.strip().split("/"):
+        checkpoint_match = re.fullmatch(r"checkpoint-(\d+)", segment)
+        if checkpoint_match:
+            return int(checkpoint_match.group(1))
+    return None
+
+
+def extract_mlflow_run_id_from_adapter_ref(
+    adapter_ref: str | None, mlflow_tracking_uri: str | None = None
+) -> str | None:
+    """
+    Extract MLflow run ID from adapter ref when ref points to an MLflow run.
+
+    Args:
+        adapter_ref: The adapter reference from which to extract the MLflow run ID.
+        mlflow_tracking_uri: The MLflow tracking URI.
+
+    Returns:
+        The MLflow run ID, or ``None`` if the adapter reference does not point to an MLflow run.
+    """
+    if not adapter_ref:
+        return None
+    parsed_url = urlparse(adapter_ref.strip(), allow_fragments=False)
+    mlflow_ref = parse_mlflow_adapter_url(parsed_url, mlflow_tracking_uri)
+    if mlflow_ref is not None:
+        return mlflow_ref.run_id
+    return None
 
 
 def config_to_dict(obj_to_convert: BaseModel, keys: list[str]) -> dict[str, Any]:
