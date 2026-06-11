@@ -820,8 +820,9 @@ def get_lora_slug(adapter_ref: str, mlflow_tracking_uri: str | None = None) -> s
 
     mlflow_ref = parse_mlflow_adapter_url(parsed_url, mlflow_tracking_uri)
 
-    if is_mlflow_url and run_id:
-        artifact_path = parsed_url.path.lstrip("/")
+    if mlflow_ref is not None:
+        run_id = mlflow_ref.run_id
+        artifact_path = mlflow_ref.artifact_path
         if not artifact_path:
             return f"adapter_{run_id}"
 
