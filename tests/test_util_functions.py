@@ -317,13 +317,13 @@ def test_get_lora_slug_uses_mlflow_run_id_for_matching_tracking_uri() -> None:
     assert slug == f"adapter_{run_id}"
 
 
-def test_get_lora_slug_uses_run_id_not_checkpoint_for_tracking_uri_subpath() -> None:
+def test_get_lora_slug_uses_checkpoint_artifact_slug_for_tracking_uri_subpath() -> None:
     run_id = "abc123def45678901234567890123456"
     adapter_ref = (
         f"http://mlflow.example.com/runs/{run_id}/hf_checkpoints/checkpoint-000020"
     )
     slug = get_lora_slug(adapter_ref, mlflow_tracking_uri="http://mlflow.example.com")
-    assert slug == f"adapter_{run_id}"
+    assert slug.startswith(f"adapter_{run_id}_checkpoint-000020_")
 
 
 @pytest.mark.parametrize(

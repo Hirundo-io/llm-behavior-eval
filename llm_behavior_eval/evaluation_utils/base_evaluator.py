@@ -123,6 +123,7 @@ class BaseEvaluator(ABC):
         self.mlflow_run = None
         self.parent_run = None
         self._started_mlflow_run = False
+        self._mlflow_datasets_attached = 0
         self._inferred_mlflow_metric_step: int | None = None
         inferred_step = infer_mlflow_metric_step_from_lora_path(
             self.eval_config.lora_path_or_repo_id
@@ -168,8 +169,6 @@ class BaseEvaluator(ABC):
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
         self._remembered_run_config_action: str | None = None
         self._remember_choice_prompt_asked = False
-        if self.eval_config.mlflow_config and mlflow:
-            mlflow.log_metric("num_samples_evaluated", float(self.num_samples))
 
         self._ensure_run_configuration_allowed()
 
@@ -793,8 +792,12 @@ class BaseEvaluator(ABC):
                     self.dataset_config.file_path,
                     self.dataset_config.dataset_type,
                 )
-            # Dataset config is in uploaded artifacts; log a metric so this attachment is visible in MLflow.
-            mlflow.log_metric("dataset_attached", 1.0)
+            self._mlflow_datasets_attached += 1
+            mlflow.log_metric(
+                "datasets_attached",
+                float(self._mlflow_datasets_attached),
+            )
+            self._log_mlflow_metrics({"num_samples_evaluated": float(self.num_samples)})
         yield
 
     def _set_seed(self) -> None:
@@ -803,11 +806,25 @@ class BaseEvaluator(ABC):
         elif self.eval_config.sampling_config.seed is not None:
             set_seed(self.eval_config.sampling_config.seed)
 
+    def _mlflow_identifier_key(self, name: str) -> str:
+        """Sanitize a dataset slug or metric name for MLflow keys."""
+        sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", name.strip())
+        sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+        return sanitized or "value"
+
+    def _mlflow_metric_key(self, name: str) -> str:
+        dataset = self._mlflow_identifier_key(self.get_dataset_slug())
+        base = self._mlflow_identifier_key(name)
+        return f"{dataset}_{base}"
+
     def _log_mlflow_metrics(self, metrics: dict[str, Any]) -> None:
         """Log evaluation metrics to MLflow."""
         if not self.eval_config.mlflow_config or not mlflow:
             return
-        mlflow.log_metrics(metrics, step=self._inferred_mlflow_metric_step)
+        prefixed_metrics = {
+            self._mlflow_metric_key(key): value for key, value in metrics.items()
+        }
+        mlflow.log_metrics(prefixed_metrics, step=self._inferred_mlflow_metric_step)
 
     def _resolve_mlflow_metric_step(self, inferred_step: int | None) -> int | None:
         if inferred_step is None:
@@ -840,7 +857,9 @@ class BaseEvaluator(ABC):
     def _log_mlflow_artifacts(self) -> None:
         """Log evaluation artifacts to MLflow.
 
-        Logs summary_full.csv numeric columns as metrics only (no prefix; string columns skipped).
+        Logs summary_full.csv numeric columns from the latest row as unprefixed
+        metrics for backward-compatible single-dataset runs. Prefixed
+        dataset metrics are logged separately via ``_log_mlflow_metrics``.
         Uploads all files under results_dir/model_slug. When mlflow_artifact_path_subfolder
         is not set, artifacts go to run root; when set (or "timestamp"), go under
         llm-behavior-eval/<subfolder>.
@@ -863,7 +882,6 @@ class BaseEvaluator(ABC):
         else:
             artifact_path = ""
 
-        # Log summary_full.csv numeric columns as metrics only (no prefix; string columns skipped)
         summary_full_path = model_results_dir / "summary_full.csv"
         if summary_full_path.exists():
             try:
