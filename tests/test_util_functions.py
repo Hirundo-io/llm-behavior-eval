@@ -296,6 +296,20 @@ def test_get_lora_slug_uses_mlflow_run_id_for_mlflow_scheme() -> None:
     assert get_lora_slug(f"mlflow://{run_id}") == f"adapter_{run_id}"
 
 
+def test_get_lora_slug_distinguishes_mlflow_artifact_paths() -> None:
+    run_id = "abc123def45678901234567890123456"
+    checkpoint_five = get_lora_slug(
+        f"mlflow://{run_id}/hf_checkpoints/checkpoint-000005"
+    )
+    checkpoint_fifteen = get_lora_slug(
+        f"mlflow://{run_id}/hf_checkpoints/checkpoint-000015"
+    )
+
+    assert checkpoint_five != checkpoint_fifteen
+    assert checkpoint_five.startswith(f"adapter_{run_id}_checkpoint-000005_")
+    assert checkpoint_fifteen.startswith(f"adapter_{run_id}_checkpoint-000015_")
+
+
 def test_get_lora_slug_uses_mlflow_run_id_for_matching_tracking_uri() -> None:
     run_id = "abc123def45678901234567890123456"
     adapter_ref = f"http://mlflow.example.com/runs/{run_id}"

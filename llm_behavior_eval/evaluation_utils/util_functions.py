@@ -803,8 +803,12 @@ def get_lora_slug(adapter_ref: str, mlflow_tracking_uri: str | None = None) -> s
         adapter_ref: Adapter reference (path, ``mlflow://<run_id>``, or tracking URI URL).
         mlflow_tracking_uri: Optional MLflow tracking URI used to recognize MLflow run URLs.
 
-    - For MLflow run refs (e.g. ``mlflow://<run_id>`` or a matching tracking URI URL),
+    - For bare MLflow run refs (for example ``mlflow://<run_id>``),
       returns ``adapter_<run_id>``.
+    - For MLflow refs that include an artifact path
+      (for example ``mlflow://<run_id>/hf_checkpoints/checkpoint-000005``),
+      returns ``adapter_<run_id>_<artifact-name>_<artifact-hash>`` so checkpoints
+      from the same run do not collide locally.
     - For any other reference (path or URL), returns ``adapter_<hash>`` using a
       BLAKE2b hash of the reference.
     """
@@ -816,8 +820,23 @@ def get_lora_slug(adapter_ref: str, mlflow_tracking_uri: str | None = None) -> s
 
     mlflow_ref = parse_mlflow_adapter_url(parsed_url, mlflow_tracking_uri)
 
-    if mlflow_ref is not None:
-        return f"adapter_{mlflow_ref.run_id}"
+    if is_mlflow_url and run_id:
+        artifact_path = parsed_url.path.lstrip("/")
+        if not artifact_path:
+            return f"adapter_{run_id}"
+
+        artifact_name = Path(artifact_path.rstrip("/")).name or "artifact"
+        safe_artifact_name = "".join(
+            char if char.isalnum() or char in {"-", "_", "."} else "-"
+            for char in artifact_name
+        ).strip("-_.")
+        if not safe_artifact_name:
+            safe_artifact_name = "artifact"
+
+        artifact_digest = hashlib.blake2b(
+            artifact_path.encode("utf-8"), digest_size=DIGEST_SIZE_FOR_PEFT_PATHS
+        ).hexdigest()
+        return f"adapter_{run_id}_{safe_artifact_name}_{artifact_digest}"
 
     digest = hashlib.blake2b(
         adapter_ref.encode("utf-8"), digest_size=DIGEST_SIZE_FOR_PEFT_PATHS
