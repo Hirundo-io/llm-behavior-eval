@@ -648,6 +648,20 @@ class BaseEvaluator(ABC):
 
     @staticmethod
     def _preserve_directional_metric_pairs(dataframe: pd.DataFrame) -> pd.DataFrame:
+        """Keep paired directional metrics together in the summary schema.
+
+        Some metrics come in directional pairs (e.g. accuracy/error) that should
+        always appear together so the summary CSV has a stable set of columns.
+        When only one column of a pair is present, the missing one is added as an
+        all-empty column.
+
+        Args:
+            dataframe: Summary dataframe whose columns may be missing one half of
+                a directional metric pair.
+
+        Returns:
+            The dataframe with both columns of each directional pair present.
+        """
         directional_metric_pairs = [
             ("Accuracy (%) ⬆️", "Error (%) ⬇️"),
         ]
@@ -669,16 +683,11 @@ class BaseEvaluator(ABC):
             existing_summary = pd.read_csv(summary_file_path)
             existing_clean = self._drop_empty_columns(existing_summary)
             row_clean = self._drop_empty_columns(summary_row)
-            existing_clean = self._preserve_directional_metric_pairs(existing_clean)
-            row_clean = self._preserve_directional_metric_pairs(row_clean)
             combined_summary = pd.concat(
                 [existing_clean, row_clean], ignore_index=True, sort=False
             )
         else:
             combined_summary = self._drop_empty_columns(summary_row)
-            combined_summary = self._preserve_directional_metric_pairs(
-                combined_summary
-            )
 
         combined_summary = self._drop_empty_columns(combined_summary)
         combined_summary = self._preserve_directional_metric_pairs(combined_summary)
