@@ -646,6 +646,20 @@ class BaseEvaluator(ABC):
         normalized_dataframe = dataframe.replace("", pd.NA)
         return normalized_dataframe.dropna(axis=1, how="all")
 
+    @staticmethod
+    def _preserve_directional_metric_pairs(dataframe: pd.DataFrame) -> pd.DataFrame:
+        directional_metric_pairs = [
+            ("Accuracy (%) ⬆️", "Error (%) ⬇️"),
+        ]
+        for first_column, second_column in directional_metric_pairs:
+            has_first = first_column in dataframe.columns
+            has_second = second_column in dataframe.columns
+            if has_first and not has_second:
+                dataframe[second_column] = pd.NA
+            if has_second and not has_first:
+                dataframe[first_column] = pd.NA
+        return dataframe
+
     def _append_summary_row(
         self,
         summary_file_path: Path,
@@ -655,13 +669,19 @@ class BaseEvaluator(ABC):
             existing_summary = pd.read_csv(summary_file_path)
             existing_clean = self._drop_empty_columns(existing_summary)
             row_clean = self._drop_empty_columns(summary_row)
+            existing_clean = self._preserve_directional_metric_pairs(existing_clean)
+            row_clean = self._preserve_directional_metric_pairs(row_clean)
             combined_summary = pd.concat(
                 [existing_clean, row_clean], ignore_index=True, sort=False
             )
         else:
             combined_summary = self._drop_empty_columns(summary_row)
+            combined_summary = self._preserve_directional_metric_pairs(
+                combined_summary
+            )
 
         combined_summary = self._drop_empty_columns(combined_summary)
+        combined_summary = self._preserve_directional_metric_pairs(combined_summary)
         combined_summary.to_csv(summary_file_path, index=False, float_format="%.3f")
 
     @property

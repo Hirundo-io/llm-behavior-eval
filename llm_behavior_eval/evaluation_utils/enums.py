@@ -25,5 +25,5 @@ UNQOVER_BIAS_TYPES: set[str] = {
     "nationality",
 }
 
-# BLOOM (synthetic scenario-based age/gender benchmark; has both bias & unbias splits)
-BLOOM_BIAS_TYPES: set[str] = {"age", "gender"}
+# BLOOM published datasets currently include age splits only.
+BLOOM_BIAS_TYPES: set[str] = {"age"}
