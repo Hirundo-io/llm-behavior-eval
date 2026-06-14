@@ -67,8 +67,7 @@ def _resolve_bias_behavior(
     allowed_with_all = ", ".join(sorted(list(allowed_types)) + ["all"])
     if bias_type == "all":
         return [
-            f"hirundo-io/{prefix}-{bt}-{kind}-free-text"
-            for bt in sorted(allowed_types)
+            f"hirundo-io/{prefix}-{bt}-{kind}-free-text" for bt in sorted(allowed_types)
         ]
 
     if bias_type not in allowed_types:
