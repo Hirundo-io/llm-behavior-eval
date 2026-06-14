@@ -37,9 +37,7 @@ class EvaluateFactory:
         """
         dataset_id = dataset_config.file_path
         evaluator_family = EvaluateFactory.get_evaluator_family(dataset_id)
-        resolved_eval_config = eval_config.model_copy().apply_evaluator_family(
-            evaluator_family
-        )
+        resolved_eval_config = eval_config.resolve_for_family(evaluator_family)
         if evaluator_family == "hallucination":
             from .free_text_hallu_evaluator import FreeTextHaluEvaluator
 

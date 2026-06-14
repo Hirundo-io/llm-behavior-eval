@@ -246,19 +246,20 @@ class BaseEvaluator(ABC):
         loaded into a DataLoader using the specified batch size and collate function.
         """
         custom_dataset = CustomDataset(
-            self.dataset_config.file_path, self.dataset_config.dataset_type
+            self.dataset_config.file_path,
+            self.dataset_config.dataset_type,
+            trust_remote_code=self.trust_remote_code,
+            token=self.eval_config.model_token,
         )
         test_dataset = custom_dataset.preprocess(
             self.tokenizer,
             self.dataset_config.preprocess_config,
-            trust_remote_code=self.trust_remote_code,
             max_answer_tokens=self.eval_config.max_answer_tokens,
             enable_thinking=self.eval_config.enable_thinking,
             enable_thinking_arg_name=self.eval_config.enable_thinking_arg_name,
             thinking_start_token=self.eval_config.thinking_start_token,
             thinking_end_token=self.eval_config.thinking_end_token,
             pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
-            token=self.eval_config.model_token,
         )
         # Deterministic shuffle before sampling
         test_dataset = test_dataset.shuffle(seed=self.dataset_config.seed)

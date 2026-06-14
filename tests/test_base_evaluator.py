@@ -167,8 +167,17 @@ def patch_custom_dataset(
             return 3
 
     class StubCustomDataset:
-        def __init__(self, file_path: str, dataset_type: DatasetType) -> None:
+        def __init__(
+            self,
+            file_path: str,
+            dataset_type: DatasetType,
+            *,
+            trust_remote_code: bool = False,
+            token: str | None = None,
+        ) -> None:
             capture_state.init_args = (file_path, dataset_type)
+            capture_state.trust_remote_code = trust_remote_code
+            capture_state.token = token
             self.has_stereotype = False
 
         def preprocess(
@@ -176,24 +185,20 @@ def patch_custom_dataset(
             tokenizer: StubTokenizer,
             _preprocess_config: object,
             *,
-            trust_remote_code: bool,
             max_answer_tokens: int | None,
             enable_thinking: bool | None = None,
             enable_thinking_arg_name: str | None = None,
             thinking_start_token: str | None = None,
             thinking_end_token: str | None = None,
             pass_max_answer_tokens: bool,
-            token: str | None = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
-            capture_state.trust_remote_code = trust_remote_code
             capture_state.max_answer_tokens = max_answer_tokens
             capture_state.enable_thinking = enable_thinking
             capture_state.enable_thinking_arg_name = enable_thinking_arg_name
             capture_state.thinking_start_token = thinking_start_token
             capture_state.thinking_end_token = thinking_end_token
             capture_state.pass_max_answer_tokens = pass_max_answer_tokens
-            capture_state.token = token
             return StubDataset()
 
     monkeypatch.setattr(base_evaluator_module, "CustomDataset", StubCustomDataset)
@@ -956,12 +961,14 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
             "Safe Samples": "2",
             "Unsafe Samples": "2",
             "Incomplete Responses": "1",
+            "Unknown Finish Reasons": "0",
             "Judge Unparseable": "0",
             "Judge Attempted Samples": "3",
             "Judged Samples": "3",
             "Safe Known Samples": "2",
             "Unsafe Known Samples": "1",
             "Incomplete response rate (%) ⬇️": "25.000",
+            "Unknown finish reason rate (%) ⬇️": "0.000",
             "Judge unparseable rate (%) ⬇️": "0.000",
             "Judge parse success rate (%) ⬆️": "100.000",
         }
@@ -1117,7 +1124,17 @@ def test_refusal_evaluator_only_counts_stop_rows_as_judge_attempts(
 
     assert metrics_rows[0]["Judge Attempted Samples"] == "1"
     assert metrics_rows[0]["Judged Samples"] == "1"
+    assert metrics_rows[0]["Unknown Finish Reasons"] == "1"
+    assert metrics_rows[0]["Judge Unparseable"] == "0"
+    assert metrics_rows[0]["Unknown finish reason rate (%) ⬇️"] == "50.000"
+    assert metrics_rows[0]["Judge unparseable rate (%) ⬇️"] == "0.000"
     assert metrics_rows[0]["Judge parse success rate (%) ⬆️"] == "100.000"
+
+    responses_path = tmp_path / "model" / "or-bench" / "responses.json"
+    responses = json.loads(responses_path.read_text(encoding="utf-8"))
+    assert responses[1]["finish_reason"] is None
+    assert responses[1]["judge_label"] is None
+    assert responses[1]["grading_status"] == "unknown_finish_reason"
 
 
 def test_run_config_mismatch_allows_skip_reusing_existing_outputs(

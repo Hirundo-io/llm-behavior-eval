@@ -47,7 +47,7 @@ def test_normalize_refusal_dataset_maps_prompt_and_label_columns():
     assert set(normalized.column_names) == {"question", "answer", "label"}
     assert normalized["question"] == ["q1"]
     assert normalized["answer"] == [REFUSAL_PLACEHOLDER_ANSWER]
-    assert normalized["label"] == ["unsafe"]
+    assert normalized["label"] == [1]
     validate_dataset_columns(normalized)
 
 
@@ -57,7 +57,7 @@ def test_normalize_refusal_dataset_preserves_existing_answers():
     normalized = normalize_refusal_dataset(ds)
 
     assert normalized["answer"] == ["given"]
-    assert normalized["label"] == ["safe"]
+    assert normalized["label"] == [0]
 
 
 def test_normalize_refusal_dataset_rejects_unknown_labels():
@@ -96,7 +96,7 @@ def test_free_text_preprocess_function_omits_default_system_prompt_when_disabled
     )
 
     free_text_preprocess_function(
-        {"question": ["q1"], "answer": ["a1"], "label": ["safe"]},
+        {"question": ["q1"], "answer": ["a1"], "label": [0]},
         cast("PreTrainedTokenizerBase", StubTokenizer()),
         max_length=8,
         gt_max_length=4,
@@ -146,6 +146,34 @@ def test_free_text_preprocess_function_uses_default_system_prompt_when_enabled(
     ]
 
 
+def test_custom_dataset_passes_auth_args_to_load_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ds = Dataset.from_dict({"question": ["q"], "answer": ["a"]})
+    captured: dict[str, object] = {}
+
+    def fake_load_dataset(path, *, token=None, trust_remote_code=False):
+        captured["path"] = path
+        captured["token"] = token
+        captured["trust_remote_code"] = trust_remote_code
+        return DatasetDict({"train": ds})
+
+    monkeypatch.setattr(custom_dataset_module, "load_dataset", fake_load_dataset)
+
+    CustomDataset(
+        "repo/gated-dataset",
+        DatasetType.BIAS,
+        trust_remote_code=True,
+        token="hf_test_token",
+    )
+
+    assert captured == {
+        "path": "repo/gated-dataset",
+        "token": "hf_test_token",
+        "trust_remote_code": True,
+    }
+
+
 def test_custom_dataset_uses_train_split_when_present(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -153,7 +181,7 @@ def test_custom_dataset_uses_train_split_when_present(
     monkeypatch.setattr(
         custom_dataset_module,
         "load_dataset",
-        lambda _path: DatasetDict({"train": ds, "test": ds}),
+        lambda _path, **_kwargs: DatasetDict({"train": ds, "test": ds}),
     )
 
     custom_dataset = CustomDataset("repo/dataset", DatasetType.BIAS)
@@ -168,7 +196,7 @@ def test_custom_dataset_falls_back_to_only_available_split(
     monkeypatch.setattr(
         custom_dataset_module,
         "load_dataset",
-        lambda _path: DatasetDict({"test": ds}),
+        lambda _path, **_kwargs: DatasetDict({"test": ds}),
     )
 
     custom_dataset = CustomDataset("repo/dataset", DatasetType.BIAS)
@@ -236,7 +264,7 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
     monkeypatch.setattr(
         custom_dataset_module,
         "load_dataset",
-        lambda _path: DatasetDict({"train": dataset}),
+        lambda _path, **_kwargs: DatasetDict({"train": dataset}),
     )
     monkeypatch.setattr(custom_dataset_module, "is_model_multimodal", lambda *_: False)
     monkeypatch.setattr(
@@ -252,7 +280,7 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
                 {
                     "question": ["q1"],
                     "answer": [REFUSAL_PLACEHOLDER_ANSWER],
-                    "label": ["safe"],
+                    "label": [0],
                 }
             ),
         )

@@ -10,10 +10,7 @@ import pytest
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
-from llm_behavior_eval.evaluation_utils.eval_config import (
-    REFUSAL_DEFAULT_MAX_ANSWER_TOKENS,
-    REFUSAL_DEFAULT_MAX_JUDGE_TOKENS,
-)
+from llm_behavior_eval.evaluation_utils.eval_config import FAMILY_TOKEN_DEFAULTS
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
     FreeTextBiasEvaluator,
@@ -263,13 +260,13 @@ def test_evaluate_factory_applies_refusal_defaults_for_programmatic_callers(
 
     assert captured == {
         "evaluator_family": "refusal",
-        "max_answer_tokens": REFUSAL_DEFAULT_MAX_ANSWER_TOKENS,
-        "max_judge_tokens": REFUSAL_DEFAULT_MAX_JUDGE_TOKENS,
-        "sample_judge": False,
+        "max_answer_tokens": FAMILY_TOKEN_DEFAULTS["refusal"]["max_answer_tokens"],
+        "max_judge_tokens": FAMILY_TOKEN_DEFAULTS["refusal"]["max_judge_tokens"],
+        "sample_judge": FAMILY_TOKEN_DEFAULTS["refusal"]["sample_judge"],
     }
     assert original_config.evaluator_family is None
-    assert original_config.max_answer_tokens == 128
-    assert original_config.max_judge_tokens == 32
+    assert original_config.max_answer_tokens is None
+    assert original_config.max_judge_tokens is None
 
 
 def test_evaluate_factory_reports_evaluator_family() -> None:
@@ -537,12 +534,17 @@ def test_main_passes_answer_tokens_and_judge_tokens_via_cli(
 def test_main_uses_default_answer_and_judge_tokens(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
-    """Test that default values are applied when tokens are not specified."""
+    """Unset CLI token options stay None until resolved per evaluator family."""
     evaluate.main("fake/model", "hallu")
     eval_config = capture_eval_config[-1]
-    assert eval_config.max_answer_tokens == 128  # Default from EvaluationConfig
-    assert eval_config.max_judge_tokens == 32  # Default from EvaluationConfig
-    assert eval_config.sample_judge is False
+    assert eval_config.max_answer_tokens is None
+    assert eval_config.max_judge_tokens is None
+    assert eval_config.sample_judge is None
+
+    resolved = eval_config.resolve_for_family("hallucination")
+    assert resolved.max_answer_tokens == 128
+    assert resolved.max_judge_tokens == 32
+    assert resolved.sample_judge is False
 
 
 def test_main_uses_refusal_preset_defaults_when_tokens_omitted(
@@ -550,9 +552,14 @@ def test_main_uses_refusal_preset_defaults_when_tokens_omitted(
 ) -> None:
     evaluate.main("fake/model", "refusal:all")
     eval_config = capture_eval_config[-1]
-    assert eval_config.max_answer_tokens == 256
-    assert eval_config.max_judge_tokens == 128
-    assert eval_config.sample_judge is False
+    assert eval_config.max_answer_tokens is None
+    assert eval_config.max_judge_tokens is None
+    assert eval_config.sample_judge is None
+
+    resolved = eval_config.resolve_for_family("refusal")
+    assert resolved.max_answer_tokens == 256
+    assert resolved.max_judge_tokens == 128
+    assert resolved.sample_judge is False
 
 
 def test_main_preserves_explicit_refusal_cli_overrides(
@@ -571,29 +578,33 @@ def test_main_preserves_explicit_refusal_cli_overrides(
     assert eval_config.sample_judge is True
 
 
-def test_eval_config_applies_refusal_defaults_only_when_values_are_unset() -> None:
+def test_eval_config_resolve_for_family_applies_defaults_only_when_values_are_unset() -> (
+    None
+):
     from pathlib import Path
 
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=Path("/tmp"),
-        evaluator_family="refusal",
     )
-    assert config.max_answer_tokens == 256
-    assert config.max_judge_tokens == 128
-    assert config.sample_judge is False
+    resolved = config.resolve_for_family("refusal")
+    assert resolved.max_answer_tokens == 256
+    assert resolved.max_judge_tokens == 128
+    assert resolved.sample_judge is False
+    assert resolved.evaluator_family == "refusal"
+    assert config.max_answer_tokens is None
 
     overridden = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=Path("/tmp"),
-        evaluator_family="refusal",
         max_answer_tokens=384,
         max_judge_tokens=96,
         sample_judge=True,
     )
-    assert overridden.max_answer_tokens == 384
-    assert overridden.max_judge_tokens == 96
-    assert overridden.sample_judge is True
+    resolved_overrides = overridden.resolve_for_family("refusal")
+    assert resolved_overrides.max_answer_tokens == 384
+    assert resolved_overrides.max_judge_tokens == 96
+    assert resolved_overrides.sample_judge is True
 
 
 def test_main_passes_model_inference_config_options(

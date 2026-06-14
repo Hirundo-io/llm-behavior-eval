@@ -22,6 +22,7 @@ from .util_functions import safe_apply_chat_template
 
 GRADING_STATUS_MODEL_INCOMPLETE = "model_incomplete"
 GRADING_STATUS_JUDGE_UNPARSEABLE = "judge_unparseable"
+GRADING_STATUS_UNKNOWN_FINISH_REASON = "unknown_finish_reason"
 GRADING_STATUS_JUDGED = "judged"
 
 _OR_BENCH_CLASS_RE = re.compile(
@@ -239,7 +240,7 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
             input_texts = self.tokenizer.batch_decode(
                 input_ids, skip_special_tokens=True
             )
-            expected_labels = self._decode_expected_labels(batch["refusal_labels"])
+            expected_labels = self._decode_expected_labels(batch["label"])
             answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
             generation_record = _RefusalGenerationRecord(
                 input_texts=input_texts,
@@ -339,6 +340,7 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
                 "Safe Samples": [metrics["safe_samples"]],
                 "Unsafe Samples": [metrics["unsafe_samples"]],
                 "Incomplete Responses": [metrics["incomplete_responses"]],
+                "Unknown Finish Reasons": [metrics["unknown_finish_reasons"]],
                 "Judge Unparseable": [metrics["judge_unparseable"]],
                 "Judge Attempted Samples": [metrics["judge_attempted_samples"]],
                 "Judged Samples": [metrics["judged_samples"]],
@@ -346,6 +348,9 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
                 "Unsafe Known Samples": [metrics["unsafe_known"]],
                 "Incomplete response rate (%) ⬇️": [
                     metrics["incomplete_response_rate"] * 100.0
+                ],
+                "Unknown finish reason rate (%) ⬇️": [
+                    metrics["unknown_finish_reason_rate"] * 100.0
                 ],
                 "Judge unparseable rate (%) ⬇️": [
                     metrics["judge_unparseable_rate"] * 100.0
@@ -388,9 +393,13 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
                 "Safe Samples": [metrics["safe_samples"]],
                 "Unsafe Samples": [metrics["unsafe_samples"]],
                 "Incomplete Responses": [metrics["incomplete_responses"]],
+                "Unknown Finish Reasons": [metrics["unknown_finish_reasons"]],
                 "Judge Unparseable": [metrics["judge_unparseable"]],
                 "Incomplete response rate (%) ⬇️": [
                     metrics["incomplete_response_rate"] * 100.0
+                ],
+                "Unknown finish reason rate (%) ⬇️": [
+                    metrics["unknown_finish_reason_rate"] * 100.0
                 ],
                 "Judge unparseable rate (%) ⬇️": [
                     metrics["judge_unparseable_rate"] * 100.0
@@ -411,6 +420,9 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
                 ],
                 "Incomplete response rate (%) ⬇️": [
                     metrics["incomplete_response_rate"] * 100.0
+                ],
+                "Unknown finish reason rate (%) ⬇️": [
+                    metrics["unknown_finish_reason_rate"] * 100.0
                 ],
                 "Judge unparseable rate (%) ⬇️": [
                     metrics["judge_unparseable_rate"] * 100.0
@@ -434,10 +446,14 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
                     "incomplete_response_rate": float(
                         metrics["incomplete_response_rate"]
                     ),
+                    "unknown_finish_reason_rate": float(
+                        metrics["unknown_finish_reason_rate"]
+                    ),
                     "judge_unparseable_rate": float(metrics["judge_unparseable_rate"]),
                     "safe_samples": float(metrics["safe_samples"]),
                     "unsafe_samples": float(metrics["unsafe_samples"]),
                     "incomplete_responses": float(metrics["incomplete_responses"]),
+                    "unknown_finish_reasons": float(metrics["unknown_finish_reasons"]),
                     "judge_unparseable": float(metrics["judge_unparseable"]),
                     "num_samples": float(self.num_samples),
                 }
@@ -466,6 +482,7 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
         heuristic_safe_refusals = 0
         heuristic_unsafe_refusals = 0
         judge_attempted_samples = 0
+        unknown_finish_reasons = 0
 
         for generation in tqdm(
             cast("Sequence[_RefusalGenerationRecord]", generations),
@@ -479,7 +496,7 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
                 if generation.finish_reasons[idx] == "stop"
             ]
             judge_attempted_samples += len(judge_indices)
-            judgments = [RefusalJudgment.UNPARSEABLE] * len(generation.answers)
+            judgments: list[RefusalJudgment | None] = [None] * len(generation.answers)
             raw_judge_outputs = [""] * len(generation.answers)
             judge_finish_reasons: list[str | None] = [None] * len(generation.answers)
             if judge_indices:
@@ -548,6 +565,25 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
                     )
                     continue
 
+                if judgment is None:
+                    unknown_finish_reasons += 1
+                    responses.append(
+                        {
+                            "dataset": self.get_dataset_slug(),
+                            "question": prompt,
+                            "expected_label": expected_label,
+                            "llm_answer": answer,
+                            "finish_reason": finish_reason,
+                            "judge_finish_reason": None,
+                            "judge_raw": raw_text,
+                            "judge_label": None,
+                            "grading_status": GRADING_STATUS_UNKNOWN_FINISH_REASON,
+                            "heuristic_refusal": heuristic_refusal,
+                            "judge_success": False,
+                        }
+                    )
+                    continue
+
                 if judgment == RefusalJudgment.UNPARSEABLE:
                     judge_unparseable += 1
                     responses.append(
@@ -610,11 +646,15 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
             "safe_known": safe_known,
             "unsafe_known": unsafe_known,
             "incomplete_responses": incomplete_responses,
+            "unknown_finish_reasons": unknown_finish_reasons,
             "judge_unparseable": judge_unparseable,
             "judge_attempted_samples": judge_attempted_samples,
             "judged_samples": judged_samples,
             "incomplete_response_rate": (
                 incomplete_responses / self.num_samples if self.num_samples else 0.0
+            ),
+            "unknown_finish_reason_rate": (
+                unknown_finish_reasons / self.num_samples if self.num_samples else 0.0
             ),
             "judge_unparseable_rate": (
                 judge_unparseable / self.num_samples if self.num_samples else 0.0

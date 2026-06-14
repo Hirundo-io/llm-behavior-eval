@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 import torch
 import typer
@@ -16,6 +16,7 @@ from llm_behavior_eval.evaluation_utils.dataset_config import (
 )
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.eval_config import (
+    FAMILY_TOKEN_DEFAULTS,
     EvaluationConfig,
     EvaluatorFamily,
 )
@@ -50,10 +51,10 @@ DEFAULT_MAX_SAMPLES = EvaluationConfig.model_fields["max_samples"].default
 DEFAULT_BATCH_SIZE = EvaluationConfig.model_fields["batch_size"].default
 DEFAULT_USE_4BIT = EvaluationConfig.model_fields["use_4bit"].default
 DEFAULT_DEVICE_MAP = EvaluationConfig.model_fields["device_map"].default
-DEFAULT_MAX_ANSWER_TOKENS = EvaluationConfig.model_fields["max_answer_tokens"].default
+DEFAULT_MAX_ANSWER_TOKENS = FAMILY_TOKEN_DEFAULTS["bias"]["max_answer_tokens"]
 DEFAULT_JUDGE_BATCH_SIZE = EvaluationConfig.model_fields["judge_batch_size"].default
-DEFAULT_MAX_JUDGE_TOKENS = EvaluationConfig.model_fields["max_judge_tokens"].default
-DEFAULT_SAMPLE_JUDGE = EvaluationConfig.model_fields["sample_judge"].default
+DEFAULT_MAX_JUDGE_TOKENS = FAMILY_TOKEN_DEFAULTS["bias"]["max_judge_tokens"]
+DEFAULT_SAMPLE_JUDGE = FAMILY_TOKEN_DEFAULTS["bias"]["sample_judge"]
 DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
 DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
 DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
@@ -599,54 +600,47 @@ def main(
     else:
         vllm_config = None
 
-    eval_config_kwargs: dict[str, Any] = {
-        "model_path_or_repo_id": model_path_or_repo_id,
-        "model_output_dir": model_output_dir,
-        "model_token": model_token,
-        "lora_path_or_repo_id": lora_path_or_repo_id,
-        "judge_path_or_repo_id": judge_path_or_repo_id,
-        "judge_token": judge_token,
-        "results_dir": result_dir,
-        "mlflow_config": mlflow_config,
-        "vllm_config": vllm_config,
-        "enable_thinking": enable_thinking,
-        "enable_thinking_arg_name": enable_thinking_arg_name,
-        "thinking_start_token": thinking_start_token,
-        "thinking_end_token": thinking_end_token,
-        "exclude_thinking_trace_for_judge": exclude_thinking_trace_for_judge,
-        "trust_remote_code": (
-            trust_remote_code
-            if trust_remote_code is not None
-            else model_path_or_repo_id.split("/")[0] in TRUSTED_MODEL_PROVIDERS
-        ),
-        "inference_engine": inference_engine,
-        "model_engine": model_engine,
-        "judge_engine": judge_engine,
-        "replace_existing_output": replace_existing_output,
-        "max_samples": None if max_samples <= 0 else max_samples,
-        "batch_size": batch_size,
-        "use_4bit": use_4bit,
-        "device_map": device_map,
-        "pass_max_answer_tokens": pass_max_answer_tokens,
-        "judge_batch_size": judge_batch_size,
-        "use_4bit_judge": use_4bit_judge,
-        "sampling_config": SamplingConfig(
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id=model_path_or_repo_id,
+        model_output_dir=model_output_dir,
+        model_token=model_token,
+        lora_path_or_repo_id=lora_path_or_repo_id,
+        judge_path_or_repo_id=judge_path_or_repo_id,
+        judge_token=judge_token,
+        results_dir=result_dir,
+        mlflow_config=mlflow_config,
+        vllm_config=vllm_config,
+        enable_thinking=enable_thinking,
+        enable_thinking_arg_name=enable_thinking_arg_name,
+        thinking_start_token=thinking_start_token,
+        thinking_end_token=thinking_end_token,
+        exclude_thinking_trace_for_judge=exclude_thinking_trace_for_judge,
+        trust_remote_code=trust_remote_code
+        if trust_remote_code is not None
+        else model_path_or_repo_id.split("/")[0] in TRUSTED_MODEL_PROVIDERS,
+        inference_engine=inference_engine,
+        model_engine=model_engine,
+        judge_engine=judge_engine,
+        replace_existing_output=replace_existing_output,
+        max_samples=None if max_samples <= 0 else max_samples,
+        batch_size=batch_size,
+        use_4bit=use_4bit,
+        device_map=device_map,
+        max_answer_tokens=max_answer_tokens,
+        pass_max_answer_tokens=pass_max_answer_tokens,
+        judge_batch_size=judge_batch_size,
+        max_judge_tokens=max_judge_tokens,
+        sample_judge=sample_judge,
+        use_4bit_judge=use_4bit_judge,
+        sampling_config=SamplingConfig(
             do_sample=sample,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
             seed=seed,
         ),
-        "evaluator_family": evaluator_family,
-    }
-    if max_answer_tokens is not None:
-        eval_config_kwargs["max_answer_tokens"] = max_answer_tokens
-    if max_judge_tokens is not None:
-        eval_config_kwargs["max_judge_tokens"] = max_judge_tokens
-    if sample_judge is not None:
-        eval_config_kwargs["sample_judge"] = sample_judge
-
-    eval_config = EvaluationConfig(**eval_config_kwargs)
+        evaluator_family=evaluator_family,
+    )
 
     evaluator = None
     generation_lists = []

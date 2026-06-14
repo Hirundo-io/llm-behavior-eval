@@ -69,11 +69,25 @@ class EvalEngine(ABC):
     @staticmethod
     def _get_sample_from_config(eval_config: EvaluationConfig, is_judge: bool) -> bool:
         """Get the sample setting from config based on whether this is a judge model."""
-        return eval_config.sample_judge if is_judge else eval_config.sample
+        if is_judge:
+            sample_judge = eval_config.sample_judge
+            if sample_judge is None:
+                raise ValueError(
+                    "sample_judge must be set before running inference; "
+                    "call resolve_for_family() on the evaluation config."
+                )
+            return sample_judge
+        return eval_config.sample
 
     @staticmethod
     def _get_max_new_tokens(eval_config: EvaluationConfig, is_judge: bool) -> int:
         """Get the max new tokens setting from config based on whether this is a judge model."""
-        return (
+        max_tokens = (
             eval_config.max_judge_tokens if is_judge else eval_config.max_answer_tokens
         )
+        if max_tokens is None:
+            raise ValueError(
+                "max token limits must be set before running inference; "
+                "call resolve_for_family() on the evaluation config."
+            )
+        return max_tokens

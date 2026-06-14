@@ -28,7 +28,9 @@ def normalize_refusal_label(raw_label: Any) -> str:
 def normalize_refusal_dataset(hf_dataset: Dataset) -> Dataset:
     """Normalize refusal datasets to the free-text schema expected downstream."""
 
-    def _normalize_batch(examples_batch: dict[str, list[Any]]) -> dict[str, list[str]]:
+    def _normalize_batch(
+        examples_batch: dict[str, list[Any]],
+    ) -> dict[str, list[str] | list[int]]:
         prompts = examples_batch.get("question")
         if prompts is None:
             prompts = examples_batch.get("prompt")
@@ -40,7 +42,10 @@ def normalize_refusal_dataset(hf_dataset: Dataset) -> Dataset:
         if labels is None:
             raise ValueError("Refusal dataset must contain a 'label' column")
 
-        normalized_labels = [normalize_refusal_label(label) for label in labels]
+        normalized_labels = [
+            1 if normalize_refusal_label(label) == UNSAFE_REFUSAL_LABEL else 0
+            for label in labels
+        ]
         answers = examples_batch.get("answer")
         if answers is None:
             # Free-text preprocessing expects an "answer" column, but our refusal
