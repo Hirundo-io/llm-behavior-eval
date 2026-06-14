@@ -240,7 +240,7 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
             input_texts = self.tokenizer.batch_decode(
                 input_ids, skip_special_tokens=True
             )
-            expected_labels = self._decode_expected_labels(batch["label"])
+            expected_labels = self._decode_expected_labels(batch["refusal_labels"])
             answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
             generation_record = _RefusalGenerationRecord(
                 input_texts=input_texts,

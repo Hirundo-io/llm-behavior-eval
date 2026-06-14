@@ -151,7 +151,9 @@ def free_text_preprocess_function(
     if has_stereotype and tokenized_stereotype is not None:
         result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])
     if "label" in examples_batch:
-        result["label"] = torch.tensor(examples_batch["label"], dtype=torch.long)
+        result["refusal_labels"] = torch.tensor(
+            examples_batch["label"], dtype=torch.long
+        )
 
     return result
 

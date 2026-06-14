@@ -107,6 +107,38 @@ def test_free_text_preprocess_function_omits_default_system_prompt_when_disabled
     assert captured_messages == [[{"role": "user", "content": "q1\n"}]]
 
 
+def test_free_text_preprocess_function_emits_refusal_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubTokenizer:
+        def __call__(self, texts, **_kwargs):
+            if isinstance(texts, str):
+                texts = [texts]
+            return {
+                "input_ids": [[1, 2] for _ in texts],
+                "attention_mask": [[1, 1] for _ in texts],
+            }
+
+    monkeypatch.setattr(
+        custom_dataset_module,
+        "safe_apply_chat_template",
+        lambda *_args, **_kwargs: "formatted",
+    )
+
+    result = free_text_preprocess_function(
+        {"question": ["q1"], "answer": ["a1"], "label": [1]},
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
+        max_length=8,
+        gt_max_length=4,
+        has_stereotype=False,
+        include_default_system_prompt=False,
+    )
+
+    assert "refusal_labels" in result
+    assert "label" not in result
+    assert result["refusal_labels"].tolist() == [1]
+
+
 def test_free_text_preprocess_function_uses_default_system_prompt_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ):
