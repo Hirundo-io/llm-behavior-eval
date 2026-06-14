@@ -66,6 +66,7 @@ class CaptureState:
     thinking_end_token: str | None = None
     pass_max_answer_tokens: bool | None = None
     token: str | None = None
+    padding_side_at_preprocess: str | None = None
     init_args: tuple[str, DatasetType] | None = None
     engine_inits: list[bool] = field(default_factory=list)
     set_dataset_calls: list[tuple[bool, Sized]] = field(default_factory=list)
@@ -177,6 +178,10 @@ def patch_custom_dataset(
             token: str | None = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
+            # Record the padding side AT tokenization time. The tokenizer object
+            # is mutated later, so reading it after init would always see "left";
+            # capturing it here is what detects right-padded inputs.
+            capture_state.padding_side_at_preprocess = tokenizer.padding_side
             capture_state.trust_remote_code = trust_remote_code
             capture_state.max_answer_tokens = max_answer_tokens
             capture_state.enable_thinking = enable_thinking
@@ -250,6 +255,36 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
     assert evaluator.eval_loader == "loader"
     assert evaluator.num_samples == 3
     assert capture_state.engine_dataset == evaluator.eval_dataset
+
+
+def test_dataset_is_tokenized_with_left_padding(
+    tmp_path: Path,
+    capture_state: CaptureState,
+    stub_tokenizer: StubTokenizer,
+) -> None:
+    """Inputs must be left-padded for correct decoder-only generation.
+
+    The tokenizer defaults to right-padding; the evaluator must flip it to
+    "left" BEFORE the dataset is tokenized in prepare_dataloader(). Setting it
+    afterwards (the previous bug) leaves the cached inputs right-padded, which
+    produces garbage generations.
+    """
+    assert stub_tokenizer.padding_side == "right"  # default before init
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        batch_size=None,
+        max_samples=10,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    ConcreteEvaluator(evaluation_config, dataset_config_instance)
+
+    assert capture_state.padding_side_at_preprocess == "left"
 
 
 def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> None:
