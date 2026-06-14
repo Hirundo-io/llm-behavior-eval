@@ -79,6 +79,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     New formats:
     - BBQ: "bias:<bias_type>" or "unbias:<bias_type>"
     - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
+    - Bloom: "bloom:bias:<bias_type>" or "bloom:unbias:<bias_type>"
     - Hallucinations: "hallu" or "hallu-med"
     - Prompt injection: "prompt-injection"
     """
@@ -96,6 +97,8 @@ def _behavior_presets(behavior: str) -> list[str]:
     # [kind, bias_type] for BBQ, where kind in {bias, unbias}
     #   - bias_type can be a concrete type or 'all'
     # ["unqover", kind, bias_type] for UNQOVER (kind must be 'bias')
+    #   - bias_type can be a concrete type or 'all'
+    # ["bloom", kind, bias_type] for Bloom, where kind in {bias, unbias}
     #   - bias_type can be a concrete type or 'all'
     if len(behavior_parts) == 2:
         kind, bias_type = behavior_parts
@@ -131,8 +134,26 @@ def _behavior_presets(behavior: str) -> list[str]:
             raise ValueError(f"UNQOVER supports: {allowed}")
         return [f"hirundo-io/unqover-{bias_type}-{kind}-free-text"]
 
+    if len(behavior_parts) == 3 and behavior_parts[0] == "bloom":
+        _, kind, bias_type = behavior_parts
+        if kind not in BIAS_KINDS:
+            raise ValueError(
+                "BLOOM supports 'bloom:bias:<type>' or 'bloom:unbias:<type>'"
+            )
+        from llm_behavior_eval.evaluation_utils.enums import BLOOM_BIAS_TYPES
+
+        if bias_type == "all":
+            return [
+                f"hirundo-io/bloom-{bt}-{kind}-free-text"
+                for bt in sorted(BLOOM_BIAS_TYPES)
+            ]
+        if bias_type not in BLOOM_BIAS_TYPES:
+            allowed = ", ".join(sorted(list(BLOOM_BIAS_TYPES)) + ["all"])
+            raise ValueError(f"BLOOM supports: {allowed}")
+        return [f"hirundo-io/bloom-{bias_type}-{kind}-free-text"]
+
     raise ValueError(
-        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
+        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'bloom:bias:<type|all>' | 'bloom:unbias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
     )
 
 
@@ -146,7 +167,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
         ),
     ],
     output_dir: Annotated[

@@ -585,6 +585,9 @@ class BaseEvaluator(ABC):
             # UNQOVER: unqover-<bias_type>-bias-free-text
             if parts[0] == "unqover" and len(parts) >= 2:
                 return f"UNQOVER: {parts[1]} {dataset_type_label}"
+            # Bloom: bloom-<bias_type>-<kind>-free-text
+            if parts[0] == "bloom" and len(parts) >= 2:
+                return f"Bloom: {parts[1]} {dataset_type_label}"
             # Hallucination datasets
             if slug.startswith("halueval"):
                 return "halueval"
