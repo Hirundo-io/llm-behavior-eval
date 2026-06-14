@@ -67,8 +67,7 @@ def _resolve_bias_behavior(
     allowed_with_all = ", ".join(sorted(list(allowed_types)) + ["all"])
     if bias_type == "all":
         return [
-            f"hirundo-io/{prefix}-{bt}-{kind}-free-text"
-            for bt in sorted(allowed_types)
+            f"hirundo-io/{prefix}-{bt}-{kind}-free-text" for bt in sorted(allowed_types)
         ]
 
     if bias_type not in allowed_types:
@@ -79,6 +78,25 @@ def _resolve_bias_behavior(
 def _is_dataset_not_found_error(exc: Exception) -> bool:
     return isinstance(exc, RuntimeError) and str(exc).startswith(
         "Failed to load dataset "
+    )
+
+
+def _skip_dataset_if_not_found(exc: Exception, file_path: str) -> None:
+    """Log and swallow a missing-dataset error, re-raising anything else.
+
+    Args:
+        exc: Exception raised while loading or evaluating a dataset.
+        file_path: Identifier of the dataset being processed, used for logging.
+
+    Raises:
+        Exception: Re-raises ``exc`` when it is not a missing-dataset error.
+    """
+    if not _is_dataset_not_found_error(exc):
+        raise exc
+    logging.warning(
+        "Skipping dataset %s because it could not be loaded: %s",
+        file_path,
+        exc,
     )
 
 
@@ -685,37 +703,19 @@ def main(
                             eval_config, dataset_config
                         )
                     except Exception as exc:
-                        if not _is_dataset_not_found_error(exc):
-                            raise
-                        logging.warning(
-                            "Skipping dataset %s because it could not be loaded: %s",
-                            file_path,
-                            exc,
-                        )
+                        _skip_dataset_if_not_found(exc, file_path)
                         continue
                 else:
                     try:
                         evaluator.update_dataset_config(dataset_config)
                     except Exception as exc:
-                        if not _is_dataset_not_found_error(exc):
-                            raise
-                        logging.warning(
-                            "Skipping dataset %s because it could not be loaded: %s",
-                            file_path,
-                            exc,
-                        )
+                        _skip_dataset_if_not_found(exc, file_path)
                         continue
 
                 try:
                     generation_records = evaluator.generate()
                 except Exception as exc:
-                    if not _is_dataset_not_found_error(exc):
-                        raise
-                    logging.warning(
-                        "Skipping dataset %s because it could not be loaded: %s",
-                        file_path,
-                        exc,
-                    )
+                    _skip_dataset_if_not_found(exc, file_path)
                     continue
 
                 dataset_configs.append(dataset_config)
@@ -739,13 +739,7 @@ def main(
                 try:
                     evaluator.update_dataset_config(dataset_config)
                 except Exception as exc:
-                    if not _is_dataset_not_found_error(exc):
-                        raise
-                    logging.warning(
-                        "Skipping dataset %s because it could not be loaded: %s",
-                        file_path,
-                        exc,
-                    )
+                    _skip_dataset_if_not_found(exc, file_path)
                     continue
                 with evaluator.dataset_mlflow_run():
                     evaluator.grade(generations, judge)

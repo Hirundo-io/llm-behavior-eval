@@ -15,7 +15,7 @@ This toolkit evaluates three classes of behaviors:
     - **bias** (ambiguous) and **unbias** (disambiguated) for: `gender`, `race`, `nationality`, `physical`, `age`, `religion`.
     - Only BBQ provides both ambiguous and disambiguated versions.
   - **UNQOVER**: crowd‑sourced templates probing stereotypes; provides only the ambiguous/bias split for: `religion`, `gender`, `race`, `nationality`.
-  - **Bloom**: synthetic scenario-based age/gender benchmark with paired **bias** and **unbias** splits for: `age`, `gender`.
+  - **Bloom**: synthetic scenario-based benchmark with paired **bias** and **unbias** splits. Currently published for: `age`.
 
 - **Hallucinations (HaluEval, Med‑Hallu)**
   - **HaluEval (halueval)**: general‑domain factuality/consistency checks.
@@ -196,7 +196,7 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 
 - BBQ: `BBQ: <gender|race|nationality|physical|age|religion> <bias|unbias>`
 - UNQOVER: `UNQOVER: <religion|gender|race|nationality> <bias>`
-- Bloom: `Bloom: <age|gender> <bias|unbias>`
+- Bloom: `Bloom: <age> <bias|unbias>`
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
 
