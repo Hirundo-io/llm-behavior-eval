@@ -52,6 +52,35 @@ DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
 DEFAULT_MAX_LORA_RANK = VllmConfig.model_fields["max_lora_rank"].default
 
 
+def _resolve_bias_behavior(
+    prefix: str,
+    kind: str,
+    bias_type: str,
+    allowed_types: set[str],
+    allowed_kinds: set[str],
+    kind_error: str,
+    support_label: str,
+) -> list[str]:
+    if kind not in allowed_kinds:
+        raise ValueError(kind_error)
+
+    allowed_with_all = ", ".join(sorted(list(allowed_types)) + ["all"])
+    if bias_type == "all":
+        return [
+            f"hirundo-io/{prefix}-{bt}-{kind}-free-text" for bt in sorted(allowed_types)
+        ]
+
+    if bias_type not in allowed_types:
+        raise ValueError(f"{support_label} supports: {allowed_with_all}")
+    return [f"hirundo-io/{prefix}-{bias_type}-{kind}-free-text"]
+
+
+def _is_dataset_not_found_error(exc: Exception) -> bool:
+    return isinstance(exc, RuntimeError) and str(exc).startswith(
+        "Failed to load dataset "
+    )
+
+
 def _default_results_dir() -> Path:
     if os.name == "nt":
         base_dir = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
@@ -118,39 +147,31 @@ def _behavior_presets(behavior: str) -> list[str]:
 
     if len(behavior_parts) == 3 and behavior_parts[0] == "unqover":
         _, kind, bias_type = behavior_parts
-        if kind != "bias":
-            raise ValueError(
-                "UNQOVER supports only 'bias:<bias_type>' (no 'unbias' for UNQOVER)"
-            )
         from llm_behavior_eval.evaluation_utils.enums import UNQOVER_BIAS_TYPES
 
-        if bias_type == "all":
-            return [
-                f"hirundo-io/unqover-{bt}-{kind}-free-text"
-                for bt in sorted(UNQOVER_BIAS_TYPES)
-            ]
-        if bias_type not in UNQOVER_BIAS_TYPES:
-            allowed = ", ".join(sorted(list(UNQOVER_BIAS_TYPES)) + ["all"])
-            raise ValueError(f"UNQOVER supports: {allowed}")
-        return [f"hirundo-io/unqover-{bias_type}-{kind}-free-text"]
+        return _resolve_bias_behavior(
+            "unqover",
+            kind,
+            bias_type,
+            UNQOVER_BIAS_TYPES,
+            {"bias"},
+            "UNQOVER supports only 'bias:<bias_type>' (no 'unbias' for UNQOVER)",
+            "UNQOVER",
+        )
 
     if len(behavior_parts) == 3 and behavior_parts[0] == "bloom":
         _, kind, bias_type = behavior_parts
-        if kind not in BIAS_KINDS:
-            raise ValueError(
-                "BLOOM supports 'bloom:bias:<type>' or 'bloom:unbias:<type>'"
-            )
         from llm_behavior_eval.evaluation_utils.enums import BLOOM_BIAS_TYPES
 
-        if bias_type == "all":
-            return [
-                f"hirundo-io/bloom-{bt}-{kind}-free-text"
-                for bt in sorted(BLOOM_BIAS_TYPES)
-            ]
-        if bias_type not in BLOOM_BIAS_TYPES:
-            allowed = ", ".join(sorted(list(BLOOM_BIAS_TYPES)) + ["all"])
-            raise ValueError(f"BLOOM supports: {allowed}")
-        return [f"hirundo-io/bloom-{bias_type}-{kind}-free-text"]
+        return _resolve_bias_behavior(
+            "bloom",
+            kind,
+            bias_type,
+            BLOOM_BIAS_TYPES,
+            BIAS_KINDS,
+            "BLOOM supports 'bloom:bias:<type>' or 'bloom:unbias:<type>'",
+            "BLOOM",
+        )
 
     raise ValueError(
         "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'bloom:bias:<type|all>' | 'bloom:unbias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
@@ -635,6 +656,7 @@ def main(
     evaluator = None
     generation_lists = []
     dataset_configs = []
+    dataset_file_paths = []
     evaluation_error = True
     try:
         # generation loop
@@ -657,29 +679,73 @@ def main(
                     seed=seed,
                 )
                 if evaluator is None:
-                    evaluator = EvaluateFactory.create_evaluator(
-                        eval_config, dataset_config
-                    )
+                    try:
+                        evaluator = EvaluateFactory.create_evaluator(
+                            eval_config, dataset_config
+                        )
+                    except Exception as exc:
+                        if not _is_dataset_not_found_error(exc):
+                            raise
+                        logging.warning(
+                            "Skipping dataset %s because it could not be loaded: %s",
+                            file_path,
+                            exc,
+                        )
+                        continue
                 else:
-                    evaluator.update_dataset_config(dataset_config)
+                    try:
+                        evaluator.update_dataset_config(dataset_config)
+                    except Exception as exc:
+                        if not _is_dataset_not_found_error(exc):
+                            raise
+                        logging.warning(
+                            "Skipping dataset %s because it could not be loaded: %s",
+                            file_path,
+                            exc,
+                        )
+                        continue
+
+                try:
+                    generation_records = evaluator.generate()
+                except Exception as exc:
+                    if not _is_dataset_not_found_error(exc):
+                        raise
+                    logging.warning(
+                        "Skipping dataset %s because it could not be loaded: %s",
+                        file_path,
+                        exc,
+                    )
+                    continue
 
                 dataset_configs.append(dataset_config)
-                generation_lists.append(evaluator.generate())
+                dataset_file_paths.append(file_path)
+                generation_lists.append(generation_records)
         finally:
             if evaluator is not None:
                 evaluator.free_test_model()
 
         if evaluator is None:
-            # Type-checking hint
-            raise ValueError("Evaluator does not exist.")
+            logging.warning("No datasets were evaluated.")
+            evaluation_error = False
+            return
 
         # Grading loop
         with evaluator.get_grading_context() as judge:
             for generations, dataset_config, file_path in zip(
-                generation_lists, dataset_configs, file_paths, strict=True
+                generation_lists, dataset_configs, dataset_file_paths, strict=True
             ):
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
-                evaluator.update_dataset_config(dataset_config)
+                try:
+                    evaluator.update_dataset_config(dataset_config)
+                except Exception as exc:
+                    if not _is_dataset_not_found_error(exc):
+                        raise
+                    logging.warning(
+                        "Skipping dataset %s because it could not be loaded: %s",
+                        file_path,
+                        exc,
+                    )
+                    continue
                 with evaluator.dataset_mlflow_run():
                     evaluator.grade(generations, judge)
         evaluation_error = False

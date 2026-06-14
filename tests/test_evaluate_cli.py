@@ -122,6 +122,38 @@ def test_main_passes_judge_quantization_flag(
     assert capture_eval_config[-1].use_4bit_judge is True
 
 
+def test_main_skips_missing_dataset_and_continues(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    captured: list[DatasetConfig] = []
+
+    def _fake_create(
+        eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> _StubEvaluator:
+        if dataset_config.file_path == "hirundo-io/halueval":
+            raise RuntimeError(
+                "Failed to load dataset 'hirundo-io/halueval'. "
+                "Check that the identifier is correct."
+            )
+        captured.append(dataset_config)
+        return _StubEvaluator()
+
+    monkeypatch.setattr(
+        evaluate.EvaluateFactory,
+        "create_evaluator",
+        staticmethod(_fake_create),
+    )
+
+    with caplog.at_level("WARNING"):
+        evaluate.main("fake/model", "hallu,prompt-injection")
+
+    assert [config.file_path for config in captured] == [
+        "hirundo-io/prompt-injection-purple-llama"
+    ]
+    assert "Skipping dataset hirundo-io/halueval" in caplog.text
+
+
 def test_main_passes_model_output_dir_override(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
