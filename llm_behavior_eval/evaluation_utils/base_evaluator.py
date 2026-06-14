@@ -66,6 +66,46 @@ except ImportError:
     RunStatus = None
 
 
+def active_mlflow_run_id() -> str | None:
+    """
+    Return the ID of the active MLflow run, if one exists.
+
+    Returns:
+        The active MLflow run ID, or None when MLflow is unavailable or no run is active.
+    """
+    if not mlflow:
+        return None
+    active_run = mlflow.active_run()
+    if active_run is None:
+        return None
+    return active_run.info.run_id
+
+
+def end_active_mlflow_run(error: bool = False) -> None:
+    """
+    End the active MLflow run with a status that reflects whether evaluation failed.
+
+    Args:
+        error: If True, mark the run as FAILED; otherwise mark it as FINISHED.
+    """
+    if not mlflow:
+        return
+    active_run = mlflow.active_run()
+    if active_run is None:
+        return
+    run_id = active_run.info.run_id
+    if RunStatus is not None:
+        status = (
+            RunStatus.to_string(RunStatus.FAILED)
+            if error
+            else RunStatus.to_string(RunStatus.FINISHED)
+        )
+    else:
+        status = "FAILED" if error else "FINISHED"
+    mlflow.end_run(status=status)
+    logging.info("Ended MLflow run %s", run_id)
+
+
 def custom_collator(batch):
     return {
         key: torch.nn.utils.rnn.pad_sequence(
@@ -712,20 +752,7 @@ class BaseEvaluator(ABC):
         """
         if not self.mlflow_config or not mlflow:
             return
-        active_run = mlflow.active_run()
-        if active_run is None:
-            return
-        run_id = active_run.info.run_id
-        if RunStatus is not None:
-            status = (
-                RunStatus.to_string(RunStatus.FAILED)
-                if error
-                else RunStatus.to_string(RunStatus.FINISHED)
-            )
-        else:
-            status = "FAILED" if error else "FINISHED"
-        mlflow.end_run(status=status)
-        logging.info("Ended MLflow run %s", run_id)
+        end_active_mlflow_run(error=error)
 
     # Hook: override in subclasses that want the dataset type in the output dir name
     def should_include_dataset_type_in_output_dir(self) -> bool:

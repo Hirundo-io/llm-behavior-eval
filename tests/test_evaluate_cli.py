@@ -154,6 +154,58 @@ def test_main_skips_missing_dataset_and_continues(
     assert "Skipping dataset hirundo-io/halueval" in caplog.text
 
 
+def test_main_ends_mlflow_run_when_initial_evaluator_constructor_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _RunInfo:
+        run_id = "started-run"
+
+    class _Run:
+        info = _RunInfo()
+
+    class _MlflowStub:
+        def __init__(self) -> None:
+            started_run = _Run()
+            self.active_runs = [None, started_run, started_run, None]
+            self.ended_statuses: list[str] = []
+
+        def active_run(self):
+            return self.active_runs.pop(0)
+
+        def end_run(self, *, status: str) -> None:
+            self.ended_statuses.append(status)
+
+    mlflow_stub = _MlflowStub()
+    captured: list[DatasetConfig] = []
+
+    def _fake_create(
+        eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> _StubEvaluator:
+        if dataset_config.file_path == "hirundo-io/halueval":
+            raise RuntimeError(
+                "Failed to load dataset 'hirundo-io/halueval'. "
+                "Check that the identifier is correct."
+            )
+        captured.append(dataset_config)
+        return _StubEvaluator()
+
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.base_evaluator.mlflow", mlflow_stub
+    )
+    monkeypatch.setattr(
+        evaluate.EvaluateFactory,
+        "create_evaluator",
+        staticmethod(_fake_create),
+    )
+
+    evaluate.main("fake/model", "hallu,prompt-injection", use_mlflow=True)
+
+    assert mlflow_stub.ended_statuses == ["FAILED"]
+    assert [config.file_path for config in captured] == [
+        "hirundo-io/prompt-injection-purple-llama"
+    ]
+
+
 def test_main_passes_model_output_dir_override(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:

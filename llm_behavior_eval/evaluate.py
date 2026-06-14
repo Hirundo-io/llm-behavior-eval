@@ -10,6 +10,10 @@ import typer
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
+from llm_behavior_eval.evaluation_utils.base_evaluator import (
+    active_mlflow_run_id,
+    end_active_mlflow_run,
+)
 from llm_behavior_eval.evaluation_utils.dataset_config import (
     DatasetConfig,
     PreprocessConfig,
@@ -698,11 +702,18 @@ def main(
                     seed=seed,
                 )
                 if evaluator is None:
+                    initial_mlflow_run_id = active_mlflow_run_id()
                     try:
                         evaluator = EvaluateFactory.create_evaluator(
                             eval_config, dataset_config
                         )
                     except Exception as exc:
+                        active_run_id = active_mlflow_run_id()
+                        if (
+                            active_run_id is not None
+                            and active_run_id != initial_mlflow_run_id
+                        ):
+                            end_active_mlflow_run(error=True)
                         _skip_dataset_if_not_found(exc, file_path)
                         continue
                 else:
