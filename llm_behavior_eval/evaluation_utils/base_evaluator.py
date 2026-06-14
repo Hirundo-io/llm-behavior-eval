@@ -676,7 +676,9 @@ class BaseEvaluator(ABC):
             )
         else:
             combined_summary = self._drop_empty_columns(summary_row)
-            combined_summary = self._preserve_directional_metric_pairs(combined_summary)
+            combined_summary = self._preserve_directional_metric_pairs(
+                combined_summary
+            )
 
         combined_summary = self._drop_empty_columns(combined_summary)
         combined_summary = self._preserve_directional_metric_pairs(combined_summary)
