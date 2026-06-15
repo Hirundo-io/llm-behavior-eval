@@ -10,7 +10,6 @@ import pytest
 
 pytest.importorskip("torch")
 pytest.importorskip("transformers")
-import pandas as pd
 import torch
 from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokenizerBase
 
@@ -801,54 +800,6 @@ def test_save_results_rewrites_summary_with_non_empty_columns_after_append(
     assert "Attack success rate (%) ⬇️" not in summary_rows[1]
 
 
-def test_append_summary_row_preserves_directional_metric_pair_columns(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        base_evaluator_module,
-        "load_tokenizer_with_transformers",
-        lambda *_args, **_kwargs: StubTokenizer(),
-    )
-    monkeypatch.setattr(
-        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
-    )
-
-    evaluator = ConcreteEvaluator(
-        EvaluationConfig(
-            model_path_or_repo_id="meta/model",
-            results_dir=tmp_path,
-            max_samples=1,
-        ),
-        DatasetConfig(
-            file_path="hirundo-io/bbq-gender-unbias-free-text",
-            dataset_type=DatasetType.UNBIAS,
-        ),
-    )
-
-    accuracy_summary_path = tmp_path / "accuracy_summary.csv"
-    evaluator._append_summary_row(
-        accuracy_summary_path,
-        pd.DataFrame({"Accuracy (%) ⬆️": [80.0]}),
-    )
-    accuracy_summary = pd.read_csv(accuracy_summary_path)
-
-    assert "Accuracy (%) ⬆️" in accuracy_summary.columns
-    assert "Error (%) ⬇️" in accuracy_summary.columns
-    assert accuracy_summary["Error (%) ⬇️"].isna().all()
-
-    error_summary_path = tmp_path / "error_summary.csv"
-    evaluator._append_summary_row(
-        error_summary_path,
-        pd.DataFrame({"Error (%) ⬇️": [20.0]}),
-    )
-    error_summary = pd.read_csv(error_summary_path)
-
-    assert "Accuracy (%) ⬆️" in error_summary.columns
-    assert "Error (%) ⬇️" in error_summary.columns
-    assert error_summary["Accuracy (%) ⬆️"].isna().all()
-
-
 def test_save_results_uses_bloom_summary_label(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -887,7 +838,7 @@ def test_save_results_uses_bloom_summary_label(
 
     assert summary_rows[0]["Dataset"] == "Bloom: age unbias"
     assert summary_rows[0]["Accuracy (%) ⬆️"] == "80.000"
-    assert summary_rows[0]["Error (%) ⬇️"] == ""
+    assert "Error (%) ⬇️" not in summary_rows[0]
 
 
 def test_save_results_marks_thinking_mode_on_when_enabled(

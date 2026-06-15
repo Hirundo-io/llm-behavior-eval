@@ -687,12 +687,6 @@ class BaseEvaluator(ABC):
             combined_summary = self._drop_empty_columns(summary_row)
 
         combined_summary = self._drop_empty_columns(combined_summary)
-        has_accuracy = "Accuracy (%) ⬆️" in combined_summary.columns
-        has_error = "Error (%) ⬇️" in combined_summary.columns
-        if has_accuracy and not has_error:
-            combined_summary["Error (%) ⬇️"] = pd.NA
-        if has_error and not has_accuracy:
-            combined_summary["Accuracy (%) ⬆️"] = pd.NA
         combined_summary.to_csv(summary_file_path, index=False, float_format="%.3f")
 
     @property
