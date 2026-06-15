@@ -160,32 +160,43 @@ def _behavior_presets(behavior: str) -> list[str]:
             raise ValueError(f"BBQ supports: {allowed}")
         return [f"hirundo-io/bbq-{bias_type}-{kind}-free-text"]
 
-    if len(behavior_parts) == 3 and behavior_parts[0] == "unqover":
-        _, kind, bias_type = behavior_parts
-        from llm_behavior_eval.evaluation_utils.enums import UNQOVER_BIAS_TYPES
-
-        return _resolve_bias_behavior(
-            "unqover",
-            kind,
-            bias_type,
+    if len(behavior_parts) == 3:
+        prefix, kind, bias_type = behavior_parts
+        from llm_behavior_eval.evaluation_utils.enums import (
+            BLOOM_BIAS_TYPES,
             UNQOVER_BIAS_TYPES,
-            {"bias"},
-            "UNQOVER supports only 'bias:<bias_type>' (no 'unbias' for UNQOVER)",
-            "UNQOVER",
         )
 
-    if len(behavior_parts) == 3 and behavior_parts[0] == "bloom":
-        _, kind, bias_type = behavior_parts
-        from llm_behavior_eval.evaluation_utils.enums import BLOOM_BIAS_TYPES
+        three_part_bias_behaviors = {
+            "unqover": (
+                UNQOVER_BIAS_TYPES,
+                {"bias"},
+                "UNQOVER supports only 'bias:<bias_type>' (no 'unbias' for UNQOVER)",
+                "UNQOVER",
+            ),
+            "bloom": (
+                BLOOM_BIAS_TYPES,
+                BIAS_KINDS,
+                "BLOOM supports 'bloom:bias:<type>' or 'bloom:unbias:<type>'",
+                "BLOOM",
+            ),
+        }
+        if prefix not in three_part_bias_behaviors:
+            raise ValueError(
+                "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'bloom:bias:<type|all>' | 'bloom:unbias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
+            )
 
+        allowed_types, allowed_kinds, kind_error, support_label = (
+            three_part_bias_behaviors[prefix]
+        )
         return _resolve_bias_behavior(
-            "bloom",
+            prefix,
             kind,
             bias_type,
-            BLOOM_BIAS_TYPES,
-            BIAS_KINDS,
-            "BLOOM supports 'bloom:bias:<type>' or 'bloom:unbias:<type>'",
-            "BLOOM",
+            allowed_types,
+            allowed_kinds,
+            kind_error,
+            support_label,
         )
 
     raise ValueError(
