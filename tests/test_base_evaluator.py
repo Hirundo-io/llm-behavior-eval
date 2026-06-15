@@ -307,8 +307,13 @@ def test_dataset_is_tokenized_with_left_padding(
     capture_state: CaptureState,
     stub_tokenizer: StubTokenizer,
 ) -> None:
-    # The tokenizer defaults to right-padding; the evaluator must flip it to
-    # "left" before the dataset is tokenized in prepare_dataloader().
+    """Inputs must be left-padded for correct decoder-only generation.
+
+    The tokenizer defaults to right-padding; the evaluator must flip it to
+    "left" BEFORE the dataset is tokenized in prepare_dataloader(). Setting it
+    afterwards (the previous bug) leaves the cached inputs right-padded, which
+    produces garbage generations.
+    """
     assert stub_tokenizer.padding_side == "right"  # default before init
 
     evaluation_config = EvaluationConfig(
