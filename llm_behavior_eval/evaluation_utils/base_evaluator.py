@@ -171,10 +171,6 @@ class BaseEvaluator(ABC):
             )
         self.tokenizer = self.eval_engine.tokenizer
         self.trust_remote_code = self.eval_config.trust_remote_code
-        # Must be set BEFORE prepare_dataloader(): the dataset is tokenized and
-        # padded to max_length inside prepare_dataloader(), and decoder-only
-        # generation requires left-padding to produce correct outputs. Setting
-        # this afterwards leaves the already-tokenized inputs right-padded.
         self.tokenizer.padding_side = "left"
         self.prepare_dataloader()
         self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
