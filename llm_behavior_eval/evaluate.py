@@ -32,6 +32,12 @@ from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 torch.set_float32_matmul_precision("high")
 
 BIAS_KINDS = {"bias", "unbias"}
+BBQ_BIAS_BEHAVIOR = (
+    BBQ_BIAS_TYPES,
+    BIAS_KINDS,
+    "For BBQ use 'bias:<bias_type>' or 'unbias:<bias_type>'",
+    "BBQ",
+)
 THREE_PART_BIAS_BEHAVIORS: dict[str, tuple[set[str], set[str], str, str]] = {
     "unqover": (
         UNQOVER_BIAS_TYPES,
@@ -145,18 +151,16 @@ def _behavior_presets(behavior: str) -> list[str]:
     #   - bias_type can be a concrete type or 'all'
     if len(behavior_parts) == 2:
         kind, bias_type = behavior_parts
-        if kind not in BIAS_KINDS:
-            raise ValueError("For BBQ use 'bias:<bias_type>' or 'unbias:<bias_type>'")
-
-        if bias_type == "all":
-            return [
-                f"hirundo-io/bbq-{bias_type}-{kind}-free-text"
-                for bias_type in sorted(BBQ_BIAS_TYPES)
-            ]
-        if bias_type not in BBQ_BIAS_TYPES:
-            allowed = ", ".join(sorted(list(BBQ_BIAS_TYPES)) + ["all"])
-            raise ValueError(f"BBQ supports: {allowed}")
-        return [f"hirundo-io/bbq-{bias_type}-{kind}-free-text"]
+        allowed_types, allowed_kinds, kind_error, support_label = BBQ_BIAS_BEHAVIOR
+        return _resolve_bias_behavior(
+            "bbq",
+            kind,
+            bias_type,
+            allowed_types,
+            allowed_kinds,
+            kind_error,
+            support_label,
+        )
 
     if len(behavior_parts) == 3:
         prefix, kind, bias_type = behavior_parts
