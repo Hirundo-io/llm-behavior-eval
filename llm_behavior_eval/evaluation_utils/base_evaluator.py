@@ -66,21 +66,6 @@ except ImportError:
     RunStatus = None
 
 
-def active_mlflow_run_id() -> str | None:
-    """
-    Return the ID of the active MLflow run, if one exists.
-
-    Returns:
-        The active MLflow run ID, or None when MLflow is unavailable or no run is active.
-    """
-    if not mlflow:
-        return None
-    active_run = mlflow.active_run()
-    if active_run is None:
-        return None
-    return active_run.info.run_id
-
-
 def end_active_mlflow_run(error: bool = False) -> None:
     """
     End the active MLflow run with a status that reflects whether evaluation failed.
@@ -171,17 +156,6 @@ class BaseEvaluator(ABC):
             self.eval_config.lora_path_or_repo_id,
             self.mlflow_config.mlflow_tracking_uri if self.mlflow_config else None,
         )
-        if self.mlflow_config:
-            self._init_mlflow()
-            if inferred_step is not None:
-                logging.info(
-                    "Inferred MLflow metric step %s from LoRA checkpoint path %s",
-                    inferred_step,
-                    self.eval_config.lora_path_or_repo_id,
-                )
-                self._inferred_mlflow_metric_step = self._resolve_mlflow_metric_step(
-                    inferred_step
-                )
 
         self.data_collator = default_data_collator
         if self.model_engine == "vllm":
@@ -212,6 +186,17 @@ class BaseEvaluator(ABC):
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
         self._remembered_run_config_action: str | None = None
         self._remember_choice_prompt_asked = False
+        if self.mlflow_config:
+            self._init_mlflow()
+            if inferred_step is not None:
+                logging.info(
+                    "Inferred MLflow metric step %s from LoRA checkpoint path %s",
+                    inferred_step,
+                    self.eval_config.lora_path_or_repo_id,
+                )
+                self._inferred_mlflow_metric_step = self._resolve_mlflow_metric_step(
+                    inferred_step
+                )
         if self.eval_config.mlflow_config and mlflow:
             mlflow.log_metric("num_samples_evaluated", float(self.num_samples))
 
@@ -690,34 +675,6 @@ class BaseEvaluator(ABC):
         normalized_dataframe = dataframe.replace("", pd.NA)
         return normalized_dataframe.dropna(axis=1, how="all")
 
-    @staticmethod
-    def _preserve_directional_metric_pairs(dataframe: pd.DataFrame) -> pd.DataFrame:
-        """Keep paired directional metrics together in the summary schema.
-
-        Some metrics come in directional pairs (e.g. accuracy/error) that should
-        always appear together so the summary CSV has a stable set of columns.
-        When only one column of a pair is present, the missing one is added as an
-        all-empty column.
-
-        Args:
-            dataframe: Summary dataframe whose columns may be missing one half of
-                a directional metric pair.
-
-        Returns:
-            The dataframe with both columns of each directional pair present.
-        """
-        directional_metric_pairs = [
-            ("Accuracy (%) ⬆️", "Error (%) ⬇️"),
-        ]
-        for first_column, second_column in directional_metric_pairs:
-            has_first = first_column in dataframe.columns
-            has_second = second_column in dataframe.columns
-            if has_first and not has_second:
-                dataframe[second_column] = pd.NA
-            if has_second and not has_first:
-                dataframe[first_column] = pd.NA
-        return dataframe
-
     def _append_summary_row(
         self,
         summary_file_path: Path,
@@ -734,7 +691,12 @@ class BaseEvaluator(ABC):
             combined_summary = self._drop_empty_columns(summary_row)
 
         combined_summary = self._drop_empty_columns(combined_summary)
-        combined_summary = self._preserve_directional_metric_pairs(combined_summary)
+        has_accuracy = "Accuracy (%) ⬆️" in combined_summary.columns
+        has_error = "Error (%) ⬇️" in combined_summary.columns
+        if has_accuracy and not has_error:
+            combined_summary["Error (%) ⬇️"] = pd.NA
+        if has_error and not has_accuracy:
+            combined_summary["Accuracy (%) ⬆️"] = pd.NA
         combined_summary.to_csv(summary_file_path, index=False, float_format="%.3f")
 
     @property

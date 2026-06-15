@@ -257,6 +257,51 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
     assert capture_state.engine_dataset == evaluator.eval_dataset
 
 
+def test_mlflow_initializes_after_dataloader_preparation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capture_state: CaptureState,
+) -> None:
+    class _MlflowRunInfo:
+        run_id = "run-id"
+
+    class _MlflowRun:
+        info = _MlflowRunInfo()
+
+    class _MlflowStub:
+        def active_run(self) -> None:
+            return None
+
+        def set_tracking_uri(self, _tracking_uri: str) -> None:
+            return None
+
+        def set_experiment(self, _experiment_name: str) -> None:
+            return None
+
+        def start_run(self, *, run_name: str) -> _MlflowRun:
+            del run_name
+            assert capture_state.set_dataset_calls
+            return _MlflowRun()
+
+        def log_metric(self, _key: str, _value: float) -> None:
+            return None
+
+    monkeypatch.setattr(base_evaluator_module, "mlflow", _MlflowStub())
+
+    ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+            mlflow_config=MlflowConfig(),
+        ),
+        DatasetConfig(
+            file_path="repo/dataset",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+
 def test_dataset_is_tokenized_with_left_padding(
     tmp_path: Path,
     capture_state: CaptureState,

@@ -10,10 +10,6 @@ import typer
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
-from llm_behavior_eval.evaluation_utils.base_evaluator import (
-    active_mlflow_run_id,
-    end_active_mlflow_run,
-)
 from llm_behavior_eval.evaluation_utils.dataset_config import (
     DatasetConfig,
     PreprocessConfig,
@@ -79,12 +75,6 @@ def _resolve_bias_behavior(
     return [f"hirundo-io/{prefix}-{bias_type}-{kind}-free-text"]
 
 
-def _is_dataset_not_found_error(exc: Exception) -> bool:
-    return isinstance(exc, RuntimeError) and str(exc).startswith(
-        "Failed to load dataset "
-    )
-
-
 def _skip_dataset_if_not_found(exc: Exception, file_path: str) -> None:
     """Log and swallow a missing-dataset error, re-raising anything else.
 
@@ -95,7 +85,9 @@ def _skip_dataset_if_not_found(exc: Exception, file_path: str) -> None:
     Raises:
         Exception: Re-raises ``exc`` when it is not a missing-dataset error.
     """
-    if not _is_dataset_not_found_error(exc):
+    if not (
+        isinstance(exc, RuntimeError) and str(exc).startswith("Failed to load dataset ")
+    ):
         raise exc
     logging.warning(
         "Skipping dataset %s because it could not be loaded: %s",
@@ -702,18 +694,11 @@ def main(
                     seed=seed,
                 )
                 if evaluator is None:
-                    initial_mlflow_run_id = active_mlflow_run_id()
                     try:
                         evaluator = EvaluateFactory.create_evaluator(
                             eval_config, dataset_config
                         )
                     except Exception as exc:
-                        active_run_id = active_mlflow_run_id()
-                        if (
-                            active_run_id is not None
-                            and active_run_id != initial_mlflow_run_id
-                        ):
-                            end_active_mlflow_run(error=True)
                         _skip_dataset_if_not_found(exc, file_path)
                         continue
                 else:
