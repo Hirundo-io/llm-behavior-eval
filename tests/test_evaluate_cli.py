@@ -246,7 +246,6 @@ def test_main_does_not_create_vllm_config_when_not_using_vllm(
 def test_main_validates_vllm_config_only_with_vllm(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
-    """Test that vllm_config can only be used when vLLM is actually enabled."""
     # This would raise an error when instantiating EvaluationConfig
     # with vllm_config but no vLLM engine selected
     from pathlib import Path
@@ -268,7 +267,6 @@ def test_main_validates_vllm_config_only_with_vllm(
 
 
 def test_eval_config_validates_lora_only_with_vllm() -> None:
-    """Test that lora_path_or_repo_id can only be used when vLLM is enabled."""
     from pathlib import Path
 
     from llm_behavior_eval.evaluation_utils.eval_config import (
@@ -289,7 +287,6 @@ def test_eval_config_validates_lora_only_with_vllm() -> None:
 
 
 def test_eval_config_allows_lora_with_vllm_inference_engine() -> None:
-    """Test that lora_path_or_repo_id is allowed when inference_engine is vllm."""
     from pathlib import Path
 
     from llm_behavior_eval.evaluation_utils.eval_config import (
@@ -307,7 +304,6 @@ def test_eval_config_allows_lora_with_vllm_inference_engine() -> None:
 
 
 def test_eval_config_allows_lora_with_vllm_model_engine() -> None:
-    """Test that lora_path_or_repo_id is allowed when model_engine is vllm."""
     from pathlib import Path
 
     from llm_behavior_eval.evaluation_utils.eval_config import (
@@ -325,7 +321,6 @@ def test_eval_config_allows_lora_with_vllm_model_engine() -> None:
 
 
 def test_eval_config_allows_lora_with_vllm_config() -> None:
-    """Test that lora_path_or_repo_id is allowed when vllm_config is provided."""
     from pathlib import Path
 
     from llm_behavior_eval.evaluation_utils.eval_config import (
@@ -347,7 +342,6 @@ def test_eval_config_allows_lora_with_vllm_config() -> None:
 
 
 def test_eval_config_allows_none_lora_path() -> None:
-    """Test that lora_path_or_repo_id can be None."""
     from pathlib import Path
 
     from llm_behavior_eval.evaluation_utils.eval_config import (
@@ -412,7 +406,6 @@ def test_eval_config_rejects_parent_traversal_in_model_output_dir() -> None:
 def test_main_passes_answer_tokens_and_judge_tokens_via_cli(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
-    """Test that max_answer_tokens and max_judge_tokens CLI options are passed correctly."""
     evaluate.main(
         "fake/model",
         "hallu",
@@ -427,7 +420,6 @@ def test_main_passes_answer_tokens_and_judge_tokens_via_cli(
 def test_main_uses_default_answer_and_judge_tokens(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
-    """Test that default values are applied when tokens are not specified."""
     evaluate.main("fake/model", "hallu")
     eval_config = capture_eval_config[-1]
     assert eval_config.max_answer_tokens == 128  # Default from EvaluationConfig
@@ -437,7 +429,6 @@ def test_main_uses_default_answer_and_judge_tokens(
 def test_main_passes_model_inference_config_options(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
-    """Test that model inference options are passed correctly."""
     evaluate.main(
         "fake/model",
         "hallu",
@@ -454,7 +445,6 @@ def test_main_passes_model_inference_config_options(
 def test_main_passes_judge_inference_config_options(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
-    """Test that judge inference options are passed correctly."""
     evaluate.main(
         "fake/model",
         "hallu",

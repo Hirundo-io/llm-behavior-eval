@@ -140,11 +140,7 @@ class BaseEvaluator(ABC):
         self._set_seed()
 
         # MLflow config (optional)
-        self.mlflow_config: MlflowConfig | None = (
-            self.eval_config.mlflow_config
-            if hasattr(self.eval_config, "mlflow_config")
-            else None
-        )
+        self.mlflow_config: MlflowConfig | None = self.eval_config.mlflow_config
         self.mlflow_run = None
         self.parent_run = None
         self._started_mlflow_run = False
