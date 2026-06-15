@@ -14,7 +14,12 @@ from llm_behavior_eval.evaluation_utils.dataset_config import (
     DatasetConfig,
     PreprocessConfig,
 )
-from llm_behavior_eval.evaluation_utils.enums import DatasetType
+from llm_behavior_eval.evaluation_utils.enums import (
+    BBQ_BIAS_TYPES,
+    BLOOM_BIAS_TYPES,
+    UNQOVER_BIAS_TYPES,
+    DatasetType,
+)
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
@@ -27,6 +32,20 @@ from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 torch.set_float32_matmul_precision("high")
 
 BIAS_KINDS = {"bias", "unbias"}
+THREE_PART_BIAS_BEHAVIORS: dict[str, tuple[set[str], set[str], str, str]] = {
+    "unqover": (
+        UNQOVER_BIAS_TYPES,
+        {"bias"},
+        "UNQOVER supports only 'bias:<bias_type>' (no 'unbias' for UNQOVER)",
+        "UNQOVER",
+    ),
+    "bloom": (
+        BLOOM_BIAS_TYPES,
+        BIAS_KINDS,
+        "BLOOM supports 'bloom:bias:<type>' or 'bloom:unbias:<type>'",
+        "BLOOM",
+    ),
+}
 HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
@@ -74,27 +93,6 @@ def _resolve_bias_behavior(
     if bias_type not in allowed_types:
         raise ValueError(f"{support_label} supports: {allowed_with_all}")
     return [f"hirundo-io/{prefix}-{bias_type}-{kind}-free-text"]
-
-
-def _skip_dataset_if_not_found(exc: Exception, file_path: str) -> None:
-    """Log and swallow a missing-dataset error, re-raising anything else.
-
-    Args:
-        exc: Exception raised while loading or evaluating a dataset.
-        file_path: Identifier of the dataset being processed, used for logging.
-
-    Raises:
-        Exception: Re-raises ``exc`` when it is not a missing-dataset error.
-    """
-    if not (
-        isinstance(exc, RuntimeError) and str(exc).startswith("Failed to load dataset ")
-    ):
-        raise exc
-    logging.warning(
-        "Skipping dataset %s because it could not be loaded: %s",
-        file_path,
-        exc,
-    )
 
 
 def _default_results_dir() -> Path:
@@ -149,7 +147,6 @@ def _behavior_presets(behavior: str) -> list[str]:
         kind, bias_type = behavior_parts
         if kind not in BIAS_KINDS:
             raise ValueError("For BBQ use 'bias:<bias_type>' or 'unbias:<bias_type>'")
-        from llm_behavior_eval.evaluation_utils.enums import BBQ_BIAS_TYPES
 
         if bias_type == "all":
             return [
@@ -163,30 +160,11 @@ def _behavior_presets(behavior: str) -> list[str]:
 
     if len(behavior_parts) == 3:
         prefix, kind, bias_type = behavior_parts
-        from llm_behavior_eval.evaluation_utils.enums import (
-            BLOOM_BIAS_TYPES,
-            UNQOVER_BIAS_TYPES,
-        )
-
-        three_part_bias_behaviors = {
-            "unqover": (
-                UNQOVER_BIAS_TYPES,
-                {"bias"},
-                "UNQOVER supports only 'bias:<bias_type>' (no 'unbias' for UNQOVER)",
-                "UNQOVER",
-            ),
-            "bloom": (
-                BLOOM_BIAS_TYPES,
-                BIAS_KINDS,
-                "BLOOM supports 'bloom:bias:<type>' or 'bloom:unbias:<type>'",
-                "BLOOM",
-            ),
-        }
-        if prefix not in three_part_bias_behaviors:
+        if prefix not in THREE_PART_BIAS_BEHAVIORS:
             raise ValueError(BEHAVIOR_PRESET_ERROR)
 
         allowed_types, allowed_kinds, kind_error, support_label = (
-            three_part_bias_behaviors[prefix]
+            THREE_PART_BIAS_BEHAVIORS[prefix]
         )
         return _resolve_bias_behavior(
             prefix,
@@ -702,25 +680,13 @@ def main(
                     seed=seed,
                 )
                 if evaluator is None:
-                    try:
-                        evaluator = EvaluateFactory.create_evaluator(
-                            eval_config, dataset_config
-                        )
-                    except Exception as exc:
-                        _skip_dataset_if_not_found(exc, file_path)
-                        continue
+                    evaluator = EvaluateFactory.create_evaluator(
+                        eval_config, dataset_config
+                    )
                 else:
-                    try:
-                        evaluator.update_dataset_config(dataset_config)
-                    except Exception as exc:
-                        _skip_dataset_if_not_found(exc, file_path)
-                        continue
+                    evaluator.update_dataset_config(dataset_config)
 
-                try:
-                    generation_records = evaluator.generate()
-                except Exception as exc:
-                    _skip_dataset_if_not_found(exc, file_path)
-                    continue
+                generation_records = evaluator.generate()
 
                 dataset_configs.append(dataset_config)
                 dataset_file_paths.append(file_path)
@@ -740,11 +706,7 @@ def main(
                 generation_lists, dataset_configs, dataset_file_paths, strict=True
             ):
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
-                try:
-                    evaluator.update_dataset_config(dataset_config)
-                except Exception as exc:
-                    _skip_dataset_if_not_found(exc, file_path)
-                    continue
+                evaluator.update_dataset_config(dataset_config)
                 with evaluator.dataset_mlflow_run():
                     evaluator.grade(generations, judge)
         evaluation_error = False
