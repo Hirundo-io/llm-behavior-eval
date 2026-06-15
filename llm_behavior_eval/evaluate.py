@@ -30,6 +30,7 @@ BIAS_KINDS = {"bias", "unbias"}
 HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
+BEHAVIOR_PRESET_ERROR = "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'bloom:bias:<type|all>' | 'bloom:unbias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
 TRUSTED_MODEL_PROVIDERS = {
     "hirundo-io",
     "nvidia",
@@ -182,9 +183,7 @@ def _behavior_presets(behavior: str) -> list[str]:
             ),
         }
         if prefix not in three_part_bias_behaviors:
-            raise ValueError(
-                "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'bloom:bias:<type|all>' | 'bloom:unbias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
-            )
+            raise ValueError(BEHAVIOR_PRESET_ERROR)
 
         allowed_types, allowed_kinds, kind_error, support_label = (
             three_part_bias_behaviors[prefix]
@@ -199,9 +198,7 @@ def _behavior_presets(behavior: str) -> list[str]:
             support_label,
         )
 
-    raise ValueError(
-        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'bloom:bias:<type|all>' | 'bloom:unbias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
-    )
+    raise ValueError(BEHAVIOR_PRESET_ERROR)
 
 
 def main(
