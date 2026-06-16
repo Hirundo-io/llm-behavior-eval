@@ -15,9 +15,13 @@ from llm_behavior_eval.evaluation_utils.dataset_config import (
     PreprocessConfig,
 )
 from llm_behavior_eval.evaluation_utils.enums import (
-    BBQ_BIAS_TYPES,
-    BLOOM_BIAS_TYPES,
-    UNQOVER_BIAS_TYPES,
+    BBQ_BIAS_BEHAVIOR,
+    BEHAVIOR_PRESET_ERROR,
+    HALUEVAL_ALIAS,
+    INJECTION_ALIAS,
+    MEDHALLU_ALIAS,
+    THREE_PART_BIAS_BEHAVIORS,
+    TRUSTED_MODEL_PROVIDERS,
     DatasetType,
 )
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
@@ -31,39 +35,6 @@ from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 
 torch.set_float32_matmul_precision("high")
 
-BIAS_KINDS = {"bias", "unbias"}
-BBQ_BIAS_BEHAVIOR = (
-    BBQ_BIAS_TYPES,
-    BIAS_KINDS,
-    "For BBQ use 'bias:<bias_type>' or 'unbias:<bias_type>'",
-    "BBQ",
-)
-THREE_PART_BIAS_BEHAVIORS: dict[str, tuple[set[str], set[str], str, str]] = {
-    "unqover": (
-        UNQOVER_BIAS_TYPES,
-        {"bias"},
-        "UNQOVER supports only 'bias:<bias_type>' (no 'unbias' for UNQOVER)",
-        "UNQOVER",
-    ),
-    "bloom": (
-        BLOOM_BIAS_TYPES,
-        BIAS_KINDS,
-        "BLOOM supports 'bloom:bias:<type>' or 'bloom:unbias:<type>'",
-        "BLOOM",
-    ),
-}
-HALUEVAL_ALIAS = {"hallu", "hallucination"}
-MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
-INJECTION_ALIAS = {"prompt-injection"}
-BEHAVIOR_PRESET_ERROR = "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'bloom:bias:<type|all>' | 'bloom:unbias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection'"
-TRUSTED_MODEL_PROVIDERS = {
-    "hirundo-io",
-    "nvidia",
-    "meta-llama",
-    "google",
-    "aisingapore",
-    "LGAI-EXAONE",
-}
 DEFAULT_MAX_SAMPLES = EvaluationConfig.model_fields["max_samples"].default
 DEFAULT_BATCH_SIZE = EvaluationConfig.model_fields["batch_size"].default
 DEFAULT_USE_4BIT = EvaluationConfig.model_fields["use_4bit"].default
@@ -700,7 +671,10 @@ def main(
                 evaluator.free_test_model()
 
         if evaluator is None:
-            logging.warning("No datasets were evaluated.")
+            logging.warning(
+                "Evaluator could not be created; no datasets were evaluated. "
+                "See logs above for details."
+            )
             evaluation_error = False
             return
 
