@@ -11,7 +11,7 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from .dataset_config import PreprocessConfig
 from .enums import DatasetType
 from .prompts import SYSTEM_PROMPT_DICT
-from .refusal_utils import is_refusal_dataset, normalize_refusal_dataset
+from .refusal_utils import REFUSAL_DATASETS, normalize_refusal_dataset
 from .util_functions import is_model_multimodal, safe_apply_chat_template
 
 
@@ -236,7 +236,7 @@ class CustomDataset:
         Returns:
             A tokenized dataset ready for evaluation.
         """
-        refusal_dataset = is_refusal_dataset(self.file_path)
+        refusal_dataset = str(self.file_path) in REFUSAL_DATASETS
         dataset = normalize_refusal_dataset(self.ds) if refusal_dataset else self.ds
         validate_dataset_columns(dataset)
         old_columns = dataset.column_names

@@ -13,8 +13,6 @@ from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.refusal_utils import (
     OR_BENCH_DATASET,
     REFUSAL_PLACEHOLDER_ANSWER,
-    XSTEST_DATASET,
-    is_refusal_dataset,
     normalize_refusal_dataset,
 )
 
@@ -65,12 +63,6 @@ def test_normalize_refusal_dataset_rejects_unknown_labels():
 
     with pytest.raises(ValueError, match="must be 'safe' or 'unsafe'"):
         normalize_refusal_dataset(ds)
-
-
-def test_is_refusal_dataset_matches_supported_refusal_datasets():
-    assert is_refusal_dataset(XSTEST_DATASET)
-    assert is_refusal_dataset(OR_BENCH_DATASET)
-    assert not is_refusal_dataset("hirundo-io/halueval")
 
 
 def test_free_text_preprocess_function_omits_default_system_prompt_when_disabled(
