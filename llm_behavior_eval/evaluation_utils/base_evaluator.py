@@ -10,7 +10,7 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, cast
 
 import pandas as pd
 import torch
@@ -819,15 +819,24 @@ class BaseEvaluator(ABC):
         elif self.eval_config.sampling_config.seed is not None:
             set_seed(self.eval_config.sampling_config.seed)
 
-    def _mlflow_identifier_key(self, name: str) -> str:
-        """Sanitize a dataset slug or metric name for MLflow keys."""
-        sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", name.strip())
+    def _sanitize_mlflow_key(
+        self, name: str, mode: Literal["dataset_prefix", "summary_metric"]
+    ) -> str:
+        """Sanitize an MLflow key according to the metric source."""
+        if mode == "dataset_prefix":
+            sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", name.strip())
+        else:
+            sanitized = re.sub(r"[^a-zA-Z0-9\s]", "", name)
+            sanitized = re.sub(r"\s+", "_", sanitized.strip("_"))
+
         sanitized = re.sub(r"_+", "_", sanitized).strip("_")
         return sanitized or "value"
 
     def _mlflow_metric_key(self, name: str) -> str:
-        dataset = self._mlflow_identifier_key(self.get_dataset_slug())
-        base = self._mlflow_identifier_key(name)
+        dataset = self._sanitize_mlflow_key(
+            self.get_dataset_slug(), mode="dataset_prefix"
+        )
+        base = self._sanitize_mlflow_key(name, mode="dataset_prefix")
         return f"{dataset}_{base}"
 
     def _log_mlflow_metrics(self, metrics: dict[str, Any]) -> None:
@@ -854,18 +863,6 @@ class BaseEvaluator(ABC):
             current_run_id,
         )
         return None
-
-    def _sanitize_mlflow_key(self, name: str) -> str:
-        """Return a key safe for MLflow params/metrics: alphanumeric and underscores only.
-
-        Returns:
-            Sanitized key (e.g. "Attack_success_rate" from "Attack success rate (%) ⬇️").
-        """
-        # Keep only letters, digits, spaces; replace % and other symbols with nothing
-        s = re.sub(r"[^a-zA-Z0-9\s]", "", name)
-        s = re.sub(r"\s+", "_", s.strip("_"))
-        s = re.sub(r"_+", "_", s).strip("_")
-        return s or "value"
 
     def _log_mlflow_artifacts(self) -> None:
         """Log evaluation artifacts to MLflow.
@@ -902,7 +899,7 @@ class BaseEvaluator(ABC):
                 if not summary_df.empty:
                     last_row = summary_df.iloc[-1]
                     for col in summary_df.columns:
-                        key = self._sanitize_mlflow_key(col)
+                        key = self._sanitize_mlflow_key(col, mode="summary_metric")
                         if not key:
                             continue
                         val = last_row[col]
