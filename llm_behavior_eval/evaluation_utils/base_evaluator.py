@@ -66,6 +66,31 @@ except ImportError:
     RunStatus = None
 
 
+def end_active_mlflow_run(error: bool = False) -> None:
+    """
+    End the active MLflow run with a status that reflects whether evaluation failed.
+
+    Args:
+        error: If True, mark the run as FAILED; otherwise mark it as FINISHED.
+    """
+    if not mlflow:
+        return
+    active_run = mlflow.active_run()
+    if active_run is None:
+        return
+    run_id = active_run.info.run_id
+    if RunStatus is not None:
+        status = (
+            RunStatus.to_string(RunStatus.FAILED)
+            if error
+            else RunStatus.to_string(RunStatus.FINISHED)
+        )
+    else:
+        status = "FAILED" if error else "FINISHED"
+    mlflow.end_run(status=status)
+    logging.info("Ended MLflow run %s", run_id)
+
+
 def custom_collator(batch):
     return {
         key: torch.nn.utils.rnn.pad_sequence(
@@ -115,11 +140,7 @@ class BaseEvaluator(ABC):
         self._set_seed()
 
         # MLflow config (optional)
-        self.mlflow_config: MlflowConfig | None = (
-            self.eval_config.mlflow_config
-            if hasattr(self.eval_config, "mlflow_config")
-            else None
-        )
+        self.mlflow_config: MlflowConfig | None = self.eval_config.mlflow_config
         self.mlflow_run = None
         self.parent_run = None
         self._started_mlflow_run = False
@@ -132,17 +153,6 @@ class BaseEvaluator(ABC):
             self.eval_config.lora_path_or_repo_id,
             self.mlflow_config.mlflow_tracking_uri if self.mlflow_config else None,
         )
-        if self.mlflow_config:
-            self._init_mlflow()
-            if inferred_step is not None:
-                logging.info(
-                    "Inferred MLflow metric step %s from LoRA checkpoint path %s",
-                    inferred_step,
-                    self.eval_config.lora_path_or_repo_id,
-                )
-                self._inferred_mlflow_metric_step = self._resolve_mlflow_metric_step(
-                    inferred_step
-                )
 
         self.data_collator = default_data_collator
         if self.model_engine == "vllm":
@@ -162,13 +172,26 @@ class BaseEvaluator(ABC):
             )
         self.tokenizer = self.eval_engine.tokenizer
         self.trust_remote_code = self.eval_config.trust_remote_code
+        self.tokenizer.padding_side = "left"
         self.prepare_dataloader()
         self.ensure_test_model_ready = self.eval_engine.ensure_test_model_ready
-        self.tokenizer.padding_side = "left"
         # set stereotype availability flag from underlying dataset
         self.has_stereotype: bool = getattr(self, "has_stereotype", False)
         self._remembered_run_config_action: str | None = None
         self._remember_choice_prompt_asked = False
+        if self.mlflow_config:
+            self._init_mlflow()
+            if inferred_step is not None:
+                logging.info(
+                    "Inferred MLflow metric step %s from LoRA checkpoint path %s",
+                    inferred_step,
+                    self.eval_config.lora_path_or_repo_id,
+                )
+                self._inferred_mlflow_metric_step = self._resolve_mlflow_metric_step(
+                    inferred_step
+                )
+        if self.eval_config.mlflow_config and mlflow:
+            mlflow.log_metric("num_samples_evaluated", float(self.num_samples))
 
         self._ensure_run_configuration_allowed()
 
@@ -584,6 +607,9 @@ class BaseEvaluator(ABC):
             # UNQOVER: unqover-<bias_type>-bias-free-text
             if parts[0] == "unqover" and len(parts) >= 2:
                 return f"UNQOVER: {parts[1]} {dataset_type_label}"
+            # Bloom: bloom-<bias_type>-<kind>-free-text
+            if parts[0] == "bloom" and len(parts) >= 2:
+                return f"Bloom: {parts[1]} {dataset_type_label}"
             # Hallucination datasets
             if slug.startswith("halueval"):
                 return "halueval"
@@ -675,20 +701,7 @@ class BaseEvaluator(ABC):
         """
         if not self.mlflow_config or not mlflow:
             return
-        active_run = mlflow.active_run()
-        if active_run is None:
-            return
-        run_id = active_run.info.run_id
-        if RunStatus is not None:
-            status = (
-                RunStatus.to_string(RunStatus.FAILED)
-                if error
-                else RunStatus.to_string(RunStatus.FINISHED)
-            )
-        else:
-            status = "FAILED" if error else "FINISHED"
-        mlflow.end_run(status=status)
-        logging.info("Ended MLflow run %s", run_id)
+        end_active_mlflow_run(error=error)
 
     # Hook: override in subclasses that want the dataset type in the output dir name
     def should_include_dataset_type_in_output_dir(self) -> bool:
