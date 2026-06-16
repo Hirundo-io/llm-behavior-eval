@@ -7,10 +7,35 @@ from pydantic.functional_validators import model_validator
 from .sampling_config import SamplingConfig
 from .vllm_config import VllmConfig
 
+EvaluatorFamily = Literal["bias", "hallucination", "prompt-injection", "refusal"]
+
+FAMILY_TOKEN_DEFAULTS: dict[EvaluatorFamily, dict[str, int | bool]] = {
+    "bias": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "sample_judge": False,
+    },
+    "hallucination": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "sample_judge": False,
+    },
+    "prompt-injection": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "sample_judge": False,
+    },
+    "refusal": {
+        "max_answer_tokens": 256,
+        "max_judge_tokens": 128,
+        "sample_judge": False,
+    },
+}
+
 
 class EvaluationConfig(BaseModel):
     """
-    Configuration for bias evaluation.
+    Configuration for behavior evaluation.
 
     Args:
         max_samples: Optional limit on the number of examples to process. Use None to evaluate the full set.
@@ -20,15 +45,18 @@ class EvaluationConfig(BaseModel):
             This is only relevant for the model under test.
         device_map: Device map for model inference. If None, will be set to "auto".
         max_answer_tokens: Number of tokens to generate per answer. Typical range is 32-256.
+            Use None to apply the evaluator-family default at runtime.
         pass_max_answer_tokens: Whether to pass max_answer_tokens to the model.
         model_path_or_repo_id: HF repo ID or path of the model under test (e.g. "meta-llama/Llama-3.1-8B-Instruct").
         model_output_dir: Optional override for the model output directory slug under results_dir.
         model_token: HuggingFace token for the model under test.
         judge_batch_size: Batch size for the judge model (free-text tasks only). If None, will be adjusted for GPU limits.
         max_judge_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
+            Use None to apply the evaluator-family default at runtime.
         judge_path_or_repo_id: HF repo ID or path of the judge model (e.g. "meta-llama/Llama-3.3-70B-Instruct").
         judge_token: HuggingFace token for the judge model. Defaults to the value of `model_token` if not provided.
-        sample_judge: Whether to sample outputs from the judge model (True) or generate deterministically (False). Defaults to False.
+        sample_judge: Whether to sample outputs from the judge model (True) or generate deterministically (False).
+            Use None to apply the evaluator-family default at runtime.
         use_4bit_judge: Whether to load the judge model in 4-bit mode (using bitsandbytes).
             This is only relevant for the judge model.
         inference_engine: Whether to run inference with vLLM instead of transformers. Overrides model_engine and judge_engine arguments.
@@ -44,6 +72,7 @@ class EvaluationConfig(BaseModel):
         trust_remote_code: Whether to trust remote code when loading models.
         sampling_config: Sampling configuration for model inference.
         mlflow_config: MLflow configuration for tracking (optional).
+        evaluator_family: Evaluator family for the current invocation, if known.
     """
 
     max_samples: None | int = 500
@@ -51,17 +80,17 @@ class EvaluationConfig(BaseModel):
     sample: bool = False
     use_4bit: bool = False
     device_map: str | dict[str, int] | None = "auto"
-    max_answer_tokens: int = 128
+    max_answer_tokens: int | None = None
     pass_max_answer_tokens: bool = False
     model_path_or_repo_id: str
     model_output_dir: str | None = None
     lora_path_or_repo_id: str | None = None
     model_token: str | None = None
     judge_batch_size: None | int = None
-    max_judge_tokens: int = 32
+    max_judge_tokens: int | None = None
     judge_path_or_repo_id: str = "google/gemma-3-12b-it"
     judge_token: str | None = None
-    sample_judge: bool = False
+    sample_judge: bool | None = None
     use_4bit_judge: bool = False
     inference_engine: Literal["vllm", "transformers"] | None = None
     model_engine: Literal["vllm", "transformers"] = "transformers"
@@ -77,6 +106,7 @@ class EvaluationConfig(BaseModel):
     sampling_config: SamplingConfig = SamplingConfig()
     mlflow_config: "MlflowConfig | None" = None
     replace_existing_output: bool = False
+    evaluator_family: EvaluatorFamily | None = None
 
     @field_validator("model_output_dir")
     @classmethod
@@ -151,6 +181,16 @@ class EvaluationConfig(BaseModel):
                 "thinking_start_token and thinking_end_token must both be specified in order to exclude thinking trace from judgement"
             )
         return self
+
+    def resolve_for_family(self, family: EvaluatorFamily) -> "EvaluationConfig":
+        defaults = FAMILY_TOKEN_DEFAULTS[family]
+        return self.model_copy(
+            update={
+                field: value if (value := getattr(self, field)) is not None else default
+                for field, default in defaults.items()
+            }
+            | {"evaluator_family": family}
+        )
 
 
 class MlflowConfig(BaseModel):

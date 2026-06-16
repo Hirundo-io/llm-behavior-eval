@@ -20,12 +20,21 @@ from llm_behavior_eval.evaluation_utils.enums import (
     HALUEVAL_ALIAS,
     INJECTION_ALIAS,
     MEDHALLU_ALIAS,
+    REFUSAL_ALIAS,
     THREE_PART_BIAS_BEHAVIORS,
     TRUSTED_MODEL_PROVIDERS,
     DatasetType,
 )
-from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.eval_config import (
+    FAMILY_TOKEN_DEFAULTS,
+    EvaluationConfig,
+    EvaluatorFamily,
+)
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
+from llm_behavior_eval.evaluation_utils.refusal_utils import (
+    OR_BENCH_DATASET,
+    XSTEST_DATASET,
+)
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
@@ -39,10 +48,10 @@ DEFAULT_MAX_SAMPLES = EvaluationConfig.model_fields["max_samples"].default
 DEFAULT_BATCH_SIZE = EvaluationConfig.model_fields["batch_size"].default
 DEFAULT_USE_4BIT = EvaluationConfig.model_fields["use_4bit"].default
 DEFAULT_DEVICE_MAP = EvaluationConfig.model_fields["device_map"].default
-DEFAULT_MAX_ANSWER_TOKENS = EvaluationConfig.model_fields["max_answer_tokens"].default
+DEFAULT_MAX_ANSWER_TOKENS = FAMILY_TOKEN_DEFAULTS["bias"]["max_answer_tokens"]
 DEFAULT_JUDGE_BATCH_SIZE = EvaluationConfig.model_fields["judge_batch_size"].default
-DEFAULT_MAX_JUDGE_TOKENS = EvaluationConfig.model_fields["max_judge_tokens"].default
-DEFAULT_SAMPLE_JUDGE = EvaluationConfig.model_fields["sample_judge"].default
+DEFAULT_MAX_JUDGE_TOKENS = FAMILY_TOKEN_DEFAULTS["bias"]["max_judge_tokens"]
+DEFAULT_SAMPLE_JUDGE = FAMILY_TOKEN_DEFAULTS["bias"]["sample_judge"]
 DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
 DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
 DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
@@ -102,6 +111,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     - Bloom: "bloom:bias:<bias_type>" or "bloom:unbias:<bias_type>"
     - Hallucinations: "hallu" or "hallu-med"
     - Prompt injection: "prompt-injection"
+    - Refusal: "refusal:xstest" | "refusal:orbench" | "refusal:all"
     """
     behavior_parts = [part.strip().lower() for part in behavior.split(":")]
 
@@ -112,6 +122,15 @@ def _behavior_presets(behavior: str) -> list[str]:
         return ["hirundo-io/medhallu"]
     if behavior in INJECTION_ALIAS:
         return ["hirundo-io/prompt-injection-purple-llama"]
+    if len(behavior_parts) == 2 and behavior_parts[0] in REFUSAL_ALIAS:
+        _, refusal_dataset = behavior_parts
+        if refusal_dataset == "xstest":
+            return [XSTEST_DATASET]
+        if refusal_dataset == "orbench":
+            return [OR_BENCH_DATASET]
+        if refusal_dataset == "all":
+            return [XSTEST_DATASET, OR_BENCH_DATASET]
+        raise ValueError("Refusal supports: xstest, orbench, all")
 
     # Expected structures:
     # [kind, bias_type] for BBQ, where kind in {bias, unbias}
@@ -164,7 +183,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
         ),
     ],
     output_dir: Annotated[
@@ -454,12 +473,13 @@ def main(
         ),
     ] = DEFAULT_JUDGE_BATCH_SIZE,
     sample_judge: Annotated[
-        bool,
+        bool | None,
         typer.Option(
             "--sample-judge/--no-sample-judge",
             help="Whether to sample outputs from the judge model.",
+            show_default=str(DEFAULT_SAMPLE_JUDGE),
         ),
-    ] = DEFAULT_SAMPLE_JUDGE,
+    ] = None,
     use_4bit_judge: Annotated[
         bool,
         typer.Option(
@@ -503,13 +523,13 @@ def main(
         ),
     ] = DEFAULT_SEED,
     max_answer_tokens: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--max-answer-tokens",
             help="Maximum number of tokens to generate per answer.",
             show_default=str(DEFAULT_MAX_ANSWER_TOKENS),
         ),
-    ] = DEFAULT_MAX_ANSWER_TOKENS,
+    ] = None,
     pass_max_answer_tokens: Annotated[
         bool,
         typer.Option(
@@ -518,13 +538,13 @@ def main(
         ),
     ] = False,
     max_judge_tokens: Annotated[
-        int,
+        int | None,
         typer.Option(
             "--max-judge-tokens",
             help="Maximum number of tokens to generate with the judge model.",
             show_default=str(DEFAULT_MAX_JUDGE_TOKENS),
         ),
-    ] = DEFAULT_MAX_JUDGE_TOKENS,
+    ] = None,
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
@@ -534,6 +554,16 @@ def main(
     file_paths = []
     for behavior in behaviors:
         file_paths.extend(_behavior_presets(behavior))
+    evaluator_families: set[EvaluatorFamily] = {
+        EvaluateFactory.get_evaluator_family(file_path) for file_path in file_paths
+    }
+    if len(evaluator_families) > 1:
+        # TODO: Support mixed evaluator families by instantiating a separate
+        # evaluator per dataset instead of reusing one evaluator across the full run.
+        raise ValueError(
+            "Cannot evaluate behaviors from multiple evaluator families in one invocation."
+        )
+    evaluator_family: EvaluatorFamily | None = next(iter(evaluator_families), None)
 
     logging.basicConfig(
         level=logging.INFO,
@@ -627,6 +657,7 @@ def main(
             top_k=top_k,
             seed=seed,
         ),
+        evaluator_family=evaluator_family,
     )
 
     evaluator = None

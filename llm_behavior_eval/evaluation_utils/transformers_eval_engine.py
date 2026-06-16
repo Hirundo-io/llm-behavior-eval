@@ -12,9 +12,7 @@ from .eval_config import EvaluationConfig
 from .eval_engine import EvalEngine
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
-from .util_functions import (
-    load_transformers_model_and_tokenizer,
-)
+from .util_functions import load_transformers_model_and_tokenizer
 
 
 class TransformersEvalEngine(EvalEngine):

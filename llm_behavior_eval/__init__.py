@@ -3,6 +3,7 @@ from .evaluation_utils.enums import DatasetType
 from .evaluation_utils.eval_config import EvaluationConfig, MlflowConfig
 from .evaluation_utils.evaluate_factory import EvaluateFactory
 from .evaluation_utils.free_text_bias_evaluator import FreeTextBiasEvaluator
+from .evaluation_utils.free_text_refusal_evaluator import FreeTextRefusalEvaluator
 from .evaluation_utils.prompts import SYSTEM_PROMPT_DICT
 from .evaluation_utils.sampling_config import SamplingConfig
 from .evaluation_utils.util_functions import (
@@ -22,6 +23,7 @@ __all__ = [
     "MlflowConfig",
     "VllmConfig",
     "FreeTextBiasEvaluator",
+    "FreeTextRefusalEvaluator",
     "SYSTEM_PROMPT_DICT",
     "SamplingConfig",
     "load_transformers_model_and_tokenizer",

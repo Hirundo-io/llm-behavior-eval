@@ -11,6 +11,7 @@ from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from .dataset_config import PreprocessConfig
 from .enums import DatasetType
 from .prompts import SYSTEM_PROMPT_DICT
+from .refusal_utils import REFUSAL_DATASETS, normalize_refusal_dataset
 from .util_functions import is_model_multimodal, safe_apply_chat_template
 
 
@@ -30,7 +31,7 @@ def validate_dataset_columns(hf_dataset: Dataset) -> None:
 
 
 def free_text_preprocess_function(
-    examples_batch: dict[str, list[str]],
+    examples_batch: dict[str, list[str] | list[int]],
     tokenizer: PreTrainedTokenizerBase,
     max_length: int,
     gt_max_length: int,
@@ -42,6 +43,7 @@ def free_text_preprocess_function(
     pass_max_answer_tokens: bool = False,
     thinking_start_token: str | None = None,
     thinking_end_token: str | None = None,
+    include_default_system_prompt: bool = True,
 ) -> dict[str, torch.Tensor]:
     """
     Preprocesses a batch of examples for free-text datasets.
@@ -59,6 +61,8 @@ def free_text_preprocess_function(
         thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
         thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
         pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
+        include_default_system_prompt: Whether to prepend the shared free-text system prompt
+            when no per-row system prompt override is provided.
 
     Returns:
         A dictionary containing the tokenized input and ground truth sequences.
@@ -85,15 +89,18 @@ def free_text_preprocess_function(
         judge_question_override = row.get("judge_question")
 
         user_msg = {"role": "user", "content": f"{question_text}\n"}
-        system_msg = (
-            {"role": "system", "content": system_override}
-            if system_override
-            else copy(SYSTEM_PROMPT_DICT)
-        )
+        messages = [user_msg]
+        if system_override:
+            messages = [
+                {"role": "system", "content": system_override},
+                user_msg,
+            ]
+        elif include_default_system_prompt:
+            messages = [copy(SYSTEM_PROMPT_DICT), user_msg]
         eval_strings.append(
             safe_apply_chat_template(
                 tokenizer,
-                [system_msg, user_msg],
+                messages,
                 is_multimodal=is_multimodal,
                 max_answer_tokens=max_answer_tokens,
                 enable_thinking=enable_thinking,
@@ -143,31 +150,48 @@ def free_text_preprocess_function(
     }
     if has_stereotype and tokenized_stereotype is not None:
         result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])
+    if "label" in examples_batch:
+        result["refusal_labels"] = torch.tensor(
+            examples_batch["label"], dtype=torch.long
+        )
 
     return result
 
 
 class CustomDataset:
     """
-    A custom dataset that loads data from a CSV file having only the fields "question" and "answer",
+    Loads a HuggingFace dataset for free-text evaluation.
+
+    Supports optional columns such as ``stereotyped_answer``, ``system_prompt``,
+    ``judge_question``, and ``label`` (for refusal benchmarks).
     """
 
     def __init__(
         self,
         file_path: Path | str,
         dataset_type: DatasetType,
+        trust_remote_code: bool = False,
+        token: str | None = None,
     ):
         """
         Initializes the custom dataset with a specified dataset type and behavior type.
 
         Args:
-            file_path: The local path or HuggingFace name of the dataset csv file.
+            file_path: Local path or HuggingFace dataset identifier.
             dataset_type: The type of the dataset (e.g., BIAS or UNBIAS).
+            trust_remote_code: Whether to trust remote code when loading the dataset.
+            token: HuggingFace token for gated or private dataset repos.
         """
         self.file_path = file_path
         self.dataset_type = dataset_type
+        self.trust_remote_code = trust_remote_code
+        self.token = token
         try:
-            raw = load_dataset(str(self.file_path))
+            raw = load_dataset(
+                str(self.file_path),
+                token=token,
+                trust_remote_code=trust_remote_code,
+            )
         except (OSError, ValueError) as exc:
             raise RuntimeError(
                 f"Failed to load dataset '{self.file_path}'. "
@@ -175,53 +199,53 @@ class CustomDataset:
             ) from exc
         if not isinstance(raw, DatasetDict):
             raise ValueError(f"Expected DatasetDict, got {type(raw)}")
-        self.ds = raw["train"]
+        if "train" in raw:
+            self.ds = raw["train"]
+        elif len(raw) == 1:
+            self.ds = next(iter(raw.values()))
+        else:
+            raise ValueError(
+                f"Expected dataset '{self.file_path}' to contain a 'train' split or exactly one split, found {list(raw.keys())}"
+            )
         self.has_stereotype: bool = "stereotyped_answer" in self.ds.column_names
 
     def preprocess(
         self,
         tokenizer: PreTrainedTokenizerBase,
         preprocess_config: PreprocessConfig,
-        trust_remote_code: bool = False,
         max_answer_tokens: int | None = None,
         enable_thinking: bool = False,
         enable_thinking_arg_name: str | None = None,
         thinking_start_token: str | None = None,
         thinking_end_token: str | None = None,
         pass_max_answer_tokens: bool = False,
-        token: str | None = None,
     ) -> Dataset:
         """
-        Preprocess custom datasets by tokenizing texts based on the given text format.
-
-        Applies the preprocess_function to each dataset split. The function tokenizes both the answer-inclusive
-        and answer-exclusive texts along with the ground truth answers.
+        Tokenize the loaded dataset for free-text evaluation.
 
         Args:
-            datasets_dict: Dictionary mapping dataset split names to HuggingFace Datasets.
             tokenizer: Tokenizer used for text processing.
             preprocess_config: Configuration for preprocessing the dataset.
-            trust_remote_code: Whether to trust remote code.
             max_answer_tokens: Maximum number of tokens to allow for the answer.
             enable_thinking: Whether to enable thinking.
             enable_thinking_arg_name: Enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').
             thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
             thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
             pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
-            token: The HuggingFace token to use for accessing gated models.
 
         Returns:
-            A test dataset with tokenized fields
+            A tokenized dataset ready for evaluation.
         """
-        preprocess_function = free_text_preprocess_function
-        validate_dataset_columns(self.ds)
-        old_columns = self.ds.column_names
+        refusal_dataset = str(self.file_path) in REFUSAL_DATASETS
+        dataset = normalize_refusal_dataset(self.ds) if refusal_dataset else self.ds
+        validate_dataset_columns(dataset)
+        old_columns = dataset.column_names
         # Compute once to avoid per-batch remote config lookups
         is_multimodal = is_model_multimodal(
-            tokenizer.name_or_path, trust_remote_code, token
+            tokenizer.name_or_path, self.trust_remote_code, self.token
         )
-        processed_dataset = self.ds.map(
-            lambda examples: preprocess_function(
+        processed_dataset = dataset.map(
+            lambda examples: free_text_preprocess_function(
                 examples,
                 tokenizer,
                 max_length=preprocess_config.max_length,
@@ -234,6 +258,8 @@ class CustomDataset:
                 thinking_start_token=thinking_start_token,
                 thinking_end_token=thinking_end_token,
                 pass_max_answer_tokens=pass_max_answer_tokens,
+                include_default_system_prompt=not refusal_dataset,
+                # ⬆️ The default system prompt is detrimental to refusal evaluation, and therefore is avoided for refusal datasets.
             ),
             batched=True,
             remove_columns=old_columns,
@@ -244,5 +270,6 @@ class CustomDataset:
             cast("list[list[int]]", list(processed_dataset["test_input_ids"])),
             skip_special_tokens=True,
         )
-        logging.info("Validation text: %s", text[0])
+        if text:
+            logging.info("Validation text: %s", text[0])
         return cast("Dataset", processed_dataset)

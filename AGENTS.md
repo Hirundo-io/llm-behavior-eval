@@ -10,7 +10,7 @@ Core library code lives in `llm_behavior_eval/`, with behavior-specific helpers 
 - Prefer `uv` for dependency management in automation scripts and local workflows; avoid invoking `pip` directly unless you are installing `uv` itself or a tool explicitly requires `pip`.
 - `pytest`: run the full test suite; pass `-k pattern` to scope to a module while iterating.
 - Run `ruff format .` (or `ruff format --check --diff` to verify) before committing to ensure consistent styling, followed by `ruff check .` for linting.
-- `basedpyright`: run static type checks (CI uses the same configuration).
+- `pyrefly`: run static type checks (CI uses the same configuration).
 
 ## Coding Style & Naming Conventions
 Follow PEP 8 defaults with 4-space indentation. Prefer `snake_case` for modules, functions, and variables; reserve `PascalCase` for classes and `UPPER_SNAKE_CASE` for constants. Keep public CLI options descriptive and aligned with existing Typer command names. Let `ruff` fix spacing and import order; avoid disabling rules unless there is a clear justification. Type hints are expected on new public functions—match the patterns in `evaluation_utils/`.

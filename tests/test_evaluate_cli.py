@@ -4,12 +4,30 @@ import os
 import sys
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
+from llm_behavior_eval.evaluation_utils.eval_config import FAMILY_TOKEN_DEFAULTS
+from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
+from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
+    FreeTextBiasEvaluator,
+)
+from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
+    FreeTextHaluEvaluator,
+)
+from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
+    FreeTextPromptInjectionEvaluator,
+)
+from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
+    FreeTextRefusalEvaluator,
+)
+from llm_behavior_eval.evaluation_utils.refusal_utils import (
+    OR_BENCH_DATASET,
+    XSTEST_DATASET,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -108,6 +126,21 @@ def test_main_applies_max_samples_option(
     assert capture_eval_config[-1].max_samples == 42
 
 
+def test_behavior_presets_expand_refusal_xstest() -> None:
+    assert evaluate._behavior_presets("refusal:xstest") == [XSTEST_DATASET]
+
+
+def test_behavior_presets_expand_refusal_orbench() -> None:
+    assert evaluate._behavior_presets("refusal:orbench") == [OR_BENCH_DATASET]
+
+
+def test_behavior_presets_expand_refusal_all() -> None:
+    assert evaluate._behavior_presets("refusal:all") == [
+        XSTEST_DATASET,
+        OR_BENCH_DATASET,
+    ]
+
+
 def test_main_runs_full_dataset_when_nonpositive_max_samples(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
@@ -120,6 +153,14 @@ def test_main_passes_judge_quantization_flag(
 ) -> None:
     evaluate.main("fake/model", "hallu", use_4bit_judge=True)
     assert capture_eval_config[-1].use_4bit_judge is True
+
+
+def test_main_uses_refusal_dataset_type_for_refusal_presets(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "refusal:xstest")
+    assert capture_configs[-1].dataset_config.file_path == XSTEST_DATASET
+    assert capture_configs[-1].dataset_config.dataset_type.value == "bias"
 
 
 def test_main_raises_missing_dataset_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -145,7 +186,7 @@ def test_main_raises_missing_dataset_error(monkeypatch: pytest.MonkeyPatch) -> N
     with pytest.raises(
         RuntimeError, match="Failed to load dataset 'hirundo-io/halueval'"
     ):
-        evaluate.main("fake/model", "hallu,prompt-injection")
+        evaluate.main("fake/model", "hallu")
 
     assert captured == []
 
@@ -155,6 +196,11 @@ def test_main_passes_model_output_dir_override(
 ) -> None:
     evaluate.main("fake/model", "hallu", model_output_dir="custom-model-dir")
     assert capture_eval_config[-1].model_output_dir == "custom-model-dir"
+
+
+def test_main_rejects_mixed_evaluator_families() -> None:
+    with pytest.raises(ValueError, match="multiple evaluator families"):
+        evaluate.main("fake/model", "hallu,refusal:all")
 
 
 def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
@@ -167,6 +213,99 @@ def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
     assert (
         capture_eval_config[-1].mlflow_config.mlflow_tracking_uri
         == "http://tracking.from.env"
+    )
+
+
+@pytest.mark.parametrize(
+    ("dataset_id", "expected_class"),
+    [
+        ("hirundo-io/halueval", FreeTextHaluEvaluator),
+        (OR_BENCH_DATASET, FreeTextRefusalEvaluator),
+        (
+            "hirundo-io/prompt-injection-purple-llama",
+            FreeTextPromptInjectionEvaluator,
+        ),
+        ("hirundo-io/bbq-gender-bias-free-text", FreeTextBiasEvaluator),
+    ],
+)
+def test_evaluate_factory_routes_each_family_to_the_expected_evaluator(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    dataset_id: str,
+    expected_class: type[object],
+) -> None:
+    sentinel = object()
+
+    def fake_init(
+        self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> None:
+        del eval_config, dataset_config
+        self._sentinel = sentinel
+
+    for evaluator_class in (
+        FreeTextHaluEvaluator,
+        FreeTextRefusalEvaluator,
+        FreeTextPromptInjectionEvaluator,
+        FreeTextBiasEvaluator,
+    ):
+        monkeypatch.setattr(evaluator_class, "__init__", fake_init)
+
+    evaluator = EvaluateFactory.create_evaluator(
+        EvaluationConfig(model_path_or_repo_id="fake/model", results_dir=tmp_path),
+        DatasetConfig(file_path=dataset_id, dataset_type=evaluate.DatasetType.BIAS),
+    )
+
+    assert isinstance(evaluator, expected_class)
+    assert cast("Any", evaluator)._sentinel is sentinel
+
+
+def test_evaluate_factory_applies_refusal_defaults_for_programmatic_callers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_init(
+        self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> None:
+        del self, dataset_config
+        captured["evaluator_family"] = eval_config.evaluator_family
+        captured["max_answer_tokens"] = eval_config.max_answer_tokens
+        captured["max_judge_tokens"] = eval_config.max_judge_tokens
+        captured["sample_judge"] = eval_config.sample_judge
+
+    monkeypatch.setattr(FreeTextRefusalEvaluator, "__init__", fake_init)
+
+    original_config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+    )
+    EvaluateFactory.create_evaluator(
+        original_config,
+        DatasetConfig(
+            file_path=OR_BENCH_DATASET, dataset_type=evaluate.DatasetType.BIAS
+        ),
+    )
+
+    assert captured == {
+        "evaluator_family": "refusal",
+        "max_answer_tokens": FAMILY_TOKEN_DEFAULTS["refusal"]["max_answer_tokens"],
+        "max_judge_tokens": FAMILY_TOKEN_DEFAULTS["refusal"]["max_judge_tokens"],
+        "sample_judge": FAMILY_TOKEN_DEFAULTS["refusal"]["sample_judge"],
+    }
+    assert original_config.evaluator_family is None
+    assert original_config.max_answer_tokens is None
+    assert original_config.max_judge_tokens is None
+
+
+def test_evaluate_factory_reports_evaluator_family() -> None:
+    assert EvaluateFactory.get_evaluator_family(XSTEST_DATASET) == "refusal"
+    assert (
+        EvaluateFactory.get_evaluator_family("hirundo-io/prompt-injection-purple-llama")
+        == "prompt-injection"
+    )
+    assert (
+        EvaluateFactory.get_evaluator_family("hirundo-io/bbq-gender-bias-free-text")
+        == "bias"
     )
 
 
@@ -423,11 +562,77 @@ def test_main_passes_answer_tokens_and_judge_tokens_via_cli(
 def test_main_uses_default_answer_and_judge_tokens(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
-    """Test that default values are applied when tokens are not specified."""
+    """Unset CLI token options stay None until resolved per evaluator family."""
     evaluate.main("fake/model", "hallu")
     eval_config = capture_eval_config[-1]
-    assert eval_config.max_answer_tokens == 128  # Default from EvaluationConfig
-    assert eval_config.max_judge_tokens == 32  # Default from EvaluationConfig
+    assert eval_config.max_answer_tokens is None
+    assert eval_config.max_judge_tokens is None
+    assert eval_config.sample_judge is None
+
+    resolved = eval_config.resolve_for_family("hallucination")
+    assert resolved.max_answer_tokens == 128
+    assert resolved.max_judge_tokens == 32
+    assert resolved.sample_judge is False
+
+
+def test_main_uses_refusal_preset_defaults_when_tokens_omitted(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main("fake/model", "refusal:all")
+    eval_config = capture_eval_config[-1]
+    assert eval_config.max_answer_tokens is None
+    assert eval_config.max_judge_tokens is None
+    assert eval_config.sample_judge is None
+
+    resolved = eval_config.resolve_for_family("refusal")
+    assert resolved.max_answer_tokens == 256
+    assert resolved.max_judge_tokens == 128
+    assert resolved.sample_judge is False
+
+
+def test_main_preserves_explicit_refusal_cli_overrides(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "refusal:orbench",
+        max_answer_tokens=384,
+        max_judge_tokens=96,
+        sample_judge=True,
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.max_answer_tokens == 384
+    assert eval_config.max_judge_tokens == 96
+    assert eval_config.sample_judge is True
+
+
+def test_eval_config_resolve_for_family_applies_defaults_only_when_values_are_unset() -> (
+    None
+):
+    from pathlib import Path
+
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=Path("/tmp"),
+    )
+    resolved = config.resolve_for_family("refusal")
+    assert resolved.max_answer_tokens == 256
+    assert resolved.max_judge_tokens == 128
+    assert resolved.sample_judge is False
+    assert resolved.evaluator_family == "refusal"
+    assert config.max_answer_tokens is None
+
+    overridden = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=Path("/tmp"),
+        max_answer_tokens=384,
+        max_judge_tokens=96,
+        sample_judge=True,
+    )
+    resolved_overrides = overridden.resolve_for_family("refusal")
+    assert resolved_overrides.max_answer_tokens == 384
+    assert resolved_overrides.max_judge_tokens == 96
+    assert resolved_overrides.sample_judge is True
 
 
 def test_main_passes_model_inference_config_options(

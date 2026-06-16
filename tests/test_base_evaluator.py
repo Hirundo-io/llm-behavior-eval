@@ -15,6 +15,7 @@ from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokeni
 
 import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_module
 import llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator as hallu_module
+import llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator as refusal_module
 from llm_behavior_eval.evaluation_utils.base_evaluator import (
     BaseEvaluator,
     FreeTextSharedEvaluator,
@@ -30,6 +31,14 @@ from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
     _HalluGenerationRecord,
+)
+from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
+    FreeTextRefusalEvaluator,
+    _RefusalGenerationRecord,
+)
+from llm_behavior_eval.evaluation_utils.refusal_utils import (
+    OR_BENCH_DATASET,
+    XSTEST_DATASET,
 )
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
@@ -159,8 +168,18 @@ def patch_custom_dataset(
             return 3
 
     class StubCustomDataset:
-        def __init__(self, file_path: str, dataset_type: DatasetType) -> None:
+        def __init__(
+            self,
+            file_path: str,
+            dataset_type: DatasetType,
+            *,
+            trust_remote_code: bool = False,
+            token: str | None = None,
+        ) -> None:
             capture_state.init_args = (file_path, dataset_type)
+            capture_state.trust_remote_code = trust_remote_code
+            capture_state.token = token
+            self.trust_remote_code = trust_remote_code
             self.has_stereotype = False
 
         def preprocess(
@@ -168,26 +187,23 @@ def patch_custom_dataset(
             tokenizer: StubTokenizer,
             _preprocess_config: object,
             *,
-            trust_remote_code: bool,
             max_answer_tokens: int | None,
             enable_thinking: bool | None = None,
             enable_thinking_arg_name: str | None = None,
             thinking_start_token: str | None = None,
             thinking_end_token: str | None = None,
             pass_max_answer_tokens: bool,
-            token: str | None = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
             # Capture tokenization-time padding before later tokenizer mutations.
             capture_state.padding_side_at_preprocess = tokenizer.padding_side
-            capture_state.trust_remote_code = trust_remote_code
+            capture_state.trust_remote_code = self.trust_remote_code
             capture_state.max_answer_tokens = max_answer_tokens
             capture_state.enable_thinking = enable_thinking
             capture_state.enable_thinking_arg_name = enable_thinking_arg_name
             capture_state.thinking_start_token = thinking_start_token
             capture_state.thinking_end_token = thinking_end_token
             capture_state.pass_max_answer_tokens = pass_max_answer_tokens
-            capture_state.token = token
             return StubDataset()
 
     monkeypatch.setattr(base_evaluator_module, "CustomDataset", StubCustomDataset)
@@ -441,7 +457,10 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
         do_sample=None,
     )
 
-    assert outputs == [[{"generated_text": "yes"}], [{"generated_text": "yes"}]]
+    assert outputs == [
+        [{"generated_text": "yes", "finish_reason": None}],
+        [{"generated_text": "yes", "finish_reason": None}],
+    ]
     assert len(judge_engine.calls) == 1
     sampling_config = judge_engine.calls[0]["sampling_config"]
     assert isinstance(sampling_config, SamplingConfig)
@@ -970,6 +989,267 @@ def test_save_results_includes_incomplete_response_rate_when_finish_reasons_exis
             "Incomplete response rate (%) ⬇️": "50.000",
         }
     ]
+
+
+def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = FreeTextRefusalEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=4,
+        ),
+        DatasetConfig(
+            file_path=XSTEST_DATASET,
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+    evaluator.num_samples = 4
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
+    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
+    monkeypatch.setattr(
+        refusal_module,
+        "safe_apply_chat_template",
+        lambda _tokenizer, messages: messages[-1]["content"],
+    )
+
+    judge_outputs = iter(
+        [
+            "1_full_compliance",
+            "2_full_refusal",
+            "3_partial_refusal",
+        ]
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "run_judge_with_backoff",
+        lambda _judge, prompts: [
+            [{"generated_text": next(judge_outputs), "finish_reason": "stop"}]
+            for _ in prompts
+        ],
+    )
+
+    evaluator._grade_impl(
+        [
+            _RefusalGenerationRecord(
+                input_texts=[
+                    "safe-comply",
+                    "safe-refuse",
+                    "unsafe-partial",
+                    "unsafe-length",
+                ],
+                expected_labels=["safe", "safe", "unsafe", "unsafe"],
+                answers=[
+                    "Here is the answer.",
+                    "Sorry, I can't help with that.",
+                    "I can't help, but here is some related info.",
+                    "truncated",
+                ],
+                finish_reasons=["stop", "stop", "stop", "length"],
+            )
+        ],
+        judge_engine=cast("EvalEngine", object()),
+    )
+
+    metrics_file_path = tmp_path / "model" / "XSTest" / "metrics.csv"
+    with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics_rows = list(csv.DictReader(metrics_file))
+
+    assert metrics_rows == [
+        {
+            "Safe refusal rate (%) ⬇️": "50.000",
+            "Unsafe refusal rate (%) ⬆️": "100.000",
+            "Heuristic safe refusal rate (%) ⬇️": "50.000",
+            "Heuristic unsafe refusal rate (%) ⬆️": "50.000",
+            "Thinking": "off",
+            "Safe Samples": "2",
+            "Unsafe Samples": "2",
+            "Incomplete Responses": "1",
+            "Unknown Finish Reasons": "0",
+            "Judge Unparseable": "0",
+            "Judge Attempted Samples": "3",
+            "Judged Samples": "3",
+            "Safe Known Samples": "2",
+            "Unsafe Known Samples": "1",
+            "Incomplete response rate (%) ⬇️": "25.000",
+            "Unknown finish reason rate (%) ⬇️": "0.000",
+            "Judge unparseable rate (%) ⬇️": "0.000",
+            "Judge parse success rate (%) ⬆️": "100.000",
+        }
+    ]
+
+    summary_full_path = tmp_path / "model" / "summary_full.csv"
+    with summary_full_path.open(newline="", encoding="utf-8") as summary_file:
+        summary_rows = list(csv.DictReader(summary_file))
+    assert summary_rows[0]["Dataset"] == "XSTest"
+    assert summary_rows[0]["Dataset Type"] == "DatasetType.BIAS"
+    assert summary_rows[0]["Safe refusal rate (%) ⬇️"] == "50.000"
+    assert summary_rows[0]["Unsafe refusal rate (%) ⬆️"] == "100.000"
+
+    responses_path = tmp_path / "model" / "XSTest" / "responses.json"
+    responses = json.loads(responses_path.read_text(encoding="utf-8"))
+    assert responses[-1]["finish_reason"] == "length"
+    assert responses[-1]["judge_finish_reason"] is None
+    assert responses[-1]["judge_label"] is None
+    assert responses[-1]["grading_status"] == "model_incomplete"
+    assert responses[2]["judge_success"] is True
+    assert responses[2]["judge_finish_reason"] == "stop"
+    assert responses[2]["grading_status"] == "judged"
+
+
+def test_refusal_evaluator_marks_unparseable_outputs_and_excludes_them_from_denominator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = FreeTextRefusalEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=2,
+        ),
+        DatasetConfig(
+            file_path=OR_BENCH_DATASET,
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+    evaluator.num_samples = 2
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
+    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
+    monkeypatch.setattr(
+        refusal_module,
+        "safe_apply_chat_template",
+        lambda _tokenizer, messages: messages[-1]["content"],
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "run_judge_with_backoff",
+        lambda _judge, prompts: [
+            [{"generated_text": "other", "finish_reason": "length"}] for _ in prompts
+        ],
+    )
+
+    evaluator._grade_impl(
+        [
+            _RefusalGenerationRecord(
+                input_texts=["safe", "unsafe"],
+                expected_labels=["safe", "unsafe"],
+                answers=["answer", "answer"],
+                finish_reasons=["stop", "stop"],
+            )
+        ],
+        judge_engine=cast("EvalEngine", object()),
+    )
+
+    metrics_file_path = tmp_path / "model" / "or-bench" / "metrics.csv"
+    with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics_rows = list(csv.DictReader(metrics_file))
+
+    assert metrics_rows[0]["Safe refusal rate (%) ⬇️"] == "0.000"
+    assert metrics_rows[0]["Unsafe refusal rate (%) ⬆️"] == "0.000"
+    assert metrics_rows[0]["Judge Unparseable"] == "2"
+    assert metrics_rows[0]["Judge Attempted Samples"] == "2"
+    assert metrics_rows[0]["Judged Samples"] == "0"
+    assert metrics_rows[0]["Safe Known Samples"] == "0"
+    assert metrics_rows[0]["Unsafe Known Samples"] == "0"
+    assert metrics_rows[0]["Judge unparseable rate (%) ⬇️"] == "100.000"
+    assert metrics_rows[0]["Judge parse success rate (%) ⬆️"] == "0.000"
+
+    responses_path = tmp_path / "model" / "or-bench" / "responses.json"
+    responses = json.loads(responses_path.read_text(encoding="utf-8"))
+    assert responses[0]["grading_status"] == "judge_unparseable"
+    assert responses[0]["judge_finish_reason"] == "length"
+
+
+def test_refusal_evaluator_only_counts_stop_rows_as_judge_attempts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = FreeTextRefusalEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=2,
+        ),
+        DatasetConfig(
+            file_path=OR_BENCH_DATASET,
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+    evaluator.num_samples = 2
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
+    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
+    monkeypatch.setattr(
+        refusal_module,
+        "safe_apply_chat_template",
+        lambda _tokenizer, messages: messages[-1]["content"],
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "run_judge_with_backoff",
+        lambda _judge, prompts: [
+            [{"generated_text": "[[direct_refusal]]", "finish_reason": "stop"}]
+            for _ in prompts
+        ],
+    )
+
+    evaluator._grade_impl(
+        [
+            _RefusalGenerationRecord(
+                input_texts=["stop-row", "unknown-finish-row"],
+                expected_labels=["unsafe", "unsafe"],
+                answers=["I won't help with that.", "answer"],
+                finish_reasons=["stop", None],
+            )
+        ],
+        judge_engine=cast("EvalEngine", object()),
+    )
+
+    metrics_file_path = tmp_path / "model" / "or-bench" / "metrics.csv"
+    with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics_rows = list(csv.DictReader(metrics_file))
+
+    assert metrics_rows[0]["Judge Attempted Samples"] == "1"
+    assert metrics_rows[0]["Judged Samples"] == "1"
+    assert metrics_rows[0]["Unknown Finish Reasons"] == "1"
+    assert metrics_rows[0]["Judge Unparseable"] == "0"
+    assert metrics_rows[0]["Unknown finish reason rate (%) ⬇️"] == "50.000"
+    assert metrics_rows[0]["Judge unparseable rate (%) ⬇️"] == "0.000"
+    assert metrics_rows[0]["Judge parse success rate (%) ⬆️"] == "100.000"
+
+    responses_path = tmp_path / "model" / "or-bench" / "responses.json"
+    responses = json.loads(responses_path.read_text(encoding="utf-8"))
+    assert responses[1]["finish_reason"] is None
+    assert responses[1]["judge_label"] is None
+    assert responses[1]["grading_status"] == "unknown_finish_reason"
 
 
 def test_run_config_mismatch_allows_skip_reusing_existing_outputs(
