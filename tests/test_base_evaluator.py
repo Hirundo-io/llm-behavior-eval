@@ -179,6 +179,7 @@ def patch_custom_dataset(
             capture_state.init_args = (file_path, dataset_type)
             capture_state.trust_remote_code = trust_remote_code
             capture_state.token = token
+            self.trust_remote_code = trust_remote_code
             self.has_stereotype = False
 
         def preprocess(
@@ -196,7 +197,7 @@ def patch_custom_dataset(
             capture_state.tokenizer = tokenizer
             # Capture tokenization-time padding before later tokenizer mutations.
             capture_state.padding_side_at_preprocess = tokenizer.padding_side
-            capture_state.trust_remote_code = trust_remote_code
+            capture_state.trust_remote_code = self.trust_remote_code
             capture_state.max_answer_tokens = max_answer_tokens
             capture_state.enable_thinking = enable_thinking
             capture_state.enable_thinking_arg_name = enable_thinking_arg_name

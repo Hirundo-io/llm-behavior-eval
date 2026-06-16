@@ -186,7 +186,7 @@ def test_main_raises_missing_dataset_error(monkeypatch: pytest.MonkeyPatch) -> N
     with pytest.raises(
         RuntimeError, match="Failed to load dataset 'hirundo-io/halueval'"
     ):
-        evaluate.main("fake/model", "hallu,prompt-injection")
+        evaluate.main("fake/model", "hallu")
 
     assert captured == []
 
