@@ -8,8 +8,11 @@ logic is unaffected when MLflow is not used.
 ## What is Logged
 
 - Parameters: model, dataset, dataset type, seed, and evaluation settings
-- Metrics: accuracy, error, stereotyped bias (when available), empty responses
-- Artifacts: `responses.json`, `metrics.csv`, `generations.jsonl` (when present)
+- Metrics: dataset-prefixed evaluation metrics (e.g. `XSTest_safe_refusal_rate`,
+  `bbq_gender_bias_free_text_accuracy`), unprefixed summary metrics from
+  `summary_full.csv` (e.g. `Safe_refusal_rate`, `Error`), run-level
+  `datasets_attached` counter, and per-dataset `num_samples_evaluated`
+- Artifacts: `responses.json`, `metrics.csv`, `summary_full.csv`, `generations.jsonl` (when present)
 
 ## How to Enable
 
@@ -39,5 +42,9 @@ The repository includes a minimal example at `examples/mlflow_example.py`.
 
 - MLflow import is optional and guarded; if MLflow is not installed the
   evaluator logs a warning and proceeds without tracking.
+- Metric names are prefixed with a sanitized dataset slug so multi-dataset runs
+  (e.g. `refusal:all`) do not overwrite each other on the same checkpoint step.
+  Unprefixed summary metrics from `summary_full.csv` remain available for
+  single-dataset dashboards.
 - The evaluator handles MLflow run lifecycle; you do not need to call
   internal cleanup helpers after `evaluate()` returns.

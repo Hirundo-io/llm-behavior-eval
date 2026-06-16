@@ -4,7 +4,7 @@ from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -317,7 +317,35 @@ def test_dataset_mlflow_run_logs_dataset_metrics_to_current_run(
         pass
 
     mlflow_mock.start_run.assert_not_called()
-    mlflow_mock.log_metric.assert_called_with("dataset_attached", 1.0)
+    mlflow_mock.log_metric.assert_called_with("datasets_attached", 1.0)
+    metrics_call = mlflow_mock.log_metrics.call_args
+    assert metrics_call is not None
+    assert metrics_call.args[0] == {
+        "bbq_gender_bias_free_text_num_samples_evaluated": 3.0
+    }
+
+
+def test_dataset_mlflow_run_increments_datasets_attached_counter(
+    evaluation_config: EvaluationConfig,
+    dataset_config: DatasetConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    parent_run = _make_run("parent-run", "model")
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
+
+    evaluator = DummyEvaluator(evaluation_config, dataset_config)
+    mlflow_mock.reset_mock()
+
+    with evaluator.dataset_mlflow_run():
+        pass
+    with evaluator.dataset_mlflow_run():
+        pass
+
+    assert mlflow_mock.log_metric.call_args_list == [
+        call("datasets_attached", 1.0),
+        call("datasets_attached", 2.0),
+    ]
 
 
 def test_dataset_mlflow_run_with_existing_run_id_logs_metrics(
@@ -348,7 +376,7 @@ def test_dataset_mlflow_run_with_existing_run_id_logs_metrics(
     with evaluator.dataset_mlflow_run():
         pass
 
-    mlflow_mock.log_metric.assert_called_with("dataset_attached", 1.0)
+    mlflow_mock.log_metric.assert_called_with("datasets_attached", 1.0)
 
 
 def test_save_results_logs_mlflow_metrics_and_artifacts(
@@ -372,11 +400,11 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
     metrics = metrics_call.args[0]
     assert metrics_call.kwargs.get("step") is None
     assert metrics == {
-        "accuracy": 0.75,
-        "error": 0.25,
-        "empty_responses": 2.0,
-        "num_samples": 3.0,
-        "stereotyped_bias": 0.1,
+        "bbq_gender_bias_free_text_accuracy": 0.75,
+        "bbq_gender_bias_free_text_error": 0.25,
+        "bbq_gender_bias_free_text_empty_responses": 2.0,
+        "bbq_gender_bias_free_text_num_samples": 3.0,
+        "bbq_gender_bias_free_text_stereotyped_bias": 0.1,
     }
 
     mlflow_mock.log_artifacts.assert_called_once()
@@ -391,6 +419,13 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
     assert (output_dir / "metrics.csv").exists()
     assert (uploaded_dir / "bbq-gender-bias-free-text" / "responses.json").exists()
     assert (uploaded_dir / "bbq-gender-bias-free-text" / "metrics.csv").exists()
+
+    summary_metric_calls = {
+        call.args[0]: call.args[1] for call in mlflow_mock.log_metric.call_args_list
+    }
+    assert summary_metric_calls["Error"] == 25.0
+    assert summary_metric_calls["Stereotype_Bias"] == 10.0
+    assert summary_metric_calls["Empty_Responses"] == 2.0
 
 
 def test_save_results_logs_mlflow_metrics_without_inferred_checkpoint_step(
@@ -457,3 +492,33 @@ def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step_same_run
     metrics_call = mlflow_mock.log_metrics.call_args
     assert metrics_call is not None
     assert metrics_call.kwargs.get("step") == 20
+
+
+def test_log_mlflow_metrics_uses_distinct_dataset_prefixes(
+    evaluation_config: EvaluationConfig,
+    mlflow_mock: MagicMock,
+) -> None:
+    parent_run = _make_run("parent-run", "model")
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
+
+    xstest_config = DatasetConfig(
+        file_path="hirundo-io/XSTest",
+        dataset_type=DatasetType.BIAS,
+    )
+    orbench_config = DatasetConfig(
+        file_path="hirundo-io/or-bench",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = DummyEvaluator(evaluation_config, xstest_config)
+    mlflow_mock.reset_mock()
+
+    evaluator._log_mlflow_metrics({"safe_refusal_rate": 0.3})
+    evaluator.update_dataset_config(orbench_config)
+    evaluator._log_mlflow_metrics({"safe_refusal_rate": 0.7})
+
+    assert mlflow_mock.log_metrics.call_args_list == [
+        call({"XSTest_safe_refusal_rate": 0.3}, step=None),
+        call({"or_bench_safe_refusal_rate": 0.7}, step=None),
+    ]

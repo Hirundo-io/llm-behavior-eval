@@ -10,7 +10,7 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, cast
 
 import pandas as pd
 import torch
@@ -144,6 +144,7 @@ class BaseEvaluator(ABC):
         self.mlflow_run = None
         self.parent_run = None
         self._started_mlflow_run = False
+        self._mlflow_datasets_attached = 0
         self._inferred_mlflow_metric_step: int | None = None
         inferred_step = infer_mlflow_metric_step_from_lora_path(
             self.eval_config.lora_path_or_repo_id
@@ -804,8 +805,12 @@ class BaseEvaluator(ABC):
                     self.dataset_config.file_path,
                     self.dataset_config.dataset_type,
                 )
-            # Dataset config is in uploaded artifacts; log a metric so this attachment is visible in MLflow.
-            mlflow.log_metric("dataset_attached", 1.0)
+            self._mlflow_datasets_attached += 1
+            mlflow.log_metric(
+                "datasets_attached",
+                float(self._mlflow_datasets_attached),
+            )
+            self._log_mlflow_metrics({"num_samples_evaluated": float(self.num_samples)})
         yield
 
     def _set_seed(self) -> None:
@@ -814,11 +819,34 @@ class BaseEvaluator(ABC):
         elif self.eval_config.sampling_config.seed is not None:
             set_seed(self.eval_config.sampling_config.seed)
 
+    def _sanitize_mlflow_key(
+        self, name: str, mode: Literal["dataset_prefix", "summary_metric"]
+    ) -> str:
+        """Sanitize an MLflow key according to the metric source."""
+        if mode == "dataset_prefix":
+            sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", name.strip())
+        else:
+            sanitized = re.sub(r"[^a-zA-Z0-9\s]", "", name)
+            sanitized = re.sub(r"\s+", "_", sanitized.strip("_"))
+
+        sanitized = re.sub(r"_+", "_", sanitized).strip("_")
+        return sanitized or "value"
+
+    def _mlflow_metric_key(self, name: str) -> str:
+        dataset = self._sanitize_mlflow_key(
+            self.get_dataset_slug(), mode="dataset_prefix"
+        )
+        base = self._sanitize_mlflow_key(name, mode="dataset_prefix")
+        return f"{dataset}_{base}"
+
     def _log_mlflow_metrics(self, metrics: dict[str, Any]) -> None:
         """Log evaluation metrics to MLflow."""
         if not self.eval_config.mlflow_config or not mlflow:
             return
-        mlflow.log_metrics(metrics, step=self._inferred_mlflow_metric_step)
+        prefixed_metrics = {
+            self._mlflow_metric_key(key): value for key, value in metrics.items()
+        }
+        mlflow.log_metrics(prefixed_metrics, step=self._inferred_mlflow_metric_step)
 
     def _resolve_mlflow_metric_step(self, inferred_step: int | None) -> int | None:
         if inferred_step is None:
@@ -836,22 +864,12 @@ class BaseEvaluator(ABC):
         )
         return None
 
-    def _sanitize_mlflow_key(self, name: str) -> str:
-        """Return a key safe for MLflow params/metrics: alphanumeric and underscores only.
-
-        Returns:
-            Sanitized key (e.g. "Attack_success_rate" from "Attack success rate (%) ⬇️").
-        """
-        # Keep only letters, digits, spaces; replace % and other symbols with nothing
-        s = re.sub(r"[^a-zA-Z0-9\s]", "", name)
-        s = re.sub(r"\s+", "_", s.strip("_"))
-        s = re.sub(r"_+", "_", s).strip("_")
-        return s or "value"
-
     def _log_mlflow_artifacts(self) -> None:
         """Log evaluation artifacts to MLflow.
 
-        Logs summary_full.csv numeric columns as metrics only (no prefix; string columns skipped).
+        Logs summary_full.csv numeric columns from the latest row as unprefixed
+        metrics for backward-compatible single-dataset runs. Prefixed
+        dataset metrics are logged separately via ``_log_mlflow_metrics``.
         Uploads all files under results_dir/model_slug. When mlflow_artifact_path_subfolder
         is not set, artifacts go to run root; when set (or "timestamp"), go under
         llm-behavior-eval/<subfolder>.
@@ -874,7 +892,6 @@ class BaseEvaluator(ABC):
         else:
             artifact_path = ""
 
-        # Log summary_full.csv numeric columns as metrics only (no prefix; string columns skipped)
         summary_full_path = model_results_dir / "summary_full.csv"
         if summary_full_path.exists():
             try:
@@ -882,7 +899,7 @@ class BaseEvaluator(ABC):
                 if not summary_df.empty:
                     last_row = summary_df.iloc[-1]
                     for col in summary_df.columns:
-                        key = self._sanitize_mlflow_key(col)
+                        key = self._sanitize_mlflow_key(col, mode="summary_metric")
                         if not key:
                             continue
                         val = last_row[col]
