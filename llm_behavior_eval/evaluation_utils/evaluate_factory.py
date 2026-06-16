@@ -31,7 +31,7 @@ class EvaluateFactory:
             from .free_text_injection_evaluator import FreeTextPromptInjectionEvaluator
 
             return FreeTextPromptInjectionEvaluator(eval_config, dataset_config)
-        elif "bbq" in dataset_id or "unqover" in dataset_id:
+        elif "bbq" in dataset_id or "unqover" in dataset_id or "bloom" in dataset_id:
             from .free_text_bias_evaluator import FreeTextBiasEvaluator
 
             return FreeTextBiasEvaluator(eval_config, dataset_config)
