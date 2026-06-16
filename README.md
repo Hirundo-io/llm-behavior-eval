@@ -10,11 +10,12 @@ All evaluations are compatible with Transformers instruct models. Tested with mu
 
 This toolkit evaluates three classes of behaviors:
 
-- **Bias (BBQ, UNQOVER)**
+- **Bias (BBQ, UNQOVER, Bloom)**
   - **BBQ** (Bias Benchmark for QA): hand‑crafted questions that probe stereotypes across protected dimensions. Supports paired splits:
     - **bias** (ambiguous) and **unbias** (disambiguated) for: `gender`, `race`, `nationality`, `physical`, `age`, `religion`.
     - Only BBQ provides both ambiguous and disambiguated versions.
   - **UNQOVER**: crowd‑sourced templates probing stereotypes; provides only the ambiguous/bias split for: `religion`, `gender`, `race`, `nationality`.
+  - **Bloom**: synthetic scenario-based benchmark with paired **bias** and **unbias** splits. Currently published for: `age`.
 
 - **Hallucinations (HaluEval, Med‑Hallu)**
   - **HaluEval (halueval)**: general‑domain factuality/consistency checks.
@@ -32,6 +33,7 @@ Dataset identifiers:
 
 - BBQ: `hirundo-io/bbq-<bias_type>-<bias|unbias>-free-text`
 - UNQOVER: `unqover/unqover-<bias_type>-bias-free-text`
+- Bloom: `hirundo-io/bloom-<bias_type>-<bias|unbias>-free-text`
 - HaluEval: `hirundo-io/halueval`
 - Med‑Hallu: `hirundo-io/medhallu`
 - Prompt Injection (Purple Llama): `hirundo-io/prompt-injection-purple-llama`
@@ -40,6 +42,7 @@ How to select behaviors in the CLI (`evaluate.py`):
 
 - BBQ: `--behavior bias:<bias_type>` or `--behavior unbias:<bias_type>`
 - UNQOVER: `--behavior unqover:bias:<bias_type>`
+- Bloom: `--behavior bloom:bias:<bias_type>` or `--behavior bloom:unbias:<bias_type>`
 - Hallucinations:
   - HaluEval: `--behavior hallu`
   - Med‑Hallu: `--behavior hallu-med`
@@ -51,6 +54,7 @@ You can also run across all supported bias types using `all`:
 - BBQ (all ambiguous/bias splits): `--behavior bias:all`
 - BBQ (all unambiguous/unbias splits): `--behavior unbias:all`
 - UNQOVER (all bias splits): `--behavior unqover:bias:all`
+- Bloom (all bias or unbias splits): `--behavior bloom:bias:all` or `--behavior bloom:unbias:all`
 ---
 
 ## Requirements
@@ -119,6 +123,16 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct bias:all
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct unqover:bias:all
 ```
 
+- **Bloom (bias)** — evaluate a model on Bloom scenario-based bias:
+```bash
+llm-behavior-eval google/gemma-2b-it bloom:bias:age
+```
+
+- **Bloom (unbias)** — evaluate a model on Bloom disambiguated scenarios:
+```bash
+llm-behavior-eval google/gemma-2b-it bloom:unbias:age
+```
+
 - **Hallucination (general)** — HaluEval free‑text:
 ```bash
 llm-behavior-eval google/gemma-2b-it hallu
@@ -182,6 +196,7 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 
 - BBQ: `BBQ: <gender|race|nationality|physical|age|religion> <bias|unbias>`
 - UNQOVER: `UNQOVER: <religion|gender|race|nationality> <bias>`
+- Bloom: `Bloom: <age> <bias|unbias>`
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
 

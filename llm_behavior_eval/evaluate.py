@@ -14,7 +14,17 @@ from llm_behavior_eval.evaluation_utils.dataset_config import (
     DatasetConfig,
     PreprocessConfig,
 )
-from llm_behavior_eval.evaluation_utils.enums import DatasetType
+from llm_behavior_eval.evaluation_utils.enums import (
+    BBQ_BIAS_BEHAVIOR,
+    BEHAVIOR_PRESET_ERROR,
+    HALUEVAL_ALIAS,
+    INJECTION_ALIAS,
+    MEDHALLU_ALIAS,
+    REFUSAL_ALIAS,
+    THREE_PART_BIAS_BEHAVIORS,
+    TRUSTED_MODEL_PROVIDERS,
+    DatasetType,
+)
 from llm_behavior_eval.evaluation_utils.eval_config import (
     FAMILY_TOKEN_DEFAULTS,
     EvaluationConfig,
@@ -34,19 +44,6 @@ from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 
 torch.set_float32_matmul_precision("high")
 
-BIAS_KINDS = {"bias", "unbias"}
-HALUEVAL_ALIAS = {"hallu", "hallucination"}
-MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
-INJECTION_ALIAS = {"prompt-injection"}
-REFUSAL_ALIAS = {"refusal"}
-TRUSTED_MODEL_PROVIDERS = {
-    "hirundo-io",
-    "nvidia",
-    "meta-llama",
-    "google",
-    "aisingapore",
-    "LGAI-EXAONE",
-}
 DEFAULT_MAX_SAMPLES = EvaluationConfig.model_fields["max_samples"].default
 DEFAULT_BATCH_SIZE = EvaluationConfig.model_fields["batch_size"].default
 DEFAULT_USE_4BIT = EvaluationConfig.model_fields["use_4bit"].default
@@ -59,6 +56,29 @@ DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
 DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
 DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
 DEFAULT_MAX_LORA_RANK = VllmConfig.model_fields["max_lora_rank"].default
+
+
+def _resolve_bias_behavior(
+    prefix: str,
+    kind: str,
+    bias_type: str,
+    allowed_types: set[str],
+    allowed_kinds: set[str],
+    kind_error: str,
+    support_label: str,
+) -> list[str]:
+    if kind not in allowed_kinds:
+        raise ValueError(kind_error)
+
+    allowed_with_all = ", ".join(sorted(list(allowed_types)) + ["all"])
+    if bias_type == "all":
+        return [
+            f"hirundo-io/{prefix}-{bt}-{kind}-free-text" for bt in sorted(allowed_types)
+        ]
+
+    if bias_type not in allowed_types:
+        raise ValueError(f"{support_label} supports: {allowed_with_all}")
+    return [f"hirundo-io/{prefix}-{bias_type}-{kind}-free-text"]
 
 
 def _default_results_dir() -> Path:
@@ -88,6 +108,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     New formats:
     - BBQ: "bias:<bias_type>" or "unbias:<bias_type>"
     - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
+    - Bloom: "bloom:bias:<bias_type>" or "bloom:unbias:<bias_type>"
     - Hallucinations: "hallu" or "hallu-med"
     - Prompt injection: "prompt-injection"
     - Refusal: "refusal:xstest" | "refusal:orbench" | "refusal:all"
@@ -116,43 +137,40 @@ def _behavior_presets(behavior: str) -> list[str]:
     #   - bias_type can be a concrete type or 'all'
     # ["unqover", kind, bias_type] for UNQOVER (kind must be 'bias')
     #   - bias_type can be a concrete type or 'all'
+    # ["bloom", kind, bias_type] for Bloom, where kind in {bias, unbias}
+    #   - bias_type can be a concrete type or 'all'
     if len(behavior_parts) == 2:
         kind, bias_type = behavior_parts
-        if kind not in BIAS_KINDS:
-            raise ValueError("For BBQ use 'bias:<bias_type>' or 'unbias:<bias_type>'")
-        from llm_behavior_eval.evaluation_utils.enums import BBQ_BIAS_TYPES
+        allowed_types, allowed_kinds, kind_error, support_label = BBQ_BIAS_BEHAVIOR
+        return _resolve_bias_behavior(
+            "bbq",
+            kind,
+            bias_type,
+            allowed_types,
+            allowed_kinds,
+            kind_error,
+            support_label,
+        )
 
-        if bias_type == "all":
-            return [
-                f"hirundo-io/bbq-{bias_type}-{kind}-free-text"
-                for bias_type in sorted(BBQ_BIAS_TYPES)
-            ]
-        if bias_type not in BBQ_BIAS_TYPES:
-            allowed = ", ".join(sorted(list(BBQ_BIAS_TYPES)) + ["all"])
-            raise ValueError(f"BBQ supports: {allowed}")
-        return [f"hirundo-io/bbq-{bias_type}-{kind}-free-text"]
+    if len(behavior_parts) == 3:
+        prefix, kind, bias_type = behavior_parts
+        if prefix not in THREE_PART_BIAS_BEHAVIORS:
+            raise ValueError(BEHAVIOR_PRESET_ERROR)
 
-    if len(behavior_parts) == 3 and behavior_parts[0] == "unqover":
-        _, kind, bias_type = behavior_parts
-        if kind != "bias":
-            raise ValueError(
-                "UNQOVER supports only 'bias:<bias_type>' (no 'unbias' for UNQOVER)"
-            )
-        from llm_behavior_eval.evaluation_utils.enums import UNQOVER_BIAS_TYPES
+        allowed_types, allowed_kinds, kind_error, support_label = (
+            THREE_PART_BIAS_BEHAVIORS[prefix]
+        )
+        return _resolve_bias_behavior(
+            prefix,
+            kind,
+            bias_type,
+            allowed_types,
+            allowed_kinds,
+            kind_error,
+            support_label,
+        )
 
-        if bias_type == "all":
-            return [
-                f"hirundo-io/unqover-{bt}-{kind}-free-text"
-                for bt in sorted(UNQOVER_BIAS_TYPES)
-            ]
-        if bias_type not in UNQOVER_BIAS_TYPES:
-            allowed = ", ".join(sorted(list(UNQOVER_BIAS_TYPES)) + ["all"])
-            raise ValueError(f"UNQOVER supports: {allowed}")
-        return [f"hirundo-io/unqover-{bias_type}-{kind}-free-text"]
-
-    raise ValueError(
-        "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection' | 'refusal:xstest|orbench|all'"
-    )
+    raise ValueError(BEHAVIOR_PRESET_ERROR)
 
 
 def main(
@@ -165,7 +183,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors within the same evaluator family. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
         ),
     ],
     output_dir: Annotated[
@@ -645,6 +663,7 @@ def main(
     evaluator = None
     generation_lists = []
     dataset_configs = []
+    dataset_file_paths = []
     evaluation_error = True
     try:
         # generation loop
@@ -673,20 +692,27 @@ def main(
                 else:
                     evaluator.update_dataset_config(dataset_config)
 
+                generation_records = evaluator.generate()
+
                 dataset_configs.append(dataset_config)
-                generation_lists.append(evaluator.generate())
+                dataset_file_paths.append(file_path)
+                generation_lists.append(generation_records)
         finally:
             if evaluator is not None:
                 evaluator.free_test_model()
 
         if evaluator is None:
-            # Type-checking hint
-            raise ValueError("Evaluator does not exist.")
+            logging.warning(
+                "Evaluator could not be created; no datasets were evaluated. "
+                "See logs above for details."
+            )
+            evaluation_error = False
+            return
 
         # Grading loop
         with evaluator.get_grading_context() as judge:
             for generations, dataset_config, file_path in zip(
-                generation_lists, dataset_configs, file_paths, strict=True
+                generation_lists, dataset_configs, dataset_file_paths, strict=True
             ):
                 logging.info("Grading %s with %s", file_path, judge_path_or_repo_id)
                 evaluator.update_dataset_config(dataset_config)

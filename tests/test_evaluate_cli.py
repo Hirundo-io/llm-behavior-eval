@@ -163,6 +163,34 @@ def test_main_uses_refusal_dataset_type_for_refusal_presets(
     assert capture_configs[-1].dataset_config.dataset_type.value == "bias"
 
 
+def test_main_raises_missing_dataset_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[DatasetConfig] = []
+
+    def _fake_create(
+        eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> _StubEvaluator:
+        if dataset_config.file_path == "hirundo-io/halueval":
+            raise RuntimeError(
+                "Failed to load dataset 'hirundo-io/halueval'. "
+                "Check that the identifier is correct."
+            )
+        captured.append(dataset_config)
+        return _StubEvaluator()
+
+    monkeypatch.setattr(
+        evaluate.EvaluateFactory,
+        "create_evaluator",
+        staticmethod(_fake_create),
+    )
+
+    with pytest.raises(
+        RuntimeError, match="Failed to load dataset 'hirundo-io/halueval'"
+    ):
+        evaluate.main("fake/model", "hallu,prompt-injection")
+
+    assert captured == []
+
+
 def test_main_passes_model_output_dir_override(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:

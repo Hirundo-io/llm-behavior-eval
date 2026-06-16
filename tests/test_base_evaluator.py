@@ -75,6 +75,7 @@ class CaptureState:
     thinking_end_token: str | None = None
     pass_max_answer_tokens: bool | None = None
     token: str | None = None
+    padding_side_at_preprocess: str | None = None
     init_args: tuple[str, DatasetType] | None = None
     engine_inits: list[bool] = field(default_factory=list)
     set_dataset_calls: list[tuple[bool, Sized]] = field(default_factory=list)
@@ -193,6 +194,9 @@ def patch_custom_dataset(
             pass_max_answer_tokens: bool,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
+            # Capture tokenization-time padding before later tokenizer mutations.
+            capture_state.padding_side_at_preprocess = tokenizer.padding_side
+            capture_state.trust_remote_code = trust_remote_code
             capture_state.max_answer_tokens = max_answer_tokens
             capture_state.enable_thinking = enable_thinking
             capture_state.enable_thinking_arg_name = enable_thinking_arg_name
@@ -264,6 +268,75 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
     assert evaluator.eval_loader == "loader"
     assert evaluator.num_samples == 3
     assert capture_state.engine_dataset == evaluator.eval_dataset
+
+
+def test_mlflow_initializes_after_dataloader_preparation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capture_state: CaptureState,
+) -> None:
+    class _MlflowRunInfo:
+        run_id = "run-id"
+
+    class _MlflowRun:
+        info = _MlflowRunInfo()
+
+    class _MlflowStub:
+        def active_run(self) -> None:
+            return None
+
+        def set_tracking_uri(self, _tracking_uri: str) -> None:
+            return None
+
+        def set_experiment(self, _experiment_name: str) -> None:
+            return None
+
+        def start_run(self, *, run_name: str) -> _MlflowRun:
+            del run_name
+            assert capture_state.set_dataset_calls
+            return _MlflowRun()
+
+        def log_metric(self, _key: str, _value: float) -> None:
+            return None
+
+    monkeypatch.setattr(base_evaluator_module, "mlflow", _MlflowStub())
+
+    ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+            mlflow_config=MlflowConfig(),
+        ),
+        DatasetConfig(
+            file_path="repo/dataset",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+
+def test_dataset_is_tokenized_with_left_padding(
+    tmp_path: Path,
+    capture_state: CaptureState,
+    stub_tokenizer: StubTokenizer,
+) -> None:
+    """Inputs must be left-padded before dataset tokenization."""
+    assert stub_tokenizer.padding_side == "right"  # default before init
+
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        batch_size=None,
+        max_samples=10,
+    )
+    dataset_config_instance = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    ConcreteEvaluator(evaluation_config, dataset_config_instance)
+
+    assert capture_state.padding_side_at_preprocess == "left"
 
 
 def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> None:
@@ -740,6 +813,47 @@ def test_save_results_rewrites_summary_with_non_empty_columns_after_append(
     assert summary_rows[1]["Thinking"] == "off"
     assert "Attack success rate (%) ⬇️" not in summary_rows[0]
     assert "Attack success rate (%) ⬇️" not in summary_rows[1]
+
+
+def test_save_results_uses_bloom_summary_label(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="hirundo-io/bloom-age-unbias-free-text",
+            dataset_type=DatasetType.UNBIAS,
+        ),
+    )
+
+    evaluator.save_results(
+        responses=[{"prompt": "test", "response": "value"}],
+        accuracy=0.80,
+        stereotyped_bias=None,
+        empty_responses=0,
+    )
+
+    summary_brief_path = tmp_path / "model" / "summary_brief.csv"
+    with summary_brief_path.open(newline="", encoding="utf-8") as summary_file:
+        summary_rows = list(csv.DictReader(summary_file))
+
+    assert summary_rows[0]["Dataset"] == "Bloom: age unbias"
+    assert summary_rows[0]["Accuracy (%) ⬆️"] == "80.000"
+    assert "Error (%) ⬇️" not in summary_rows[0]
 
 
 def test_save_results_marks_thinking_mode_on_when_enabled(

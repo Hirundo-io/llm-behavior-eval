@@ -48,11 +48,10 @@ class EvaluateFactory:
             return FreeTextRefusalEvaluator(resolved_eval_config, dataset_config)
         elif evaluator_family == "prompt-injection":
             from .free_text_injection_evaluator import FreeTextPromptInjectionEvaluator
-
             return FreeTextPromptInjectionEvaluator(
                 resolved_eval_config, dataset_config
             )
-        elif evaluator_family == "bias":
+        elif "bbq" in dataset_id or "unqover" in dataset_id or "bloom" in dataset_id:
             from .free_text_bias_evaluator import FreeTextBiasEvaluator
 
             return FreeTextBiasEvaluator(resolved_eval_config, dataset_config)
