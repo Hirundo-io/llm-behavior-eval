@@ -178,9 +178,7 @@ def patch_custom_dataset(
             token: str | None = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
-            # Record the padding side AT tokenization time. The tokenizer object
-            # is mutated later, so reading it after init would always see "left";
-            # capturing it here is what detects right-padded inputs.
+            # Capture tokenization-time padding before later tokenizer mutations.
             capture_state.padding_side_at_preprocess = tokenizer.padding_side
             capture_state.trust_remote_code = trust_remote_code
             capture_state.max_answer_tokens = max_answer_tokens
@@ -307,13 +305,7 @@ def test_dataset_is_tokenized_with_left_padding(
     capture_state: CaptureState,
     stub_tokenizer: StubTokenizer,
 ) -> None:
-    """Inputs must be left-padded for correct decoder-only generation.
-
-    The tokenizer defaults to right-padding; the evaluator must flip it to
-    "left" BEFORE the dataset is tokenized in prepare_dataloader(). Setting it
-    afterwards (the previous bug) leaves the cached inputs right-padded, which
-    produces garbage generations.
-    """
+    """Inputs must be left-padded before dataset tokenization."""
     assert stub_tokenizer.padding_side == "right"  # default before init
 
     evaluation_config = EvaluationConfig(
