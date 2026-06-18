@@ -19,14 +19,30 @@ def test_bloom_behavior_presets() -> None:
     assert _behavior_presets("bloom:unbias:age") == [
         "hirundo-io/bloom-age-unbias-free-text"
     ]
+    assert _behavior_presets("bloom:bias:gender") == [
+        "hirundo-io/bloom-gender-bias-free-text"
+    ]
+    assert _behavior_presets("bloom:unbias:gender") == [
+        "hirundo-io/bloom-gender-unbias-free-text"
+    ]
+    assert _behavior_presets("bloom:bias:race") == [
+        "hirundo-io/bloom-race-bias-free-text"
+    ]
+    assert _behavior_presets("bloom:unbias:race") == [
+        "hirundo-io/bloom-race-unbias-free-text"
+    ]
     assert _behavior_presets("bloom:bias:all") == [
         "hirundo-io/bloom-age-bias-free-text",
+        "hirundo-io/bloom-gender-bias-free-text",
+        "hirundo-io/bloom-race-bias-free-text",
     ]
 
 
 def test_bloom_behavior_presets_normalize_parts_and_support_unbias_all() -> None:
     assert _behavior_presets(" BLOOM : UNBIAS : ALL ") == [
         "hirundo-io/bloom-age-unbias-free-text",
+        "hirundo-io/bloom-gender-unbias-free-text",
+        "hirundo-io/bloom-race-unbias-free-text",
     ]
 
 
@@ -36,13 +52,8 @@ def test_bloom_behavior_preset_rejects_invalid_kind() -> None:
 
 
 def test_bloom_behavior_preset_rejects_invalid_type() -> None:
-    with pytest.raises(ValueError, match="BLOOM supports"):
-        _behavior_presets("bloom:bias:race")
-
-
-def test_bloom_behavior_preset_rejects_unpublished_gender_split() -> None:
-    with pytest.raises(ValueError, match="BLOOM supports"):
-        _behavior_presets("bloom:bias:gender")
+    with pytest.raises(ValueError, match="BLOOM supports: age, gender, race, all"):
+        _behavior_presets("bloom:bias:religion")
 
 
 def test_factory_routes_bloom_to_free_text_bias_evaluator(

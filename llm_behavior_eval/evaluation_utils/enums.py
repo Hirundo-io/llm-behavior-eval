@@ -25,8 +25,8 @@ UNQOVER_BIAS_TYPES: set[str] = {
     "nationality",
 }
 
-# BLOOM published datasets currently include age splits only.
-BLOOM_BIAS_TYPES: set[str] = {"age"}
+# BLOOM supports paired scenario-based bias and unbias splits.
+BLOOM_BIAS_TYPES: set[str] = {"age", "gender", "race"}
 
 BIAS_KINDS = {"bias", "unbias"}
 BBQ_BIAS_BEHAVIOR = (
