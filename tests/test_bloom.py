@@ -28,6 +28,23 @@ def test_bloom_behavior_presets(behavior: str, dataset_id: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("behavior", "dataset_id"),
+    [
+        (
+            "bloom:bias:gender:ambiguous",
+            "hirundo-io/bloom-gender-ambiguous-bias-free-text",
+        ),
+        (
+            "bloom:bias:race:ambiguous",
+            "hirundo-io/bloom-race-ambiguous-bias-free-text",
+        ),
+    ],
+)
+def test_bloom_ambiguous_only_behavior_presets(behavior: str, dataset_id: str) -> None:
+    assert _behavior_presets(behavior) == [dataset_id]
+
+
+@pytest.mark.parametrize(
     ("behavior", "kind"),
     [
         ("bloom:bias:all", "bias"),
@@ -49,6 +66,11 @@ def test_bloom_behavior_preset_rejects_invalid_kind() -> None:
 def test_bloom_behavior_preset_rejects_invalid_type() -> None:
     with pytest.raises(ValueError, match="BLOOM supports: age, gender, race, all"):
         _behavior_presets("bloom:bias:religion")
+
+
+def test_bloom_ambiguous_only_behavior_preset_rejects_unbias() -> None:
+    with pytest.raises(ValueError, match="bloom:bias:<type>:ambiguous"):
+        _behavior_presets("bloom:unbias:gender:ambiguous")
 
 
 def test_factory_routes_bloom_to_free_text_bias_evaluator(

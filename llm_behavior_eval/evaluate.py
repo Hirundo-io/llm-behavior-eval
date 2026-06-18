@@ -17,6 +17,7 @@ from llm_behavior_eval.evaluation_utils.dataset_config import (
 from llm_behavior_eval.evaluation_utils.enums import (
     BBQ_BIAS_BEHAVIOR,
     BEHAVIOR_PRESET_ERROR,
+    BLOOM_BIAS_TYPES,
     HALUEVAL_ALIAS,
     INJECTION_ALIAS,
     MEDHALLU_ALIAS,
@@ -139,6 +140,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     #   - bias_type can be a concrete type or 'all'
     # ["bloom", kind, bias_type] for Bloom, where kind in {bias, unbias}
     #   - bias_type can be a concrete type or 'all'
+    # ["bloom", "bias", bias_type, "ambiguous"] for Bloom ambiguous-only bias
     if len(behavior_parts) == 2:
         kind, bias_type = behavior_parts
         allowed_types, allowed_kinds, kind_error, support_label = BBQ_BIAS_BEHAVIOR
@@ -169,6 +171,17 @@ def _behavior_presets(behavior: str) -> list[str]:
             kind_error,
             support_label,
         )
+
+    if len(behavior_parts) == 4:
+        prefix, kind, bias_type, context = behavior_parts
+        if (
+            prefix == "bloom"
+            and kind == "bias"
+            and context == "ambiguous"
+            and bias_type in BLOOM_BIAS_TYPES
+        ):
+            return [f"hirundo-io/bloom-{bias_type}-ambiguous-bias-free-text"]
+        raise ValueError("Use 'bloom:bias:<type>:ambiguous'")
 
     raise ValueError(BEHAVIOR_PRESET_ERROR)
 
