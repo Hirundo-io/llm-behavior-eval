@@ -122,7 +122,14 @@ DEFAULT_PROBES: list[str] = [
 
 
 def api_key_fingerprint(api_key: str) -> str:
-    """Return a non-secret fingerprint for run-config cache comparison."""
+    """Return a non-secret fingerprint for run-config cache comparison.
+
+    Args:
+        api_key: Effective API key used for the OpenAI-compatible endpoint.
+
+    Returns:
+        Stable short fingerprint string safe to persist in run configs.
+    """
     return f"sha256:{hashlib.sha256(api_key.encode('utf-8')).hexdigest()[:16]}"
 
 
@@ -543,7 +550,16 @@ class OpenAICompatGenerator(_BaseGarakGenerator):
 
 
 def validate_openai_base_url(base_url: str, *, allow_unsafe: bool = False) -> str:
-    """Validate an OpenAI-compatible base URL before creating an HTTP client."""
+    """Validate an OpenAI-compatible base URL before creating an HTTP client.
+
+    Args:
+        base_url: Candidate OpenAI-compatible endpoint base URL.
+        allow_unsafe: Whether to allow private, loopback, link-local, or
+            otherwise non-public resolved targets.
+
+    Returns:
+        The validated base URL string.
+    """
     parsed = urlparse(base_url)
     if parsed.scheme not in {"http", "https"}:
         raise ValueError("--garak-base-url must use the http or https scheme.")

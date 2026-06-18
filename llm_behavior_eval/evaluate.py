@@ -530,8 +530,11 @@ def main(
         int | None,
         typer.Option(
             "--seed",
-            help="Random seed for the evaluation.",
-            show_default=str(DEFAULT_SEED),
+            help=(
+                "Random seed for the evaluation. Non-garak runs use the default "
+                f"{DEFAULT_SEED} seed when omitted; garak runs are unseeded unless "
+                "this option is provided."
+            ),
         ),
     ] = None,
     max_answer_tokens: Annotated[
@@ -640,11 +643,7 @@ def main(
         )
     evaluator_family: EvaluatorFamily | None = next(iter(evaluator_families), None)
     effective_seed = (
-        seed
-        if seed is not None
-        else None
-        if evaluator_family == "garak"
-        else DEFAULT_SEED
+        DEFAULT_SEED if seed is None and evaluator_family != "garak" else seed
     )
 
     logging.basicConfig(
