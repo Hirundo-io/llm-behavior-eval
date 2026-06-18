@@ -857,6 +857,46 @@ def test_save_results_uses_bloom_summary_label(
     assert "Error (%) ⬇️" not in summary_rows[0]
 
 
+def test_save_results_uses_distinct_bloom_ambiguous_summary_label(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="hirundo-io/bloom-gender-ambiguous-bias-free-text",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    evaluator.save_results(
+        responses=[{"prompt": "test", "response": "value"}],
+        accuracy=0.80,
+        stereotyped_bias=None,
+        empty_responses=0,
+    )
+
+    summary_brief_path = tmp_path / "model" / "summary_brief.csv"
+    with summary_brief_path.open(newline="", encoding="utf-8") as summary_file:
+        summary_rows = list(csv.DictReader(summary_file))
+
+    assert summary_rows[0]["Dataset"] == "Bloom: gender ambiguous bias"
+    assert summary_rows[0]["Error (%) ⬇️"] == "20.000"
+
+
 def test_save_results_marks_thinking_mode_on_when_enabled(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
