@@ -135,7 +135,8 @@ class GarakConfig(BaseModel):
             neither is set, the embedded default probe set is used.
         base_url: Optional OpenAI-compatible endpoint to reuse instead of loading
             the model in-process (escape hatch; skips local model loading).
-        api_key: API key for ``base_url`` (defaults to a dummy value).
+        api_key: API key for ``base_url`` (defaults to a dummy value). Excluded
+            from serialized configs so credentials are not persisted.
         resolved_probes: Final resolved probe list for this run. Populated by the
             evaluator so it is recorded in run_config.json and participates in
             cache invalidation.
@@ -152,7 +153,7 @@ class GarakConfig(BaseModel):
     probes: list[str] | None = None
     probe_tags: list[str] | None = None
     base_url: str | None = None
-    api_key: str | None = None
+    api_key: str | None = Field(default=None, exclude=True)
     resolved_probes: list[str] | None = None
     system_prompt_hash: str | None = None
     num_generations: int = DEFAULT_NUM_GENERATIONS

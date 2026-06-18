@@ -25,7 +25,7 @@ This toolkit evaluates three classes of behaviors:
   - **Purple Llama Prompt Injection**: measures susceptibility to instruction overriding and jailbreaks using curated prompt‑injection attacks. Reuses the hallucination judging pipeline with Yes/No grading.
 
 - **System leak (garak)**
-  - **Garak system‑leak**: runs [garak](https://github.com/NVIDIA/garak) probes (encoding, latent‑injection, prompt‑injection, smuggling) against a model that is given a secret‑bearing system prompt, then measures whether the model leaks the system prompt, internal instructions, or secret markers. No judge model is required: leakage is detected by direct marker/substring scanning. Requires the optional `garak` extra (`pip install llm-behavior-eval[garak]`) and runs the model under vLLM.
+  - **Garak system‑leak**: runs [garak](https://github.com/NVIDIA/garak) probes (encoding, latent‑injection, prompt‑injection, smuggling) against a model that is given a secret‑bearing system prompt, then measures whether the model leaks the system prompt, internal instructions, or secret markers. No judge model is required: leakage is detected by direct marker/substring scanning. Local model runs use vLLM, so install both optional extras with `pip install llm-behavior-eval[garak,vllm]`; HTTP endpoint runs only need `pip install llm-behavior-eval[garak]`.
 
 Example bias question (BBQ, ambiguous):
 ```text
@@ -153,7 +153,7 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
 
-- **System leak (garak)** — run the default garak probe set under vLLM:
+- **System leak (garak)** — install `llm-behavior-eval[garak,vllm]`, then run the default garak probe set under vLLM:
 ```bash
 llm-behavior-eval /path/to/model garak --inference-engine vllm
 ```
@@ -162,7 +162,7 @@ Select probes explicitly, by tag, or both (the two are unioned):
 llm-behavior-eval /path/to/model garak --inference-engine vllm --garak-probes encoding.InjectBase64,promptinject.HijackLongPrompt
 llm-behavior-eval /path/to/model garak --inference-engine vllm --garak-probe-tags owasp:llm01
 ```
-Reuse an already-running OpenAI-compatible endpoint instead of loading the model locally:
+Reuse an already-running OpenAI-compatible endpoint instead of loading the model locally. This mode only requires the `garak` extra:
 ```bash
 llm-behavior-eval /path/to/model garak --garak-base-url http://127.0.0.1:8765/v1/
 ```

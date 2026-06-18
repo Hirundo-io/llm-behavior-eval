@@ -168,6 +168,23 @@ def test_main_builds_garak_config_for_garak_behavior(
     assert eval_config.garak_config.seed == 123
 
 
+def test_garak_api_key_is_not_serialized_in_eval_config(tmp_path: Path) -> None:
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        garak_config=GarakConfig(
+            base_url="http://127.0.0.1:8765/v1/",
+            api_key="secret",
+        ),
+    )
+
+    assert eval_config.garak_config is not None
+    assert eval_config.garak_config.api_key == "secret"
+    serialized = eval_config.model_dump(exclude_none=True)
+    assert serialized["garak_config"]["base_url"] == "http://127.0.0.1:8765/v1/"
+    assert "api_key" not in serialized["garak_config"]
+
+
 def test_in_process_vllm_generator_serializes_greedy_multi_generation() -> None:
     class _Content:
         text = "hello"
