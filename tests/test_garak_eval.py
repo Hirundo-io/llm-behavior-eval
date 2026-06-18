@@ -8,13 +8,18 @@ from contextlib import AbstractContextManager, nullcontext
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from typer.testing import CliRunner
 
 import llm_behavior_eval.evaluate as evaluate
+import llm_behavior_eval.evaluation_utils.garak_evaluator as garak_evaluator
 from llm_behavior_eval import DatasetConfig, EvaluationConfig, GarakConfig
 from llm_behavior_eval.evaluation_utils import garak_util
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
-from llm_behavior_eval.evaluation_utils.garak_evaluator import GarakEvaluator
+from llm_behavior_eval.evaluation_utils.garak_evaluator import (
+    GarakEvaluator,
+    _HttpOnlyEngine,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -54,6 +59,10 @@ class _StubEvaluator:
 
     def cleanup(self, error: bool = False) -> None:
         return None
+
+
+class _DummyTokenizer:
+    padding_side = "right"
 
 
 @pytest.fixture
@@ -108,6 +117,43 @@ def test_factory_routes_garak_to_garak_evaluator(
     assert evaluator._sentinel is sentinel  # type: ignore[attr-defined]
 
 
+def test_garak_base_url_uses_http_only_engine(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        garak_evaluator,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: _DummyTokenizer(),
+    )
+    monkeypatch.setattr(garak_util, "count_probe_attempts", lambda *_args, **_kwargs: 1)
+
+    evaluator = GarakEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="fake/model",
+            results_dir=tmp_path,
+            garak_config=GarakConfig(base_url="https://example.com/v1/"),
+            evaluator_family="garak",
+        ),
+        DatasetConfig(file_path="garak", dataset_type=DatasetType.BIAS),
+    )
+
+    assert isinstance(evaluator.eval_engine, _HttpOnlyEngine)
+    assert evaluator.eval_engine.tokenizer.padding_side == "left"
+
+
+def test_garak_local_requires_vllm_engine(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Local garak evaluations require vLLM"):
+        GarakEvaluator(
+            EvaluationConfig(
+                model_path_or_repo_id="fake/model",
+                results_dir=tmp_path,
+                garak_config=GarakConfig(),
+                evaluator_family="garak",
+            ),
+            DatasetConfig(file_path="garak", dataset_type=DatasetType.BIAS),
+        )
+
+
 def test_garak_run_config_comparison_ignores_batch_size() -> None:
     evaluator = object.__new__(GarakEvaluator)
     base_config: BaseEvaluator.RunConfig = {
@@ -160,12 +206,57 @@ def test_main_builds_garak_config_for_garak_behavior(
     assert eval_config.garak_config.probe_tags == ["owasp:llm01"]
     assert eval_config.garak_config.base_url == "http://127.0.0.1:8765/v1/"
     assert eval_config.garak_config.api_key == "secret"
+    assert eval_config.garak_config.allow_unsafe_base_url is False
     assert eval_config.garak_config.num_generations == 3
     assert eval_config.garak_config.max_tokens == 64
     assert eval_config.garak_config.temperature == 0.2
     assert eval_config.garak_config.top_p == 0.8
     assert eval_config.garak_config.top_k == 40
     assert eval_config.garak_config.seed == 123
+
+
+def test_main_leaves_default_garak_seed_unset(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "garak",
+        garak_base_url="https://example.com/v1/",
+    )
+
+    eval_config = capture_eval_config[-1]
+    assert eval_config.garak_config is not None
+    assert eval_config.garak_config.seed is None
+    assert eval_config.sampling_config.seed is None
+
+
+def test_typer_cli_builds_garak_config(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        evaluate.app,
+        [
+            "fake/model",
+            "garak",
+            "--garak-base-url",
+            "http://127.0.0.1:8765/v1/",
+            "--garak-allow-unsafe-base-url",
+            "--garak-probes",
+            "encoding.InjectBase64",
+            "--seed",
+            "42",
+        ],
+    )
+
+    assert result.exit_code == 0
+    eval_config = capture_eval_config[-1]
+    assert eval_config.garak_config is not None
+    assert eval_config.garak_config.base_url == "http://127.0.0.1:8765/v1/"
+    assert eval_config.garak_config.allow_unsafe_base_url is True
+    assert eval_config.garak_config.probes == ["encoding.InjectBase64"]
+    assert eval_config.garak_config.seed == 42
 
 
 def test_garak_api_key_is_not_serialized_in_eval_config(tmp_path: Path) -> None:
@@ -183,6 +274,70 @@ def test_garak_api_key_is_not_serialized_in_eval_config(tmp_path: Path) -> None:
     serialized = eval_config.model_dump(exclude_none=True)
     assert serialized["garak_config"]["base_url"] == "http://127.0.0.1:8765/v1/"
     assert "api_key" not in serialized["garak_config"]
+    assert serialized["garak_config"]["api_key_fingerprint"] == (
+        garak_util.api_key_fingerprint("secret")
+    )
+
+
+def test_garak_api_key_fingerprint_changes_with_api_key(tmp_path: Path) -> None:
+    first = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        garak_config=GarakConfig(
+            base_url="https://example.com/v1/",
+            api_key="first-secret",
+        ),
+    ).model_dump(exclude_none=True)
+    second = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        garak_config=GarakConfig(
+            base_url="https://example.com/v1/",
+            api_key="second-secret",
+        ),
+    ).model_dump(exclude_none=True)
+
+    assert (
+        first["garak_config"]["api_key_fingerprint"]
+        != second["garak_config"]["api_key_fingerprint"]
+    )
+    assert "first-secret" not in json.dumps(first, default=str)
+    assert "second-secret" not in json.dumps(second, default=str)
+
+
+def test_validate_openai_base_url_rejects_non_http_scheme() -> None:
+    with pytest.raises(ValueError, match="http or https"):
+        garak_util.validate_openai_base_url("file:///tmp/socket")
+
+
+def test_validate_openai_base_url_rejects_private_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        garak_util.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (
+                garak_util.socket.AF_INET,
+                garak_util.socket.SOCK_STREAM,
+                6,
+                "",
+                ("10.0.0.5", 443),
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match="non-public address"):
+        garak_util.validate_openai_base_url("https://internal.example/v1/")
+
+
+def test_validate_openai_base_url_allows_private_targets_with_override() -> None:
+    assert (
+        garak_util.validate_openai_base_url(
+            "http://127.0.0.1:8765/v1/", allow_unsafe=True
+        )
+        == "http://127.0.0.1:8765/v1/"
+    )
 
 
 def test_in_process_vllm_generator_serializes_greedy_multi_generation() -> None:

@@ -531,8 +531,9 @@ def main(
         typer.Option(
             "--seed",
             help="Random seed for the evaluation.",
+            show_default=str(DEFAULT_SEED),
         ),
-    ] = DEFAULT_SEED,
+    ] = None,
     max_answer_tokens: Annotated[
         int | None,
         typer.Option(
@@ -596,6 +597,17 @@ def main(
             help="Garak only: API key for --garak-base-url (defaults to 'dummy').",
         ),
     ] = None,
+    garak_allow_unsafe_base_url: Annotated[
+        bool,
+        typer.Option(
+            "--garak-allow-unsafe-base-url/--no-garak-allow-unsafe-base-url",
+            help=(
+                "Garak only: allow --garak-base-url to target private, loopback, "
+                "link-local, or otherwise non-public hosts. Use only for trusted "
+                "local/private endpoints."
+            ),
+        ),
+    ] = False,
     garak_num_generations: Annotated[
         int | None,
         typer.Option(
@@ -627,6 +639,13 @@ def main(
             "Cannot evaluate behaviors from multiple evaluator families in one invocation."
         )
     evaluator_family: EvaluatorFamily | None = next(iter(evaluator_families), None)
+    effective_seed = (
+        seed
+        if seed is not None
+        else None
+        if evaluator_family == "garak"
+        else DEFAULT_SEED
+    )
 
     logging.basicConfig(
         level=logging.INFO,
@@ -700,6 +719,7 @@ def main(
             ),
             base_url=garak_base_url,
             api_key=garak_api_key,
+            allow_unsafe_base_url=garak_allow_unsafe_base_url,
             num_generations=(
                 garak_num_generations
                 if garak_num_generations is not None
@@ -710,7 +730,7 @@ def main(
             else garak_defaults["temperature"].default,
             top_p=top_p,
             top_k=top_k if top_k != DEFAULT_TOP_K else None,
-            seed=seed if seed != DEFAULT_SEED else None,
+            seed=seed,
             max_tokens=max_answer_tokens
             if max_answer_tokens is not None
             else garak_defaults["max_tokens"].default,
@@ -755,7 +775,7 @@ def main(
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            seed=seed,
+            seed=effective_seed,
         ),
         "evaluator_family": evaluator_family,
     }
@@ -791,7 +811,7 @@ def main(
                     if "-unbias-" in file_path
                     else DatasetType.BIAS,
                     preprocess_config=PreprocessConfig(),
-                    seed=seed,
+                    seed=effective_seed,
                 )
                 if evaluator is None:
                     evaluator = EvaluateFactory.create_evaluator(

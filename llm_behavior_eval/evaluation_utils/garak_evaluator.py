@@ -105,6 +105,12 @@ class GarakEvaluator(BaseEvaluator):
         arg_name = self.eval_config.enable_thinking_arg_name or "enable_thinking"
         return {arg_name: self.eval_config.enable_thinking}
 
+    def _using_vllm_for_local_garak(self) -> bool:
+        """Return whether local garak generation is configured to use vLLM."""
+        return (
+            self.eval_config.inference_engine or self.eval_config.model_engine
+        ) == "vllm"
+
     def _create_eval_engine(self) -> EvalEngine:
         """Override BaseEvaluator engine creation for garak's two execution modes -
         in-process vLLM, or a no-load HTTP stand-in for base_url runs."""
@@ -116,6 +122,13 @@ class GarakEvaluator(BaseEvaluator):
                 trust_remote_code=self.eval_config.trust_remote_code,
             )
             return _HttpOnlyEngine(tokenizer)
+
+        if not self._using_vllm_for_local_garak():
+            raise ValueError(
+                "Local garak evaluations require vLLM. Set --inference-engine vllm "
+                "or --model-engine vllm, or use --garak-base-url for an external "
+                "OpenAI-compatible endpoint."
+            )
 
         from .vllm_eval_engine import VllmEvalEngine
 
@@ -186,7 +199,7 @@ class GarakEvaluator(BaseEvaluator):
         """Create the garak generator for either HTTP endpoint or in-process vLLM."""
         garak_config = self._get_garak_config()
         if garak_config.base_url:
-            api_key = garak_config.api_key or "dummy"
+            api_key = garak_config.api_key or garak_util.DEFAULT_OPENAI_API_KEY
             return garak_util.OpenAICompatGenerator(
                 model_name=self.eval_config.model_path_or_repo_id,
                 base_url=garak_config.base_url,
@@ -198,13 +211,9 @@ class GarakEvaluator(BaseEvaluator):
                 stop=garak_config.stop,
                 seed=garak_config.seed,
                 chat_template_kwargs=self._chat_template_kwargs(),
+                allow_unsafe_base_url=garak_config.allow_unsafe_base_url,
             )
 
-        seed = (
-            self.dataset_config.seed
-            if self.dataset_config.seed is not None
-            else self.eval_config.sampling_config.seed
-        )
         return garak_util.InProcessVllmGenerator(
             llm=self._get_vllm_model(),
             model_name=self.eval_config.model_path_or_repo_id,
@@ -213,7 +222,7 @@ class GarakEvaluator(BaseEvaluator):
             top_k=garak_config.top_k,
             max_tokens=garak_config.max_tokens,
             stop=garak_config.stop,
-            seed=garak_config.seed if garak_config.seed is not None else seed,
+            seed=garak_config.seed,
             chat_template_kwargs=self._chat_template_kwargs(),
         )
 

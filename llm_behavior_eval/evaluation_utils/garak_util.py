@@ -15,15 +15,18 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import ipaddress
 import json
 import logging
+import socket
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -70,6 +73,7 @@ DEFAULT_TEMPERATURE: float = 0.7
 DEFAULT_TOP_P: float = 1.0
 DEFAULT_MAX_TOKENS: int = 150
 DEFAULT_STOP: list[str] = ["#", ";"]
+DEFAULT_OPENAI_API_KEY: str = "dummy"
 
 # --- Leak markers (single source of truth) ----------------------------------
 MARKERS: dict[str, str] = {
@@ -117,6 +121,11 @@ DEFAULT_PROBES: list[str] = [
 ]
 
 
+def api_key_fingerprint(api_key: str) -> str:
+    """Return a non-secret fingerprint for run-config cache comparison."""
+    return f"sha256:{hashlib.sha256(api_key.encode('utf-8')).hexdigest()[:16]}"
+
+
 class GarakConfig(BaseModel):
     """
     Configuration for the garak system-leak behavior.
@@ -135,8 +144,14 @@ class GarakConfig(BaseModel):
             neither is set, the embedded default probe set is used.
         base_url: Optional OpenAI-compatible endpoint to reuse instead of loading
             the model in-process (escape hatch; skips local model loading).
-        api_key: API key for ``base_url`` (defaults to a dummy value). Excluded
-            from serialized configs so credentials are not persisted.
+        api_key: Optional API key for ``base_url``. Excluded from serialized
+            configs so credentials are not persisted; HTTP runs use a dummy
+            placeholder when omitted.
+        api_key_fingerprint: Non-secret fingerprint of the effective API key,
+            recorded so cached generations are not reused across credentials.
+        allow_unsafe_base_url: Allow private, loopback, link-local, or otherwise
+            non-public ``base_url`` targets. Intended only for trusted local
+            endpoint testing.
         resolved_probes: Final resolved probe list for this run. Populated by the
             evaluator so it is recorded in run_config.json and participates in
             cache invalidation.
@@ -154,6 +169,8 @@ class GarakConfig(BaseModel):
     probe_tags: list[str] | None = None
     base_url: str | None = None
     api_key: str | None = Field(default=None, exclude=True)
+    api_key_fingerprint: str | None = None
+    allow_unsafe_base_url: bool = False
     resolved_probes: list[str] | None = None
     system_prompt_hash: str | None = None
     num_generations: int = DEFAULT_NUM_GENERATIONS
@@ -163,6 +180,16 @@ class GarakConfig(BaseModel):
     seed: int | None = None
     max_tokens: int = DEFAULT_MAX_TOKENS
     stop: list[str] = Field(default_factory=lambda: list(DEFAULT_STOP))
+
+    @model_validator(mode="after")
+    def populate_api_key_fingerprint(self) -> GarakConfig:
+        if self.base_url is None:
+            self.api_key_fingerprint = None
+        else:
+            self.api_key_fingerprint = api_key_fingerprint(
+                self.api_key or DEFAULT_OPENAI_API_KEY
+            )
+        return self
 
 
 def system_prompt_for(enable_thinking: bool) -> str:
@@ -448,11 +475,17 @@ class OpenAICompatGenerator(_BaseGarakGenerator):
         stop: Sequence[str] | None = None,
         seed: int | None = None,
         chat_template_kwargs: Mapping[str, Any] | None = None,
+        allow_unsafe_base_url: bool = False,
     ) -> None:
         from openai import OpenAI
 
         self.name = model_name
-        self.client = OpenAI(base_url=base_url, api_key=api_key)
+        self.client = OpenAI(
+            base_url=validate_openai_base_url(
+                base_url, allow_unsafe=allow_unsafe_base_url
+            ),
+            api_key=api_key,
+        )
         self.temperature = temperature
         self.top_p = top_p
         self.top_k = top_k
@@ -507,6 +540,38 @@ class OpenAICompatGenerator(_BaseGarakGenerator):
                     prompts,
                 )
             )
+
+
+def validate_openai_base_url(base_url: str, *, allow_unsafe: bool = False) -> str:
+    """Validate an OpenAI-compatible base URL before creating an HTTP client."""
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("--garak-base-url must use the http or https scheme.")
+    if not parsed.hostname:
+        raise ValueError("--garak-base-url must include a hostname.")
+    if parsed.username or parsed.password:
+        raise ValueError("--garak-base-url must not include credentials.")
+    if allow_unsafe:
+        return base_url
+
+    try:
+        addr_info = socket.getaddrinfo(
+            parsed.hostname, parsed.port, type=socket.SOCK_STREAM
+        )
+    except socket.gaierror as exc:
+        raise ValueError(
+            "--garak-base-url hostname could not be resolved; pass "
+            "--garak-allow-unsafe-base-url only for trusted endpoints."
+        ) from exc
+
+    resolved_ips = {ipaddress.ip_address(sockaddr[0]) for *_, sockaddr in addr_info}
+    unsafe_ips = [ip for ip in resolved_ips if not ip.is_global]
+    if unsafe_ips:
+        raise ValueError(
+            "--garak-base-url resolves to a non-public address; pass "
+            "--garak-allow-unsafe-base-url only for trusted local/private endpoints."
+        )
+    return base_url
 
 
 # --- Probe execution (ported from system_leak_eval.py) -----------------------

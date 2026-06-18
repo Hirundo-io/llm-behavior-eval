@@ -162,9 +162,9 @@ Select probes explicitly, by tag, or both (the two are unioned):
 llm-behavior-eval /path/to/model garak --inference-engine vllm --garak-probes encoding.InjectBase64,promptinject.HijackLongPrompt
 llm-behavior-eval /path/to/model garak --inference-engine vllm --garak-probe-tags owasp:llm01
 ```
-Reuse an already-running OpenAI-compatible endpoint instead of loading the model locally. This mode only requires the `garak` extra:
+Reuse an already-running OpenAI-compatible endpoint instead of loading the model locally. This mode only requires the `garak` extra. Private or loopback endpoints require the explicit unsafe override:
 ```bash
-llm-behavior-eval /path/to/model garak --garak-base-url http://127.0.0.1:8765/v1/
+llm-behavior-eval /path/to/model garak --garak-base-url http://127.0.0.1:8765/v1/ --garak-allow-unsafe-base-url
 ```
 Reasoning state is reflected in the model output folder name, e.g. `--thinking-on` writes garak outputs to `results/<model>-WithReasoning/garak/` and `--thinking-off` writes to `results/<model>-NoReasoning/garak/`.
 
