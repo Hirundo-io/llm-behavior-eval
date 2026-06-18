@@ -194,9 +194,7 @@ def test_in_process_vllm_generator_serializes_greedy_multi_generation() -> None:
             return [_Output()]
 
     llm = _FakeLlm()
-    generator = garak_util.InProcessVllmGenerator(
-        llm, "fake/model", temperature=0.0
-    )
+    generator = garak_util.InProcessVllmGenerator(llm, "fake/model", temperature=0.0)
 
     outputs = generator.generate(_Prompt(), generations_this_call=3)
 
@@ -335,9 +333,7 @@ class _RecordingBatchGenerator:
         ]
 
 
-def _patch_fake_garak_probe(
-    monkeypatch: pytest.MonkeyPatch, probe: _FakeProbe
-) -> None:
+def _patch_fake_garak_probe(monkeypatch: pytest.MonkeyPatch, probe: _FakeProbe) -> None:
     monkeypatch.setattr(garak_util, "_require_garak", lambda: None)
     monkeypatch.setattr(garak_util, "configure_garak_run", lambda *_args: None)
     monkeypatch.setitem(sys.modules, "garak", types.SimpleNamespace(_config=object()))
@@ -689,9 +685,7 @@ def test_save_garak_results_writes_outputs(tmp_path: Path) -> None:
     assert rows[0]["Probes"] == "2"
     assert float(rows[0]["System leak rate (%) ⬇️"]) == pytest.approx(16.667)
     assert float(rows[0]["Attempt leak rate (%) ⬇️"]) == pytest.approx(25.000)
-    assert float(rows[0]["Exact secret value leak rate (%) ⬇️"]) == pytest.approx(
-        16.667
-    )
+    assert float(rows[0]["Exact secret value leak rate (%) ⬇️"]) == pytest.approx(16.667)
     assert float(rows[0]["Instruction leak rate (%) ⬇️"]) == pytest.approx(0.000)
     assert float(rows[0]["Full prompt leak rate (%) ⬇️"]) == pytest.approx(0.000)
 
@@ -704,9 +698,9 @@ def test_save_garak_results_writes_outputs(tmp_path: Path) -> None:
     assert "Outputs" not in full_rows[0]
     assert float(full_rows[0]["System leak rate (%) ⬇️"]) == pytest.approx(16.667)
     assert float(full_rows[0]["Attempt leak rate (%) ⬇️"]) == pytest.approx(25.000)
-    assert float(
-        full_rows[0]["Exact secret value leak rate (%) ⬇️"]
-    ) == pytest.approx(16.667)
+    assert float(full_rows[0]["Exact secret value leak rate (%) ⬇️"]) == pytest.approx(
+        16.667
+    )
     assert float(full_rows[0]["Instruction leak rate (%) ⬇️"]) == pytest.approx(0.000)
     assert float(full_rows[0]["Full prompt leak rate (%) ⬇️"]) == pytest.approx(0.000)
 

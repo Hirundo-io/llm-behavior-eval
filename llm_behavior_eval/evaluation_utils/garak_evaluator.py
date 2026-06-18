@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING, Any, cast
 import pandas as pd
 
 from . import garak_util
-from .base_evaluator import BaseEvaluator
+from .base_evaluator import BaseEvaluator, _GenerationRecord
 from .eval_engine import EvalEngine
 from .garak_util import GarakConfig
 from .util_functions import load_tokenizer_with_transformers
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Mapping, Sequence
 
     from .dataset_config import DatasetConfig
     from .eval_config import EvaluationConfig
@@ -80,9 +80,7 @@ class GarakEvaluator(BaseEvaluator):
         """Resolve garak run metadata before ``BaseEvaluator`` snapshots config."""
         garak_config = eval_config.garak_config or GarakConfig()
 
-        self._system_prompt = garak_util.system_prompt_for(
-            eval_config.enable_thinking
-        )
+        self._system_prompt = garak_util.system_prompt_for(eval_config.enable_thinking)
         self._num_generations = garak_config.num_generations
         resolved_probes = garak_util.resolve_probes(
             garak_config.probes, garak_config.probe_tags
@@ -167,9 +165,7 @@ class GarakEvaluator(BaseEvaluator):
     def get_model_slug(self) -> str:
         """Use the standard model slug plus garak's reasoning-mode suffix."""
         model_slug = super().get_model_slug()
-        suffix = (
-            "WithReasoning" if self.eval_config.enable_thinking else "NoReasoning"
-        )
+        suffix = "WithReasoning" if self.eval_config.enable_thinking else "NoReasoning"
         if model_slug.endswith(("-WithReasoning", "-NoReasoning")):
             return model_slug
         return f"{model_slug}-{suffix}"
@@ -180,6 +176,7 @@ class GarakEvaluator(BaseEvaluator):
 
     def _get_vllm_model(self) -> Any:
         from .vllm_eval_engine import VllmEvalEngine
+
         if not isinstance(self.eval_engine, VllmEvalEngine):
             raise RuntimeError("In-process garak generation requires VllmEvalEngine.")
         return self.eval_engine.model
@@ -259,7 +256,7 @@ class GarakEvaluator(BaseEvaluator):
     # --- grading / output ---------------------------------------------------
     def _grade_impl(
         self,
-        generations: Sequence[dict[str, Any]],
+        generations: Sequence[_GenerationRecord],
         judge_engine: EvalEngine | None = None,
     ) -> None:
         """Summarize garak attempt records and write evaluator output artifacts.
@@ -274,7 +271,8 @@ class GarakEvaluator(BaseEvaluator):
         )
         if not attempts:
             attempts, probe_timing = garak_util.normalize_attempts(
-                generations, system_prompt=self._system_prompt
+                cast("Iterable[Mapping[str, Any]]", generations),
+                system_prompt=self._system_prompt,
             )
 
         summary = garak_util.summarize(attempts, probe_timing)
@@ -386,15 +384,13 @@ class GarakEvaluator(BaseEvaluator):
         if self.mlflow_config:
             self._log_mlflow_metrics(
                 {
-                    "system_leak_rate": float(family_avg["any_leak_rate"]),
-                    "attempt_leak_rate": float(family_avg["attempt_leak_rate"]),
-                    "exact_value_leak_rate": float(family_avg["exact_value_rate"]),
-                    "instruction_leak_rate": float(family_avg["instruction_rate"]),
-                    "full_prompt_leak_rate": float(family_avg["full_prompt_rate"]),
-                    "system_leak_rate_family_avg": float(family_avg["any_leak_rate"]),
-                    "attempt_leak_rate_family_avg": float(
-                        family_avg["attempt_leak_rate"]
-                    ),
+                    "system_leak_rate": family_avg["any_leak_rate"],
+                    "attempt_leak_rate": family_avg["attempt_leak_rate"],
+                    "exact_value_leak_rate": family_avg["exact_value_rate"],
+                    "instruction_leak_rate": family_avg["instruction_rate"],
+                    "full_prompt_leak_rate": family_avg["full_prompt_rate"],
+                    "system_leak_rate_family_avg": family_avg["any_leak_rate"],
+                    "attempt_leak_rate_family_avg": family_avg["attempt_leak_rate"],
                     "probes": float(metrics["probes"]),
                     "attempts": float(metrics["attempts"]),
                 }

@@ -116,6 +116,7 @@ DEFAULT_PROBES: list[str] = [
     "smuggling.HypotheticalResponse",
 ]
 
+
 class GarakConfig(BaseModel):
     """
     Configuration for the garak system-leak behavior.
@@ -161,7 +162,6 @@ class GarakConfig(BaseModel):
     seed: int | None = None
     max_tokens: int = DEFAULT_MAX_TOKENS
     stop: list[str] = Field(default_factory=lambda: list(DEFAULT_STOP))
-
 
 
 def system_prompt_for(enable_thinking: bool) -> str:
@@ -370,7 +370,9 @@ class InProcessVllmGenerator(_BaseGarakGenerator):
         if not outputs:
             return [Message("")]
         completions = getattr(outputs[0], "outputs", [])
-        return [Message(getattr(candidate, "text", "") or "") for candidate in completions]
+        return [
+            Message(getattr(candidate, "text", "") or "") for candidate in completions
+        ]
 
     def generate_batch(
         self, prompts: Sequence[Any], generations_this_call: int = 5
@@ -387,10 +389,7 @@ class InProcessVllmGenerator(_BaseGarakGenerator):
             ]
 
         batch_messages = [
-            [
-                {"role": turn.role, "content": turn.content.text}
-                for turn in prompt.turns
-            ]
+            [{"role": turn.role, "content": turn.content.text} for turn in prompt.turns]
             for prompt in prompts
         ]
         sampling_kwargs: dict[str, Any] = {
@@ -469,9 +468,7 @@ class OpenAICompatGenerator(_BaseGarakGenerator):
         messages = [
             {"role": turn.role, "content": turn.content.text} for turn in prompt.turns
         ]
-        extra_body: dict[str, Any] = {
-            "chat_template_kwargs": self.chat_template_kwargs
-        }
+        extra_body: dict[str, Any] = {"chat_template_kwargs": self.chat_template_kwargs}
         if self.top_k is not None:
             extra_body["top_k"] = self.top_k
         kwargs: dict[str, Any] = {
@@ -545,9 +542,7 @@ def configure_garak_run(system_prompt: str, num_generations: int) -> None:
     import yaml
     from garak import _config
 
-    payload = {
-        "run": {"generations": num_generations, "system_prompt": system_prompt}
-    }
+    payload = {"run": {"generations": num_generations, "system_prompt": system_prompt}}
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -709,9 +704,7 @@ def run_probes(
                         ],
                         "outputs": [output.text for output in attempt.outputs],
                         "leak_analysis": analyses,
-                        "any_leak": any(
-                            analysis["any_leak"] for analysis in analyses
-                        ),
+                        "any_leak": any(analysis["any_leak"] for analysis in analyses),
                     }
                     records.append(record)
                     out.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -897,9 +890,15 @@ def summarize(
             else 0.0,
             "any_leak_rate": raw["any_leak_outputs"] / outputs if outputs else 0.0,
             "exact_key_rate": raw["exact_key_outputs"] / outputs if outputs else 0.0,
-            "exact_value_rate": raw["exact_value_outputs"] / outputs if outputs else 0.0,
-            "instruction_rate": raw["instruction_outputs"] / outputs if outputs else 0.0,
-            "full_prompt_rate": raw["full_prompt_outputs"] / outputs if outputs else 0.0,
+            "exact_value_rate": raw["exact_value_outputs"] / outputs
+            if outputs
+            else 0.0,
+            "instruction_rate": raw["instruction_outputs"] / outputs
+            if outputs
+            else 0.0,
+            "full_prompt_rate": raw["full_prompt_outputs"] / outputs
+            if outputs
+            else 0.0,
             "probe_duration_s": raw["probe_duration_s"],
         }
 

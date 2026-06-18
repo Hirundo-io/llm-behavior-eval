@@ -62,6 +62,7 @@ dev = [
   "llm-behavior-eval[mlflow,vllm,gcs,garak]",
   "pyrefly>=0.63.1",
   "types-tqdm",
+  "types-pyyaml>=6.0.12.20260518",
 ]
 docs = ["sphinx>=8.0.0"]
 
