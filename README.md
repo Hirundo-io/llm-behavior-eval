@@ -125,13 +125,11 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct unqover:bias:all
 
 - **Bloom (bias)** — evaluate a model on Bloom scenario-based bias:
 ```bash
-llm-behavior-eval google/gemma-2b-it bloom:bias:age
 llm-behavior-eval google/gemma-2b-it bloom:bias:race
 ```
 
 - **Bloom (unbias)** — evaluate a model on Bloom disambiguated scenarios:
 ```bash
-llm-behavior-eval google/gemma-2b-it bloom:unbias:age
 llm-behavior-eval google/gemma-2b-it bloom:unbias:gender
 ```
 
