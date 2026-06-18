@@ -12,37 +12,32 @@ from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
 )
 
 
-def test_bloom_behavior_presets() -> None:
-    assert _behavior_presets("bloom:bias:age") == [
-        "hirundo-io/bloom-age-bias-free-text"
-    ]
-    assert _behavior_presets("bloom:unbias:age") == [
-        "hirundo-io/bloom-age-unbias-free-text"
-    ]
-    assert _behavior_presets("bloom:bias:gender") == [
-        "hirundo-io/bloom-gender-bias-free-text"
-    ]
-    assert _behavior_presets("bloom:unbias:gender") == [
-        "hirundo-io/bloom-gender-unbias-free-text"
-    ]
-    assert _behavior_presets("bloom:bias:race") == [
-        "hirundo-io/bloom-race-bias-free-text"
-    ]
-    assert _behavior_presets("bloom:unbias:race") == [
-        "hirundo-io/bloom-race-unbias-free-text"
-    ]
-    assert _behavior_presets("bloom:bias:all") == [
-        "hirundo-io/bloom-age-bias-free-text",
-        "hirundo-io/bloom-gender-bias-free-text",
-        "hirundo-io/bloom-race-bias-free-text",
-    ]
+@pytest.mark.parametrize(
+    ("behavior", "dataset_id"),
+    [
+        ("bloom:bias:age", "hirundo-io/bloom-age-bias-free-text"),
+        ("bloom:unbias:age", "hirundo-io/bloom-age-unbias-free-text"),
+        ("bloom:bias:gender", "hirundo-io/bloom-gender-bias-free-text"),
+        ("bloom:unbias:gender", "hirundo-io/bloom-gender-unbias-free-text"),
+        ("bloom:bias:race", "hirundo-io/bloom-race-bias-free-text"),
+        ("bloom:unbias:race", "hirundo-io/bloom-race-unbias-free-text"),
+    ],
+)
+def test_bloom_behavior_presets(behavior: str, dataset_id: str) -> None:
+    assert _behavior_presets(behavior) == [dataset_id]
 
 
-def test_bloom_behavior_presets_normalize_parts_and_support_unbias_all() -> None:
-    assert _behavior_presets(" BLOOM : UNBIAS : ALL ") == [
-        "hirundo-io/bloom-age-unbias-free-text",
-        "hirundo-io/bloom-gender-unbias-free-text",
-        "hirundo-io/bloom-race-unbias-free-text",
+@pytest.mark.parametrize(
+    ("behavior", "kind"),
+    [
+        ("bloom:bias:all", "bias"),
+        (" BLOOM : UNBIAS : ALL ", "unbias"),
+    ],
+)
+def test_bloom_behavior_presets_all(behavior: str, kind: str) -> None:
+    assert _behavior_presets(behavior) == [
+        f"hirundo-io/bloom-{bias_type}-{kind}-free-text"
+        for bias_type in ("age", "gender", "race")
     ]
 
 
