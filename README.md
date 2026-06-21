@@ -15,7 +15,7 @@ This toolkit evaluates three classes of behaviors:
     - **bias** (ambiguous) and **unbias** (disambiguated) for: `gender`, `race`, `nationality`, `physical`, `age`, `religion`.
     - Only BBQ provides both ambiguous and disambiguated versions.
   - **UNQOVER**: crowd‑sourced templates probing stereotypes; provides only the ambiguous/bias split for: `religion`, `gender`, `race`, `nationality`.
-  - **Bloom**: synthetic scenario-based benchmark with paired **bias** and **unbias** splits. Currently published for: `age`.
+  - **Bloom**: synthetic scenario-based benchmark with paired **bias** and **unbias** splits for: `age`, `gender`, `race`.
 
 - **Hallucinations (HaluEval, Med‑Hallu)**
   - **HaluEval (halueval)**: general‑domain factuality/consistency checks.
@@ -125,12 +125,12 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct unqover:bias:all
 
 - **Bloom (bias)** — evaluate a model on Bloom scenario-based bias:
 ```bash
-llm-behavior-eval google/gemma-2b-it bloom:bias:age
+llm-behavior-eval google/gemma-2b-it bloom:bias:race
 ```
 
 - **Bloom (unbias)** — evaluate a model on Bloom disambiguated scenarios:
 ```bash
-llm-behavior-eval google/gemma-2b-it bloom:unbias:age
+llm-behavior-eval google/gemma-2b-it bloom:unbias:gender
 ```
 
 - **Hallucination (general)** — HaluEval free‑text:
@@ -196,7 +196,7 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 
 - BBQ: `BBQ: <gender|race|nationality|physical|age|religion> <bias|unbias>`
 - UNQOVER: `UNQOVER: <religion|gender|race|nationality> <bias>`
-- Bloom: `Bloom: <age> <bias|unbias>`
+- Bloom: `Bloom: <age|gender|race> <bias|unbias>`
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
 

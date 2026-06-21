@@ -25,8 +25,8 @@ UNQOVER_BIAS_TYPES: set[str] = {
     "nationality",
 }
 
-# BLOOM published datasets currently include age splits only.
-BLOOM_BIAS_TYPES: set[str] = {"age"}
+# BLOOM supports paired scenario-based bias and unbias splits.
+BLOOM_BIAS_TYPES: set[str] = {"age", "gender", "race"}
 
 BIAS_KINDS = {"bias", "unbias"}
 BBQ_BIAS_BEHAVIOR = (
@@ -53,7 +53,7 @@ HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
 REFUSAL_ALIAS = {"refusal"}
-BEHAVIOR_PRESET_ERROR = "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'bloom:bias:<type|all>' | 'bloom:unbias:<type|all>' | 'hallu' | 'hallu-med' | 'prompt-injection' | 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
+BEHAVIOR_PRESET_ERROR = "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'bloom:bias:<type|all>' | 'bloom:unbias:<type|all>' | 'bloom:bias:<type>:ambiguous' | 'hallu' | 'hallu-med' | 'prompt-injection' | 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
 TRUSTED_MODEL_PROVIDERS = {
     "hirundo-io",
     "nvidia",
