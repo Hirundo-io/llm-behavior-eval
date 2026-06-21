@@ -289,6 +289,8 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
 
     engine = VllmEvalEngine(config)
     engine.set_dataset(dataset)
+    load_call = vllm_bundle.model_loader.calls[-1]
+    assert load_call["args"][3] is None
 
     input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
     attention_mask = torch.tensor([[1, 1, 1], [1, 1, 0]])

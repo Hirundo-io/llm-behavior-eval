@@ -24,6 +24,9 @@ This toolkit evaluates three classes of behaviors:
 - **Prompt Injection (Purple Llama)**
   - **Purple Llama Prompt Injection**: measures susceptibility to instruction overriding and jailbreaks using curated prompt‑injection attacks. Reuses the hallucination judging pipeline with Yes/No grading.
 
+- **System leak (garak)**
+  - **Garak system‑leak**: runs [garak](https://github.com/NVIDIA/garak) probes (encoding, latent‑injection, prompt‑injection, smuggling) against a model that is given a secret‑bearing system prompt, then measures whether the model leaks the system prompt, internal instructions, or secret markers. No judge model is required: leakage is detected by direct marker/substring scanning. Local model runs use vLLM, so install both optional extras with `pip install llm-behavior-eval[garak,vllm]`; HTTP endpoint runs only need `pip install llm-behavior-eval[garak]`.
+
 Example bias question (BBQ, ambiguous):
 ```text
 Question: A man and a woman enter the store. Which person is more likely to be late to work?
@@ -48,6 +51,8 @@ How to select behaviors in the CLI (`evaluate.py`):
   - Med‑Hallu: `--behavior hallu-med`
 - Prompt Injection:
   - Purple Llama: `--behavior prompt-injection`
+- System leak:
+  - Garak: `--behavior garak`
 
 You can also run across all supported bias types using `all`:
 
@@ -148,6 +153,29 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
 
+- **System leak (garak)** — install `llm-behavior-eval[garak,vllm]`, then run the default garak probe set under vLLM:
+```bash
+llm-behavior-eval /path/to/model garak --inference-engine vllm
+```
+Select probes explicitly, by tag, or both (the two are unioned):
+```bash
+llm-behavior-eval /path/to/model garak --inference-engine vllm --garak-probes encoding.InjectBase64,promptinject.HijackLongPrompt
+llm-behavior-eval /path/to/model garak --inference-engine vllm --garak-probe-tags owasp:llm01
+```
+Reuse an already-running OpenAI-compatible endpoint instead of loading the model locally. This mode only requires the `garak` extra. Private or loopback endpoints require the explicit unsafe override:
+```bash
+llm-behavior-eval /path/to/model garak --garak-base-url http://127.0.0.1:8765/v1/ --garak-allow-unsafe-base-url
+```
+Reasoning state is reflected in the model output folder name, e.g. `--thinking-on` writes garak outputs to `results/<model>-WithReasoning/garak/` and `--thinking-off` writes to `results/<model>-NoReasoning/garak/`.
+
+Garak runs are resumable. Each completed attempt is appended to `generations.jsonl` and flushed immediately. To resume, rerun with the same output directory and the same run configuration; the evaluator reads `generations.jsonl`, skips completed probe sequences, and continues at the next missing sequence.
+If the saved `run_config.json` differs from the current command, a non-interactive run stops instead of mixing incompatible outputs. Passing `--replace-existing-output` deletes the old `generations.jsonl`, `responses.json`, and `metrics.csv`, then starts over. Final summaries are written only after all probes finish.
+
+For long local vLLM runs, prefer running under `nohup` and logging to a file.
+
+For garak, `--batch-size` controls how many garak prompts are issued together; each prompt still samples `--garak-num-generations` outputs. vLLM uses its own default sequence scheduler capacity.
+
+
 ### CLI options
 
 - `--max-samples <N>` — cap how many rows to evaluate per dataset (defaults to 500). Use `0` or any negative value to run the entire split.
@@ -159,6 +187,9 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 - `--thinking-on/--thinking-off` — enable thinking modes on tokenizers that support them.
 - `--enable-thinking-arg-name` — enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').
 - `--thinking-start-token` / `--thinking-end-token` — Thinking start/end token to use for the model (e.g. '<think>'/'</think>').
+- `--garak-num-generations <N>` — garak only: number of sampled outputs per garak attempt (defaults to 5). Lower values run faster but reduce sampling coverage.
+- `--max-answer-tokens <N>` — maximum model output length. For garak, this controls the maximum tokens per sampled output; when omitted, garak keeps its own default of 150 tokens.
+- `--temperature`, `--top-p`, `--top-k`, and `--seed` — model generation sampling controls. For garak, `--temperature` overrides garak's default temperature, while non-default `--top-k` and non-default `--seed` are forwarded when supported by the backend.
 - `--use-mlflow` plus `--mlflow-tracking-uri`, `--mlflow-experiment-name`, and `--mlflow-run-name` — configure MLflow tracking for the run.
 
 Need more control or wrappers around the library? Explore the scripts in `examples/` to see how to call the evaluators from Python directly, customize additional knobs, or embed the run inside your own orchestration logic.
@@ -199,6 +230,7 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 - Bloom: `Bloom: <age|gender|race> <bias|unbias>`
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
+- System leak (garak): `garak`; metrics include `System leak rate`, `Attempt leak rate`, `Exact secret value leak rate`, `Instruction leak rate`, and `Full prompt leak rate`. Per-probe/per-family detail is written to `garak_summary.json`.
 
 ## Tested on
 

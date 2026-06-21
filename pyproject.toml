@@ -30,7 +30,7 @@ keywords = [
 requires-python = ">=3.10.12,<3.14"
 # Please only install Python >=3.10.12 or >=3.11.4 or >=3.12 to avoid GHSA-4xh5-x5gv-qwph vulnerability
 dependencies = [
-  "datasets>=4.0.0,<5.0.0",
+  "datasets>=3.0.0,<4.0.0",
   "numpy<3.0.0",
   "pandas<3.0.0",
   "pydantic<3.0.0",
@@ -48,9 +48,10 @@ dependencies = [
 
 [project.optional-dependencies]
 mlflow = ["mlflow>=2.0.0"]
-vllm = ["vllm>=0.15.0"]
+vllm = ["vllm>=0.15.0; sys_platform == 'linux'"]
 gcs = ["google-cloud-storage"]
 gpt-oss = ["opencv-python-headless>=4.12.0.88"]
+garak = ["garak>=0.12.0"]
 
 [dependency-groups]
 dev = [
@@ -58,9 +59,10 @@ dev = [
   "bumpver>=2024.1130",
   "pytest>=8.3.5",
   "pre-commit>=4.3.0",
-  "llm-behavior-eval[mlflow,vllm,gcs]",
+  "llm-behavior-eval[mlflow,vllm,gcs,garak]",
   "pyrefly>=0.63.1",
   "types-tqdm",
+  "types-pyyaml>=6.0.12.20260518",
 ]
 docs = ["sphinx>=8.0.0"]
 

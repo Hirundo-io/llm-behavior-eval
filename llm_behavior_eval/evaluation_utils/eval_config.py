@@ -4,10 +4,13 @@ from typing import Literal
 from pydantic import BaseModel, field_validator
 from pydantic.functional_validators import model_validator
 
+from .garak_util import GarakConfig  # noqa: TC001
 from .sampling_config import SamplingConfig
 from .vllm_config import VllmConfig
 
-EvaluatorFamily = Literal["bias", "hallucination", "prompt-injection", "refusal"]
+EvaluatorFamily = Literal[
+    "bias", "hallucination", "prompt-injection", "refusal", "garak"
+]
 
 FAMILY_TOKEN_DEFAULTS: dict[EvaluatorFamily, dict[str, int | bool]] = {
     "bias": {
@@ -28,6 +31,11 @@ FAMILY_TOKEN_DEFAULTS: dict[EvaluatorFamily, dict[str, int | bool]] = {
     "refusal": {
         "max_answer_tokens": 256,
         "max_judge_tokens": 128,
+        "sample_judge": False,
+    },
+    "garak": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
         "sample_judge": False,
     },
 }
@@ -105,6 +113,7 @@ class EvaluationConfig(BaseModel):
     trust_remote_code: bool = False
     sampling_config: SamplingConfig = SamplingConfig()
     mlflow_config: "MlflowConfig | None" = None
+    garak_config: "GarakConfig | None" = None
     replace_existing_output: bool = False
     evaluator_family: EvaluatorFamily | None = None
 

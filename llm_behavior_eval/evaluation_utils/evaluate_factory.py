@@ -1,6 +1,7 @@
 from .base_evaluator import BaseEvaluator
 from .dataset_config import DatasetConfig
 from .eval_config import EvaluationConfig, EvaluatorFamily
+from .garak_util import GARAK_DATASET_ID
 from .refusal_utils import REFUSAL_DATASETS
 
 
@@ -11,6 +12,8 @@ class EvaluateFactory:
 
     @staticmethod
     def get_evaluator_family(dataset_id: str) -> EvaluatorFamily:
+        if dataset_id == GARAK_DATASET_ID:
+            return "garak"
         if dataset_id in {"hirundo-io/halueval", "hirundo-io/medhallu"}:
             return "hallucination"
         if dataset_id in REFUSAL_DATASETS:
@@ -56,5 +59,9 @@ class EvaluateFactory:
             from .free_text_bias_evaluator import FreeTextBiasEvaluator
 
             return FreeTextBiasEvaluator(resolved_eval_config, dataset_config)
+        elif evaluator_family == "garak":
+            from .garak_evaluator import GarakEvaluator
+
+            return GarakEvaluator(resolved_eval_config, dataset_config)
         else:
             raise ValueError(f"Unknown dataset: {dataset_id}")

@@ -352,7 +352,6 @@ def load_vllm_model(
     model_name: str,
     dtype: torch.dtype,
     trust_remote_code: bool,
-    batch_size: int,
     token: str | None = None,
     tensor_parallel_size: int | None = None,
     enforce_eager: bool = False,
@@ -372,7 +371,6 @@ def load_vllm_model(
         model_name: Model identifier or local path.
         dtype: Torch dtype to request from vLLM.
         trust_remote_code: Whether to allow remote code execution when loading the model.
-        batch_size: The batch size to use for the model.
         token: The HuggingFace token to use for the model.
         tensor_parallel_size: Optional tensor parallelism degree passed to vLLM.
         enforce_eager: Whether to enforce eager execution (useful for CPU-only setups).
@@ -408,28 +406,28 @@ def load_vllm_model(
     default_tokenizer_mode = _get_default_from_vllm("tokenizer_mode")
     default_tensor_parallel = _get_default_from_vllm("tensor_parallel_size")
 
+    llm_kwargs = {
+        "model": model_name,
+        "trust_remote_code": trust_remote_code,
+        "dtype": dtype_literal,
+        "enforce_eager": enforce_eager,
+        "quantization": quantization,
+        "tensor_parallel_size": tensor_parallel
+        if tensor_parallel is not None
+        else default_tensor_parallel,
+        "hf_token": token,
+        "max_model_len": max_model_len,
+        "tokenizer_mode": tokenizer_mode or default_tokenizer_mode,
+        "config_format": config_format,
+        "load_format": load_format,
+        "gpu_memory_utilization": gpu_memory_utilization,
+        "enable_lora": enable_lora,
+        "max_lora_rank": max_lora_rank,
+        "language_model_only": language_model_only,
+        "compilation_config": CompilationConfig(cudagraph_specialize_lora=False),
+    }
     with _hf_token(token):
-        llm_instance = LLM(
-            model=model_name,
-            trust_remote_code=trust_remote_code,
-            dtype=dtype_literal,
-            enforce_eager=enforce_eager,
-            quantization=quantization,
-            tensor_parallel_size=tensor_parallel
-            if tensor_parallel is not None
-            else default_tensor_parallel,
-            max_num_seqs=batch_size,
-            hf_token=token,
-            max_model_len=max_model_len,
-            tokenizer_mode=tokenizer_mode or default_tokenizer_mode,
-            config_format=config_format,
-            load_format=load_format,
-            gpu_memory_utilization=gpu_memory_utilization,
-            enable_lora=enable_lora,
-            max_lora_rank=max_lora_rank,
-            language_model_only=language_model_only,
-            compilation_config=CompilationConfig(cudagraph_specialize_lora=False),
-        )
+        llm_instance = LLM(**llm_kwargs)
 
     return llm_instance
 

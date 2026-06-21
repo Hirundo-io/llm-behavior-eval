@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import torch
 import typer
@@ -32,6 +32,12 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
     EvaluatorFamily,
 )
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
+from llm_behavior_eval.evaluation_utils.garak_util import (
+    DEFAULT_NUM_GENERATIONS as DEFAULT_GARAK_NUM_GENERATIONS,
+)
+from llm_behavior_eval.evaluation_utils.garak_util import (
+    GARAK_DATASET_ID,
+)
 from llm_behavior_eval.evaluation_utils.refusal_utils import (
     OR_BENCH_DATASET,
     XSTEST_DATASET,
@@ -45,6 +51,7 @@ from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 
 torch.set_float32_matmul_precision("high")
 
+GARAK_ALIAS = {"garak", "garak:system-leak"}
 DEFAULT_MAX_SAMPLES = EvaluationConfig.model_fields["max_samples"].default
 DEFAULT_BATCH_SIZE = EvaluationConfig.model_fields["batch_size"].default
 DEFAULT_USE_4BIT = EvaluationConfig.model_fields["use_4bit"].default
@@ -115,6 +122,10 @@ def _behavior_presets(behavior: str) -> list[str]:
     - Refusal: "refusal:xstest" | "refusal:orbench" | "refusal:all"
     """
     behavior_parts = [part.strip().lower() for part in behavior.split(":")]
+
+    # Garak system-leak behavior (synthetic dataset id; not a HF dataset)
+    if behavior in GARAK_ALIAS or behavior_parts == ["garak", "system-leak"]:
+        return [GARAK_DATASET_ID]
 
     # Hallucination shortcuts
     if behavior in HALUEVAL_ALIAS:
@@ -196,7 +207,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'; Garak system-leak: 'garak'"
         ),
     ],
     output_dir: Annotated[
@@ -532,9 +543,13 @@ def main(
         int | None,
         typer.Option(
             "--seed",
-            help="Random seed for the evaluation.",
+            help=(
+                "Random seed for the evaluation. Non-garak runs use the default "
+                f"{DEFAULT_SEED} seed when omitted; garak runs are unseeded unless "
+                "this option is provided."
+            ),
         ),
-    ] = DEFAULT_SEED,
+    ] = None,
     max_answer_tokens: Annotated[
         int | None,
         typer.Option(
@@ -558,6 +573,69 @@ def main(
             show_default=str(DEFAULT_MAX_JUDGE_TOKENS),
         ),
     ] = None,
+    garak_probes: Annotated[
+        str | None,
+        typer.Option(
+            "--garak-probes",
+            help=(
+                "Garak only: comma-separated probe names (e.g. "
+                "'encoding.InjectBase64,promptinject.HijackLongPrompt'). "
+                "Unioned with --garak-probe-tags; defaults apply when neither is set. "
+                "Ignored for non-garak behaviors."
+            ),
+        ),
+    ] = None,
+    garak_probe_tags: Annotated[
+        str | None,
+        typer.Option(
+            "--garak-probe-tags",
+            help=(
+                "Garak only: comma-separated probe tags (e.g. 'owasp:llm01'). "
+                "Unioned with --garak-probes. Ignored for non-garak behaviors."
+            ),
+        ),
+    ] = None,
+    garak_base_url: Annotated[
+        str | None,
+        typer.Option(
+            "--garak-base-url",
+            help=(
+                "Garak only: reuse an external OpenAI-compatible endpoint instead "
+                "of loading the model in-process (e.g. http://127.0.0.1:8765/v1/). "
+                "Ignored for non-garak behaviors."
+            ),
+        ),
+    ] = None,
+    garak_api_key: Annotated[
+        str | None,
+        typer.Option(
+            "--garak-api-key",
+            help="Garak only: API key for --garak-base-url (defaults to 'dummy').",
+        ),
+    ] = None,
+    garak_allow_unsafe_base_url: Annotated[
+        bool,
+        typer.Option(
+            "--garak-allow-unsafe-base-url/--no-garak-allow-unsafe-base-url",
+            help=(
+                "Garak only: allow --garak-base-url to target private, loopback, "
+                "link-local, or otherwise non-public hosts. Use only for trusted "
+                "local/private endpoints."
+            ),
+        ),
+    ] = False,
+    garak_num_generations: Annotated[
+        int | None,
+        typer.Option(
+            "--garak-num-generations",
+            help=(
+                "Garak only: number of sampled outputs per garak attempt. "
+                "Lower values run faster but reduce sampling coverage."
+            ),
+            min=1,
+            show_default=str(DEFAULT_GARAK_NUM_GENERATIONS),
+        ),
+    ] = None,
 ) -> None:
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
@@ -577,6 +655,9 @@ def main(
             "Cannot evaluate behaviors from multiple evaluator families in one invocation."
         )
     evaluator_family: EvaluatorFamily | None = next(iter(evaluator_families), None)
+    effective_seed = (
+        DEFAULT_SEED if seed is None and evaluator_family != "garak" else seed
+    )
 
     logging.basicConfig(
         level=logging.INFO,
@@ -631,47 +712,93 @@ def main(
     else:
         vllm_config = None
 
-    eval_config = EvaluationConfig(
-        model_path_or_repo_id=model_path_or_repo_id,
-        model_output_dir=model_output_dir,
-        model_token=model_token,
-        lora_path_or_repo_id=lora_path_or_repo_id,
-        judge_path_or_repo_id=judge_path_or_repo_id,
-        judge_token=judge_token,
-        results_dir=result_dir,
-        mlflow_config=mlflow_config,
-        vllm_config=vllm_config,
-        enable_thinking=enable_thinking,
-        enable_thinking_arg_name=enable_thinking_arg_name,
-        thinking_start_token=thinking_start_token,
-        thinking_end_token=thinking_end_token,
-        exclude_thinking_trace_for_judge=exclude_thinking_trace_for_judge,
-        trust_remote_code=trust_remote_code
-        if trust_remote_code is not None
-        else model_path_or_repo_id.split("/")[0] in TRUSTED_MODEL_PROVIDERS,
-        inference_engine=inference_engine,
-        model_engine=model_engine,
-        judge_engine=judge_engine,
-        replace_existing_output=replace_existing_output,
-        max_samples=None if max_samples <= 0 else max_samples,
-        batch_size=batch_size,
-        use_4bit=use_4bit,
-        device_map=device_map,
-        max_answer_tokens=max_answer_tokens,
-        pass_max_answer_tokens=pass_max_answer_tokens,
-        judge_batch_size=judge_batch_size,
-        max_judge_tokens=max_judge_tokens,
-        sample_judge=sample_judge,
-        use_4bit_judge=use_4bit_judge,
-        sampling_config=SamplingConfig(
+    # Garak config is only built (and thus only affects the run) for the garak
+    # behavior; for every other behavior these flags are ignored entirely.
+    if evaluator_family == "garak":
+        from llm_behavior_eval.evaluation_utils.garak_util import GarakConfig
+
+        garak_defaults = GarakConfig.model_fields
+        garak_config = GarakConfig(
+            probes=(
+                [p.strip() for p in garak_probes.split(",") if p.strip()]
+                if garak_probes
+                else None
+            ),
+            probe_tags=(
+                [t.strip() for t in garak_probe_tags.split(",") if t.strip()]
+                if garak_probe_tags
+                else None
+            ),
+            base_url=garak_base_url,
+            api_key=garak_api_key,
+            allow_unsafe_base_url=garak_allow_unsafe_base_url,
+            num_generations=(
+                garak_num_generations
+                if garak_num_generations is not None
+                else DEFAULT_GARAK_NUM_GENERATIONS
+            ),
+            temperature=temperature
+            if temperature is not None
+            else garak_defaults["temperature"].default,
+            top_p=top_p,
+            top_k=top_k if top_k != DEFAULT_TOP_K else None,
+            seed=seed,
+            max_tokens=max_answer_tokens
+            if max_answer_tokens is not None
+            else garak_defaults["max_tokens"].default,
+        )
+    else:
+        garak_config = None
+
+    eval_config_kwargs: dict[str, Any] = {
+        "model_path_or_repo_id": model_path_or_repo_id,
+        "model_output_dir": model_output_dir,
+        "model_token": model_token,
+        "lora_path_or_repo_id": lora_path_or_repo_id,
+        "judge_path_or_repo_id": judge_path_or_repo_id,
+        "judge_token": judge_token,
+        "results_dir": result_dir,
+        "mlflow_config": mlflow_config,
+        "vllm_config": vllm_config,
+        "garak_config": garak_config,
+        "enable_thinking": enable_thinking,
+        "enable_thinking_arg_name": enable_thinking_arg_name,
+        "thinking_start_token": thinking_start_token,
+        "thinking_end_token": thinking_end_token,
+        "exclude_thinking_trace_for_judge": exclude_thinking_trace_for_judge,
+        "trust_remote_code": (
+            trust_remote_code
+            if trust_remote_code is not None
+            else model_path_or_repo_id.split("/")[0] in TRUSTED_MODEL_PROVIDERS
+        ),
+        "inference_engine": inference_engine,
+        "model_engine": model_engine,
+        "judge_engine": judge_engine,
+        "replace_existing_output": replace_existing_output,
+        "max_samples": None if max_samples <= 0 else max_samples,
+        "batch_size": batch_size,
+        "use_4bit": use_4bit,
+        "device_map": device_map,
+        "pass_max_answer_tokens": pass_max_answer_tokens,
+        "judge_batch_size": judge_batch_size,
+        "use_4bit_judge": use_4bit_judge,
+        "sampling_config": SamplingConfig(
             do_sample=sample,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            seed=seed,
+            seed=effective_seed,
         ),
-        evaluator_family=evaluator_family,
-    )
+        "evaluator_family": evaluator_family,
+    }
+    if max_answer_tokens is not None:
+        eval_config_kwargs["max_answer_tokens"] = max_answer_tokens
+    if max_judge_tokens is not None:
+        eval_config_kwargs["max_judge_tokens"] = max_judge_tokens
+    if sample_judge is not None:
+        eval_config_kwargs["sample_judge"] = sample_judge
+
+    eval_config = EvaluationConfig(**eval_config_kwargs)
 
     evaluator = None
     generation_lists = []
@@ -696,7 +823,7 @@ def main(
                     if "-unbias-" in file_path
                     else DatasetType.BIAS,
                     preprocess_config=PreprocessConfig(),
-                    seed=seed,
+                    seed=effective_seed,
                 )
                 if evaluator is None:
                     evaluator = EvaluateFactory.create_evaluator(
