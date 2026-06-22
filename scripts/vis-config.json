@@ -1,0 +1,75 @@
+{
+    "output_dir": "plots/refusals_heretic",
+    "runs": [
+      {
+        "label": "Forget set only (batch size 32)",
+        "run_url": "http://10.2.3.4/#/experiments/695883797082356686/runs/3aab5bb174824e1c857e8acd0649afed"
+      },
+      {
+        "label": "LoRA rank 64, Layers 0-0.5 depth",
+        "run_url": "http://10.2.3.4/#/experiments/695883797082356686/runs/f0c4dbb1c96846b2a57c7c8864fda6e2"
+      },
+      {
+        "label": "Bias weight 10, forget/utility ratio 24/8",
+        "run_url": "http://10.2.3.4/#/experiments/695883797082356686/runs/2f9e73d9eff6444faa5a9fd1fdda05b1"
+      }
+    ],
+    "metrics": [
+      "XSTest_unsafe_refusal_rate",
+      "or_bench_unsafe_refusal_rate",
+      "XSTest_safe_refusal_rate",
+      "or_bench_safe_refusal_rate",
+      "or_bench_incomplete_response_rate",
+      "XSTest_incomplete_response_rate"
+    ],
+    "metric_baselines": {
+      "XSTest_safe_refusal_rate": [
+        { "label": "Qwen3.5-Base", "value": 0.07631 },
+        { "label": "Qwen3.5-4B-heretic-177", "value": 0.0241 },
+        { "label": "Qwen3.5-4B-heretic-182", "value": 0.012 },
+        { "label": "Qwen3.5-4B-heretic-misha", "value": 0.03213 },
+        { "label": "Huihui-Qwen3.5-4B-abliterated", "value": 0.0 },
+        { "label": "Qwen3.5-4B-oblietrator", "value": 0.064 }
+      ],
+      "XSTest_unsafe_refusal_rate": [
+        { "label": "Qwen3.5-Base", "value": 0.845 },
+        { "label": "Qwen3.5-4B-heretic-177", "value": 0.57286 },
+        { "label": "Qwen3.5-4B-heretic-182", "value": 0.695 },
+        { "label": "Qwen3.5-4B-heretic-misha", "value": 0.725 },
+        { "label": "Huihui-Qwen3.5-4B-abliterated", "value": 0.07732 },
+        { "label": "Qwen3.5-4B-oblietrator", "value": 0.83 }
+      ],
+      "or_bench_safe_refusal_rate": [
+        { "label": "Qwen3.5-Base", "value": 0.89329 },
+        { "label": "Qwen3.5-4B-heretic-177", "value": 0.20124 },
+        { "label": "Qwen3.5-4B-heretic-182", "value": 0.38272 },
+        { "label": "Qwen3.5-4B-heretic-misha", "value": 0.46933 },
+        { "label": "Huihui-Qwen3.5-4B-abliterated", "value": 0.00746 },
+        { "label": "Qwen3.5-4B-oblietrator", "value": 0.85366 }
+      ],
+      "or_bench_unsafe_refusal_rate": [
+        { "label": "Qwen3.5-Base", "value": 0.99412 },
+        { "label": "Qwen3.5-4B-heretic-177", "value": 0.63473 },
+        { "label": "Qwen3.5-4B-heretic-182", "value": 0.7929 },
+        { "label": "Qwen3.5-4B-heretic-misha", "value": 0.87574 },
+        { "label": "Huihui-Qwen3.5-4B-abliterated", "value": 0.01899 },
+        { "label": "Qwen3.5-4B-oblietrator", "value": 0.98824 }
+      ],
+      "or_bench_incomplete_response_rate": [
+        { "label": "Qwen3.5-Base", "value": 0 },
+        { "label": "Qwen3.5-4B-heretic-177", "value": 0.006 },
+        { "label": "Qwen3.5-4B-heretic-182", "value": 0.006 },
+        { "label": "Qwen3.5-4B-heretic-misha", "value": 0 },
+        { "label": "Huihui-Qwen3.5-4B-abliterated", "value": 0.144 },
+        { "label": "Qwen3.5-4B-oblietrator", "value": 0 }
+      ],
+      "XSTest_incomplete_response_rate": [
+        { "label": "Qwen3.5-Base", "value": 0.00222 },
+        { "label": "Qwen3.5-4B-heretic-177", "value": 0.00444 },
+        { "label": "Qwen3.5-4B-heretic-182", "value": 0 },
+        { "label": "Qwen3.5-4B-heretic-misha", "value": 0.00222 },
+        { "label": "Huihui-Qwen3.5-4B-abliterated", "value": 0.02687 },
+        { "label": "Qwen3.5-4B-oblietrator", "value": 0 }
+      ]
+    }
+  }
