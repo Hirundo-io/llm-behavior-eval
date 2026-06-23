@@ -25,6 +25,8 @@ from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
     FreeTextRefusalEvaluator,
 )
 from llm_behavior_eval.evaluation_utils.refusal_utils import (
+    BLOOM_REFUSAL_BENIGN_DATASET,
+    BLOOM_REFUSAL_MALICIOUS_DATASET,
     OR_BENCH_DATASET,
     XSTEST_DATASET,
 )
@@ -134,11 +136,32 @@ def test_behavior_presets_expand_refusal_orbench() -> None:
     assert evaluate._behavior_presets("refusal:orbench") == [OR_BENCH_DATASET]
 
 
+def test_behavior_presets_expand_refusal_bloom() -> None:
+    assert evaluate._behavior_presets("refusal:bloom") == [
+        BLOOM_REFUSAL_BENIGN_DATASET,
+        BLOOM_REFUSAL_MALICIOUS_DATASET,
+    ]
+
+
+def test_behavior_presets_normalizes_refusal_bloom() -> None:
+    assert evaluate._behavior_presets(" REFUSAL : BLOOM ") == [
+        BLOOM_REFUSAL_BENIGN_DATASET,
+        BLOOM_REFUSAL_MALICIOUS_DATASET,
+    ]
+
+
 def test_behavior_presets_expand_refusal_all() -> None:
     assert evaluate._behavior_presets("refusal:all") == [
         XSTEST_DATASET,
         OR_BENCH_DATASET,
+        BLOOM_REFUSAL_BENIGN_DATASET,
+        BLOOM_REFUSAL_MALICIOUS_DATASET,
     ]
+
+
+def test_behavior_presets_rejects_unknown_refusal_with_supported_presets() -> None:
+    with pytest.raises(ValueError, match="xstest, orbench, bloom, all"):
+        evaluate._behavior_presets("refusal:unknown")
 
 
 def test_main_runs_full_dataset_when_nonpositive_max_samples(
@@ -221,6 +244,8 @@ def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
     [
         ("hirundo-io/halueval", FreeTextHaluEvaluator),
         (OR_BENCH_DATASET, FreeTextRefusalEvaluator),
+        (BLOOM_REFUSAL_BENIGN_DATASET, FreeTextRefusalEvaluator),
+        (BLOOM_REFUSAL_MALICIOUS_DATASET, FreeTextRefusalEvaluator),
         (
             "hirundo-io/prompt-injection-purple-llama",
             FreeTextPromptInjectionEvaluator,
@@ -299,6 +324,13 @@ def test_evaluate_factory_applies_refusal_defaults_for_programmatic_callers(
 
 def test_evaluate_factory_reports_evaluator_family() -> None:
     assert EvaluateFactory.get_evaluator_family(XSTEST_DATASET) == "refusal"
+    assert (
+        EvaluateFactory.get_evaluator_family(BLOOM_REFUSAL_BENIGN_DATASET) == "refusal"
+    )
+    assert (
+        EvaluateFactory.get_evaluator_family(BLOOM_REFUSAL_MALICIOUS_DATASET)
+        == "refusal"
+    )
     assert (
         EvaluateFactory.get_evaluator_family("hirundo-io/prompt-injection-purple-llama")
         == "prompt-injection"

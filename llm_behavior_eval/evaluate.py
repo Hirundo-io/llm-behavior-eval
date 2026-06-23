@@ -33,6 +33,8 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
 )
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.refusal_utils import (
+    BLOOM_REFUSAL_BENIGN_DATASET,
+    BLOOM_REFUSAL_MALICIOUS_DATASET,
     OR_BENCH_DATASET,
     XSTEST_DATASET,
 )
@@ -112,7 +114,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     - Bloom: "bloom:bias:<bias_type>" or "bloom:unbias:<bias_type>"
     - Hallucinations: "hallu" or "hallu-med"
     - Prompt injection: "prompt-injection"
-    - Refusal: "refusal:xstest" | "refusal:orbench" | "refusal:all"
+    - Refusal: "refusal:xstest" | "refusal:orbench" | "refusal:bloom" | "refusal:all"
     """
     behavior_parts = [part.strip().lower() for part in behavior.split(":")]
 
@@ -129,9 +131,16 @@ def _behavior_presets(behavior: str) -> list[str]:
             return [XSTEST_DATASET]
         if refusal_dataset == "orbench":
             return [OR_BENCH_DATASET]
+        if refusal_dataset == "bloom":
+            return [BLOOM_REFUSAL_BENIGN_DATASET, BLOOM_REFUSAL_MALICIOUS_DATASET]
         if refusal_dataset == "all":
-            return [XSTEST_DATASET, OR_BENCH_DATASET]
-        raise ValueError("Refusal supports: xstest, orbench, all")
+            return [
+                XSTEST_DATASET,
+                OR_BENCH_DATASET,
+                BLOOM_REFUSAL_BENIGN_DATASET,
+                BLOOM_REFUSAL_MALICIOUS_DATASET,
+            ]
+        raise ValueError("Refusal supports: xstest, orbench, bloom, all")
 
     # Expected structures:
     # [kind, bias_type] for BBQ, where kind in {bias, unbias}
@@ -196,7 +205,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:bloom' | 'refusal:all'"
         ),
     ],
     output_dir: Annotated[

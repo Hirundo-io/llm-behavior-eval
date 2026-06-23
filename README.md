@@ -2,13 +2,13 @@
 
 [![Deploy docs](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/deploy-docs.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/deploy-docs.yaml) [![pyrefly](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/pyrefly.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/pyrefly.yaml) [![ruff](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/ruff.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/ruff.yaml) [![Unit tests](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/tests.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/tests.yaml) [![Vulnerability scan](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/vulnerability-scan.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/vulnerability-scan.yaml)
 
-A Python 3.10+ toolkit for measuring social bias, hallucinations, and prompt injections using instruct LLMs (either uploaded to HF or exist locally on your machine).
+A Python 3.10+ toolkit for measuring social bias, hallucinations, prompt injections, and refusal behavior using instruct LLMs (either uploaded to HF or exist locally on your machine).
 
 All evaluations are compatible with Transformers instruct models. Tested with multiple Llama and Gemma models, see the list below.
 
 ## Why BBQ?
 
-This toolkit evaluates three classes of behaviors:
+This toolkit evaluates four classes of behaviors:
 
 - **Bias (BBQ, UNQOVER, Bloom)**
   - **BBQ** (Bias Benchmark for QA): hand‑crafted questions that probe stereotypes across protected dimensions. Supports paired splits:
@@ -24,6 +24,10 @@ This toolkit evaluates three classes of behaviors:
 - **Prompt Injection (Purple Llama)**
   - **Purple Llama Prompt Injection**: measures susceptibility to instruction overriding and jailbreaks using curated prompt‑injection attacks. Reuses the hallucination judging pipeline with Yes/No grading.
 
+- **Refusal (XSTest, OR-Bench, Bloom Refusal)**
+  - **XSTest** and **OR-Bench**: refusal benchmarks with safe/unsafe prompt labels.
+  - **Bloom Refusal**: Bloom-generated safety prompts split into benign (`safe`) and malicious (`unsafe`) datasets for refusal-rate and attack-success-rate comparisons.
+
 Example bias question (BBQ, ambiguous):
 ```text
 Question: A man and a woman enter the store. Which person is more likely to be late to work?
@@ -37,6 +41,11 @@ Dataset identifiers:
 - HaluEval: `hirundo-io/halueval`
 - Med‑Hallu: `hirundo-io/medhallu`
 - Prompt Injection (Purple Llama): `hirundo-io/prompt-injection-purple-llama`
+- Refusal:
+  - XSTest: `hirundo-io/XSTest`
+  - OR-Bench: `hirundo-io/or-bench`
+  - Bloom benign: `hirundo-io/bloom-refusal-benign`
+  - Bloom malicious: `hirundo-io/bloom-refusal-malicious`
 
 How to select behaviors in the CLI (`evaluate.py`):
 
@@ -48,6 +57,11 @@ How to select behaviors in the CLI (`evaluate.py`):
   - Med‑Hallu: `--behavior hallu-med`
 - Prompt Injection:
   - Purple Llama: `--behavior prompt-injection`
+- Refusal:
+  - XSTest: `--behavior refusal:xstest`
+  - OR-Bench: `--behavior refusal:orbench`
+  - Bloom benign and malicious splits: `--behavior refusal:bloom`
+  - All refusal datasets: `--behavior refusal:all`
 
 You can also run across all supported bias types using `all`:
 
@@ -55,6 +69,7 @@ You can also run across all supported bias types using `all`:
 - BBQ (all unambiguous/unbias splits): `--behavior unbias:all`
 - UNQOVER (all bias splits): `--behavior unqover:bias:all`
 - Bloom (all bias or unbias splits): `--behavior bloom:bias:all` or `--behavior bloom:unbias:all`
+- Refusal (all supported refusal datasets): `--behavior refusal:all`
 ---
 
 ## Requirements
@@ -148,6 +163,16 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
 
+- **Refusal (Bloom)** — evaluate Bloom benign and malicious refusal splits:
+```bash
+llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct refusal:bloom
+```
+
+- **Refusal (all)** — evaluate XSTest, OR-Bench, and Bloom refusal splits:
+```bash
+llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct refusal:all
+```
+
 ### CLI options
 
 - `--max-samples <N>` — cap how many rows to evaluate per dataset (defaults to 500). Use `0` or any negative value to run the entire split.
@@ -199,6 +224,7 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 - Bloom: `Bloom: <age|gender|race> <bias|unbias>`
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
+- Refusal: `XSTest`, `or-bench`, `bloom-refusal-benign`, or `bloom-refusal-malicious`
 
 ## Tested on
 
