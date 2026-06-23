@@ -50,6 +50,7 @@ dependencies = [
 mlflow = ["mlflow>=2.0.0"]
 vllm = ["vllm>=0.15.0"]
 gcs = ["google-cloud-storage"]
+azure = ["azure-storage-blob","azure-identity"]
 gpt-oss = ["opencv-python-headless>=4.12.0.88"]
 
 [dependency-groups]
@@ -58,7 +59,7 @@ dev = [
   "bumpver>=2024.1130",
   "pytest>=8.3.5",
   "pre-commit>=4.3.0",
-  "llm-behavior-eval[mlflow,vllm,gcs]",
+  "llm-behavior-eval[mlflow,vllm,gcs,azure]",
   "pyrefly>=0.63.1",
   "types-tqdm",
 ]
