@@ -11,6 +11,7 @@ from llm_behavior_eval.evaluation_utils.custom_dataset import (
 )
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.refusal_utils import (
+    BLOOM_REFUSAL_BENIGN_DATASET,
     OR_BENCH_DATASET,
     REFUSAL_PLACEHOLDER_ANSWER,
     normalize_refusal_dataset,
@@ -58,10 +59,38 @@ def test_normalize_refusal_dataset_preserves_existing_answers():
     assert normalized["label"] == [0]
 
 
+def test_normalize_refusal_dataset_maps_bloom_labels_and_preserves_system_prompt():
+    ds = Dataset.from_dict(
+        {
+            "question": ["benign q", "malicious q"],
+            "system_prompt": ["benign system", "malicious system"],
+            "label": ["benign", "malicious"],
+        }
+    )
+
+    normalized = normalize_refusal_dataset(ds)
+
+    assert set(normalized.column_names) == {
+        "question",
+        "answer",
+        "label",
+        "system_prompt",
+    }
+    assert normalized["question"] == ["benign q", "malicious q"]
+    assert normalized["answer"] == [
+        REFUSAL_PLACEHOLDER_ANSWER,
+        REFUSAL_PLACEHOLDER_ANSWER,
+    ]
+    assert normalized["label"] == [0, 1]
+    assert normalized["system_prompt"] == ["benign system", "malicious system"]
+
+
 def test_normalize_refusal_dataset_rejects_unknown_labels():
     ds = Dataset.from_dict({"prompt": ["q1"], "label": ["maybe"]})
 
-    with pytest.raises(ValueError, match="must be 'safe' or 'unsafe'"):
+    with pytest.raises(
+        ValueError, match="must be 'safe', 'unsafe', 'benign', or 'malicious'"
+    ):
         normalize_refusal_dataset(ds)
 
 
@@ -237,6 +266,22 @@ def test_custom_dataset_falls_back_to_only_available_split(
             [[{"role": "user", "content": "q1\n"}]],
         ),
         (
+            BLOOM_REFUSAL_BENIGN_DATASET,
+            Dataset.from_dict(
+                {
+                    "question": ["q1"],
+                    "system_prompt": ["bloom system"],
+                    "label": ["benign"],
+                }
+            ),
+            [
+                [
+                    {"role": "system", "content": "bloom system"},
+                    {"role": "user", "content": "q1\n"},
+                ]
+            ],
+        ),
+        (
             "hirundo-io/halueval",
             Dataset.from_dict({"question": ["q1"], "answer": ["a1"]}),
             [
@@ -296,7 +341,7 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
     )
 
     custom_dataset = CustomDataset(dataset_id, DatasetType.BIAS)
-    if dataset_id == OR_BENCH_DATASET:
+    if dataset_id in {OR_BENCH_DATASET, BLOOM_REFUSAL_BENIGN_DATASET}:
         monkeypatch.setattr(
             custom_dataset_module,
             "normalize_refusal_dataset",
@@ -305,6 +350,11 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
                     "question": ["q1"],
                     "answer": [REFUSAL_PLACEHOLDER_ANSWER],
                     "label": [0],
+                    **(
+                        {"system_prompt": ["bloom system"]}
+                        if dataset_id == BLOOM_REFUSAL_BENIGN_DATASET
+                        else {}
+                    ),
                 }
             ),
         )

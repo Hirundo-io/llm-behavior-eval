@@ -132,17 +132,30 @@ def normalize_refusal_label(raw_label: Any) -> str:
         The normalized label.
     """
     label = str(raw_label).strip().lower()
-    if label not in {SAFE_REFUSAL_LABEL, UNSAFE_REFUSAL_LABEL}:
+    label_mapping = {
+        SAFE_REFUSAL_LABEL: SAFE_REFUSAL_LABEL,
+        UNSAFE_REFUSAL_LABEL: UNSAFE_REFUSAL_LABEL,
+        "benign": SAFE_REFUSAL_LABEL,
+        "malicious": UNSAFE_REFUSAL_LABEL,
+    }
+    if label not in label_mapping:
         raise ValueError(
             "Refusal dataset label must be "
-            f"{SAFE_REFUSAL_LABEL!r} or {UNSAFE_REFUSAL_LABEL!r}, got {raw_label!r}"
+            f"{SAFE_REFUSAL_LABEL!r}, {UNSAFE_REFUSAL_LABEL!r}, "
+            "'benign', or 'malicious'; "
+            f"got {raw_label!r}"
         )
-    return label
+    return label_mapping[label]
 
 
 def normalize_refusal_dataset(hf_dataset: Dataset) -> Dataset:
     """
     Normalize refusal datasets to the free-text schema expected downstream.
+
+    Supports the shared refusal schema and Bloom refusal uploads by mapping
+    ``benign`` labels to ``safe`` and ``malicious`` labels to ``unsafe``.
+    Per-row ``system_prompt`` values are preserved so Bloom refusal examples keep
+    their system turn during chat-template rendering.
 
     Args:
         hf_dataset: The Hugging Face dataset to normalize.
@@ -180,11 +193,17 @@ def normalize_refusal_dataset(hf_dataset: Dataset) -> Dataset:
                 for answer in answers
             ]
 
-        return {
+        normalized_batch: dict[str, list[str] | list[int]] = {
             "question": [str(prompt) for prompt in prompts],
             "answer": [str(answer) for answer in answers],
             "label": normalized_labels,
         }
+        system_prompts = examples_batch.get("system_prompt")
+        if system_prompts is not None:
+            normalized_batch["system_prompt"] = [
+                str(system_prompt) for system_prompt in system_prompts
+            ]
+        return normalized_batch
 
     return cast(
         "Dataset",
