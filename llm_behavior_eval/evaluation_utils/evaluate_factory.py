@@ -15,7 +15,7 @@ class EvaluateFactory:
             return "hallucination"
         if dataset_id in REFUSAL_DATASETS:
             return "refusal"
-        if dataset_id == "hirundo-io/prompt-injection-purple-llama":
+        if "prompt-injection" in dataset_id:
             return "prompt-injection"
         if "bbq" in dataset_id or "unqover" in dataset_id or "bloom" in dataset_id:
             return "bias"
