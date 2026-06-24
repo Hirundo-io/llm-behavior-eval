@@ -11,7 +11,7 @@ from llm_behavior_eval.evaluation_utils.custom_dataset import (
 )
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.refusal_utils import (
-    BLOOM_REFUSAL_BENIGN_DATASET,
+    BLOOM_REFUSAL_DATASET,
     OR_BENCH_DATASET,
     REFUSAL_PLACEHOLDER_ANSWER,
     normalize_refusal_dataset,
@@ -266,7 +266,7 @@ def test_custom_dataset_falls_back_to_only_available_split(
             [[{"role": "user", "content": "q1\n"}]],
         ),
         (
-            BLOOM_REFUSAL_BENIGN_DATASET,
+            BLOOM_REFUSAL_DATASET,
             Dataset.from_dict(
                 {
                     "question": ["q1"],
@@ -341,7 +341,7 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
     )
 
     custom_dataset = CustomDataset(dataset_id, DatasetType.BIAS)
-    if dataset_id in {OR_BENCH_DATASET, BLOOM_REFUSAL_BENIGN_DATASET}:
+    if dataset_id in {OR_BENCH_DATASET, BLOOM_REFUSAL_DATASET}:
         monkeypatch.setattr(
             custom_dataset_module,
             "normalize_refusal_dataset",
@@ -352,7 +352,7 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
                     "label": [0],
                     **(
                         {"system_prompt": ["bloom system"]}
-                        if dataset_id == BLOOM_REFUSAL_BENIGN_DATASET
+                        if dataset_id == BLOOM_REFUSAL_DATASET
                         else {}
                     ),
                 }

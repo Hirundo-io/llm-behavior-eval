@@ -33,8 +33,7 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
 )
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.refusal_utils import (
-    BLOOM_REFUSAL_BENIGN_DATASET,
-    BLOOM_REFUSAL_MALICIOUS_DATASET,
+    BLOOM_REFUSAL_DATASET,
     OR_BENCH_DATASET,
     XSTEST_DATASET,
 )
@@ -132,13 +131,12 @@ def _behavior_presets(behavior: str) -> list[str]:
         if refusal_dataset == "orbench":
             return [OR_BENCH_DATASET]
         if refusal_dataset == "bloom":
-            return [BLOOM_REFUSAL_BENIGN_DATASET, BLOOM_REFUSAL_MALICIOUS_DATASET]
+            return [BLOOM_REFUSAL_DATASET]
         if refusal_dataset == "all":
             return [
                 XSTEST_DATASET,
                 OR_BENCH_DATASET,
-                BLOOM_REFUSAL_BENIGN_DATASET,
-                BLOOM_REFUSAL_MALICIOUS_DATASET,
+                BLOOM_REFUSAL_DATASET,
             ]
         raise ValueError("Refusal supports: xstest, orbench, bloom, all")
 

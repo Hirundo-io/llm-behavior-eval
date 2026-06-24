@@ -26,7 +26,7 @@ This toolkit evaluates four classes of behaviors:
 
 - **Refusal (XSTest, OR-Bench, Bloom Refusal)**
   - **XSTest** and **OR-Bench**: refusal benchmarks with safe/unsafe prompt labels.
-  - **Bloom Refusal**: Bloom-generated safety prompts split into benign (`safe`) and malicious (`unsafe`) datasets for refusal-rate and attack-success-rate comparisons.
+  - **Bloom Refusal**: Bloom-generated safety prompts with mixed benign (`safe`) and malicious (`unsafe`) rows for refusal-rate and attack-success-rate comparisons.
 
 Example bias question (BBQ, ambiguous):
 ```text
@@ -44,8 +44,7 @@ Dataset identifiers:
 - Refusal:
   - XSTest: `hirundo-io/XSTest`
   - OR-Bench: `hirundo-io/or-bench`
-  - Bloom benign: `hirundo-io/bloom-refusal-benign`
-  - Bloom malicious: `hirundo-io/bloom-refusal-malicious`
+  - Bloom over-refusal: `hirundo-io/bloom-over-refusal-free-text`
 
 How to select behaviors in the CLI (`evaluate.py`):
 
@@ -60,7 +59,7 @@ How to select behaviors in the CLI (`evaluate.py`):
 - Refusal:
   - XSTest: `--behavior refusal:xstest`
   - OR-Bench: `--behavior refusal:orbench`
-  - Bloom benign and malicious splits: `--behavior refusal:bloom`
+  - Bloom mixed benign/malicious over-refusal dataset: `--behavior refusal:bloom`
   - All refusal datasets: `--behavior refusal:all`
 
 You can also run across all supported bias types using `all`:
@@ -163,12 +162,12 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
 
-- **Refusal (Bloom)** — evaluate Bloom benign and malicious refusal splits:
+- **Refusal (Bloom)** — evaluate the mixed Bloom over-refusal dataset:
 ```bash
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct refusal:bloom
 ```
 
-- **Refusal (all)** — evaluate XSTest, OR-Bench, and Bloom refusal splits:
+- **Refusal (all)** — evaluate XSTest, OR-Bench, and the Bloom over-refusal dataset:
 ```bash
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct refusal:all
 ```
@@ -224,7 +223,7 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 - Bloom: `Bloom: <age|gender|race> <bias|unbias>`
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
-- Refusal: `XSTest`, `or-bench`, `bloom-refusal-benign`, or `bloom-refusal-malicious`
+- Refusal: `XSTest`, `or-bench`, or `bloom-over-refusal-free-text`
 
 ## Tested on
 
