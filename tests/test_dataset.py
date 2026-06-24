@@ -342,21 +342,17 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
 
     custom_dataset = CustomDataset(dataset_id, DatasetType.BIAS)
     if dataset_id in {OR_BENCH_DATASET, BLOOM_REFUSAL_DATASET}:
+        normalized_payload: dict[str, list[object]] = {
+            "question": ["q1"],
+            "answer": [REFUSAL_PLACEHOLDER_ANSWER],
+            "label": [0],
+        }
+        if dataset_id == BLOOM_REFUSAL_DATASET:
+            normalized_payload["system_prompt"] = ["bloom system"]
         monkeypatch.setattr(
             custom_dataset_module,
             "normalize_refusal_dataset",
-            lambda _dataset: StubMappedDataset(
-                {
-                    "question": ["q1"],
-                    "answer": [REFUSAL_PLACEHOLDER_ANSWER],
-                    "label": [0],
-                    **(
-                        {"system_prompt": ["bloom system"]}
-                        if dataset_id == BLOOM_REFUSAL_DATASET
-                        else {}
-                    ),
-                }
-            ),
+            lambda _dataset: StubMappedDataset(normalized_payload),
         )
     else:
         custom_dataset.ds = cast(
