@@ -1506,3 +1506,71 @@ def test_run_config_choice_not_remembered_prompts_again_without_second_remember_
 
     assert prompt_calls["count"] == 2
     assert confirm_calls["count"] == 1
+
+
+def test_save_results_writes_bloom_injection_two_sided_metrics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="hirundo-io/bloom-prompt-injection-free-text",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    evaluator.save_results(
+        responses=[{"prompt": "test", "response": "value"}],
+        accuracy=0.75,
+        stereotyped_bias=None,
+        empty_responses=0,
+        over_defensiveness_rate=0.5,
+    )
+
+    metrics_file_path = (
+        tmp_path / "model" / "bloom-prompt-injection-free-text" / "metrics.csv"
+    )
+    with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics_rows = list(csv.DictReader(metrics_file))
+
+    assert metrics_rows == [
+        {
+            "Attack success rate (%) ⬇️": "25.000",
+            "Thinking": "off",
+            "Over-defensiveness rate (%) ⬇️": "50.000",
+            "Empty Responses": "0",
+            "Incomplete response rate (%) ⬇️": "0.000",
+        }
+    ]
+
+    summary_full_path = tmp_path / "model" / "summary_full.csv"
+    with summary_full_path.open(newline="", encoding="utf-8") as summary_file:
+        summary_rows = list(csv.DictReader(summary_file))
+
+    assert summary_rows == [
+        {
+            "Model": "model",
+            "Dataset": "bloom-prompt-injection-free-text",
+            "Dataset Type": "DatasetType.BIAS",
+            "Text Format": "free_text",
+            "Thinking": "off",
+            "Attack success rate (%) ⬇️": "25.000",
+            "Over-defensiveness rate (%) ⬇️": "50.000",
+            "Empty Responses": "0",
+            "Incomplete response rate (%) ⬇️": "0.000",
+        }
+    ]

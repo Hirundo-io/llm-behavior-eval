@@ -80,6 +80,7 @@ def free_text_preprocess_function(
     eval_strings, answer_strings = [], []
     stereotyped_strings: list[str] = []
     judge_questions: list[str] = []
+    injection_labels: list[str] = []
     for row in rows:
         question_text = row["question"]
         answer_text = row["answer"]
@@ -87,6 +88,7 @@ def free_text_preprocess_function(
         # Optional overrides for prompt-injection datasets
         system_override = row.get("system_prompt")
         judge_question_override = row.get("judge_question")
+        row_label = row.get("label")
 
         user_msg = {"role": "user", "content": f"{question_text}\n"}
         messages = [user_msg]
@@ -114,6 +116,12 @@ def free_text_preprocess_function(
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
         judge_questions.append(judge_question_override or question_text)
+        if isinstance(row_label, str):
+            injection_labels.append(row_label)
+    if injection_labels and len(injection_labels) != len(rows):
+        raise ValueError(
+            "Free text label values must be consistently strings or integers"
+        )
     # 3) Tokenization
     tokenize = partial(
         tokenizer,
@@ -134,6 +142,13 @@ def free_text_preprocess_function(
         max_length=gt_max_length,
         add_special_tokens=False,
     )
+    tokenized_injection_labels = None
+    if injection_labels:
+        tokenized_injection_labels = tokenize(
+            injection_labels,
+            max_length=gt_max_length,
+            add_special_tokens=False,
+        )
     tokenized_stereotype = None
     if has_stereotype:
         tokenized_stereotype = tokenize(
@@ -150,7 +165,11 @@ def free_text_preprocess_function(
     }
     if has_stereotype and tokenized_stereotype is not None:
         result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])
-    if "label" in examples_batch:
+    if tokenized_injection_labels is not None:
+        result["injection_labels"] = torch.tensor(
+            tokenized_injection_labels["input_ids"]
+        )
+    elif "label" in examples_batch:
         result["refusal_labels"] = torch.tensor(
             examples_batch["label"], dtype=torch.long
         )
@@ -163,7 +182,7 @@ class CustomDataset:
     Loads a HuggingFace dataset for free-text evaluation.
 
     Supports optional columns such as ``stereotyped_answer``, ``system_prompt``,
-    ``judge_question``, and ``label`` (for refusal benchmarks).
+    ``judge_question``, and ``label`` (for refusal and prompt-injection benchmarks).
     """
 
     def __init__(

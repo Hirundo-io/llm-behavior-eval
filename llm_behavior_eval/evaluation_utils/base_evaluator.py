@@ -472,6 +472,7 @@ class BaseEvaluator(ABC):
         stereotyped_bias: float | None,
         empty_responses: int,
         incomplete_response_rate: float | None = None,
+        over_defensiveness_rate: float | None = None,
     ) -> None:
         """
         Save the evaluation results to files.
@@ -482,6 +483,7 @@ class BaseEvaluator(ABC):
             stereotyped_bias: A score representing the stereotyped bias.
             empty_responses: A count of empty response.
             incomplete_response_rate: Optional precomputed incomplete response rate.
+            over_defensiveness_rate: Optional prompt-injection over-defensiveness rate.
         """
         model_slug = self.get_model_slug()
         dataset_slug = self.get_dataset_slug()
@@ -509,9 +511,12 @@ class BaseEvaluator(ABC):
         is_purple_llama_injection = dataset_slug.startswith(
             "prompt-injection-purple-llama"
         )
+        is_prompt_injection = is_purple_llama_injection or dataset_slug.startswith(
+            "bloom-prompt-injection"
+        )
         # Prompt-injection grading stores model safety as accuracy, so attack success is 1 - accuracy.
         attack_success_rate = 1 - accuracy
-        if is_purple_llama_injection:
+        if is_prompt_injection:
             metric_column_name = "Attack success rate (%) ⬇️"
             metric_ratio_value = attack_success_rate
         elif is_unbias or is_hallucination:
@@ -530,6 +535,11 @@ class BaseEvaluator(ABC):
             {
                 metric_column_name: [metric_percentage_value],
                 "Thinking": [thinking_mode],
+                "Over-defensiveness rate (%) ⬇️": [
+                    over_defensiveness_rate * 100.0
+                    if over_defensiveness_rate is not None
+                    else None
+                ],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
@@ -561,11 +571,11 @@ class BaseEvaluator(ABC):
         full_acc = accuracy * 100.0 if (is_unbias or is_hallucination) else None
         full_err = (
             attack_success_rate * 100.0
-            if not (is_unbias or is_hallucination or is_purple_llama_injection)
+            if not (is_unbias or is_hallucination or is_prompt_injection)
             else None
         )
         full_attack_success_rate = (
-            attack_success_rate * 100.0 if is_purple_llama_injection else None
+            attack_success_rate * 100.0 if is_prompt_injection else None
         )
         summary_row = pd.DataFrame(
             {
@@ -577,6 +587,11 @@ class BaseEvaluator(ABC):
                 "Accuracy (%) ⬆️": [full_acc],
                 "Error (%) ⬇️": [full_err],
                 "Attack success rate (%) ⬇️": [full_attack_success_rate],
+                "Over-defensiveness rate (%) ⬇️": [
+                    over_defensiveness_rate * 100.0
+                    if over_defensiveness_rate is not None
+                    else None
+                ],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [empty_responses],
                 "Incomplete response rate (%) ⬇️": [
@@ -627,11 +642,11 @@ class BaseEvaluator(ABC):
         brief_acc = accuracy * 100.0 if (is_hallucination or is_unbias) else None
         brief_err = (
             attack_success_rate * 100.0
-            if not (is_hallucination or is_unbias or is_purple_llama_injection)
+            if not (is_hallucination or is_unbias or is_prompt_injection)
             else None
         )
         brief_attack_success_rate = (
-            attack_success_rate * 100.0 if is_purple_llama_injection else None
+            attack_success_rate * 100.0 if is_prompt_injection else None
         )
         brief_df = pd.DataFrame(
             {
@@ -640,6 +655,11 @@ class BaseEvaluator(ABC):
                 "Accuracy (%) ⬆️": [brief_acc],
                 "Error (%) ⬇️": [brief_err],
                 "Attack success rate (%) ⬇️": [brief_attack_success_rate],
+                "Over-defensiveness rate (%) ⬇️": [
+                    over_defensiveness_rate * 100.0
+                    if over_defensiveness_rate is not None
+                    else None
+                ],
                 "Incomplete response rate (%) ⬇️": [
                     (
                         incomplete_response_rate * 100.0
@@ -664,6 +684,8 @@ class BaseEvaluator(ABC):
                 mlflow_metrics["incomplete_response_rate"] = incomplete_response_rate
             if stereotyped_bias is not None:
                 mlflow_metrics["stereotyped_bias"] = stereotyped_bias
+            if over_defensiveness_rate is not None:
+                mlflow_metrics["over_defensiveness_rate"] = over_defensiveness_rate
             self._log_mlflow_metrics(mlflow_metrics)
             self._log_mlflow_artifacts()
 
