@@ -53,7 +53,7 @@ HALUEVAL_ALIAS = {"hallu", "hallucination"}
 MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
 REFUSAL_ALIAS = {"refusal"}
-BEHAVIOR_PRESET_ERROR = "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'bloom:bias:<type|all>' | 'bloom:unbias:<type|all>' | 'bloom:bias:<type>:ambiguous' | 'hallu' | 'hallu-med' | 'prompt-injection' | 'injection:bloom' | 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
+BEHAVIOR_PRESET_ERROR = "--behavior must be 'bias:<type|all>' | 'unbias:<type|all>' | 'unqover:bias:<type|all>' | 'bloom:bias:<type|all>' | 'bloom:unbias:<type|all>' | 'bloom:bias:<type>:ambiguous' | 'hallu' | 'hallu-med' | 'prompt-injection' | 'injection:bloom' | 'injection:purple-llama' | 'injection:all' | 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
 TRUSTED_MODEL_PROVIDERS = {
     "hirundo-io",
     "nvidia",

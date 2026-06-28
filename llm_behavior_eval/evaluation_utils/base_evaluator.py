@@ -473,6 +473,7 @@ class BaseEvaluator(ABC):
         empty_responses: int,
         incomplete_response_rate: float | None = None,
         over_defensiveness_rate: float | None = None,
+        technique_attack_success_rates: dict[str, float] | None = None,
     ) -> None:
         """
         Save the evaluation results to files.
@@ -484,6 +485,7 @@ class BaseEvaluator(ABC):
             empty_responses: A count of empty response.
             incomplete_response_rate: Optional precomputed incomplete response rate.
             over_defensiveness_rate: Optional prompt-injection over-defensiveness rate.
+            technique_attack_success_rates: Optional malicious prompt-injection ASR by technique.
         """
         model_slug = self.get_model_slug()
         dataset_slug = self.get_dataset_slug()
@@ -531,9 +533,14 @@ class BaseEvaluator(ABC):
             stereotyped_bias * 100.0 if stereotyped_bias is not None else None
         )
         thinking_mode = "on" if self.eval_config.enable_thinking else "off"
+        technique_metric_columns = {
+            f"Attack success rate ({technique}) (%) ⬇️": [rate * 100.0]
+            for technique, rate in (technique_attack_success_rates or {}).items()
+        }
         results = pd.DataFrame(
             {
                 metric_column_name: [metric_percentage_value],
+                **technique_metric_columns,
                 "Thinking": [thinking_mode],
                 "Over-defensiveness rate (%) ⬇️": [
                     over_defensiveness_rate * 100.0
@@ -587,6 +594,7 @@ class BaseEvaluator(ABC):
                 "Accuracy (%) ⬆️": [full_acc],
                 "Error (%) ⬇️": [full_err],
                 "Attack success rate (%) ⬇️": [full_attack_success_rate],
+                **technique_metric_columns,
                 "Over-defensiveness rate (%) ⬇️": [
                     over_defensiveness_rate * 100.0
                     if over_defensiveness_rate is not None
@@ -655,6 +663,7 @@ class BaseEvaluator(ABC):
                 "Accuracy (%) ⬆️": [brief_acc],
                 "Error (%) ⬇️": [brief_err],
                 "Attack success rate (%) ⬇️": [brief_attack_success_rate],
+                **technique_metric_columns,
                 "Over-defensiveness rate (%) ⬇️": [
                     over_defensiveness_rate * 100.0
                     if over_defensiveness_rate is not None
@@ -686,6 +695,8 @@ class BaseEvaluator(ABC):
                 mlflow_metrics["stereotyped_bias"] = stereotyped_bias
             if over_defensiveness_rate is not None:
                 mlflow_metrics["over_defensiveness_rate"] = over_defensiveness_rate
+            for technique, rate in (technique_attack_success_rates or {}).items():
+                mlflow_metrics[f"attack_success_rate_{technique}"] = rate
             self._log_mlflow_metrics(mlflow_metrics)
             self._log_mlflow_artifacts()
 

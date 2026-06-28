@@ -81,6 +81,7 @@ def free_text_preprocess_function(
     stereotyped_strings: list[str] = []
     judge_questions: list[str] = []
     injection_labels: list[str] = []
+    injection_techniques: list[str] = []
     for row in rows:
         question_text = row["question"]
         answer_text = row["answer"]
@@ -89,6 +90,7 @@ def free_text_preprocess_function(
         system_override = row.get("system_prompt")
         judge_question_override = row.get("judge_question")
         row_label = row.get("label")
+        row_technique = row.get("technique")
 
         user_msg = {"role": "user", "content": f"{question_text}\n"}
         messages = [user_msg]
@@ -118,10 +120,14 @@ def free_text_preprocess_function(
         judge_questions.append(judge_question_override or question_text)
         if isinstance(row_label, str):
             injection_labels.append(row_label)
+        if isinstance(row_technique, str):
+            injection_techniques.append(row_technique)
     if injection_labels and len(injection_labels) != len(rows):
         raise ValueError(
             "Free text label values must be consistently strings or integers"
         )
+    if injection_techniques and len(injection_techniques) != len(rows):
+        raise ValueError("Free text technique values must be consistently strings")
     # 3) Tokenization
     tokenize = partial(
         tokenizer,
@@ -149,6 +155,13 @@ def free_text_preprocess_function(
             max_length=gt_max_length,
             add_special_tokens=False,
         )
+    tokenized_injection_techniques = None
+    if injection_techniques:
+        tokenized_injection_techniques = tokenize(
+            injection_techniques,
+            max_length=gt_max_length,
+            add_special_tokens=False,
+        )
     tokenized_stereotype = None
     if has_stereotype:
         tokenized_stereotype = tokenize(
@@ -173,6 +186,10 @@ def free_text_preprocess_function(
         result["refusal_labels"] = torch.tensor(
             examples_batch["label"], dtype=torch.long
         )
+    if tokenized_injection_techniques is not None:
+        result["injection_techniques"] = torch.tensor(
+            tokenized_injection_techniques["input_ids"]
+        )
 
     return result
 
@@ -182,7 +199,7 @@ class CustomDataset:
     Loads a HuggingFace dataset for free-text evaluation.
 
     Supports optional columns such as ``stereotyped_answer``, ``system_prompt``,
-    ``judge_question``, and ``label`` (for refusal and prompt-injection benchmarks).
+    ``judge_question``, ``label`` (for refusal and prompt-injection benchmarks), and ``technique`` (for prompt-injection benchmarks).
     """
 
     def __init__(
@@ -284,6 +301,7 @@ class CustomDataset:
             remove_columns=old_columns,
             batch_size=preprocess_config.preprocess_batch_size,
             num_proc=1,
+            load_from_cache_file=False,
         )
         text = tokenizer.batch_decode(
             cast("list[list[int]]", list(processed_dataset["test_input_ids"])),

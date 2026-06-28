@@ -111,7 +111,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
     - Bloom: "bloom:bias:<bias_type>" or "bloom:unbias:<bias_type>"
     - Hallucinations: "hallu" or "hallu-med"
-    - Prompt injection: "prompt-injection" or "injection:bloom"
+    - Prompt injection: "prompt-injection", "injection:bloom", "injection:purple-llama", or "injection:all"
     - Refusal: "refusal:xstest" | "refusal:orbench" | "refusal:all"
     """
     behavior_parts = [part.strip().lower() for part in behavior.split(":")]
@@ -123,8 +123,17 @@ def _behavior_presets(behavior: str) -> list[str]:
         return ["hirundo-io/medhallu"]
     if behavior in INJECTION_ALIAS:
         return ["hirundo-io/prompt-injection-purple-llama"]
-    if len(behavior_parts) == 2 and behavior_parts == ["injection", "bloom"]:
-        return ["hirundo-io/bloom-prompt-injection-free-text"]
+    if len(behavior_parts) == 2 and behavior_parts[0] == "injection":
+        _, injection_type = behavior_parts
+        injection_datasets = {
+            "bloom": "hirundo-io/bloom-prompt-injection-free-text",
+            "purple-llama": "hirundo-io/prompt-injection-purple-llama",
+        }
+        if injection_type == "all":
+            return sorted(injection_datasets.values())
+        if injection_type in injection_datasets:
+            return [injection_datasets[injection_type]]
+        raise ValueError("Injection supports: bloom, purple-llama, all")
     if len(behavior_parts) == 2 and behavior_parts[0] in REFUSAL_ALIAS:
         _, refusal_dataset = behavior_parts
         if refusal_dataset == "xstest":
@@ -198,7 +207,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection' | 'injection:bloom'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection' | 'injection:bloom' | 'injection:purple-llama' | 'injection:all'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
         ),
     ],
     output_dir: Annotated[
