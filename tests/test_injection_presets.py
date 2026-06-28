@@ -150,6 +150,7 @@ def test_prompt_injection_grouped_scoring(monkeypatch, tmp_path: Path) -> None:
         incomplete_response_rate: float | None,
         over_defensiveness_rate: float | None,
         technique_attack_success_rates: dict[str, float] | None,
+        technique_over_defensiveness_rates: dict[str, float] | None,
     ) -> None:
         saved.update(
             {
@@ -160,6 +161,7 @@ def test_prompt_injection_grouped_scoring(monkeypatch, tmp_path: Path) -> None:
                 "incomplete_response_rate": incomplete_response_rate,
                 "over_defensiveness_rate": over_defensiveness_rate,
                 "technique_attack_success_rates": technique_attack_success_rates,
+                "technique_over_defensiveness_rates": technique_over_defensiveness_rates,
             }
         )
 
@@ -203,6 +205,10 @@ def test_prompt_injection_grouped_scoring(monkeypatch, tmp_path: Path) -> None:
     assert saved["accuracy"] == 0.5
     assert saved["over_defensiveness_rate"] == 0.5
     assert saved["technique_attack_success_rates"] == {
+        "ignore_previous": 1.0,
+        "role_override": 0.0,
+    }
+    assert saved["technique_over_defensiveness_rates"] == {
         "ignore_previous": 1.0,
         "role_override": 0.0,
     }

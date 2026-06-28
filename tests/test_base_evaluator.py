@@ -1543,6 +1543,10 @@ def test_save_results_writes_bloom_injection_two_sided_metrics(
             "ignore_previous": 1.0,
             "role_override": 0.0,
         },
+        technique_over_defensiveness_rates={
+            "ignore_previous": 0.25,
+            "role_override": 0.75,
+        },
     )
 
     metrics_file_path = (
@@ -1558,6 +1562,8 @@ def test_save_results_writes_bloom_injection_two_sided_metrics(
             "Attack success rate (role_override) (%) ⬇️": "0.000",
             "Thinking": "off",
             "Over-defensiveness rate (%) ⬇️": "50.000",
+            "Over-defensiveness rate (ignore_previous) (%) ⬇️": "25.000",
+            "Over-defensiveness rate (role_override) (%) ⬇️": "75.000",
             "Empty Responses": "0",
             "Incomplete response rate (%) ⬇️": "0.000",
         }
@@ -1578,6 +1584,8 @@ def test_save_results_writes_bloom_injection_two_sided_metrics(
             "Attack success rate (ignore_previous) (%) ⬇️": "100.000",
             "Attack success rate (role_override) (%) ⬇️": "0.000",
             "Over-defensiveness rate (%) ⬇️": "50.000",
+            "Over-defensiveness rate (ignore_previous) (%) ⬇️": "25.000",
+            "Over-defensiveness rate (role_override) (%) ⬇️": "75.000",
             "Empty Responses": "0",
             "Incomplete response rate (%) ⬇️": "0.000",
         }

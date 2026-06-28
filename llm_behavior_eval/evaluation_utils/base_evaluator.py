@@ -474,6 +474,7 @@ class BaseEvaluator(ABC):
         incomplete_response_rate: float | None = None,
         over_defensiveness_rate: float | None = None,
         technique_attack_success_rates: dict[str, float] | None = None,
+        technique_over_defensiveness_rates: dict[str, float] | None = None,
     ) -> None:
         """
         Save the evaluation results to files.
@@ -486,6 +487,7 @@ class BaseEvaluator(ABC):
             incomplete_response_rate: Optional precomputed incomplete response rate.
             over_defensiveness_rate: Optional prompt-injection over-defensiveness rate.
             technique_attack_success_rates: Optional malicious prompt-injection ASR by technique.
+            technique_over_defensiveness_rates: Optional benign prompt-injection over-defensiveness by technique.
         """
         model_slug = self.get_model_slug()
         dataset_slug = self.get_dataset_slug()
@@ -537,6 +539,10 @@ class BaseEvaluator(ABC):
             f"Attack success rate ({technique}) (%) ⬇️": [rate * 100.0]
             for technique, rate in (technique_attack_success_rates or {}).items()
         }
+        technique_over_defensiveness_columns = {
+            f"Over-defensiveness rate ({technique}) (%) ⬇️": [rate * 100.0]
+            for technique, rate in (technique_over_defensiveness_rates or {}).items()
+        }
         results = pd.DataFrame(
             {
                 metric_column_name: [metric_percentage_value],
@@ -547,6 +553,7 @@ class BaseEvaluator(ABC):
                     if over_defensiveness_rate is not None
                     else None
                 ],
+                **technique_over_defensiveness_columns,
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
@@ -600,6 +607,7 @@ class BaseEvaluator(ABC):
                     if over_defensiveness_rate is not None
                     else None
                 ],
+                **technique_over_defensiveness_columns,
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [empty_responses],
                 "Incomplete response rate (%) ⬇️": [
@@ -669,6 +677,7 @@ class BaseEvaluator(ABC):
                     if over_defensiveness_rate is not None
                     else None
                 ],
+                **technique_over_defensiveness_columns,
                 "Incomplete response rate (%) ⬇️": [
                     (
                         incomplete_response_rate * 100.0
@@ -697,6 +706,8 @@ class BaseEvaluator(ABC):
                 mlflow_metrics["over_defensiveness_rate"] = over_defensiveness_rate
             for technique, rate in (technique_attack_success_rates or {}).items():
                 mlflow_metrics[f"attack_success_rate_{technique}"] = rate
+            for technique, rate in (technique_over_defensiveness_rates or {}).items():
+                mlflow_metrics[f"over_defensiveness_rate_{technique}"] = rate
             self._log_mlflow_metrics(mlflow_metrics)
             self._log_mlflow_artifacts()
 
