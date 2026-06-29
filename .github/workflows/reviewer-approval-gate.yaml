@@ -69,6 +69,7 @@ jobs:
               core.setFailed(`Unable to evaluate PR #${pull_number}: ${error.message}`);
               return;
             }
+            const pullRequestAuthorLogin = pull.user.login;
 
             const reviews = await github.paginate(
               github.rest.pulls.listReviews,
@@ -123,16 +124,30 @@ jobs:
                   per_page: 100,
                 },
               );
-              const approvingReviewerComment = reviewComments.find((comment) =>
-                !isBot(comment.user) && approvingReviewers.has(comment.user?.login),
-              );
+              const [approver] = approvingReviewers;
+              const latestApproval = latestReviewByUser.get(approver);
+              const latestApprovalSubmittedAt = new Date(latestApproval.submitted_at);
+              const humanFileCommentBeforeApproval = reviewComments.some((comment) => {
+                if (isBot(comment.user)) {
+                  return false;
+                }
 
-              if (approvingReviewerComment) {
-                description = "Sole approving reviewer left a file-level review comment.";
+                if (comment.user?.login === pullRequestAuthorLogin) {
+                  return false;
+                }
+
+                if (!latestReviewByUser.has(comment.user?.login)) {
+                  return false;
+                }
+
+                return new Date(comment.created_at) <= latestApprovalSubmittedAt;
+              });
+
+              if (humanFileCommentBeforeApproval) {
+                description = "Human approval followed a human file-level review comment.";
               } else {
-                const [approver] = approvingReviewers;
                 state = "pending";
-                description = `${approver} is the only approver and left no file comments.`;
+                description = "Single approval requires a prior human file comment.";
               }
             }
 
