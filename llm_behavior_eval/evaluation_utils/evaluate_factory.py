@@ -47,14 +47,6 @@ class EvaluateFactory:
 
             return FreeTextRefusalEvaluator(resolved_eval_config, dataset_config)
         elif evaluator_family == "prompt-injection":
-            if "bloom-prompt-injection" in dataset_id:
-                from .free_text_injection_two_sided_evaluator import (
-                    FreeTextInjectionTwoSidedEvaluator,
-                )
-
-                return FreeTextInjectionTwoSidedEvaluator(
-                    resolved_eval_config, dataset_config
-                )
             from .free_text_injection_evaluator import FreeTextPromptInjectionEvaluator
 
             return FreeTextPromptInjectionEvaluator(

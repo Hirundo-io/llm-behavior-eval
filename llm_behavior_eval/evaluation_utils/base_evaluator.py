@@ -473,8 +473,8 @@ class BaseEvaluator(ABC):
         empty_responses: int,
         incomplete_response_rate: float | None = None,
         over_defensiveness_rate: float | None = None,
-        technique_attack_success_rates: dict[str, float] | None = None,
-        technique_over_defensiveness_rates: dict[str, float] | None = None,
+        attack_success_rate: float | None = None,
+        derive_attack_success_rate: bool = True,
     ) -> None:
         """
         Save the evaluation results to files.
@@ -486,8 +486,9 @@ class BaseEvaluator(ABC):
             empty_responses: A count of empty response.
             incomplete_response_rate: Optional precomputed incomplete response rate.
             over_defensiveness_rate: Optional prompt-injection over-defensiveness rate.
-            technique_attack_success_rates: Optional malicious prompt-injection ASR by technique.
-            technique_over_defensiveness_rates: Optional benign prompt-injection over-defensiveness by technique.
+            attack_success_rate: Optional precomputed prompt-injection attack success rate.
+            derive_attack_success_rate: Whether to derive attack success from accuracy
+                when no precomputed rate is provided.
         """
         model_slug = self.get_model_slug()
         dataset_slug = self.get_dataset_slug()
@@ -512,48 +513,41 @@ class BaseEvaluator(ABC):
         is_hallucination = dataset_slug.startswith(
             "halueval"
         ) or dataset_slug.startswith("medhallu")
-        is_purple_llama_injection = dataset_slug.startswith(
-            "prompt-injection-purple-llama"
-        )
-        is_prompt_injection = is_purple_llama_injection or dataset_slug.startswith(
-            "bloom-prompt-injection"
+        is_prompt_injection = (
+            attack_success_rate is not None
+            or over_defensiveness_rate is not None
+            or not derive_attack_success_rate
         )
         # Prompt-injection grading stores model safety as accuracy, so attack success is 1 - accuracy.
-        attack_success_rate = 1 - accuracy
+        computed_attack_success_rate = (
+            1 - accuracy if derive_attack_success_rate else attack_success_rate
+        )
         if is_prompt_injection:
             metric_column_name = "Attack success rate (%) ⬇️"
-            metric_ratio_value = attack_success_rate
+            metric_ratio_value = computed_attack_success_rate
         elif is_unbias or is_hallucination:
             metric_column_name = "Accuracy (%) ⬆️"
             metric_ratio_value = accuracy
         else:
             metric_column_name = "Error (%) ⬇️"
-            metric_ratio_value = attack_success_rate
+            metric_ratio_value = computed_attack_success_rate
         # Convert ratios to percentages
-        metric_percentage_value = metric_ratio_value * 100.0
+        metric_percentage_value = (
+            metric_ratio_value * 100.0 if metric_ratio_value is not None else None
+        )
         stereo_percent = (
             stereotyped_bias * 100.0 if stereotyped_bias is not None else None
         )
         thinking_mode = "on" if self.eval_config.enable_thinking else "off"
-        technique_metric_columns = {
-            f"Attack success rate ({technique}) (%) ⬇️": [rate * 100.0]
-            for technique, rate in (technique_attack_success_rates or {}).items()
-        }
-        technique_over_defensiveness_columns = {
-            f"Over-defensiveness rate ({technique}) (%) ⬇️": [rate * 100.0]
-            for technique, rate in (technique_over_defensiveness_rates or {}).items()
-        }
         results = pd.DataFrame(
             {
                 metric_column_name: [metric_percentage_value],
-                **technique_metric_columns,
                 "Thinking": [thinking_mode],
                 "Over-defensiveness rate (%) ⬇️": [
                     over_defensiveness_rate * 100.0
                     if over_defensiveness_rate is not None
                     else None
                 ],
-                **technique_over_defensiveness_columns,
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
@@ -584,12 +578,15 @@ class BaseEvaluator(ABC):
         # Ensure both Accuracy and Error columns exist; populate only the relevant one
         full_acc = accuracy * 100.0 if (is_unbias or is_hallucination) else None
         full_err = (
-            attack_success_rate * 100.0
-            if not (is_unbias or is_hallucination or is_prompt_injection)
+            computed_attack_success_rate * 100.0
+            if computed_attack_success_rate is not None
+            and not (is_unbias or is_hallucination or is_prompt_injection)
             else None
         )
         full_attack_success_rate = (
-            attack_success_rate * 100.0 if is_prompt_injection else None
+            computed_attack_success_rate * 100.0
+            if computed_attack_success_rate is not None and is_prompt_injection
+            else None
         )
         summary_row = pd.DataFrame(
             {
@@ -601,13 +598,11 @@ class BaseEvaluator(ABC):
                 "Accuracy (%) ⬆️": [full_acc],
                 "Error (%) ⬇️": [full_err],
                 "Attack success rate (%) ⬇️": [full_attack_success_rate],
-                **technique_metric_columns,
                 "Over-defensiveness rate (%) ⬇️": [
                     over_defensiveness_rate * 100.0
                     if over_defensiveness_rate is not None
                     else None
                 ],
-                **technique_over_defensiveness_columns,
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [empty_responses],
                 "Incomplete response rate (%) ⬇️": [
@@ -657,12 +652,15 @@ class BaseEvaluator(ABC):
         # Always include both Accuracy and Error columns; populate only the relevant one
         brief_acc = accuracy * 100.0 if (is_hallucination or is_unbias) else None
         brief_err = (
-            attack_success_rate * 100.0
-            if not (is_hallucination or is_unbias or is_prompt_injection)
+            computed_attack_success_rate * 100.0
+            if computed_attack_success_rate is not None
+            and not (is_hallucination or is_unbias or is_prompt_injection)
             else None
         )
         brief_attack_success_rate = (
-            attack_success_rate * 100.0 if is_prompt_injection else None
+            computed_attack_success_rate * 100.0
+            if computed_attack_success_rate is not None and is_prompt_injection
+            else None
         )
         brief_df = pd.DataFrame(
             {
@@ -671,13 +669,11 @@ class BaseEvaluator(ABC):
                 "Accuracy (%) ⬆️": [brief_acc],
                 "Error (%) ⬇️": [brief_err],
                 "Attack success rate (%) ⬇️": [brief_attack_success_rate],
-                **technique_metric_columns,
                 "Over-defensiveness rate (%) ⬇️": [
                     over_defensiveness_rate * 100.0
                     if over_defensiveness_rate is not None
                     else None
                 ],
-                **technique_over_defensiveness_columns,
                 "Incomplete response rate (%) ⬇️": [
                     (
                         incomplete_response_rate * 100.0
@@ -694,20 +690,17 @@ class BaseEvaluator(ABC):
         if self.mlflow_config:
             mlflow_metrics = {
                 "accuracy": accuracy,
-                "error": 1 - accuracy,
                 "empty_responses": float(empty_responses),
                 "num_samples": float(self.num_samples),
             }
+            if computed_attack_success_rate is not None:
+                mlflow_metrics["error"] = computed_attack_success_rate
             if incomplete_response_rate is not None:
                 mlflow_metrics["incomplete_response_rate"] = incomplete_response_rate
             if stereotyped_bias is not None:
                 mlflow_metrics["stereotyped_bias"] = stereotyped_bias
             if over_defensiveness_rate is not None:
                 mlflow_metrics["over_defensiveness_rate"] = over_defensiveness_rate
-            for technique, rate in (technique_attack_success_rates or {}).items():
-                mlflow_metrics[f"attack_success_rate_{technique}"] = rate
-            for technique, rate in (technique_over_defensiveness_rates or {}).items():
-                mlflow_metrics[f"over_defensiveness_rate_{technique}"] = rate
             self._log_mlflow_metrics(mlflow_metrics)
             self._log_mlflow_artifacts()
 

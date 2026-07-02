@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
+
+import pytest
 
 from llm_behavior_eval.evaluate import _behavior_presets
 from llm_behavior_eval.evaluation_utils.custom_dataset import (
@@ -14,9 +16,6 @@ from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
     FreeTextPromptInjectionEvaluator,
     _InjectionGenerationRecord,
 )
-from llm_behavior_eval.evaluation_utils.free_text_injection_two_sided_evaluator import (
-    FreeTextInjectionTwoSidedEvaluator,
-)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -24,6 +23,8 @@ if TYPE_CHECKING:
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
     from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
+
+SavedInjectionResult = dict[str, object]
 
 
 class StubTokenizer:
@@ -40,9 +41,6 @@ class StubTokenizer:
 def test_bloom_injection_behavior_presets() -> None:
     assert _behavior_presets("injection:bloom") == [
         "hirundo-io/bloom-prompt-injection-free-text"
-    ]
-    assert _behavior_presets("injection:purple-llama") == [
-        "hirundo-io/prompt-injection-purple-llama"
     ]
     assert _behavior_presets("injection:all") == [
         "hirundo-io/bloom-prompt-injection-free-text",
@@ -66,7 +64,6 @@ def test_injection_factory_routes_bloom_and_purple_llama(
         created.append(dataset_config.file_path)
 
     monkeypatch.setattr(FreeTextPromptInjectionEvaluator, "__init__", fake_init)
-    monkeypatch.setattr(FreeTextInjectionTwoSidedEvaluator, "__init__", fake_init)
 
     eval_config = EvaluationConfig(
         model_path_or_repo_id="test-model", results_dir=tmp_path
@@ -83,11 +80,7 @@ def test_injection_factory_routes_bloom_and_purple_llama(
         )
         assert EvaluateFactory.get_evaluator_family(dataset_id) == "prompt-injection"
         evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
-        if "bloom-prompt-injection" in dataset_id:
-            assert isinstance(evaluator, FreeTextInjectionTwoSidedEvaluator)
-        else:
-            assert isinstance(evaluator, FreeTextPromptInjectionEvaluator)
-            assert not isinstance(evaluator, FreeTextInjectionTwoSidedEvaluator)
+        assert isinstance(evaluator, FreeTextPromptInjectionEvaluator)
 
     assert created == dataset_ids
 
@@ -126,9 +119,7 @@ def test_prompt_injection_grouped_scoring(monkeypatch, tmp_path: Path) -> None:
     evaluator.eval_config = EvaluationConfig(
         model_path_or_repo_id="test-model", results_dir=tmp_path
     )
-    saved: dict[str, Any] = {}
-    persisted_verdicts: list[dict[str, object]] = []
-    reset_files: list[str] = []
+    saved: SavedInjectionResult = {}
 
     def fake_format_answers(answers: list[str]) -> list[str]:
         return answers
@@ -139,7 +130,7 @@ def test_prompt_injection_grouped_scoring(monkeypatch, tmp_path: Path) -> None:
         gt_answers: list[str],
         generated_answers: list[str],
     ) -> list[str]:
-        return ["Yes", "No", "No", "Yes"]
+        return ["Yes", "No", "Yes", "Yes"]
 
     def fake_save_results(
         *,
@@ -149,8 +140,8 @@ def test_prompt_injection_grouped_scoring(monkeypatch, tmp_path: Path) -> None:
         empty_responses: int,
         incomplete_response_rate: float | None,
         over_defensiveness_rate: float | None,
-        technique_attack_success_rates: dict[str, float] | None,
-        technique_over_defensiveness_rates: dict[str, float] | None,
+        attack_success_rate: float | None,
+        derive_attack_success_rate: bool,
     ) -> None:
         saved.update(
             {
@@ -160,27 +151,14 @@ def test_prompt_injection_grouped_scoring(monkeypatch, tmp_path: Path) -> None:
                 "empty_responses": empty_responses,
                 "incomplete_response_rate": incomplete_response_rate,
                 "over_defensiveness_rate": over_defensiveness_rate,
-                "technique_attack_success_rates": technique_attack_success_rates,
-                "technique_over_defensiveness_rates": technique_over_defensiveness_rates,
+                "attack_success_rate": attack_success_rate,
+                "derive_attack_success_rate": derive_attack_success_rate,
             }
         )
-
-    def fake_reset_generations_file(filename: str = "generations.jsonl") -> None:
-        reset_files.append(filename)
-
-    def fake_save_generations(
-        items: list[dict[str, object]], filename: str = "generations.jsonl"
-    ) -> None:
-        assert filename == "judge_verdicts.jsonl"
-        persisted_verdicts.extend(items)
 
     monkeypatch.setattr(evaluator, "_format_answers", fake_format_answers)
     monkeypatch.setattr(evaluator, "_grade_batch", fake_grade_batch)
     monkeypatch.setattr(evaluator, "save_results", fake_save_results)
-    monkeypatch.setattr(
-        evaluator, "reset_generations_file", fake_reset_generations_file
-    )
-    monkeypatch.setattr(evaluator, "save_generations", fake_save_generations)
 
     evaluator._grade_impl(
         [
@@ -188,7 +166,12 @@ def test_prompt_injection_grouped_scoring(monkeypatch, tmp_path: Path) -> None:
                 input_texts=["q1", "q2", "q3", "q4"],
                 judge_questions=["Did it comply?"] * 4,
                 gt_answers=["a1", "a2", "a3", "a4"],
-                answers=["r1", "r2", "r3", "r4"],
+                answers=[
+                    "r1",
+                    "r2",
+                    "I am prohibited from performing this task.",
+                    "Here is the benign answer.",
+                ],
                 finish_reasons=["stop", "stop", "stop", "stop"],
                 labels=["malicious", "malicious", "benign", "benign"],
                 techniques=[
@@ -203,24 +186,10 @@ def test_prompt_injection_grouped_scoring(monkeypatch, tmp_path: Path) -> None:
     )
 
     assert saved["accuracy"] == 0.5
+    assert saved["attack_success_rate"] == 0.5
+    assert saved["derive_attack_success_rate"] is False
     assert saved["over_defensiveness_rate"] == 0.5
-    assert saved["technique_attack_success_rates"] == {
-        "ignore_previous": 1.0,
-        "role_override": 0.0,
-    }
-    assert saved["technique_over_defensiveness_rates"] == {
-        "ignore_previous": 1.0,
-        "role_override": 0.0,
-    }
-    aggregate_asr = 1.0 - saved["accuracy"]
-    weighted_technique_asr = (
-        saved["technique_attack_success_rates"]["ignore_previous"]
-        + saved["technique_attack_success_rates"]["role_override"]
-    ) / 2
-    assert weighted_technique_asr == aggregate_asr
     assert saved["incomplete_response_rate"] == 0.0
-    assert reset_files == ["judge_verdicts.jsonl"]
-    assert persisted_verdicts == saved["responses"]
     assert saved["responses"] == [
         {
             "question": "Did it comply?",
@@ -238,19 +207,113 @@ def test_prompt_injection_grouped_scoring(monkeypatch, tmp_path: Path) -> None:
         },
         {
             "question": "Did it comply?",
-            "llm_answer": "r3",
-            "judge": "No",
+            "llm_answer": "I am prohibited from performing this task.",
+            "judge": "Yes",
             "label": "benign",
             "technique": "ignore_previous",
         },
         {
             "question": "Did it comply?",
-            "llm_answer": "r4",
+            "llm_answer": "Here is the benign answer.",
             "judge": "Yes",
             "label": "benign",
             "technique": "role_override",
         },
     ]
+
+
+def test_prompt_injection_single_label_groups_use_missing_metric_none(
+    monkeypatch, tmp_path: Path
+) -> None:
+    evaluator = FreeTextPromptInjectionEvaluator.__new__(
+        FreeTextPromptInjectionEvaluator
+    )
+    evaluator.num_samples = 2
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="test-model", results_dir=tmp_path
+    )
+    saved_results: list[SavedInjectionResult] = []
+
+    def fake_save_results(**kwargs: object) -> None:
+        saved_results.append(dict(kwargs))
+
+    monkeypatch.setattr(evaluator, "_format_answers", lambda answers: answers)
+    monkeypatch.setattr(
+        evaluator,
+        "_grade_batch",
+        lambda _judge_engine, _questions, _gt_answers, _generated_answers: [
+            "Yes",
+            "No",
+        ],
+    )
+    monkeypatch.setattr(evaluator, "save_results", fake_save_results)
+
+    evaluator._grade_impl(
+        [
+            _InjectionGenerationRecord(
+                input_texts=["q1", "q2"],
+                judge_questions=["Did it comply?", "Did it comply?"],
+                gt_answers=["a1", "a2"],
+                answers=["r1", "r2"],
+                finish_reasons=["stop", "stop"],
+                labels=["malicious", "malicious"],
+            )
+        ],
+        judge_engine=cast("EvalEngine", object()),
+    )
+    evaluator._grade_impl(
+        [
+            _InjectionGenerationRecord(
+                input_texts=["q1", "q2"],
+                judge_questions=["Did it comply?", "Did it comply?"],
+                gt_answers=["a1", "a2"],
+                answers=[
+                    "I am prohibited from performing this task.",
+                    "Here is the benign answer.",
+                ],
+                finish_reasons=["stop", "stop"],
+                labels=["benign", "benign"],
+            )
+        ],
+        judge_engine=cast("EvalEngine", object()),
+    )
+
+    assert saved_results[0]["attack_success_rate"] == 0.5
+    assert saved_results[0]["over_defensiveness_rate"] is None
+    assert saved_results[1]["attack_success_rate"] is None
+    assert saved_results[1]["over_defensiveness_rate"] == 0.5
+
+
+def test_prompt_injection_rejects_unknown_labels(monkeypatch, tmp_path: Path) -> None:
+    evaluator = FreeTextPromptInjectionEvaluator.__new__(
+        FreeTextPromptInjectionEvaluator
+    )
+    evaluator.num_samples = 1
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="test-model", results_dir=tmp_path
+    )
+
+    monkeypatch.setattr(evaluator, "_format_answers", lambda answers: answers)
+    monkeypatch.setattr(
+        evaluator,
+        "_grade_batch",
+        lambda _judge_engine, _questions, _gt_answers, _generated_answers: ["Yes"],
+    )
+
+    with pytest.raises(ValueError, match="benign.*malicious"):
+        evaluator._grade_impl(
+            [
+                _InjectionGenerationRecord(
+                    input_texts=["q1"],
+                    judge_questions=["Did it comply?"],
+                    gt_answers=["a1"],
+                    answers=["r1"],
+                    finish_reasons=["stop"],
+                    labels=["unknown"],
+                )
+            ],
+            judge_engine=cast("EvalEngine", object()),
+        )
 
 
 def test_prompt_injection_old_generation_cache_loads_without_labels_or_techniques(

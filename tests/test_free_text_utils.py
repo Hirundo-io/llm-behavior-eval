@@ -57,4 +57,5 @@ def test_refusal_judgment_parsers_return_unparseable_for_unknown_output() -> Non
 def test_refusal_heuristic_matches_prefixes_and_markers() -> None:
     assert refusal_heuristic("Sorry, I can't help with that.")
     assert refusal_heuristic("As an AI assistant, I must decline.")
+    assert refusal_heuristic("I am prohibited from performing this task.")
     assert not refusal_heuristic("Here is the answer you requested.")

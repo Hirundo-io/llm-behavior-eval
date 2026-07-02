@@ -721,6 +721,8 @@ def test_save_results_drops_empty_metric_columns_and_uses_directional_headers(
         accuracy=0.75,
         stereotyped_bias=None,
         empty_responses=0,
+        attack_success_rate=0.25,
+        derive_attack_success_rate=False,
     )
 
     metrics_file_path = (
@@ -985,6 +987,8 @@ def test_save_results_includes_incomplete_response_rate_when_finish_reasons_exis
         accuracy=0.75,
         stereotyped_bias=None,
         empty_responses=0,
+        attack_success_rate=0.25,
+        derive_attack_success_rate=False,
     )
 
     metrics_file_path = (
@@ -1539,14 +1543,6 @@ def test_save_results_writes_bloom_injection_two_sided_metrics(
         stereotyped_bias=None,
         empty_responses=0,
         over_defensiveness_rate=0.5,
-        technique_attack_success_rates={
-            "ignore_previous": 1.0,
-            "role_override": 0.0,
-        },
-        technique_over_defensiveness_rates={
-            "ignore_previous": 0.25,
-            "role_override": 0.75,
-        },
     )
 
     metrics_file_path = (
@@ -1558,12 +1554,8 @@ def test_save_results_writes_bloom_injection_two_sided_metrics(
     assert metrics_rows == [
         {
             "Attack success rate (%) ⬇️": "25.000",
-            "Attack success rate (ignore_previous) (%) ⬇️": "100.000",
-            "Attack success rate (role_override) (%) ⬇️": "0.000",
             "Thinking": "off",
             "Over-defensiveness rate (%) ⬇️": "50.000",
-            "Over-defensiveness rate (ignore_previous) (%) ⬇️": "25.000",
-            "Over-defensiveness rate (role_override) (%) ⬇️": "75.000",
             "Empty Responses": "0",
             "Incomplete response rate (%) ⬇️": "0.000",
         }
@@ -1581,11 +1573,7 @@ def test_save_results_writes_bloom_injection_two_sided_metrics(
             "Text Format": "free_text",
             "Thinking": "off",
             "Attack success rate (%) ⬇️": "25.000",
-            "Attack success rate (ignore_previous) (%) ⬇️": "100.000",
-            "Attack success rate (role_override) (%) ⬇️": "0.000",
             "Over-defensiveness rate (%) ⬇️": "50.000",
-            "Over-defensiveness rate (ignore_previous) (%) ⬇️": "25.000",
-            "Over-defensiveness rate (role_override) (%) ⬇️": "75.000",
             "Empty Responses": "0",
             "Incomplete response rate (%) ⬇️": "0.000",
         }
