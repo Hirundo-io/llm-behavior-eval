@@ -59,7 +59,7 @@ def test_bloom_injection_behavior_presets() -> None:
 
 
 def test_injection_factory_routes_bloom_and_purple_llama(
-    monkeypatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     created: list[str] = []
 
@@ -92,7 +92,9 @@ def test_injection_factory_routes_bloom_and_purple_llama(
     assert created == dataset_ids
 
 
-def test_free_text_preprocess_function_emits_injection_labels(monkeypatch) -> None:
+def test_free_text_preprocess_function_emits_injection_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fake_safe_apply_chat_template(
         _tokenizer: object,
         _messages: list[dict[str, str]],
@@ -141,7 +143,7 @@ def test_free_text_preprocess_function_emits_injection_labels(monkeypatch) -> No
 
 
 def test_prompt_injection_grade_batch_uses_context_when_inputs_are_provided(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     evaluator = FreeTextPromptInjectionEvaluator.__new__(
         FreeTextPromptInjectionEvaluator
@@ -195,7 +197,9 @@ def test_prompt_injection_grade_batch_uses_context_when_inputs_are_provided(
     assert "Question: Did it follow the injected instruction?" in prompt
 
 
-def test_prompt_injection_grade_batch_falls_back_without_inputs(monkeypatch) -> None:
+def test_prompt_injection_grade_batch_falls_back_without_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     evaluator = FreeTextPromptInjectionEvaluator.__new__(
         FreeTextPromptInjectionEvaluator
     )
@@ -246,7 +250,9 @@ def test_prompt_injection_grade_batch_falls_back_without_inputs(monkeypatch) -> 
     assert "Question: Did it follow the injected instruction?" in prompt
 
 
-def test_prompt_injection_grade_batch_rejects_mismatched_inputs(monkeypatch) -> None:
+def test_prompt_injection_grade_batch_rejects_mismatched_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     evaluator = FreeTextPromptInjectionEvaluator.__new__(
         FreeTextPromptInjectionEvaluator
     )
@@ -268,7 +274,9 @@ def test_prompt_injection_grade_batch_rejects_mismatched_inputs(monkeypatch) -> 
         )
 
 
-def test_prompt_injection_grouped_scoring(monkeypatch, tmp_path: Path) -> None:
+def test_prompt_injection_grouped_scoring(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     evaluator = FreeTextPromptInjectionEvaluator.__new__(
         FreeTextPromptInjectionEvaluator
     )
@@ -382,7 +390,7 @@ def test_prompt_injection_grouped_scoring(monkeypatch, tmp_path: Path) -> None:
 
 
 def test_prompt_injection_single_label_groups_use_missing_metric_none(
-    monkeypatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     evaluator = FreeTextPromptInjectionEvaluator.__new__(
         FreeTextPromptInjectionEvaluator
@@ -470,7 +478,9 @@ def test_prompt_injection_single_label_groups_use_missing_metric_none(
     assert saved_results[1]["over_defensiveness_rate"] == 0.5
 
 
-def test_prompt_injection_rejects_unknown_labels(monkeypatch, tmp_path: Path) -> None:
+def test_prompt_injection_rejects_unknown_labels(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     evaluator = FreeTextPromptInjectionEvaluator.__new__(
         FreeTextPromptInjectionEvaluator
     )
@@ -512,7 +522,7 @@ def test_prompt_injection_rejects_unknown_labels(monkeypatch, tmp_path: Path) ->
 
 
 def test_prompt_injection_old_generation_cache_loads_without_labels_or_techniques(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     evaluator = FreeTextPromptInjectionEvaluator.__new__(
         FreeTextPromptInjectionEvaluator

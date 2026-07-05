@@ -273,9 +273,6 @@ class CustomDataset:
             A tokenized dataset ready for evaluation.
         """
         refusal_dataset = str(self.file_path) in REFUSAL_DATASETS
-        bloom_prompt_injection_dataset = (
-            str(self.file_path) == "hirundo-io/bloom-prompt-injection-free-text"
-        )
         dataset = normalize_refusal_dataset(self.ds) if refusal_dataset else self.ds
         validate_dataset_columns(dataset)
         old_columns = dataset.column_names
@@ -304,7 +301,6 @@ class CustomDataset:
             remove_columns=old_columns,
             batch_size=preprocess_config.preprocess_batch_size,
             num_proc=1,
-            load_from_cache_file=not bloom_prompt_injection_dataset,
         )
         text = tokenizer.batch_decode(
             cast("list[list[int]]", list(processed_dataset["test_input_ids"])),
