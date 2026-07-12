@@ -473,6 +473,11 @@ class BaseEvaluator(ABC):
         empty_responses: int,
         incomplete_response_rate: float | None = None,
         over_defensiveness_rate: float | None = None,
+        benign_judge_no_rate: float | None = None,
+        benign_judge_parsed_n: int | None = None,
+        benign_judge_parse_rate: float | None = None,
+        judge_parsed_n: int | None = None,
+        judge_parse_rate: float | None = None,
         attack_success_rate: float | None = None,
         derive_attack_success_rate: bool = True,
     ) -> None:
@@ -486,6 +491,11 @@ class BaseEvaluator(ABC):
             empty_responses: A count of empty response.
             incomplete_response_rate: Optional precomputed incomplete response rate.
             over_defensiveness_rate: Optional prompt-injection over-defensiveness rate.
+            benign_judge_no_rate: Optional benign prompt-injection judge No-rate.
+            benign_judge_parsed_n: Optional count of benign rows with parseable judge outputs.
+            benign_judge_parse_rate: Optional benign judge parse success rate.
+            judge_parsed_n: Optional count of all rows with parseable judge outputs.
+            judge_parse_rate: Optional overall judge parse success rate.
             attack_success_rate: Optional precomputed prompt-injection attack success rate.
             derive_attack_success_rate: Whether to derive attack success from accuracy
                 when no precomputed rate is provided.
@@ -548,6 +558,21 @@ class BaseEvaluator(ABC):
                     if over_defensiveness_rate is not None
                     else None
                 ],
+                "Benign judge No-rate (%) ⬇️": [
+                    benign_judge_no_rate * 100.0
+                    if benign_judge_no_rate is not None
+                    else None
+                ],
+                "Benign judge parsed n": [benign_judge_parsed_n],
+                "Benign judge parse rate (%) ⬆️": [
+                    benign_judge_parse_rate * 100.0
+                    if benign_judge_parse_rate is not None
+                    else None
+                ],
+                "Judge parsed n": [judge_parsed_n],
+                "Judge parse rate (%) ⬆️": [
+                    judge_parse_rate * 100.0 if judge_parse_rate is not None else None
+                ],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
@@ -602,6 +627,21 @@ class BaseEvaluator(ABC):
                     over_defensiveness_rate * 100.0
                     if over_defensiveness_rate is not None
                     else None
+                ],
+                "Benign judge No-rate (%) ⬇️": [
+                    benign_judge_no_rate * 100.0
+                    if benign_judge_no_rate is not None
+                    else None
+                ],
+                "Benign judge parsed n": [benign_judge_parsed_n],
+                "Benign judge parse rate (%) ⬆️": [
+                    benign_judge_parse_rate * 100.0
+                    if benign_judge_parse_rate is not None
+                    else None
+                ],
+                "Judge parsed n": [judge_parsed_n],
+                "Judge parse rate (%) ⬆️": [
+                    judge_parse_rate * 100.0 if judge_parse_rate is not None else None
                 ],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [empty_responses],
@@ -674,6 +714,21 @@ class BaseEvaluator(ABC):
                     if over_defensiveness_rate is not None
                     else None
                 ],
+                "Benign judge No-rate (%) ⬇️": [
+                    benign_judge_no_rate * 100.0
+                    if benign_judge_no_rate is not None
+                    else None
+                ],
+                "Benign judge parsed n": [benign_judge_parsed_n],
+                "Benign judge parse rate (%) ⬆️": [
+                    benign_judge_parse_rate * 100.0
+                    if benign_judge_parse_rate is not None
+                    else None
+                ],
+                "Judge parsed n": [judge_parsed_n],
+                "Judge parse rate (%) ⬆️": [
+                    judge_parse_rate * 100.0 if judge_parse_rate is not None else None
+                ],
                 "Incomplete response rate (%) ⬇️": [
                     (
                         incomplete_response_rate * 100.0
@@ -701,6 +756,16 @@ class BaseEvaluator(ABC):
                 mlflow_metrics["stereotyped_bias"] = stereotyped_bias
             if over_defensiveness_rate is not None:
                 mlflow_metrics["over_defensiveness_rate"] = over_defensiveness_rate
+            if benign_judge_no_rate is not None:
+                mlflow_metrics["benign_judge_no_rate"] = benign_judge_no_rate
+            if benign_judge_parsed_n is not None:
+                mlflow_metrics["benign_judge_parsed_n"] = float(benign_judge_parsed_n)
+            if benign_judge_parse_rate is not None:
+                mlflow_metrics["benign_judge_parse_rate"] = benign_judge_parse_rate
+            if judge_parsed_n is not None:
+                mlflow_metrics["judge_parsed_n"] = float(judge_parsed_n)
+            if judge_parse_rate is not None:
+                mlflow_metrics["judge_parse_rate"] = judge_parse_rate
             self._log_mlflow_metrics(mlflow_metrics)
             self._log_mlflow_artifacts()
 

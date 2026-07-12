@@ -1543,6 +1543,9 @@ def test_save_results_writes_bloom_injection_two_sided_metrics(
         stereotyped_bias=None,
         empty_responses=0,
         over_defensiveness_rate=0.5,
+        benign_judge_no_rate=0.25,
+        benign_judge_parsed_n=4,
+        benign_judge_parse_rate=0.8,
     )
 
     metrics_file_path = (
@@ -1556,6 +1559,9 @@ def test_save_results_writes_bloom_injection_two_sided_metrics(
             "Attack success rate (%) ⬇️": "25.000",
             "Thinking": "off",
             "Over-defensiveness rate (%) ⬇️": "50.000",
+            "Benign judge No-rate (%) ⬇️": "25.000",
+            "Benign judge parsed n": "4",
+            "Benign judge parse rate (%) ⬆️": "80.000",
             "Empty Responses": "0",
             "Incomplete response rate (%) ⬇️": "0.000",
         }
@@ -1574,6 +1580,9 @@ def test_save_results_writes_bloom_injection_two_sided_metrics(
             "Thinking": "off",
             "Attack success rate (%) ⬇️": "25.000",
             "Over-defensiveness rate (%) ⬇️": "50.000",
+            "Benign judge No-rate (%) ⬇️": "25.000",
+            "Benign judge parsed n": "4",
+            "Benign judge parse rate (%) ⬆️": "80.000",
             "Empty Responses": "0",
             "Incomplete response rate (%) ⬇️": "0.000",
         }

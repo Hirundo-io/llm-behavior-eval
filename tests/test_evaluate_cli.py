@@ -575,6 +575,20 @@ def test_main_uses_default_answer_and_judge_tokens(
     assert resolved.sample_judge is False
 
 
+def test_main_uses_prompt_injection_judge_token_default(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main("fake/model", "prompt-injection")
+    eval_config = capture_eval_config[-1]
+    assert eval_config.max_answer_tokens is None
+    assert eval_config.max_judge_tokens is None
+
+    resolved = eval_config.resolve_for_family("prompt-injection")
+    assert resolved.max_answer_tokens == 128
+    assert resolved.max_judge_tokens == 128
+    assert resolved.sample_judge is False
+
+
 def test_main_uses_refusal_preset_defaults_when_tokens_omitted(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:

@@ -18,6 +18,7 @@ from llm_behavior_eval.evaluation_utils.enums import (
     BBQ_BIAS_BEHAVIOR,
     BEHAVIOR_PRESET_ERROR,
     BLOOM_BIAS_TYPES,
+    BLOOM_INJECTION_CONTEXT_DATASETS,
     HALUEVAL_ALIAS,
     INJECTION_ALIAS,
     MEDHALLU_ALIAS,
@@ -112,7 +113,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     - UNQOVER: "unqover:bias:<bias_type>" (UNQOVER does not support 'unbias')
     - Bloom: "bloom:bias:<bias_type>" or "bloom:unbias:<bias_type>"
     - Hallucinations: "hallu" or "hallu-med"
-    - Prompt injection: "prompt-injection", "injection:bloom", or "injection:all"
+    - Prompt injection: "prompt-injection", "injection:bloom-<context>", "injection:bloom-all", or "injection:all"
     - Refusal: "refusal:xstest" | "refusal:orbench" | "refusal:all"
 
     Args:
@@ -132,19 +133,25 @@ def _behavior_presets(behavior: str) -> list[str]:
         return ["hirundo-io/prompt-injection-purple-llama"]
     if len(behavior_parts) == 2 and behavior_parts[0] == "injection":
         _, injection_type = behavior_parts
-        injection_datasets = {
-            "bloom": "hirundo-io/bloom-prompt-injection-free-text",
-        }
+        bloom_injection_datasets = [
+            BLOOM_INJECTION_CONTEXT_DATASETS[context]
+            for context in sorted(BLOOM_INJECTION_CONTEXT_DATASETS)
+        ]
+        if injection_type == "bloom-all":
+            return bloom_injection_datasets
+        if injection_type.startswith("bloom-"):
+            context = injection_type.removeprefix("bloom-")
+            if context in BLOOM_INJECTION_CONTEXT_DATASETS:
+                return [BLOOM_INJECTION_CONTEXT_DATASETS[context]]
         if injection_type == "all":
-            return sorted(
-                [
-                    *injection_datasets.values(),
-                    "hirundo-io/prompt-injection-purple-llama",
-                ]
-            )
-        if injection_type in injection_datasets:
-            return [injection_datasets[injection_type]]
-        raise ValueError("Injection supports: bloom, all")
+            return [
+                *bloom_injection_datasets,
+                "hirundo-io/prompt-injection-purple-llama",
+            ]
+        raise ValueError(
+            "Injection supports: bloom-malicious, bloom-benign, "
+            "bloom-conflicting-signals, bloom-all, all"
+        )
     if len(behavior_parts) == 2 and behavior_parts[0] in REFUSAL_ALIAS:
         _, refusal_dataset = behavior_parts
         if refusal_dataset == "xstest":
@@ -218,7 +225,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection' | 'injection:bloom' | 'injection:all'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection' | 'injection:bloom-<malicious|benign|conflicting-signals>' | 'injection:bloom-all' | 'injection:all'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
         ),
     ],
     output_dir: Annotated[

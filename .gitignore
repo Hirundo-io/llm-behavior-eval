@@ -186,3 +186,5 @@ act-events/pr.secrets
 !.pixi/config.toml
 
 results/
+audit_outputs/
+nohup.out
