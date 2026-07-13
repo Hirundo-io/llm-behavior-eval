@@ -536,76 +536,56 @@ class BaseEvaluator(ABC):
             or over_defensiveness_rate is not None
             or not derive_attack_success_rate
         )
-        # Prompt-injection grading stores model safety as accuracy, so attack success is 1 - accuracy.
-        computed_attack_success_rate = (
+        # Bias and legacy prompt-injection report the complement of accuracy.
+        primary_error_rate = (
             1 - accuracy if derive_attack_success_rate else attack_success_rate
         )
         if is_prompt_injection:
             metric_column_name = "Attack success rate (%) ⬇️"
-            metric_ratio_value = computed_attack_success_rate
+            metric_ratio_value = primary_error_rate
         elif is_unbias or is_hallucination:
             metric_column_name = "Accuracy (%) ⬆️"
             metric_ratio_value = accuracy
         else:
             metric_column_name = "Error (%) ⬇️"
-            metric_ratio_value = computed_attack_success_rate
-        # Convert ratios to percentages
-        metric_percentage_value = (
-            metric_ratio_value * 100.0 if metric_ratio_value is not None else None
+            metric_ratio_value = primary_error_rate
+        metric_percentage_value = self._as_percent(metric_ratio_value)
+        malicious_attack_success_percent = self._as_percent(
+            malicious_attack_success_rate
         )
-        malicious_attack_success_percent = (
-            malicious_attack_success_rate * 100.0
-            if malicious_attack_success_rate is not None
-            else None
+        conflicting_signals_attack_success_percent = self._as_percent(
+            conflicting_signals_attack_success_rate
         )
-        conflicting_signals_attack_success_percent = (
-            conflicting_signals_attack_success_rate * 100.0
-            if conflicting_signals_attack_success_rate is not None
-            else None
+        over_defensiveness_percent = self._as_percent(over_defensiveness_rate)
+        benign_judge_no_percent = self._as_percent(benign_judge_no_rate)
+        benign_judge_parse_percent = self._as_percent(benign_judge_parse_rate)
+        judge_parse_percent = self._as_percent(judge_parse_rate)
+        incomplete_response_percent = (
+            self._as_percent(incomplete_response_rate)
+            if incomplete_response_rate is not None
+            else 0.0
         )
-        stereo_percent = (
-            stereotyped_bias * 100.0 if stereotyped_bias is not None else None
-        )
+        stereo_percent = self._as_percent(stereotyped_bias)
         thinking_mode = "on" if self.eval_config.enable_thinking else "off"
         results = pd.DataFrame(
             {
                 metric_column_name: [metric_percentage_value],
                 "Thinking": [thinking_mode],
-                "Over-defensiveness rate (%) ⬇️": [
-                    over_defensiveness_rate * 100.0
-                    if over_defensiveness_rate is not None
-                    else None
-                ],
+                "Over-defensiveness rate (%) ⬇️": [over_defensiveness_percent],
                 "malicious_attack_success_rate": [malicious_attack_success_percent],
                 "conflicting_signals_attack_success_rate": [
                     conflicting_signals_attack_success_percent
                 ],
-                "Benign judge No-rate (%) ⬇️": [
-                    benign_judge_no_rate * 100.0
-                    if benign_judge_no_rate is not None
-                    else None
-                ],
+                "Benign judge No-rate (%) ⬇️": [benign_judge_no_percent],
                 "Benign judge parsed n": [benign_judge_parsed_n],
-                "Benign judge parse rate (%) ⬆️": [
-                    benign_judge_parse_rate * 100.0
-                    if benign_judge_parse_rate is not None
-                    else None
-                ],
+                "Benign judge parse rate (%) ⬆️": [benign_judge_parse_percent],
                 "Judge parsed n": [judge_parsed_n],
-                "Judge parse rate (%) ⬆️": [
-                    judge_parse_rate * 100.0 if judge_parse_rate is not None else None
-                ],
+                "Judge parse rate (%) ⬆️": [judge_parse_percent],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
                 ],
-                "Incomplete response rate (%) ⬇️": [
-                    (
-                        incomplete_response_rate * 100.0
-                        if incomplete_response_rate is not None
-                        else 0.0
-                    )
-                ],
+                "Incomplete response rate (%) ⬇️": [incomplete_response_percent],
             }
         )
         results = self._drop_empty_columns(results)
@@ -623,16 +603,18 @@ class BaseEvaluator(ABC):
         # full summary (per model)
         full_summary_path = model_results_dir / "summary_full.csv"
         # Ensure both Accuracy and Error columns exist; populate only the relevant one
-        full_acc = accuracy * 100.0 if (is_unbias or is_hallucination) else None
+        full_acc = (
+            self._as_percent(accuracy) if (is_unbias or is_hallucination) else None
+        )
         full_err = (
-            computed_attack_success_rate * 100.0
-            if computed_attack_success_rate is not None
+            self._as_percent(primary_error_rate)
+            if primary_error_rate is not None
             and not (is_unbias or is_hallucination or is_prompt_injection)
             else None
         )
         full_attack_success_rate = (
-            computed_attack_success_rate * 100.0
-            if computed_attack_success_rate is not None and is_prompt_injection
+            self._as_percent(primary_error_rate)
+            if primary_error_rate is not None and is_prompt_injection
             else None
         )
         summary_row = pd.DataFrame(
@@ -649,35 +631,15 @@ class BaseEvaluator(ABC):
                 "conflicting_signals_attack_success_rate": [
                     conflicting_signals_attack_success_percent
                 ],
-                "Over-defensiveness rate (%) ⬇️": [
-                    over_defensiveness_rate * 100.0
-                    if over_defensiveness_rate is not None
-                    else None
-                ],
-                "Benign judge No-rate (%) ⬇️": [
-                    benign_judge_no_rate * 100.0
-                    if benign_judge_no_rate is not None
-                    else None
-                ],
+                "Over-defensiveness rate (%) ⬇️": [over_defensiveness_percent],
+                "Benign judge No-rate (%) ⬇️": [benign_judge_no_percent],
                 "Benign judge parsed n": [benign_judge_parsed_n],
-                "Benign judge parse rate (%) ⬆️": [
-                    benign_judge_parse_rate * 100.0
-                    if benign_judge_parse_rate is not None
-                    else None
-                ],
+                "Benign judge parse rate (%) ⬆️": [benign_judge_parse_percent],
                 "Judge parsed n": [judge_parsed_n],
-                "Judge parse rate (%) ⬆️": [
-                    judge_parse_rate * 100.0 if judge_parse_rate is not None else None
-                ],
+                "Judge parse rate (%) ⬆️": [judge_parse_percent],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [empty_responses],
-                "Incomplete response rate (%) ⬇️": [
-                    (
-                        incomplete_response_rate * 100.0
-                        if incomplete_response_rate is not None
-                        else 0.0
-                    )
-                ],
+                "Incomplete response rate (%) ⬇️": [incomplete_response_percent],
             }
         )
         self._append_summary_row(full_summary_path, summary_row)
@@ -716,16 +678,18 @@ class BaseEvaluator(ABC):
 
         bias_label = infer_bias_label_from_slug(dataset_slug)
         # Always include both Accuracy and Error columns; populate only the relevant one
-        brief_acc = accuracy * 100.0 if (is_hallucination or is_unbias) else None
+        brief_acc = (
+            self._as_percent(accuracy) if (is_hallucination or is_unbias) else None
+        )
         brief_err = (
-            computed_attack_success_rate * 100.0
-            if computed_attack_success_rate is not None
+            self._as_percent(primary_error_rate)
+            if primary_error_rate is not None
             and not (is_hallucination or is_unbias or is_prompt_injection)
             else None
         )
         brief_attack_success_rate = (
-            computed_attack_success_rate * 100.0
-            if computed_attack_success_rate is not None and is_prompt_injection
+            self._as_percent(primary_error_rate)
+            if primary_error_rate is not None and is_prompt_injection
             else None
         )
         brief_df = pd.DataFrame(
@@ -739,33 +703,13 @@ class BaseEvaluator(ABC):
                 "conflicting_signals_attack_success_rate": [
                     conflicting_signals_attack_success_percent
                 ],
-                "Over-defensiveness rate (%) ⬇️": [
-                    over_defensiveness_rate * 100.0
-                    if over_defensiveness_rate is not None
-                    else None
-                ],
-                "Benign judge No-rate (%) ⬇️": [
-                    benign_judge_no_rate * 100.0
-                    if benign_judge_no_rate is not None
-                    else None
-                ],
+                "Over-defensiveness rate (%) ⬇️": [over_defensiveness_percent],
+                "Benign judge No-rate (%) ⬇️": [benign_judge_no_percent],
                 "Benign judge parsed n": [benign_judge_parsed_n],
-                "Benign judge parse rate (%) ⬆️": [
-                    benign_judge_parse_rate * 100.0
-                    if benign_judge_parse_rate is not None
-                    else None
-                ],
+                "Benign judge parse rate (%) ⬆️": [benign_judge_parse_percent],
                 "Judge parsed n": [judge_parsed_n],
-                "Judge parse rate (%) ⬆️": [
-                    judge_parse_rate * 100.0 if judge_parse_rate is not None else None
-                ],
-                "Incomplete response rate (%) ⬇️": [
-                    (
-                        incomplete_response_rate * 100.0
-                        if incomplete_response_rate is not None
-                        else 0.0
-                    )
-                ],
+                "Judge parse rate (%) ⬆️": [judge_parse_percent],
+                "Incomplete response rate (%) ⬇️": [incomplete_response_percent],
             }
         )
         brief_summary_path = model_results_dir / "summary_brief.csv"
@@ -778,8 +722,8 @@ class BaseEvaluator(ABC):
                 "empty_responses": float(empty_responses),
                 "num_samples": float(self.num_samples),
             }
-            if computed_attack_success_rate is not None:
-                mlflow_metrics["error"] = computed_attack_success_rate
+            if primary_error_rate is not None:
+                mlflow_metrics["error"] = primary_error_rate
             if incomplete_response_rate is not None:
                 mlflow_metrics["incomplete_response_rate"] = incomplete_response_rate
             if stereotyped_bias is not None:
@@ -806,6 +750,12 @@ class BaseEvaluator(ABC):
                 mlflow_metrics["judge_parse_rate"] = judge_parse_rate
             self._log_mlflow_metrics(mlflow_metrics)
             self._log_mlflow_artifacts()
+
+    @staticmethod
+    def _as_percent(rate: float | None) -> float | None:
+        if rate is None:
+            return None
+        return rate * 100.0
 
     @staticmethod
     def _drop_empty_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
