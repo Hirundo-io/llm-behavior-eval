@@ -9,7 +9,7 @@ from datasets import Dataset, DatasetDict, load_dataset
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 from .dataset_config import PreprocessConfig
-from .enums import DatasetType
+from .enums import BLOOM_INJECTION_DATASET_PREFIX, DatasetType
 from .prompts import SYSTEM_PROMPT_DICT
 from .refusal_utils import REFUSAL_DATASETS, normalize_refusal_dataset
 from .util_functions import is_model_multimodal, safe_apply_chat_template
@@ -222,11 +222,18 @@ class CustomDataset:
         self.dataset_type = dataset_type
         self.trust_remote_code = trust_remote_code
         self.token = token
+        self.is_bloom_injection_dataset = str(self.file_path).startswith(
+            BLOOM_INJECTION_DATASET_PREFIX
+        )
+        load_dataset_kwargs = {}
+        if self.is_bloom_injection_dataset:
+            load_dataset_kwargs["load_from_cache_file"] = False
         try:
             raw = load_dataset(
                 str(self.file_path),
                 token=token,
                 trust_remote_code=trust_remote_code,
+                **load_dataset_kwargs,
             )
         except (OSError, ValueError) as exc:
             raise RuntimeError(
@@ -301,6 +308,11 @@ class CustomDataset:
             remove_columns=old_columns,
             batch_size=preprocess_config.preprocess_batch_size,
             num_proc=1,
+            **(
+                {"load_from_cache_file": False}
+                if self.is_bloom_injection_dataset
+                else {}
+            ),
         )
         text = tokenizer.batch_decode(
             cast("list[list[int]]", list(processed_dataset["test_input_ids"])),

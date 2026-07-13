@@ -9,7 +9,11 @@ from llm_behavior_eval.evaluation_utils.custom_dataset import (
     free_text_preprocess_function,
     validate_dataset_columns,
 )
-from llm_behavior_eval.evaluation_utils.enums import DatasetType
+from llm_behavior_eval.evaluation_utils.enums import (
+    BLOOM_INJECTION_CONTEXT_DATASETS,
+    BLOOM_INJECTION_DATASET_PREFIX,
+    DatasetType,
+)
 from llm_behavior_eval.evaluation_utils.refusal_utils import (
     OR_BENCH_DATASET,
     REFUSAL_PLACEHOLDER_ANSWER,
@@ -198,6 +202,50 @@ def test_custom_dataset_passes_auth_args_to_load_dataset(
     }
 
 
+def test_bloom_injection_dataset_prefix_matches_context_repo_ids() -> None:
+    assert BLOOM_INJECTION_DATASET_PREFIX == "hirundo-io/bloom-prompt-injection-"
+    assert set(BLOOM_INJECTION_CONTEXT_DATASETS) == {
+        "benign",
+        "conflicting-signals",
+        "malicious",
+    }
+    assert all(
+        dataset_id.startswith(BLOOM_INJECTION_DATASET_PREFIX)
+        for dataset_id in BLOOM_INJECTION_CONTEXT_DATASETS.values()
+    )
+
+
+@pytest.mark.parametrize(
+    ("dataset_id", "expected_load_from_cache_file"),
+    [
+        ("hirundo-io/bloom-prompt-injection-malicious-free-text", False),
+        ("hirundo-io/halueval", None),
+    ],
+)
+def test_custom_dataset_disables_load_cache_only_for_bloom_injection_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+    dataset_id: str,
+    expected_load_from_cache_file: bool | None,
+) -> None:
+    ds = Dataset.from_dict({"question": ["q"], "answer": ["a"]})
+    captured: dict[str, object] = {}
+
+    def fake_load_dataset(path: str, **kwargs: object) -> DatasetDict:
+        captured["path"] = path
+        captured.update(kwargs)
+        return DatasetDict({"train": ds})
+
+    monkeypatch.setattr(custom_dataset_module, "load_dataset", fake_load_dataset)
+
+    CustomDataset(dataset_id, DatasetType.BIAS)
+
+    assert captured["path"] == dataset_id
+    if expected_load_from_cache_file is None:
+        assert "load_from_cache_file" not in captured
+    else:
+        assert captured["load_from_cache_file"] is expected_load_from_cache_file
+
+
 def test_custom_dataset_uses_train_split_when_present(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -226,6 +274,71 @@ def test_custom_dataset_falls_back_to_only_available_split(
     custom_dataset = CustomDataset("repo/dataset", DatasetType.BIAS)
 
     assert custom_dataset.ds == ds
+
+
+@pytest.mark.parametrize(
+    ("dataset_id", "expected_load_from_cache_file"),
+    [
+        ("hirundo-io/bloom-prompt-injection-benign-free-text", False),
+        ("hirundo-io/halueval", None),
+    ],
+)
+def test_custom_dataset_disables_map_cache_only_for_bloom_injection_datasets(
+    monkeypatch: pytest.MonkeyPatch,
+    dataset_id: str,
+    expected_load_from_cache_file: bool | None,
+) -> None:
+    map_kwargs: dict[str, object] = {}
+
+    class StubMappedDataset:
+        column_names = ["question", "answer"]
+        payload = {"question": ["q1"], "answer": ["a1"]}
+
+        def map(self, function, **kwargs: object):
+            map_kwargs.update(kwargs)
+            return function(self.payload)
+
+    class StubTokenizer:
+        name_or_path = "fake/model"
+
+        def __call__(self, texts, **_kwargs):
+            if isinstance(texts, str):
+                texts = [texts]
+            return {
+                "input_ids": [[1, 2] for _text in texts],
+                "attention_mask": [[1, 1] for _text in texts],
+            }
+
+        def batch_decode(self, sequences, **_kwargs):
+            return ["decoded" for _sequence in sequences]
+
+    monkeypatch.setattr(
+        custom_dataset_module,
+        "load_dataset",
+        lambda _path, **_kwargs: DatasetDict(
+            {"train": Dataset.from_dict({"question": ["q"], "answer": ["a"]})}
+        ),
+    )
+    monkeypatch.setattr(custom_dataset_module, "is_model_multimodal", lambda *_: False)
+    monkeypatch.setattr(
+        custom_dataset_module, "safe_apply_chat_template", lambda *_args, **_kwargs: "x"
+    )
+
+    custom_dataset = CustomDataset(dataset_id, DatasetType.BIAS)
+    custom_dataset.ds = cast("Dataset", StubMappedDataset())
+    custom_dataset.preprocess(
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
+        custom_dataset_module.PreprocessConfig(
+            max_length=8,
+            gt_max_length=4,
+            preprocess_batch_size=1,
+        ),
+    )
+
+    if expected_load_from_cache_file is None:
+        assert "load_from_cache_file" not in map_kwargs
+    else:
+        assert map_kwargs["load_from_cache_file"] is expected_load_from_cache_file
 
 
 @pytest.mark.parametrize(
