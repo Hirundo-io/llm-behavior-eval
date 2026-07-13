@@ -1574,7 +1574,7 @@ def test_run_config_choice_not_remembered_prompts_again_without_second_remember_
     assert confirm_calls["count"] == 1
 
 
-def test_save_results_writes_bloom_injection_two_sided_metrics(
+def test_save_results_writes_bloom_injection_benign_judge_metrics(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -225,15 +225,11 @@ class CustomDataset:
         self.is_bloom_injection_dataset = str(self.file_path).startswith(
             BLOOM_INJECTION_DATASET_PREFIX
         )
-        load_dataset_kwargs = {}
-        if self.is_bloom_injection_dataset:
-            load_dataset_kwargs["load_from_cache_file"] = False
         try:
             raw = load_dataset(
                 str(self.file_path),
                 token=token,
                 trust_remote_code=trust_remote_code,
-                **load_dataset_kwargs,
             )
         except (OSError, ValueError) as exc:
             raise RuntimeError(

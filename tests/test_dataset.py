@@ -216,16 +216,15 @@ def test_bloom_injection_dataset_prefix_matches_context_repo_ids() -> None:
 
 
 @pytest.mark.parametrize(
-    ("dataset_id", "expected_load_from_cache_file"),
+    "dataset_id",
     [
-        ("hirundo-io/bloom-prompt-injection-malicious-free-text", False),
-        ("hirundo-io/halueval", None),
+        "hirundo-io/bloom-prompt-injection-malicious-free-text",
+        "hirundo-io/halueval",
     ],
 )
-def test_custom_dataset_disables_load_cache_only_for_bloom_injection_datasets(
+def test_custom_dataset_does_not_pass_map_cache_flag_to_load_dataset(
     monkeypatch: pytest.MonkeyPatch,
     dataset_id: str,
-    expected_load_from_cache_file: bool | None,
 ) -> None:
     ds = Dataset.from_dict({"question": ["q"], "answer": ["a"]})
     captured: dict[str, object] = {}
@@ -240,10 +239,7 @@ def test_custom_dataset_disables_load_cache_only_for_bloom_injection_datasets(
     CustomDataset(dataset_id, DatasetType.BIAS)
 
     assert captured["path"] == dataset_id
-    if expected_load_from_cache_file is None:
-        assert "load_from_cache_file" not in captured
-    else:
-        assert captured["load_from_cache_file"] is expected_load_from_cache_file
+    assert "load_from_cache_file" not in captured
 
 
 def test_custom_dataset_uses_train_split_when_present(

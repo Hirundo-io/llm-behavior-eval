@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import typing
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -58,99 +60,42 @@ class DummyEvaluator(BaseEvaluator):
         return []
 
     def _grade_impl(
-        self,
-        generations: Sequence[_GenerationRecord],
-        judge_engine: EvalEngine | None = None,
+        self, generations: Sequence[Any], judge_engine: EvalEngine | None = None
     ) -> None:
         return None
 
     def get_grading_context(self) -> AbstractContextManager[EvalEngine]:
         # This test doesn't exercise grading, but `evaluate.main()` expects an
         # `EvalEngine` from the context manager. Yield a lightweight stub.
-        return nullcontext(cast("EvalEngine", object()))
+        return nullcontext(cast("EvalEngine", MagicMock()))
 
 
-def _make_run(run_id: str, run_name: str) -> SimpleNamespace:
-    return SimpleNamespace(
-        info=SimpleNamespace(
-            experiment_id="exp-1",
-            run_id=run_id,
-            run_name=run_name,
-        )
-    )
+class _MetricCallArgs(typing.Protocol):
+    args: tuple[dict[str, float], ...]
 
 
-class MlflowRecorder:
-    """Tiny MLflow stand-in that records calls made by BaseEvaluator."""
+class _LogMetricsSpy(typing.Protocol):
+    call_args: _MetricCallArgs | None
 
-    def __init__(self) -> None:
-        self.active_run_result: object | None = None
-        self.get_run_result: object | None = None
-        self.start_run_result: object | None = _make_run("started-run", "model")
-        self.reset()
 
-    def reset(self) -> None:
-        self.tracking_uris: list[str] = []
-        self.experiments: list[str] = []
-        self.start_run_calls: list[dict[str, str]] = []
-        self.get_run_calls: list[str] = []
-        self.log_metric_calls: list[tuple[str, float]] = []
-        self.log_metrics_calls: list[tuple[dict[str, float], int | None]] = []
-        self.log_artifacts_calls: list[tuple[str, str | None]] = []
+class _MlflowMockFixture(typing.Protocol):
+    log_metrics: _LogMetricsSpy
 
-    def set_tracking_uri(self, uri: str) -> None:
-        self.tracking_uris.append(uri)
+    def reset_mock(self) -> None: ...
 
-    def set_experiment(
-        self, name: str | None = None, *, experiment_id: str | None = None
-    ) -> None:
-        self.experiments.append(
-            experiment_id if experiment_id is not None else str(name)
-        )
 
-    def active_run(self) -> object | None:
-        return self.active_run_result
-
-    def start_run(
-        self, *, run_name: str | None = None, run_id: str | None = None
-    ) -> object:
-        self.start_run_calls.append(
-            {
-                key: value
-                for key, value in {"run_name": run_name, "run_id": run_id}.items()
-                if value is not None
-            }
-        )
-        return self.start_run_result
-
-    def get_run(self, run_id: str) -> object:
-        self.get_run_calls.append(run_id)
-        if self.get_run_result is None:
-            raise AssertionError("get_run_result must be set before get_run is called")
-        return self.get_run_result
-
-    def log_metric(self, key: str, value: float) -> None:
-        self.log_metric_calls.append((key, value))
-
-    def log_metrics(
-        self, metrics: dict[str, float], *, step: int | None = None
-    ) -> None:
-        self.log_metrics_calls.append((metrics, step))
-
-    def log_artifacts(
-        self, local_dir: str, *, artifact_path: str | None = None
-    ) -> None:
-        self.log_artifacts_calls.append((local_dir, artifact_path))
+def _make_run(run_id: str, run_name: str) -> MagicMock:
+    run = MagicMock()
+    run.info = SimpleNamespace(run_id=run_id, run_name=run_name)
+    return run
 
 
 @pytest.fixture(autouse=True)
-def _mock_model_loading(monkeypatch: pytest.MonkeyPatch) -> None:
+def _mock_model_loading(monkeypatch):
     dummy_tokenizer = DummyTokenizer()
     dummy_model = DummyModel()
 
-    def _stub_loader(
-        *_args: object, **_kwargs: object
-    ) -> tuple[DummyTokenizer, DummyModel]:
+    def _stub_loader(*_args, **_kwargs):
         return dummy_tokenizer, dummy_model
 
     monkeypatch.setattr(
@@ -160,8 +105,9 @@ def _mock_model_loading(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def mlflow_mock(monkeypatch: pytest.MonkeyPatch) -> MlflowRecorder:
-    mock = MlflowRecorder()
+def mlflow_mock(monkeypatch):
+    mock = MagicMock()
+    mock.start_run.return_value = MagicMock()
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.base_evaluator.mlflow",
         mock,
@@ -212,44 +158,44 @@ def dataset_config() -> DatasetConfig:
 def test_init_mlflow_starts_run_and_logs_params(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     parent_run = _make_run("parent-run", "model")
-    mlflow_mock.start_run_result = parent_run
-    mlflow_mock.active_run_result = None
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
     DummyEvaluator(evaluation_config, dataset_config)
 
-    assert mlflow_mock.tracking_uris == ["http://tracking.example"]
-    assert mlflow_mock.experiments == ["MLflow Tests"]
-    assert mlflow_mock.start_run_calls == [{"run_name": "model"}]
+    mlflow_mock.set_tracking_uri.assert_called_once_with("http://tracking.example")
+    mlflow_mock.set_experiment.assert_called_once_with("MLflow Tests")
+    mlflow_mock.start_run.assert_called_once_with(run_name="model")
 
 
 def test_init_with_default_mlflow_config_still_logs(
     evaluation_config_default_mlflow: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     parent_run = _make_run("parent-run", "model")
-    mlflow_mock.start_run_result = parent_run
-    mlflow_mock.active_run_result = None
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
     DummyEvaluator(evaluation_config_default_mlflow, dataset_config)
 
-    assert mlflow_mock.tracking_uris == []
-    assert mlflow_mock.experiments == []
-    assert mlflow_mock.start_run_calls == [{"run_name": "model"}]
+    mlflow_mock.set_tracking_uri.assert_not_called()
+    mlflow_mock.set_experiment.assert_not_called()
+    mlflow_mock.start_run.assert_called_once_with(run_name="model")
 
 
 def test_init_mlflow_uses_existing_active_run(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     active_run = _make_run("active-run", "existing")
-    mlflow_mock.active_run_result = active_run
+    mlflow_mock.active_run.return_value = active_run
 
     evaluator = DummyEvaluator(evaluation_config, dataset_config)
 
-    assert mlflow_mock.start_run_calls == []
+    mlflow_mock.start_run.assert_not_called()
     assert evaluator.parent_run is active_run
     assert evaluator.mlflow_run is active_run
 
@@ -257,10 +203,10 @@ def test_init_mlflow_uses_existing_active_run(
 def test_init_mlflow_prefers_active_run_over_lora_inferred_run_id(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     active_run = _make_run("active-run", "existing")
-    mlflow_mock.active_run_result = active_run
+    mlflow_mock.active_run.return_value = active_run
 
     config_with_lora = EvaluationConfig(
         model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
@@ -273,8 +219,8 @@ def test_init_mlflow_prefers_active_run_over_lora_inferred_run_id(
     )
     evaluator = DummyEvaluator(config_with_lora, dataset_config)
 
-    assert mlflow_mock.get_run_calls == []
-    assert mlflow_mock.start_run_calls == []
+    mlflow_mock.get_run.assert_not_called()
+    mlflow_mock.start_run.assert_not_called()
     assert evaluator.parent_run is active_run
     assert evaluator.mlflow_run is active_run
 
@@ -282,14 +228,14 @@ def test_init_mlflow_prefers_active_run_over_lora_inferred_run_id(
 def test_init_mlflow_reuses_lora_run_id_from_http_tracking_uri_ref(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     lora_run_id = "abc123def45678901234567890123456"
     existing_run = _make_run(lora_run_id, "training")
     existing_run.info.experiment_id = "exp-1"
-    mlflow_mock.get_run_result = existing_run
-    mlflow_mock.active_run_result = None
-    mlflow_mock.start_run_result = existing_run
+    mlflow_mock.get_run.return_value = existing_run
+    mlflow_mock.active_run.return_value = None
+    mlflow_mock.start_run.return_value = existing_run
 
     config_with_lora = EvaluationConfig(
         model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
@@ -305,21 +251,21 @@ def test_init_mlflow_reuses_lora_run_id_from_http_tracking_uri_ref(
     )
     DummyEvaluator(config_with_lora, dataset_config)
 
-    assert mlflow_mock.get_run_calls == [lora_run_id]
-    assert mlflow_mock.start_run_calls == [{"run_id": lora_run_id}]
+    mlflow_mock.get_run.assert_called_once_with(lora_run_id)
+    mlflow_mock.start_run.assert_called_once_with(run_id=lora_run_id)
 
 
 def test_init_mlflow_reuses_lora_run_id_when_no_user_or_active_run(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     lora_run_id = "abc123def45678901234567890123456"
     existing_run = _make_run(lora_run_id, "training")
     existing_run.info.experiment_id = "exp-1"
-    mlflow_mock.get_run_result = existing_run
-    mlflow_mock.active_run_result = None
-    mlflow_mock.start_run_result = existing_run
+    mlflow_mock.get_run.return_value = existing_run
+    mlflow_mock.active_run.return_value = None
+    mlflow_mock.start_run.return_value = existing_run
 
     config_with_lora = EvaluationConfig(
         model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
@@ -332,31 +278,31 @@ def test_init_mlflow_reuses_lora_run_id_when_no_user_or_active_run(
     )
     DummyEvaluator(config_with_lora, dataset_config)
 
-    assert mlflow_mock.get_run_calls == [lora_run_id]
-    assert mlflow_mock.start_run_calls == [{"run_id": lora_run_id}]
+    mlflow_mock.get_run.assert_called_once_with(lora_run_id)
+    mlflow_mock.start_run.assert_called_once_with(run_id=lora_run_id)
 
 
 def test_init_without_mlflow_config_does_not_touch_mlflow(
     evaluation_config_no_mlflow: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     evaluator = DummyEvaluator(evaluation_config_no_mlflow, dataset_config)
 
-    assert mlflow_mock.tracking_uris == []
-    assert mlflow_mock.experiments == []
-    assert mlflow_mock.start_run_calls == []
+    mlflow_mock.set_tracking_uri.assert_not_called()
+    mlflow_mock.set_experiment.assert_not_called()
+    mlflow_mock.start_run.assert_not_called()
     assert evaluator.mlflow_config is None
 
 
 def test_dataset_mlflow_run_requires_parent_run(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     parent_run = _make_run("parent-run", "model")
-    mlflow_mock.start_run_result = parent_run
-    mlflow_mock.active_run_result = None
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
 
     evaluator = DummyEvaluator(evaluation_config, dataset_config)
     evaluator.parent_run = None
@@ -372,22 +318,24 @@ def test_dataset_mlflow_run_requires_parent_run(
 def test_dataset_mlflow_run_logs_dataset_metrics_to_current_run(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     """dataset_mlflow_run logs dataset-related metrics (e.g. seed) and does not start a nested run."""
     parent_run = _make_run("parent-run", "model")
-    mlflow_mock.start_run_result = parent_run
-    mlflow_mock.active_run_result = None
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
 
     evaluator = DummyEvaluator(evaluation_config, dataset_config)
-    mlflow_mock.reset()
+    mlflow_mock.reset_mock()
 
     with evaluator.dataset_mlflow_run():
         pass
 
-    assert mlflow_mock.start_run_calls == []
-    assert mlflow_mock.log_metric_calls[-1] == ("datasets_attached", 1.0)
-    assert mlflow_mock.log_metrics_calls[-1][0] == {
+    mlflow_mock.start_run.assert_not_called()
+    mlflow_mock.log_metric.assert_called_with("datasets_attached", 1.0)
+    metrics_call = mlflow_mock.log_metrics.call_args
+    assert metrics_call is not None
+    assert metrics_call.args[0] == {
         "bbq_gender_bias_free_text_num_samples_evaluated": 3.0
     }
 
@@ -395,35 +343,35 @@ def test_dataset_mlflow_run_logs_dataset_metrics_to_current_run(
 def test_dataset_mlflow_run_increments_datasets_attached_counter(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     parent_run = _make_run("parent-run", "model")
-    mlflow_mock.start_run_result = parent_run
-    mlflow_mock.active_run_result = None
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
 
     evaluator = DummyEvaluator(evaluation_config, dataset_config)
-    mlflow_mock.reset()
+    mlflow_mock.reset_mock()
 
     with evaluator.dataset_mlflow_run():
         pass
     with evaluator.dataset_mlflow_run():
         pass
 
-    assert mlflow_mock.log_metric_calls == [
-        ("datasets_attached", 1.0),
-        ("datasets_attached", 2.0),
+    assert mlflow_mock.log_metric.call_args_list == [
+        call("datasets_attached", 1.0),
+        call("datasets_attached", 2.0),
     ]
 
 
 def test_dataset_mlflow_run_with_existing_run_id_logs_metrics(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     """When mlflow_run_id is set, dataset_mlflow_run still logs dataset metrics to the current run."""
     parent_run = _make_run("existing-123", "model")
-    mlflow_mock.start_run_result = parent_run
-    mlflow_mock.active_run_result = parent_run
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = parent_run
 
     assert evaluation_config.mlflow_config is not None
     base_mlflow = evaluation_config.mlflow_config
@@ -438,21 +386,21 @@ def test_dataset_mlflow_run_with_existing_run_id_logs_metrics(
         ),
     )
     evaluator = DummyEvaluator(config_with_run_id, dataset_config)
-    mlflow_mock.reset()
+    mlflow_mock.reset_mock()
 
     with evaluator.dataset_mlflow_run():
         pass
 
-    assert mlflow_mock.log_metric_calls[-1] == ("datasets_attached", 1.0)
+    mlflow_mock.log_metric.assert_called_with("datasets_attached", 1.0)
 
 
 def test_save_results_logs_mlflow_metrics_and_artifacts(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     evaluator = DummyEvaluator(evaluation_config, dataset_config)
-    mlflow_mock.reset()
+    mlflow_mock.reset_mock()
 
     responses = [{"prompt": "a", "response": "b"}]
     evaluator.save_results(
@@ -462,8 +410,10 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
         empty_responses=2,
     )
 
-    metrics, step = mlflow_mock.log_metrics_calls[-1]
-    assert step is None
+    metrics_call = mlflow_mock.log_metrics.call_args
+    assert metrics_call is not None
+    metrics = metrics_call.args[0]
+    assert metrics_call.kwargs.get("step") is None
     assert metrics == {
         "bbq_gender_bias_free_text_accuracy": 0.75,
         "bbq_gender_bias_free_text_error": 0.25,
@@ -472,11 +422,12 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
         "bbq_gender_bias_free_text_stereotyped_bias": 0.1,
     }
 
-    assert len(mlflow_mock.log_artifacts_calls) == 1
-    artifact_dir, artifact_path = mlflow_mock.log_artifacts_calls[0]
-    uploaded_dir = Path(artifact_dir)
+    mlflow_mock.log_artifacts.assert_called_once()
+    call_args = mlflow_mock.log_artifacts.call_args
+    uploaded_dir = Path(call_args.args[0])
     assert str(evaluation_config.results_dir / "model") in str(uploaded_dir)
-    assert artifact_path in {None, ""} or artifact_path.startswith("llm-behavior-eval")
+    artifact_path = call_args.kwargs.get("artifact_path", "")
+    assert artifact_path == "" or artifact_path.startswith("llm-behavior-eval")
 
     output_dir = evaluation_config.results_dir / "model" / "bbq-gender-bias-free-text"
     assert (output_dir / "responses.json").exists()
@@ -484,7 +435,9 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
     assert (uploaded_dir / "bbq-gender-bias-free-text" / "responses.json").exists()
     assert (uploaded_dir / "bbq-gender-bias-free-text" / "metrics.csv").exists()
 
-    summary_metric_calls = dict(mlflow_mock.log_metric_calls)
+    summary_metric_calls = {
+        call.args[0]: call.args[1] for call in mlflow_mock.log_metric.call_args_list
+    }
     assert summary_metric_calls["Error"] == 25.0
     assert summary_metric_calls["Stereotype_Bias"] == 10.0
     assert summary_metric_calls["Empty_Responses"] == 2.0
@@ -492,14 +445,14 @@ def test_save_results_logs_mlflow_metrics_and_artifacts(
 
 def test_save_results_logs_per_label_prompt_injection_asr_as_ratios_to_mlflow(
     evaluation_config: EvaluationConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: _MlflowMockFixture,
 ) -> None:
     injection_config = DatasetConfig(
         file_path="hirundo-io/bloom-prompt-injection-all-free-text",
         dataset_type=DatasetType.BIAS,
     )
     evaluator = DummyEvaluator(evaluation_config, injection_config)
-    mlflow_mock.reset()
+    mlflow_mock.reset_mock()
 
     evaluator.save_results(
         responses=[{"prompt": "a", "response": "b"}],
@@ -511,7 +464,9 @@ def test_save_results_logs_per_label_prompt_injection_asr_as_ratios_to_mlflow(
         derive_attack_success_rate=False,
     )
 
-    metrics = mlflow_mock.log_metrics_calls[-1][0]
+    metrics_call = mlflow_mock.log_metrics.call_args
+    assert metrics_call is not None
+    metrics = metrics_call.args[0]
     assert (
         metrics["bloom_prompt_injection_all_free_text_malicious_attack_success_rate"]
         == 0.5
@@ -524,7 +479,7 @@ def test_save_results_logs_per_label_prompt_injection_asr_as_ratios_to_mlflow(
 def test_save_results_logs_mlflow_metrics_without_inferred_checkpoint_step(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     config_with_lora_checkpoint = EvaluationConfig(
         model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
@@ -535,9 +490,8 @@ def test_save_results_logs_mlflow_metrics_without_inferred_checkpoint_step(
         lora_path_or_repo_id="mlflow://abc123/hf_checkpoints/checkpoint-000020",
         mlflow_config=evaluation_config.mlflow_config,
     )
-    mlflow_mock.get_run_result = _make_run("abc123", "existing")
     evaluator = DummyEvaluator(config_with_lora_checkpoint, dataset_config)
-    mlflow_mock.reset()
+    mlflow_mock.reset_mock()
 
     evaluator.save_results(
         responses=[{"prompt": "a", "response": "b"}],
@@ -546,17 +500,17 @@ def test_save_results_logs_mlflow_metrics_without_inferred_checkpoint_step(
         empty_responses=0,
     )
 
-    assert mlflow_mock.log_metrics_calls[-1][1] is None
+    metrics_call = mlflow_mock.log_metrics.call_args
+    assert metrics_call is not None
+    assert metrics_call.kwargs.get("step") is None
 
 
 def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step_same_run(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     lora_run_id = "abc123def45678901234567890123456"
-    base_mlflow = evaluation_config.mlflow_config
-    assert base_mlflow is not None
     config_with_lora_checkpoint = EvaluationConfig(
         model_path_or_repo_id=evaluation_config.model_path_or_repo_id,
         results_dir=evaluation_config.results_dir,
@@ -565,16 +519,16 @@ def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step_same_run
         judge_engine="vllm",
         lora_path_or_repo_id=f"mlflow://{lora_run_id}/hf_checkpoints/checkpoint-000020",
         mlflow_config=MlflowConfig(
-            mlflow_tracking_uri=base_mlflow.mlflow_tracking_uri,
-            mlflow_experiment_name=base_mlflow.mlflow_experiment_name,
+            mlflow_tracking_uri=evaluation_config.mlflow_config.mlflow_tracking_uri,  # type: ignore[union-attr]
+            mlflow_experiment_name=evaluation_config.mlflow_config.mlflow_experiment_name,  # type: ignore[union-attr]
             mlflow_run_id=lora_run_id,
         ),
     )
     existing_run = _make_run(lora_run_id, "existing")
-    mlflow_mock.get_run_result = existing_run
-    mlflow_mock.active_run_result = existing_run
+    mlflow_mock.get_run.return_value = existing_run
+    mlflow_mock.active_run.return_value = existing_run
     evaluator = DummyEvaluator(config_with_lora_checkpoint, dataset_config)
-    mlflow_mock.reset()
+    mlflow_mock.reset_mock()
 
     evaluator.save_results(
         responses=[{"prompt": "a", "response": "b"}],
@@ -583,16 +537,18 @@ def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step_same_run
         empty_responses=0,
     )
 
-    assert mlflow_mock.log_metrics_calls[-1][1] == 20
+    metrics_call = mlflow_mock.log_metrics.call_args
+    assert metrics_call is not None
+    assert metrics_call.kwargs.get("step") == 20
 
 
 def test_log_mlflow_metrics_uses_distinct_dataset_prefixes(
     evaluation_config: EvaluationConfig,
-    mlflow_mock: MlflowRecorder,
+    mlflow_mock: MagicMock,
 ) -> None:
     parent_run = _make_run("parent-run", "model")
-    mlflow_mock.start_run_result = parent_run
-    mlflow_mock.active_run_result = None
+    mlflow_mock.start_run.return_value = parent_run
+    mlflow_mock.active_run.return_value = None
 
     xstest_config = DatasetConfig(
         file_path="hirundo-io/XSTest",
@@ -604,13 +560,13 @@ def test_log_mlflow_metrics_uses_distinct_dataset_prefixes(
     )
 
     evaluator = DummyEvaluator(evaluation_config, xstest_config)
-    mlflow_mock.reset()
+    mlflow_mock.reset_mock()
 
     evaluator._log_mlflow_metrics({"safe_refusal_rate": 0.3})
     evaluator.update_dataset_config(orbench_config)
     evaluator._log_mlflow_metrics({"safe_refusal_rate": 0.7})
 
-    assert mlflow_mock.log_metrics_calls == [
-        ({"XSTest_safe_refusal_rate": 0.3}, None),
-        ({"or_bench_safe_refusal_rate": 0.7}, None),
+    assert mlflow_mock.log_metrics.call_args_list == [
+        call({"XSTest_safe_refusal_rate": 0.3}, step=None),
+        call({"or_bench_safe_refusal_rate": 0.7}, step=None),
     ]
