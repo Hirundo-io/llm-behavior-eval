@@ -600,6 +600,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             else None
         )
         benign_judge_total = sum(benign_judge_counts.values())
+        # Diagnostic only: over-defensiveness is scored by total_refusal_heuristic above.
         benign_judge_no_rate = (
             benign_judge_counts["No"] / benign_judge_total
             if benign_judge_total
