@@ -182,6 +182,7 @@ class VllmEvalEngine(EvalEngine):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            stop=sampling_config.stop_strings,
             stop_token_ids=stop_token_ids,
             seed=sampling_config.seed,
         )

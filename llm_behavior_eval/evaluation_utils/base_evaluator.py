@@ -1276,6 +1276,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         self,
         judge_engine: EvalEngine,
         prompts: list[str],
+        stop_strings: list[str] | None = None,
     ) -> list[list[dict[str, str | None]]]:
         """
         Execute the judge by probing an executable batch size that can
@@ -1285,6 +1286,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         Args:
             judge_engine: The judge eval engine to use.
             prompts: List of prompts to judge.
+            stop_strings: Optional strings that should terminate judge generation.
 
         Returns:
             List of judge outputs in format
@@ -1296,7 +1298,11 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             outputs_fixed: list[list[dict[str, str | None]]] = []
             for start in range(0, len(prompts), fixed_batch_size):
                 chunk = prompts[start : start + fixed_batch_size]
-                result = self._process_judge_prompts_batch(judge_engine, chunk)
+                result = self._process_judge_prompts_batch(
+                    judge_engine,
+                    chunk,
+                    stop_strings=stop_strings,
+                )
                 outputs_fixed.extend(result)
             return outputs_fixed
 
@@ -1323,7 +1329,10 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 for start in range(0, len(prompts), candidate_batch_size):
                     chunk = prompts[start : start + candidate_batch_size]
                     res = self._process_judge_prompts_batch(
-                        judge_engine, chunk, candidate_batch_size
+                        judge_engine,
+                        chunk,
+                        candidate_batch_size,
+                        stop_strings=stop_strings,
                     )
                     outputs.extend(res)
                 return candidate_batch_size
@@ -1348,6 +1357,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         prompts: list[str],
         batch_size: int | None = None,
         do_sample: bool | None = None,
+        stop_strings: list[str] | None = None,
     ) -> list[list[dict[str, str | None]]]:
         """
         Process a batch of prompts through the judge engine.
@@ -1357,6 +1367,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             prompts: List of prompt strings.
             batch_size: Optional batch size override for the engine (used during backoff).
             do_sample: Whether to sample from the model.
+            stop_strings: Optional strings that should terminate judge generation.
 
         Returns:
             List where each element is
@@ -1388,6 +1399,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 top_p=self.eval_config.sampling_config.top_p,
                 top_k=self.eval_config.sampling_config.top_k,
                 seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
+                stop_strings=stop_strings,
             ),
         )
 

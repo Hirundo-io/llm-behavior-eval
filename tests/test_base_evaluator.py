@@ -455,6 +455,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
         judge_engine,
         ["prompt-a", "prompt-b"],
         do_sample=None,
+        stop_strings=["\n"],
     )
 
     assert outputs == [
@@ -469,6 +470,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.top_p == 0.9
     assert sampling_config.top_k == 4
     assert sampling_config.seed == evaluator.dataset_config.seed
+    assert sampling_config.stop_strings == ["\n"]
 
 
 def test_get_model_slug_includes_lora_slug(

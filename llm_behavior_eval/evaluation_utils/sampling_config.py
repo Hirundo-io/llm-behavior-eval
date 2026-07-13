@@ -20,3 +20,4 @@ class SamplingConfig(BaseSettings):
     top_p: float | None = 1.0
     top_k: int | None = 0
     seed: int | None = 42
+    stop_strings: list[str] | None = None

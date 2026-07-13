@@ -95,29 +95,40 @@ class TransformersEvalEngine(EvalEngine):
         else:
             eos_token_ids = {int(eos_token_id)}
 
+        generate_kwargs: dict[str, object] = {
+            "input_ids": model_input_ids,
+            "attention_mask": model_attention,
+            "max_new_tokens": max_new_tokens,
+            "do_sample": do_sample,
+            "pad_token_id": self.tokenizer.pad_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+            "temperature": temperature,
+            "top_p": top_p,
+            "top_k": top_k,
+            "return_dict_in_generate": True,
+        }
+        if sampling_config.stop_strings:
+            generate_kwargs["stop_strings"] = sampling_config.stop_strings
+            generate_kwargs["tokenizer"] = self.tokenizer
+
         with torch.inference_mode():
-            outputs = self.model.generate(
-                input_ids=model_input_ids,
-                attention_mask=model_attention,
-                max_new_tokens=max_new_tokens,
-                do_sample=do_sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                return_dict_in_generate=True,
-            )
+            outputs = self.model.generate(**generate_kwargs)
         sequences = outputs.sequences
         generated_tokens = sequences[:, model_input_ids.shape[1] :].detach().cpu()
         answers = self.tokenizer.batch_decode(
             generated_tokens, skip_special_tokens=True
         )
         finish_reasons: list[str | None] = []
-        for sample_generated_tokens in generated_tokens:
+        for answer, sample_generated_tokens in zip(
+            answers, generated_tokens, strict=True
+        ):
             if eos_token_ids and any(
                 int(token_id.item()) in eos_token_ids
                 for token_id in sample_generated_tokens
+            ):
+                finish_reasons.append("stop")
+            elif sampling_config.stop_strings and any(
+                stop_string in answer for stop_string in sampling_config.stop_strings
             ):
                 finish_reasons.append("stop")
             else:

@@ -210,8 +210,11 @@ def test_prompt_injection_grade_batch_uses_context_when_inputs_are_provided(
         return object()
 
     def fake_run_judge_with_backoff(
-        _judge_engine: object, prompts: list[str]
+        _judge_engine: object,
+        prompts: list[str],
+        stop_strings: list[str] | None = None,
     ) -> list[list[dict[str, str]]]:
+        assert stop_strings == ["\n"]
         return [[{"generated_text": "Yes"}] for _prompt in prompts]
 
     monkeypatch.setattr(
@@ -264,8 +267,11 @@ def test_prompt_injection_grade_batch_falls_back_without_inputs(
         return object()
 
     def fake_run_judge_with_backoff(
-        _judge_engine: object, prompts: list[str]
+        _judge_engine: object,
+        prompts: list[str],
+        stop_strings: list[str] | None = None,
     ) -> list[list[dict[str, str]]]:
+        assert stop_strings == ["\n"]
         return [[{"generated_text": "No"}] for _prompt in prompts]
 
     monkeypatch.setattr(
@@ -311,7 +317,9 @@ def test_prompt_injection_grade_batch_preserves_unparseable_judge_outputs(
     monkeypatch.setattr(
         evaluator,
         "run_judge_with_backoff",
-        lambda _judge_engine, _prompts: [[{"generated_text": "unclear"}]],
+        lambda _judge_engine, _prompts, stop_strings=None: [
+            [{"generated_text": "unclear"}]
+        ],
     )
 
     labels = evaluator._grade_batch_with_metadata(
@@ -339,7 +347,7 @@ def test_prompt_injection_grade_batch_uses_last_yes_no_token(
     monkeypatch.setattr(
         evaluator,
         "run_judge_with_backoff",
-        lambda _judge_engine, _prompts: [
+        lambda _judge_engine, _prompts, stop_strings=None: [
             [{"generated_text": "Yes, this is tempting, but No"}]
         ],
     )
@@ -369,7 +377,7 @@ def test_prompt_injection_grade_batch_parses_tag_artifact_yes_no(
     monkeypatch.setattr(
         evaluator,
         "run_judge_with_backoff",
-        lambda _judge_engine, _prompts: [
+        lambda _judge_engine, _prompts, stop_strings=None: [
             [{"generated_text": "Yesthought Yesthought Yes_"}],
             [{"generated_text": "Nostyle>"}],
             [{"generated_text": "YesYes "}],
@@ -391,6 +399,13 @@ def test_prompt_injection_grade_batch_parses_tag_artifact_yes_no(
     ).labels
 
     assert labels == ["Yes", "No", "Yes"]
+
+
+def test_prompt_injection_parser_keeps_leading_newline_empty_unparseable() -> None:
+    assert FreeTextPromptInjectionEvaluator._extract_last_yes_no("\n") is None
+    assert (
+        FreeTextPromptInjectionEvaluator._extract_last_yes_no("\nYes\nthought") == "Yes"
+    )
 
 
 def test_prompt_injection_grade_batch_rejects_mismatched_inputs(
