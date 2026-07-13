@@ -479,6 +479,8 @@ class BaseEvaluator(ABC):
         judge_parsed_n: int | None = None,
         judge_parse_rate: float | None = None,
         attack_success_rate: float | None = None,
+        malicious_attack_success_rate: float | None = None,
+        conflicting_signals_attack_success_rate: float | None = None,
         derive_attack_success_rate: bool = True,
     ) -> None:
         """
@@ -497,6 +499,10 @@ class BaseEvaluator(ABC):
             judge_parsed_n: Optional count of all rows with parseable judge outputs.
             judge_parse_rate: Optional overall judge parse success rate.
             attack_success_rate: Optional precomputed prompt-injection attack success rate.
+            malicious_attack_success_rate: Optional precomputed prompt-injection attack
+                success rate for malicious rows.
+            conflicting_signals_attack_success_rate: Optional precomputed
+                prompt-injection attack success rate for conflicting-signals rows.
             derive_attack_success_rate: Whether to derive attack success from accuracy
                 when no precomputed rate is provided.
         """
@@ -525,6 +531,8 @@ class BaseEvaluator(ABC):
         ) or dataset_slug.startswith("medhallu")
         is_prompt_injection = (
             attack_success_rate is not None
+            or malicious_attack_success_rate is not None
+            or conflicting_signals_attack_success_rate is not None
             or over_defensiveness_rate is not None
             or not derive_attack_success_rate
         )
@@ -545,6 +553,16 @@ class BaseEvaluator(ABC):
         metric_percentage_value = (
             metric_ratio_value * 100.0 if metric_ratio_value is not None else None
         )
+        malicious_attack_success_percent = (
+            malicious_attack_success_rate * 100.0
+            if malicious_attack_success_rate is not None
+            else None
+        )
+        conflicting_signals_attack_success_percent = (
+            conflicting_signals_attack_success_rate * 100.0
+            if conflicting_signals_attack_success_rate is not None
+            else None
+        )
         stereo_percent = (
             stereotyped_bias * 100.0 if stereotyped_bias is not None else None
         )
@@ -557,6 +575,10 @@ class BaseEvaluator(ABC):
                     over_defensiveness_rate * 100.0
                     if over_defensiveness_rate is not None
                     else None
+                ],
+                "malicious_attack_success_rate": [malicious_attack_success_percent],
+                "conflicting_signals_attack_success_rate": [
+                    conflicting_signals_attack_success_percent
                 ],
                 "Benign judge No-rate (%) ⬇️": [
                     benign_judge_no_rate * 100.0
@@ -623,6 +645,10 @@ class BaseEvaluator(ABC):
                 "Accuracy (%) ⬆️": [full_acc],
                 "Error (%) ⬇️": [full_err],
                 "Attack success rate (%) ⬇️": [full_attack_success_rate],
+                "malicious_attack_success_rate": [malicious_attack_success_percent],
+                "conflicting_signals_attack_success_rate": [
+                    conflicting_signals_attack_success_percent
+                ],
                 "Over-defensiveness rate (%) ⬇️": [
                     over_defensiveness_rate * 100.0
                     if over_defensiveness_rate is not None
@@ -709,6 +735,10 @@ class BaseEvaluator(ABC):
                 "Accuracy (%) ⬆️": [brief_acc],
                 "Error (%) ⬇️": [brief_err],
                 "Attack success rate (%) ⬇️": [brief_attack_success_rate],
+                "malicious_attack_success_rate": [malicious_attack_success_percent],
+                "conflicting_signals_attack_success_rate": [
+                    conflicting_signals_attack_success_percent
+                ],
                 "Over-defensiveness rate (%) ⬇️": [
                     over_defensiveness_rate * 100.0
                     if over_defensiveness_rate is not None
@@ -756,6 +786,14 @@ class BaseEvaluator(ABC):
                 mlflow_metrics["stereotyped_bias"] = stereotyped_bias
             if over_defensiveness_rate is not None:
                 mlflow_metrics["over_defensiveness_rate"] = over_defensiveness_rate
+            if malicious_attack_success_rate is not None:
+                mlflow_metrics["malicious_attack_success_rate"] = (
+                    malicious_attack_success_rate
+                )
+            if conflicting_signals_attack_success_rate is not None:
+                mlflow_metrics["conflicting_signals_attack_success_rate"] = (
+                    conflicting_signals_attack_success_rate
+                )
             if benign_judge_no_rate is not None:
                 mlflow_metrics["benign_judge_no_rate"] = benign_judge_no_rate
             if benign_judge_parsed_n is not None:
