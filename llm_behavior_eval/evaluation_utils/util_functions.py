@@ -291,6 +291,17 @@ def pick_best_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
     return torch.float32
 
 
+def pick_best_vllm_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
+    """Choose the best dtype supported by vLLM on the current device.
+
+    vLLM requires CUDA compute capability 8.0 or newer for bfloat16, while
+    ``torch.cuda.is_bf16_supported()`` can return true on older GPUs.
+    """
+    if device == "cuda" and torch.cuda.get_device_capability() < (8, 0):
+        return torch.float16
+    return pick_best_dtype(device, prefer_bf16=prefer_bf16)
+
+
 def is_model_multimodal(
     repo_id: str, trust_remote_code: bool = False, token: str | None = None
 ) -> bool:

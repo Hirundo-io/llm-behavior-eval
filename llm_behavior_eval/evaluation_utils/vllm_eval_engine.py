@@ -12,7 +12,7 @@ from .util_functions import (
     load_tokenizer_with_transformers,
     load_vllm_model,
     maybe_download_adapter,
-    pick_best_dtype,
+    pick_best_vllm_dtype,
 )
 from .vllm_config import VllmConfig
 
@@ -54,7 +54,7 @@ class VllmEvalEngine(EvalEngine):
         if not self.tokenizer.pad_token:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        dtype = pick_best_dtype(device)
+        dtype = pick_best_vllm_dtype(device)
         quantization: QuantizationMethods | None = "bitsandbytes" if use_4bit else None
         # Extract vLLM configuration
         vllm_config = eval_config.vllm_config or VllmConfig()

@@ -377,6 +377,27 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
     assert last_call["load_format"] == "dummy"
 
 
+@pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_uses_float16_on_t4(
+    vllm_bundle, tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.vllm_eval_engine.torch.cuda.is_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: (7, 5))
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: True)
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        model_engine="vllm",
+    )
+
+    VllmEvalEngine(config)
+
+    assert vllm_bundle.model_loader.calls[-1]["args"][1] == torch.float16
+
+
 @pytest.mark.transformers_engine_test
 def test_transformers_eval_engine_generate_answers(
     transformers_bundle, tmp_path
