@@ -16,6 +16,7 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
     is_model_multimodal,
     maybe_download_adapter,
     pick_best_dtype,
+    pick_best_vllm_dtype,
     safe_apply_chat_template,
     torch_dtype_to_str,
 )
@@ -71,6 +72,21 @@ def test_pick_best_dtype_cuda_bf16(monkeypatch) -> None:
     monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: True)
     dtype = pick_best_dtype("cuda", prefer_bf16=True)
     assert dtype == torch.bfloat16
+
+
+@pytest.mark.parametrize(
+    ("capability", "expected_dtype"),
+    [((7, 5), torch.float16), ((8, 0), torch.bfloat16)],
+)
+def test_pick_best_vllm_dtype_cuda_capability(
+    monkeypatch: pytest.MonkeyPatch,
+    capability: tuple[int, int],
+    expected_dtype: torch.dtype,
+) -> None:
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda: capability)
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", lambda: True)
+
+    assert pick_best_vllm_dtype("cuda") == expected_dtype
 
 
 def test_safe_apply_chat_template_merges_system_message() -> None:
