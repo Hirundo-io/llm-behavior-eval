@@ -323,3 +323,51 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
     )
 
     assert captured_messages == expected_messages
+
+
+def test_free_text_preprocess_function_emits_prompt_injection_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encoded: dict[str, list[str]] = {}
+
+    class StubTokenizer:
+        def __call__(self, texts, **_kwargs):
+            if isinstance(texts, str):
+                texts = [texts]
+            key = f"call_{len(encoded)}"
+            encoded[key] = texts
+            return {
+                "input_ids": [
+                    [index + 1, index + 2] for index, _text in enumerate(texts)
+                ],
+                "attention_mask": [[1, 1] for _ in texts],
+            }
+
+    monkeypatch.setattr(
+        custom_dataset_module,
+        "safe_apply_chat_template",
+        lambda *_args, **_kwargs: "formatted",
+    )
+
+    result = free_text_preprocess_function(
+        {
+            "question": ["q1"],
+            "answer": ["a1"],
+            "label": ["malicious"],
+            "technique": ["direct"],
+            "protected_value": ["SECRET-123"],
+        },
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
+        max_length=8,
+        gt_max_length=4,
+        has_stereotype=False,
+        include_default_system_prompt=False,
+    )
+
+    assert "refusal_labels" not in result
+    assert result["labels"].tolist() == [[1, 2]]
+    assert result["techniques"].tolist() == [[1, 2]]
+    assert result["protected_values"].tolist() == [[1, 2]]
+    assert encoded["call_3"] == ["malicious"]
+    assert encoded["call_4"] == ["direct"]
+    assert encoded["call_5"] == ["SECRET-123"]

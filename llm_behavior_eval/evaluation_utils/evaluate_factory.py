@@ -1,5 +1,6 @@
 from .base_evaluator import BaseEvaluator
 from .dataset_config import DatasetConfig
+from .enums import BLOOM_INJECTION_DATASETS
 from .eval_config import EvaluationConfig, EvaluatorFamily
 from .refusal_utils import REFUSAL_DATASETS
 
@@ -15,7 +16,10 @@ class EvaluateFactory:
             return "hallucination"
         if dataset_id in REFUSAL_DATASETS:
             return "refusal"
-        if dataset_id == "hirundo-io/prompt-injection-purple-llama":
+        if (
+            dataset_id == "hirundo-io/prompt-injection-purple-llama"
+            or dataset_id in BLOOM_INJECTION_DATASETS.values()
+        ):
             return "prompt-injection"
         if "bbq" in dataset_id or "unqover" in dataset_id or "bloom" in dataset_id:
             return "bias"

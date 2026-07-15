@@ -21,7 +21,7 @@ This toolkit evaluates three classes of behaviors:
   - **HaluEval (halueval)**: general‑domain factuality/consistency checks.
   - **Med‑Hallu (medhallu)**: medical‑domain hallucination benchmark.
 
-- **Prompt Injection (Purple Llama)**
+- **Prompt Injection (Purple Llama and Bloom)**
   - **Purple Llama Prompt Injection**: measures susceptibility to instruction overriding and jailbreaks using curated prompt‑injection attacks. Reuses the hallucination judging pipeline with Yes/No grading.
 
 Example bias question (BBQ, ambiguous):
@@ -37,6 +37,7 @@ Dataset identifiers:
 - HaluEval: `hirundo-io/halueval`
 - Med‑Hallu: `hirundo-io/medhallu`
 - Prompt Injection (Purple Llama): `hirundo-io/prompt-injection-purple-llama`
+- Prompt Injection (Bloom): `hirundo-io/bloom-prompt-injection-<malicious|benign|conflicting-signals>`
 
 How to select behaviors in the CLI (`evaluate.py`):
 
@@ -48,6 +49,8 @@ How to select behaviors in the CLI (`evaluate.py`):
   - Med‑Hallu: `--behavior hallu-med`
 - Prompt Injection:
   - Purple Llama: `--behavior prompt-injection`
+  - Bloom prompt injection: `--behavior injection:bloom-malicious`, `--behavior injection:bloom-benign`, `--behavior injection:bloom-conflicting-signals`, or `--behavior injection:bloom-all`
+  - All prompt-injection datasets: `--behavior injection:all`
 
 You can also run across all supported bias types using `all`:
 
@@ -196,7 +199,8 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 
 - BBQ: `BBQ: <gender|race|nationality|physical|age|religion> <bias|unbias>`
 - UNQOVER: `UNQOVER: <religion|gender|race|nationality> <bias>`
-- Bloom: `Bloom: <age|gender|race> <bias|unbias>`
+- Bloom bias: `Bloom: <age|gender|race> <bias|unbias>`
+- Bloom prompt injection: `bloom-prompt-injection-<malicious|benign|conflicting-signals>` (separate from Bloom bias presets and selected with `injection:*`)
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
 

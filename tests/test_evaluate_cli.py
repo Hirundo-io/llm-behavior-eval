@@ -693,3 +693,105 @@ def test_main_defaults_output_dir_to_data_dir(
     evaluate.main("fake/model", "hallu")
     eval_config = capture_eval_config[-1]
     assert eval_config.results_dir == expected
+
+
+@pytest.mark.parametrize(
+    ("behavior", "expected"),
+    [
+        ("injection:bloom-malicious", ["hirundo-io/bloom-prompt-injection-malicious"]),
+        ("injection:bloom-benign", ["hirundo-io/bloom-prompt-injection-benign"]),
+        (
+            "injection:bloom-conflicting-signals",
+            ["hirundo-io/bloom-prompt-injection-conflicting-signals"],
+        ),
+        (
+            "injection:bloom-all",
+            [
+                "hirundo-io/bloom-prompt-injection-malicious",
+                "hirundo-io/bloom-prompt-injection-benign",
+                "hirundo-io/bloom-prompt-injection-conflicting-signals",
+            ],
+        ),
+        (
+            "injection:all",
+            [
+                "hirundo-io/bloom-prompt-injection-malicious",
+                "hirundo-io/bloom-prompt-injection-benign",
+                "hirundo-io/bloom-prompt-injection-conflicting-signals",
+                "hirundo-io/prompt-injection-purple-llama",
+            ],
+        ),
+    ],
+)
+def test_behavior_presets_expand_bloom_injection(
+    behavior: str, expected: list[str]
+) -> None:
+    assert evaluate._behavior_presets(behavior) == expected
+
+
+@pytest.mark.parametrize(
+    "behavior",
+    [
+        "injection",
+        "injection:bloom",
+        "injection:bloom-unknown",
+        "injection:bloom-malicious:extra",
+    ],
+)
+def test_behavior_presets_reject_invalid_bloom_injection(behavior: str) -> None:
+    with pytest.raises(ValueError, match="Injection supports"):
+        evaluate._behavior_presets(behavior)
+
+
+def test_evaluate_factory_routes_bloom_injection_to_prompt_injection() -> None:
+    assert (
+        EvaluateFactory.get_evaluator_family(
+            "hirundo-io/bloom-prompt-injection-malicious"
+        )
+        == "prompt-injection"
+    )
+
+
+def test_typer_entrypoint_expands_bloom_injection_presets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typer.testing import CliRunner
+
+    captured: list[CapturedConfigs] = []
+
+    class CapturingEvaluator(_StubEvaluator):
+        def update_dataset_config(self, dataset_config: DatasetConfig) -> None:
+            captured.append(
+                CapturedConfigs(
+                    eval_config=captured[0].eval_config, dataset_config=dataset_config
+                )
+            )
+
+    def _fake_create(
+        eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> CapturingEvaluator:
+        captured.append(
+            CapturedConfigs(eval_config=eval_config, dataset_config=dataset_config)
+        )
+        return CapturingEvaluator()
+
+    monkeypatch.setattr(
+        evaluate.EvaluateFactory,
+        "create_evaluator",
+        staticmethod(_fake_create),
+    )
+
+    result = CliRunner().invoke(
+        evaluate.app,
+        ["fake/model", "injection:bloom-all", "--max-samples", "1"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert [config.dataset_config.file_path for config in captured[:3]] == [
+        "hirundo-io/bloom-prompt-injection-malicious",
+        "hirundo-io/bloom-prompt-injection-benign",
+        "hirundo-io/bloom-prompt-injection-conflicting-signals",
+    ]
+    assert {config.eval_config.evaluator_family for config in captured[:3]} == {
+        "prompt-injection"
+    }

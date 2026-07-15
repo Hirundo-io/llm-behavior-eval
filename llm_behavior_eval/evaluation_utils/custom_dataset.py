@@ -80,6 +80,9 @@ def free_text_preprocess_function(
     eval_strings, answer_strings = [], []
     stereotyped_strings: list[str] = []
     judge_questions: list[str] = []
+    labels: list[str] = []
+    techniques: list[str] = []
+    protected_values: list[str] = []
     for row in rows:
         question_text = row["question"]
         answer_text = row["answer"]
@@ -114,6 +117,9 @@ def free_text_preprocess_function(
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
         judge_questions.append(judge_question_override or question_text)
+        labels.append(str(row.get("label") or ""))
+        techniques.append(str(row.get("technique") or ""))
+        protected_values.append(str(row.get("protected_value") or ""))
     # 3) Tokenization
     tokenize = partial(
         tokenizer,
@@ -134,6 +140,23 @@ def free_text_preprocess_function(
         max_length=gt_max_length,
         add_special_tokens=False,
     )
+    label_values = examples_batch.get("label")
+    tokenized_labels = (
+        tokenize(labels, max_length=gt_max_length, add_special_tokens=False)
+        if label_values is not None
+        and not all(isinstance(label, int) for label in label_values)
+        else None
+    )
+    tokenized_techniques = (
+        tokenize(techniques, max_length=gt_max_length, add_special_tokens=False)
+        if "technique" in examples_batch
+        else None
+    )
+    tokenized_protected_values = (
+        tokenize(protected_values, max_length=gt_max_length, add_special_tokens=False)
+        if "protected_value" in examples_batch
+        else None
+    )
     tokenized_stereotype = None
     if has_stereotype:
         tokenized_stereotype = tokenize(
@@ -150,7 +173,17 @@ def free_text_preprocess_function(
     }
     if has_stereotype and tokenized_stereotype is not None:
         result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])
-    if "label" in examples_batch:
+    if tokenized_labels is not None:
+        result["labels"] = torch.tensor(tokenized_labels["input_ids"])
+    if tokenized_techniques is not None:
+        result["techniques"] = torch.tensor(tokenized_techniques["input_ids"])
+    if tokenized_protected_values is not None:
+        result["protected_values"] = torch.tensor(
+            tokenized_protected_values["input_ids"]
+        )
+    if "label" in examples_batch and all(
+        isinstance(label, int) for label in examples_batch["label"]
+    ):
         result["refusal_labels"] = torch.tensor(
             examples_batch["label"], dtype=torch.long
         )
@@ -244,6 +277,9 @@ class CustomDataset:
         is_multimodal = is_model_multimodal(
             tokenizer.name_or_path, self.trust_remote_code, self.token
         )
+        load_from_cache_file = not str(self.file_path).startswith(
+            "hirundo-io/bloom-prompt-injection-"
+        )
         processed_dataset = dataset.map(
             lambda examples: free_text_preprocess_function(
                 examples,
@@ -265,6 +301,7 @@ class CustomDataset:
             remove_columns=old_columns,
             batch_size=preprocess_config.preprocess_batch_size,
             num_proc=1,
+            load_from_cache_file=load_from_cache_file,
         )
         text = tokenizer.batch_decode(
             cast("list[list[int]]", list(processed_dataset["test_input_ids"])),
