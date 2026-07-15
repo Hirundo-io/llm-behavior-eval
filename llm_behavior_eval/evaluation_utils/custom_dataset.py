@@ -82,6 +82,9 @@ def free_text_preprocess_function(
     judge_questions: list[str] = []
     injection_labels: list[str] = []
     injection_techniques: list[str] = []
+    protected_values: list[str] | None = (
+        [] if "protected_value" in examples_batch else None
+    )
     for row in rows:
         question_text = row["question"]
         answer_text = row["answer"]
@@ -91,6 +94,7 @@ def free_text_preprocess_function(
         judge_question_override = row.get("judge_question")
         row_label = row.get("label")
         row_technique = row.get("technique")
+        protected_value = row.get("protected_value")
 
         user_msg = {"role": "user", "content": f"{question_text}\n"}
         messages = [user_msg]
@@ -122,6 +126,12 @@ def free_text_preprocess_function(
             injection_labels.append(row_label)
         if isinstance(row_technique, str):
             injection_techniques.append(row_technique)
+        if protected_values is not None:
+            if protected_value is not None and not isinstance(protected_value, str):
+                raise ValueError(
+                    "Free text protected_value values must be strings or null"
+                )
+            protected_values.append(protected_value or "")
     if injection_labels and len(injection_labels) != len(rows):
         raise ValueError(
             "Free text label values must be consistently strings or integers"
@@ -162,6 +172,13 @@ def free_text_preprocess_function(
             max_length=gt_max_length,
             add_special_tokens=False,
         )
+    tokenized_protected_values = None
+    if protected_values is not None:
+        tokenized_protected_values = tokenize(
+            protected_values,
+            max_length=gt_max_length,
+            add_special_tokens=False,
+        )
     tokenized_stereotype = None
     if has_stereotype:
         tokenized_stereotype = tokenize(
@@ -189,6 +206,10 @@ def free_text_preprocess_function(
     if tokenized_injection_techniques is not None:
         result["injection_techniques"] = torch.tensor(
             tokenized_injection_techniques["input_ids"]
+        )
+    if tokenized_protected_values is not None:
+        result["protected_values"] = torch.tensor(
+            tokenized_protected_values["input_ids"]
         )
 
     return result

@@ -135,6 +135,43 @@ def test_free_text_preprocess_function_emits_refusal_labels(
     assert result["refusal_labels"].tolist() == [1]
 
 
+def test_free_text_preprocess_function_emits_protected_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tokenized_texts: list[list[str]] = []
+
+    class StubTokenizer:
+        def __call__(self, texts, **_kwargs):
+            if isinstance(texts, str):
+                texts = [texts]
+            tokenized_texts.append(texts)
+            return {
+                "input_ids": [[index + 1] for index, _text in enumerate(texts)],
+                "attention_mask": [[1] for _text in texts],
+            }
+
+    monkeypatch.setattr(
+        custom_dataset_module,
+        "safe_apply_chat_template",
+        lambda *_args, **_kwargs: "formatted",
+    )
+
+    result = free_text_preprocess_function(
+        {
+            "question": ["q1", "q2"],
+            "answer": ["a1", "a2"],
+            "protected_value": ["ORCHARD", ""],
+        },
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
+        max_length=8,
+        gt_max_length=4,
+        has_stereotype=False,
+    )
+
+    assert tokenized_texts[-1] == ["ORCHARD", ""]
+    assert result["protected_values"].tolist() == [[1], [2]]
+
+
 def test_free_text_preprocess_function_uses_default_system_prompt_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ):
