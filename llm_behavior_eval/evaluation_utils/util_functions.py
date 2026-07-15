@@ -83,6 +83,7 @@ class SafeApplyChatTemplate:
         thinking_start_token: str | None = None,
         thinking_end_token: str | None = None,
         pass_max_answer_tokens: bool = False,
+        reasoning: bool | None = None,
     ) -> str:
         """
         Applies the chat template to the messages, ensuring that the system message is handled correctly.
@@ -101,10 +102,15 @@ class SafeApplyChatTemplate:
             thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
             thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
             pass_max_answer_tokens: Whether to pass the max_answer_tokens to the chat template.
+            reasoning: Backward-compatible alias for `enable_thinking`. When provided,
+                this takes precedence over `enable_thinking`.
 
         Returns:
             The formatted string after applying the chat template.
         """
+
+        if reasoning is not None:
+            enable_thinking = reasoning
 
         def _supports_reasoning_kwarg_or_token(
             tokenizer: PreTrainedTokenizerBase, name: str

@@ -140,6 +140,49 @@ def test_safe_apply_chat_template_does_not_append_without_flag_or_value() -> Non
     assert "Respond in no more than" not in without_value
 
 
+@pytest.mark.parametrize(
+    ("enable_thinking", "reasoning", "expected"),
+    [
+        (False, False, False),
+        (False, True, True),
+        (True, False, False),
+        (True, None, True),
+    ],
+)
+def test_safe_apply_chat_template_accepts_reasoning_alias(
+    enable_thinking: bool, reasoning: bool | None, expected: bool
+) -> None:
+    class ReasoningTokenizer(StubTokenizer):
+        def __init__(self) -> None:
+            super().__init__("Qwen/Qwen3-0.6B", "{{ enable_thinking }}")
+            self.enable_thinking: bool | None = None
+
+        def apply_chat_template(
+            self,
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        ):
+            self.enable_thinking = enable_thinking
+            return super().apply_chat_template(
+                messages,
+                tokenize=tokenize,
+                add_generation_prompt=add_generation_prompt,
+            )
+
+    tokenizer = ReasoningTokenizer()
+
+    safe_apply_chat_template(
+        cast("PreTrainedTokenizerBase", tokenizer),
+        [{"role": "user", "content": "Hello"}],
+        enable_thinking=enable_thinking,
+        reasoning=reasoning,
+    )
+
+    assert tokenizer.enable_thinking is expected
+
+
 def test_torch_dtype_to_str_supported() -> None:
     assert torch_dtype_to_str(torch.float16) == "float16"
     assert torch_dtype_to_str(torch.bfloat16) == "bfloat16"
