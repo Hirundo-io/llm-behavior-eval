@@ -543,7 +543,7 @@ def test_run_judge_with_backoff_propagates_stop_strings(tmp_path: Path) -> None:
     assert captured_stop_strings == [["\n"], ["\n"]]
 
 
-def test_prompt_injection_judge_uses_newline_stop_string(
+def test_prompt_injection_judge_uses_answer_delimiter_stop_string(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     evaluator = FreeTextPromptInjectionEvaluator.__new__(
@@ -584,7 +584,7 @@ def test_prompt_injection_judge_uses_newline_stop_string(
     assert evaluator._grade_batch(
         NoopJudgeEngine(), ["question"], ["answer"], ["response"]
     ) == ["Yes"]
-    assert captured_stop_strings == ["\n"]
+    assert captured_stop_strings == [FreeTextPromptInjectionEvaluator.JUDGE_STOP_STRING]
 
 
 def test_prompt_injection_default_max_judge_tokens_remains_128() -> None:
@@ -597,6 +597,12 @@ def test_prompt_injection_empty_judge_output_is_unparseable() -> None:
     assert FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no(raw) == [
         "unparseable"
     ]
+
+
+def test_prompt_injection_leading_whitespace_judge_output_is_parseable() -> None:
+    raw = [[{"generated_text": "\nYes", "finish_reason": "stop"}]]
+
+    assert FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no(raw) == ["Yes"]
 
 
 def test_get_model_slug_includes_lora_slug(
