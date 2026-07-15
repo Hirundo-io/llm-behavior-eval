@@ -67,52 +67,6 @@ def test_legacy_cached_generation_uses_input_texts_as_judge_questions() -> None:
     assert generation.judge_questions == ["legacy question"]
 
 
-def test_incomplete_cached_generation_keeps_only_valid_prefix(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    evaluator = object.__new__(FreeTextPromptInjectionEvaluator)
-    valid = {
-        "input_texts": ["prompt one"],
-        "judge_questions": ["question one"],
-        "gt_answers": ["No"],
-        "answers": ["answer one"],
-        "finish_reasons": ["stop"],
-    }
-    incomplete = {
-        "input_texts": ["prompt two", "prompt three"],
-        "judge_questions": ["question two", "question three"],
-        "gt_answers": ["No", "No"],
-        "answers": ["answer two"],
-        "finish_reasons": ["stop"],
-    }
-    reset_filenames: list[str] = []
-    saved: list[tuple[list[dict], str]] = []
-    monkeypatch.setattr(
-        evaluator,
-        "load_completed_generation_dicts",
-        lambda _filename: [valid, incomplete],
-    )
-    monkeypatch.setattr(
-        evaluator,
-        "reset_generations_file",
-        lambda filename: reset_filenames.append(filename),
-    )
-    monkeypatch.setattr(
-        evaluator,
-        "save_generations",
-        lambda items, filename: saved.append((items, filename)),
-    )
-
-    result = evaluator.load_aligned_generation_dicts(
-        ("input_texts", "gt_answers", "answers", "finish_reasons"),
-        optional_fields=("judge_questions",),
-    )
-
-    assert result == [valid]
-    assert reset_filenames == ["generations.jsonl"]
-    assert saved == [([valid], "generations.jsonl")]
-
-
 @pytest.mark.parametrize(
     ("evaluator_type", "generation", "short_field"),
     [

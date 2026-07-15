@@ -546,6 +546,80 @@ def test_process_judge_prompts_rejects_short_judge_output(tmp_path: Path) -> Non
         )
 
 
+@pytest.mark.parametrize(
+    ("invalid_field", "invalid_value", "optional_fields"),
+    [
+        ("answers", "not-a-list", ()),
+        ("metadata", "not-a-list", ("metadata",)),
+    ],
+)
+def test_load_aligned_generation_dicts_rejects_non_list_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_field: str,
+    invalid_value: str,
+    optional_fields: tuple[str, ...],
+) -> None:
+    evaluator = ConcreteEvaluator.__new__(ConcreteEvaluator)
+    generation = {"prompts": ["prompt"], "answers": ["answer"]}
+    generation[invalid_field] = invalid_value
+    reset_filenames: list[str] = []
+    saved: list[tuple[list[dict], str]] = []
+    monkeypatch.setattr(
+        evaluator,
+        "load_completed_generation_dicts",
+        lambda _filename: [generation],
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "reset_generations_file",
+        lambda filename: reset_filenames.append(filename),
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "save_generations",
+        lambda items, filename: saved.append((items, filename)),
+    )
+
+    result = evaluator.load_aligned_generation_dicts(
+        ("prompts", "answers"), optional_fields=optional_fields
+    )
+
+    assert result == []
+    assert reset_filenames == ["generations.jsonl"]
+    assert saved == [([], "generations.jsonl")]
+
+
+def test_load_aligned_generation_dicts_preserves_valid_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = ConcreteEvaluator.__new__(ConcreteEvaluator)
+    valid = {"prompts": ["one"], "answers": ["answer one"]}
+    incomplete = {"prompts": ["two", "three"], "answers": ["answer two"]}
+    reset_filenames: list[str] = []
+    saved: list[tuple[list[dict], str]] = []
+    monkeypatch.setattr(
+        evaluator,
+        "load_completed_generation_dicts",
+        lambda _filename: [valid, incomplete],
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "reset_generations_file",
+        lambda filename: reset_filenames.append(filename),
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "save_generations",
+        lambda items, filename: saved.append((items, filename)),
+    )
+
+    result = evaluator.load_aligned_generation_dicts(("prompts", "answers"))
+
+    assert result == [valid]
+    assert reset_filenames == ["generations.jsonl"]
+    assert saved == [([valid], "generations.jsonl")]
+
+
 def test_get_model_slug_includes_lora_slug(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
