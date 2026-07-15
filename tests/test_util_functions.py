@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
+from weakref import ref
 
 import pytest
 import torch
@@ -61,6 +62,26 @@ class StubTokenizer:
         # Simple join of role and content for testing purposes
         return "|".join(
             f"{message['role']}:{message['content']}" for message in messages
+        )
+
+
+class ReasoningTokenizer(StubTokenizer):
+    def __init__(self) -> None:
+        super().__init__("Qwen/Qwen3-0.6B", "{{ enable_thinking }}")
+        self.enable_thinking: bool | None = None
+
+    def apply_chat_template(
+        self,
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    ):
+        self.enable_thinking = enable_thinking
+        return super().apply_chat_template(
+            messages,
+            tokenize=tokenize,
+            add_generation_prompt=add_generation_prompt,
         )
 
 
@@ -152,25 +173,6 @@ def test_safe_apply_chat_template_does_not_append_without_flag_or_value() -> Non
 def test_safe_apply_chat_template_accepts_reasoning_alias(
     enable_thinking: bool, reasoning: bool | None, expected: bool
 ) -> None:
-    class ReasoningTokenizer(StubTokenizer):
-        def __init__(self) -> None:
-            super().__init__("Qwen/Qwen3-0.6B", "{{ enable_thinking }}")
-            self.enable_thinking: bool | None = None
-
-        def apply_chat_template(
-            self,
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False,
-        ):
-            self.enable_thinking = enable_thinking
-            return super().apply_chat_template(
-                messages,
-                tokenize=tokenize,
-                add_generation_prompt=add_generation_prompt,
-            )
-
     tokenizer = ReasoningTokenizer()
 
     safe_apply_chat_template(
@@ -181,6 +183,27 @@ def test_safe_apply_chat_template_accepts_reasoning_alias(
     )
 
     assert tokenizer.enable_thinking is expected
+
+
+def test_safe_apply_chat_template_ignores_stale_cache_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stale_tokenizer = StubTokenizer("stale/model", "generic template")
+    tokenizer = ReasoningTokenizer()
+    cache_key = (id(tokenizer), "enable_thinking")
+    monkeypatch.setitem(
+        safe_apply_chat_template._CHAT_TEMPLATE_SUPPORTS_REASONING,
+        cache_key,
+        (ref(cast("PreTrainedTokenizerBase", stale_tokenizer)), False),
+    )
+
+    safe_apply_chat_template(
+        cast("PreTrainedTokenizerBase", tokenizer),
+        [{"role": "user", "content": "Hello"}],
+        reasoning=True,
+    )
+
+    assert tokenizer.enable_thinking is True
 
 
 def test_torch_dtype_to_str_supported() -> None:

@@ -11,6 +11,7 @@ from inspect import signature
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import ParseResult, urlparse
+from weakref import ReferenceType, ref
 
 import torch
 from transformers.models.auto.configuration_auto import AutoConfig
@@ -70,7 +71,9 @@ def _hf_token(token: str | None) -> Generator[None, None, None]:
 
 
 class SafeApplyChatTemplate:
-    _CHAT_TEMPLATE_SUPPORTS_REASONING: dict[tuple[int, str], bool] = {}
+    _CHAT_TEMPLATE_SUPPORTS_REASONING: dict[
+        tuple[int, str], tuple[ReferenceType[PreTrainedTokenizerBase], bool]
+    ] = {}
 
     def __call__(
         self,
@@ -102,8 +105,8 @@ class SafeApplyChatTemplate:
             thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
             thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
             pass_max_answer_tokens: Whether to pass the max_answer_tokens to the chat template.
-            reasoning: Backward-compatible alias for `enable_thinking`. When provided,
-                this takes precedence over `enable_thinking`.
+            reasoning (optional): Backward-compatible alias for `enable_thinking`.
+                When provided, this takes precedence over `enable_thinking`.
 
         Returns:
             The formatted string after applying the chat template.
@@ -125,18 +128,20 @@ class SafeApplyChatTemplate:
             Returns:
                 True if the tokenizer's apply_chat_template supports the reasoning mode kwarg `name` or the token `name`, False otherwise.
             """
-            # Cache for checking whether a given tokenizer's apply_chat_template supports
-            # the reasoning mode kwarg `name` or the token `name`. Keyed by (id(tokenizer), name) to avoid holding strong refs.
-            # This avoids repeated try/except in hot paths.
+            # Key by object ID without retaining tokenizers, and validate identity to
+            # avoid stale results when Python reuses an ID after garbage collection.
             cache_key = (id(tokenizer), name)
             cached = self._CHAT_TEMPLATE_SUPPORTS_REASONING.get(cache_key)
-            if cached is not None:
-                return cached
+            if cached is not None and cached[0]() is tokenizer:
+                return cached[1]
             supports = (
                 isinstance(tokenizer.chat_template, str)
                 and name in tokenizer.chat_template
             )
-            self._CHAT_TEMPLATE_SUPPORTS_REASONING[cache_key] = supports
+            self._CHAT_TEMPLATE_SUPPORTS_REASONING[cache_key] = (
+                ref(tokenizer),
+                supports,
+            )
 
             return supports
 
