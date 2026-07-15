@@ -238,7 +238,8 @@ class BaseEvaluator(ABC):
         Returns:
             The slug for the dataset.
         """
-        return self.dataset_config.file_path.split("/")[-1]
+        dataset_id = cast("str", self.dataset_config.dataset_id)
+        return dataset_id.split("/")[-1]
 
     def get_output_dir(self) -> Path:
         """
@@ -273,6 +274,7 @@ class BaseEvaluator(ABC):
             trust_remote_code=self.trust_remote_code,
             token=self.eval_config.model_token,
         )
+        custom_dataset.dataset_id = cast("str", self.dataset_config.dataset_id)
         test_dataset = custom_dataset.preprocess(
             self.tokenizer,
             self.dataset_config.preprocess_config,
@@ -804,9 +806,9 @@ class BaseEvaluator(ABC):
                 )
             if self.mlflow_config.mlflow_run_id:
                 logging.info(
-                    "Attaching dataset to existing run %s (file_path=%s, dataset_type=%s)",
+                    "Attaching dataset to existing run %s (dataset_id=%s, dataset_type=%s)",
                     self.mlflow_config.mlflow_run_id,
-                    self.dataset_config.file_path,
+                    self.dataset_config.dataset_id,
                     self.dataset_config.dataset_type,
                 )
             self._mlflow_datasets_attached += 1

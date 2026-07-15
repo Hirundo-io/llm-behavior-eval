@@ -32,16 +32,13 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
     EvaluatorFamily,
 )
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
-from llm_behavior_eval.evaluation_utils.refusal_utils import (
-    OR_BENCH_DATASET,
-    XSTEST_DATASET,
-)
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
 )
 from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
+from llm_behavior_eval.presets import expand_dataset_preset
 
 torch.set_float32_matmul_precision("high")
 
@@ -118,20 +115,16 @@ def _behavior_presets(behavior: str) -> list[str]:
 
     # Hallucination shortcuts
     if behavior in HALUEVAL_ALIAS:
-        return ["hirundo-io/halueval"]
+        return expand_dataset_preset("hallu")
     if behavior in MEDHALLU_ALIAS:
-        return ["hirundo-io/medhallu"]
+        return expand_dataset_preset("hallu-med")
     if behavior in INJECTION_ALIAS:
-        return ["hirundo-io/prompt-injection-purple-llama"]
+        return expand_dataset_preset("prompt-injection")
     if len(behavior_parts) == 2 and behavior_parts[0] in REFUSAL_ALIAS:
         _, refusal_dataset = behavior_parts
-        if refusal_dataset == "xstest":
-            return [XSTEST_DATASET]
-        if refusal_dataset == "orbench":
-            return [OR_BENCH_DATASET]
-        if refusal_dataset == "all":
-            return [XSTEST_DATASET, OR_BENCH_DATASET]
-        raise ValueError("Refusal supports: xstest, orbench, all")
+        if refusal_dataset not in {"xstest", "orbench", "all"}:
+            raise ValueError("Refusal supports: xstest, orbench, all")
+        return expand_dataset_preset(f"refusal:{refusal_dataset}")
 
     # Expected structures:
     # [kind, bias_type] for BBQ, where kind in {bias, unbias}
@@ -144,7 +137,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     if len(behavior_parts) == 2:
         kind, bias_type = behavior_parts
         allowed_types, allowed_kinds, kind_error, support_label = BBQ_BIAS_BEHAVIOR
-        return _resolve_bias_behavior(
+        _resolve_bias_behavior(
             "bbq",
             kind,
             bias_type,
@@ -153,6 +146,7 @@ def _behavior_presets(behavior: str) -> list[str]:
             kind_error,
             support_label,
         )
+        return expand_dataset_preset(f"{kind}:{bias_type}")
 
     if len(behavior_parts) == 3:
         prefix, kind, bias_type = behavior_parts
@@ -162,7 +156,7 @@ def _behavior_presets(behavior: str) -> list[str]:
         allowed_types, allowed_kinds, kind_error, support_label = (
             THREE_PART_BIAS_BEHAVIORS[prefix]
         )
-        return _resolve_bias_behavior(
+        _resolve_bias_behavior(
             prefix,
             kind,
             bias_type,
@@ -171,6 +165,7 @@ def _behavior_presets(behavior: str) -> list[str]:
             kind_error,
             support_label,
         )
+        return expand_dataset_preset(f"{prefix}:{kind}:{bias_type}")
 
     if len(behavior_parts) == 4:
         prefix, kind, bias_type, context = behavior_parts
@@ -180,7 +175,7 @@ def _behavior_presets(behavior: str) -> list[str]:
             and context == "ambiguous"
             and bias_type in BLOOM_BIAS_TYPES
         ):
-            return [f"hirundo-io/bloom-{bias_type}-ambiguous-bias-free-text"]
+            return expand_dataset_preset(f"bloom:bias:{bias_type}:ambiguous")
         raise ValueError("Use 'bloom:bias:<type>:ambiguous'")
 
     raise ValueError(BEHAVIOR_PRESET_ERROR)

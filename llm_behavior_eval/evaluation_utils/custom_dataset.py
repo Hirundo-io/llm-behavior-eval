@@ -170,6 +170,7 @@ class CustomDataset:
         self,
         file_path: Path | str,
         dataset_type: DatasetType,
+        dataset_id: str | None = None,
         trust_remote_code: bool = False,
         token: str | None = None,
     ):
@@ -179,10 +180,12 @@ class CustomDataset:
         Args:
             file_path: Local path or HuggingFace dataset identifier.
             dataset_type: The type of the dataset (e.g., BIAS or UNBIAS).
+            dataset_id: Logical dataset identity. Defaults to ``file_path``.
             trust_remote_code: Whether to trust remote code when loading the dataset.
             token: HuggingFace token for gated or private dataset repos.
         """
         self.file_path = file_path
+        self.dataset_id = dataset_id or str(file_path)
         self.dataset_type = dataset_type
         self.trust_remote_code = trust_remote_code
         self.token = token
@@ -236,7 +239,7 @@ class CustomDataset:
         Returns:
             A tokenized dataset ready for evaluation.
         """
-        refusal_dataset = str(self.file_path) in REFUSAL_DATASETS
+        refusal_dataset = self.dataset_id in REFUSAL_DATASETS
         dataset = normalize_refusal_dataset(self.ds) if refusal_dataset else self.ds
         validate_dataset_columns(dataset)
         old_columns = dataset.column_names
