@@ -1,4 +1,3 @@
-import logging
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -41,23 +40,20 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
       """
     ).strip()
 
-    @staticmethod
     def _validate_generation_record(
-        generation: _InjectionGenerationRecord, *, context: str
+        self, generation: _HalluGenerationRecord, *, context: str
     ) -> None:
-        lengths = {
-            "input_texts": len(generation.input_texts),
-            "judge_questions": len(generation.judge_questions),
-            "gt_answers": len(generation.gt_answers),
-            "answers": len(generation.answers),
-            "finish_reasons": len(generation.finish_reasons),
-        }
-        if len(set(lengths.values())) != 1:
-            details = ", ".join(f"{name}={length}" for name, length in lengths.items())
-            raise ValueError(
-                f"Prompt-injection generation record is incomplete ({context}): "
-                f"expected aligned fields, got {details}."
-            )
+        injection_generation = cast("_InjectionGenerationRecord", generation)
+        self.validate_generation_alignment(
+            {
+                "input_texts": injection_generation.input_texts,
+                "judge_questions": injection_generation.judge_questions,
+                "gt_answers": injection_generation.gt_answers,
+                "answers": injection_generation.answers,
+                "finish_reasons": injection_generation.finish_reasons,
+            },
+            context=context,
+        )
 
     @staticmethod
     def _generation_dict(generation: _InjectionGenerationRecord) -> dict:
@@ -124,24 +120,14 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         self,
     ) -> Sequence[_InjectionGenerationRecord]:  # include judge_questions from dataset
         self.ensure_test_model_ready()
-        completed_dicts = self.load_completed_generation_dicts()
+        completed_dicts = self.load_aligned_generation_dicts(
+            ("input_texts", "gt_answers", "answers", "finish_reasons"),
+            optional_fields=("judge_questions",),
+        )
         loaded_generations = [
             self._generation_from_dict(item) for item in completed_dicts
         ]
-        completed_generations: list[_InjectionGenerationRecord] = []
-        for batch_index, generation in enumerate(loaded_generations):
-            try:
-                self._validate_generation_record(
-                    generation, context=f"cached batch {batch_index}"
-                )
-            except ValueError as error:
-                logging.warning("%s Regenerating this and subsequent batches.", error)
-                self.reset_generations_file()
-                self.save_generations(
-                    [self._generation_dict(item) for item in completed_generations]
-                )
-                break
-            completed_generations.append(generation)
+        completed_generations = loaded_generations
         completed_samples = sum(
             len(generation.input_texts) for generation in completed_generations
         )

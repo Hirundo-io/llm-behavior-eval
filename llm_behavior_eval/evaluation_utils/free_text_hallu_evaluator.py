@@ -38,6 +38,19 @@ class _HalluGenerationRecord(_GenerationRecord):
 
 
 class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
+    def _validate_generation_record(
+        self, generation: _HalluGenerationRecord, *, context: str
+    ) -> None:
+        self.validate_generation_alignment(
+            {
+                "input_texts": generation.input_texts,
+                "gt_answers": generation.gt_answers,
+                "answers": generation.answers,
+                "finish_reasons": generation.finish_reasons,
+            },
+            context=context,
+        )
+
     @staticmethod
     def _map_judge_outputs(
         judge_raw: Sequence[Sequence[Mapping[str, str | None]]],
@@ -55,7 +68,9 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
 
     def _collect_generations(self) -> Sequence[_HalluGenerationRecord]:
         self.ensure_test_model_ready()
-        completed_dicts = self.load_completed_generation_dicts()
+        completed_dicts = self.load_aligned_generation_dicts(
+            ("input_texts", "gt_answers", "answers", "finish_reasons")
+        )
         completed_generations = [
             _HalluGenerationRecord(
                 input_texts=item.get("input_texts", []),
@@ -95,6 +110,9 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                 gt_answers=gt_answers,
                 answers=answers,
                 finish_reasons=finish_reasons,
+            )
+            self._validate_generation_record(
+                generation_record, context=f"fresh batch {batch_index}"
             )
             generations.append(generation_record)
             self.save_generations(
@@ -179,6 +197,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
+            self._validate_generation_record(generation, context="grading")
             answers = self._format_answers(generation.answers)
             judge_indices = [
                 idx

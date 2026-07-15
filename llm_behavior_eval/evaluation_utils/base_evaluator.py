@@ -311,7 +311,7 @@ class BaseEvaluator(ABC):
         attention_mask: torch.Tensor,
         do_sample: bool | None = None,
     ) -> tuple[list[str], list[str | None]]:
-        return self.eval_engine.generate_answers(
+        answers, finish_reasons = self.eval_engine.generate_answers(
             input_ids,
             attention_mask,
             sampling_config=SamplingConfig(
@@ -328,6 +328,15 @@ class BaseEvaluator(ABC):
                 seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
             ),
         )
+        self.validate_generation_alignment(
+            {
+                "prompts": range(input_ids.shape[0]),
+                "answers": answers,
+                "finish_reasons": finish_reasons,
+            },
+            context="test-model generation",
+        )
+        return answers, finish_reasons
 
     @abstractmethod
     def evaluate(self) -> None:
@@ -442,6 +451,75 @@ class BaseEvaluator(ABC):
             self.generations_path(filename),
         )
         return existing_generations
+
+    @staticmethod
+    def validate_generation_alignment(
+        fields: dict[str, Sequence[object]], *, context: str
+    ) -> None:
+        lengths = {name: len(values) for name, values in fields.items()}
+        if len(set(lengths.values())) != 1:
+            details = ", ".join(f"{name}={length}" for name, length in lengths.items())
+            raise ValueError(
+                f"Generation record is incomplete ({context}): "
+                f"expected aligned fields, got {details}."
+            )
+
+    def load_aligned_generation_dicts(
+        self,
+        required_fields: Sequence[str],
+        *,
+        optional_fields: Sequence[str] = (),
+        filename: str = "generations.jsonl",
+    ) -> list[dict]:
+        """Load the longest valid cached prefix and discard incomplete later batches."""
+        completed_dicts = self.load_completed_generation_dicts(filename)
+        valid_prefix: list[dict] = []
+        for batch_index, item in enumerate(completed_dicts):
+            fields: dict[str, Sequence[object]] = {}
+            invalid_field = next(
+                (
+                    name
+                    for name in required_fields
+                    if not isinstance(item.get(name), list)
+                ),
+                None,
+            )
+            if invalid_field is None:
+                invalid_field = next(
+                    (
+                        name
+                        for name in optional_fields
+                        if name in item
+                        and item[name] is not None
+                        and not isinstance(item[name], list)
+                    ),
+                    None,
+                )
+            if invalid_field is None:
+                fields.update({name: item[name] for name in required_fields})
+                fields.update(
+                    {
+                        name: item[name]
+                        for name in optional_fields
+                        if isinstance(item.get(name), list)
+                    }
+                )
+            try:
+                if invalid_field is not None:
+                    raise ValueError(
+                        f"Generation record is incomplete (cached batch {batch_index}): "
+                        f"expected {invalid_field} to be a list."
+                    )
+                self.validate_generation_alignment(
+                    fields, context=f"cached batch {batch_index}"
+                )
+            except ValueError as error:
+                logging.warning("%s Regenerating this and subsequent batches.", error)
+                self.reset_generations_file(filename)
+                self.save_generations(valid_prefix, filename)
+                break
+            valid_prefix.append(item)
+        return valid_prefix
 
     def _get_incomplete_response_rate(self) -> float | None:
         generations = self.load_generations()
@@ -1287,6 +1365,14 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 top_k=self.eval_config.sampling_config.top_k,
                 seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
             ),
+        )
+        self.validate_generation_alignment(
+            {
+                "prompts": prompts,
+                "answers": answers,
+                "finish_reasons": finish_reasons,
+            },
+            context="judge-model generation",
         )
 
         # Format output to match pipeline format per prompt.
