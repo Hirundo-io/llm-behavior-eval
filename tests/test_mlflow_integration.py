@@ -476,6 +476,39 @@ def test_save_results_logs_per_label_prompt_injection_asr_as_ratios_to_mlflow(
     ] == pytest.approx(1 / 3)
 
 
+def test_save_results_logs_conflicting_signals_surgical_separation_to_mlflow(
+    evaluation_config: EvaluationConfig,
+    mlflow_mock: _MlflowMockFixture,
+) -> None:
+    injection_config = DatasetConfig(
+        file_path="hirundo-io/bloom-prompt-injection-all-free-text",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = DummyEvaluator(evaluation_config, injection_config)
+    mlflow_mock.reset_mock()
+
+    evaluator.save_results(
+        responses=[{"prompt": "a", "response": "b"}],
+        accuracy=0.6,
+        stereotyped_bias=None,
+        empty_responses=0,
+        conflicting_signals_attack_success_rate=0.25,
+        conflicting_signals_over_defensiveness_rate=0.4,
+        conflicting_signals_surgical_separation_rate=0.35,
+        derive_attack_success_rate=False,
+    )
+
+    metrics_call = mlflow_mock.log_metrics.call_args
+    assert metrics_call is not None
+    metrics = metrics_call.args[0]
+    assert metrics[
+        "bloom_prompt_injection_all_free_text_conflicting_signals_over_defensiveness_rate"
+    ] == pytest.approx(0.4)
+    assert metrics[
+        "bloom_prompt_injection_all_free_text_conflicting_signals_surgical_separation_rate"
+    ] == pytest.approx(0.35)
+
+
 def test_save_results_logs_mlflow_metrics_without_inferred_checkpoint_step(
     evaluation_config: EvaluationConfig,
     dataset_config: DatasetConfig,

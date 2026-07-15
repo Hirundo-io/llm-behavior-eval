@@ -481,6 +481,8 @@ class BaseEvaluator(ABC):
         attack_success_rate: float | None = None,
         malicious_attack_success_rate: float | None = None,
         conflicting_signals_attack_success_rate: float | None = None,
+        conflicting_signals_over_defensiveness_rate: float | None = None,
+        conflicting_signals_surgical_separation_rate: float | None = None,
         derive_attack_success_rate: bool = True,
     ) -> None:
         """
@@ -503,6 +505,16 @@ class BaseEvaluator(ABC):
                 success rate for malicious rows.
             conflicting_signals_attack_success_rate: Optional precomputed
                 prompt-injection attack success rate for conflicting-signals rows.
+            conflicting_signals_over_defensiveness_rate: Optional precomputed
+                over-defensiveness rate for conflicting-signals rows only (unlike
+                over_defensiveness_rate, which blends benign and conflicting-signals
+                rows).
+            conflicting_signals_surgical_separation_rate: Optional precomputed
+                "surgical separation" rate for conflicting-signals rows
+                (1 - conflicting_signals_attack_success_rate -
+                conflicting_signals_over_defensiveness_rate): the fraction of
+                conflicting-signals rows that neither followed the injected
+                instruction nor were over-defensive.
             derive_attack_success_rate: Whether to derive attack success from accuracy
                 when no precomputed rate is provided.
         """
@@ -556,6 +568,12 @@ class BaseEvaluator(ABC):
         conflicting_signals_attack_success_percent = self._as_percent(
             conflicting_signals_attack_success_rate
         )
+        conflicting_signals_over_defensiveness_percent = self._as_percent(
+            conflicting_signals_over_defensiveness_rate
+        )
+        conflicting_signals_surgical_separation_percent = self._as_percent(
+            conflicting_signals_surgical_separation_rate
+        )
         over_defensiveness_percent = self._as_percent(over_defensiveness_rate)
         benign_judge_no_percent = self._as_percent(benign_judge_no_rate)
         benign_judge_parse_percent = self._as_percent(benign_judge_parse_rate)
@@ -575,6 +593,12 @@ class BaseEvaluator(ABC):
                 "malicious_attack_success_rate": [malicious_attack_success_percent],
                 "conflicting_signals_attack_success_rate": [
                     conflicting_signals_attack_success_percent
+                ],
+                "conflicting_signals_over_defensiveness_rate": [
+                    conflicting_signals_over_defensiveness_percent
+                ],
+                "conflicting_signals_surgical_separation_rate": [
+                    conflicting_signals_surgical_separation_percent
                 ],
                 "Benign judge No-rate (%) ⬇️": [benign_judge_no_percent],
                 "Benign judge parsed n": [benign_judge_parsed_n],
@@ -630,6 +654,12 @@ class BaseEvaluator(ABC):
                 "malicious_attack_success_rate": [malicious_attack_success_percent],
                 "conflicting_signals_attack_success_rate": [
                     conflicting_signals_attack_success_percent
+                ],
+                "conflicting_signals_over_defensiveness_rate": [
+                    conflicting_signals_over_defensiveness_percent
+                ],
+                "conflicting_signals_surgical_separation_rate": [
+                    conflicting_signals_surgical_separation_percent
                 ],
                 "Over-defensiveness rate (%) ⬇️": [over_defensiveness_percent],
                 "Benign judge No-rate (%) ⬇️": [benign_judge_no_percent],
@@ -703,6 +733,12 @@ class BaseEvaluator(ABC):
                 "conflicting_signals_attack_success_rate": [
                     conflicting_signals_attack_success_percent
                 ],
+                "conflicting_signals_over_defensiveness_rate": [
+                    conflicting_signals_over_defensiveness_percent
+                ],
+                "conflicting_signals_surgical_separation_rate": [
+                    conflicting_signals_surgical_separation_percent
+                ],
                 "Over-defensiveness rate (%) ⬇️": [over_defensiveness_percent],
                 "Benign judge No-rate (%) ⬇️": [benign_judge_no_percent],
                 "Benign judge parsed n": [benign_judge_parsed_n],
@@ -737,6 +773,14 @@ class BaseEvaluator(ABC):
             if conflicting_signals_attack_success_rate is not None:
                 mlflow_metrics["conflicting_signals_attack_success_rate"] = (
                     conflicting_signals_attack_success_rate
+                )
+            if conflicting_signals_over_defensiveness_rate is not None:
+                mlflow_metrics["conflicting_signals_over_defensiveness_rate"] = (
+                    conflicting_signals_over_defensiveness_rate
+                )
+            if conflicting_signals_surgical_separation_rate is not None:
+                mlflow_metrics["conflicting_signals_surgical_separation_rate"] = (
+                    conflicting_signals_surgical_separation_rate
                 )
             if benign_judge_no_rate is not None:
                 mlflow_metrics["benign_judge_no_rate"] = benign_judge_no_rate

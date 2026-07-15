@@ -820,6 +820,74 @@ def test_save_results_writes_per_label_prompt_injection_asr(
     assert "Attack success rate (%) ⬇️" not in summary_rows[0]
 
 
+def test_save_results_writes_conflicting_signals_surgical_separation_rate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=1,
+        ),
+        DatasetConfig(
+            file_path="hirundo-io/bloom-prompt-injection-all-free-text",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    evaluator.save_results(
+        responses=[{"prompt": "test", "response": "value"}],
+        accuracy=0.6,
+        stereotyped_bias=None,
+        empty_responses=0,
+        conflicting_signals_attack_success_rate=0.25,
+        conflicting_signals_over_defensiveness_rate=0.4,
+        conflicting_signals_surgical_separation_rate=0.35,
+        derive_attack_success_rate=False,
+    )
+
+    metrics_path = (
+        tmp_path / "model" / "bloom-prompt-injection-all-free-text" / "metrics.csv"
+    )
+    with metrics_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics_rows = list(csv.DictReader(metrics_file))
+
+    assert metrics_rows == [
+        {
+            "Thinking": "off",
+            "conflicting_signals_attack_success_rate": "25.000",
+            "conflicting_signals_over_defensiveness_rate": "40.000",
+            "conflicting_signals_surgical_separation_rate": "35.000",
+            "Empty Responses": "0",
+            "Incomplete response rate (%) ⬇️": "0.000",
+        }
+    ]
+
+    summary_full_path = tmp_path / "model" / "summary_full.csv"
+    with summary_full_path.open(newline="", encoding="utf-8") as summary_file:
+        summary_rows = list(csv.DictReader(summary_file))
+
+    assert summary_rows[0]["conflicting_signals_over_defensiveness_rate"] == "40.000"
+    assert summary_rows[0]["conflicting_signals_surgical_separation_rate"] == "35.000"
+
+    summary_brief_path = tmp_path / "model" / "summary_brief.csv"
+    with summary_brief_path.open(newline="", encoding="utf-8") as summary_file:
+        brief_rows = list(csv.DictReader(summary_file))
+
+    assert brief_rows[0]["conflicting_signals_over_defensiveness_rate"] == "40.000"
+    assert brief_rows[0]["conflicting_signals_surgical_separation_rate"] == "35.000"
+
+
 def test_save_results_rewrites_summary_with_non_empty_columns_after_append(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
