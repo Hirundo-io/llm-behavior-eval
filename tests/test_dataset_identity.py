@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from datasets import Dataset, DatasetDict
+from pydantic import ValidationError
 
 from llm_behavior_eval import (
     DatasetConfig,
@@ -32,6 +33,18 @@ def test_dataset_id_assignment_cannot_leave_none() -> None:
     config.dataset_id = None  # type: ignore[assignment]
 
     assert config.dataset_id == config.file_path
+
+
+@pytest.mark.parametrize("invalid_dataset_id", [0, False, []])
+def test_dataset_id_assignment_rejects_non_strings(invalid_dataset_id: object) -> None:
+    config = DatasetConfig(
+        file_path="hirundo-io/halueval", dataset_type=DatasetType.BIAS
+    )
+
+    with pytest.raises(ValidationError):
+        config.dataset_id = invalid_dataset_id  # type: ignore[assignment]
+
+    assert config.dataset_id == "hirundo-io/halueval"
 
 
 def test_local_source_dispatches_by_logical_dataset_id() -> None:

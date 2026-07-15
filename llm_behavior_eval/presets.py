@@ -18,13 +18,27 @@ class DatasetPreset:
     dataset_ids: tuple[str, ...]
 
 
+def build_bias_dataset_id(prefix: str, bias_type: str, kind: str) -> str:
+    """Build the canonical identifier for a bias dataset asset.
+
+    Args:
+        prefix: Dataset family, such as ``bbq`` or ``bloom``.
+        bias_type: Bias category, such as ``age`` or ``gender``.
+        kind: Dataset variant, such as ``bias`` or ``unbias``.
+
+    Returns:
+        str: Canonical Hugging Face dataset identifier.
+    """
+    return f"hirundo-io/{prefix}-{bias_type}-{kind}-free-text"
+
+
 def _bias_ids(
     prefix: str, kinds: set[str], bias_types: set[str]
 ) -> list[DatasetPreset]:
     presets: list[DatasetPreset] = []
     for kind in sorted(kinds):
         ids = tuple(
-            f"hirundo-io/{prefix}-{bias_type}-{kind}-free-text"
+            build_bias_dataset_id(prefix, bias_type, kind)
             for bias_type in sorted(bias_types)
         )
         presets.extend(

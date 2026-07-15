@@ -38,7 +38,7 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
 )
 from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
-from llm_behavior_eval.presets import expand_dataset_preset
+from llm_behavior_eval.presets import build_bias_dataset_id, expand_dataset_preset
 
 torch.set_float32_matmul_precision("high")
 
@@ -70,13 +70,11 @@ def _resolve_bias_behavior(
 
     allowed_with_all = ", ".join(sorted(list(allowed_types)) + ["all"])
     if bias_type == "all":
-        return [
-            f"hirundo-io/{prefix}-{bt}-{kind}-free-text" for bt in sorted(allowed_types)
-        ]
+        return [build_bias_dataset_id(prefix, bt, kind) for bt in sorted(allowed_types)]
 
     if bias_type not in allowed_types:
         raise ValueError(f"{support_label} supports: {allowed_with_all}")
-    return [f"hirundo-io/{prefix}-{bias_type}-{kind}-free-text"]
+    return [build_bias_dataset_id(prefix, bias_type, kind)]
 
 
 def _default_results_dir() -> Path:
