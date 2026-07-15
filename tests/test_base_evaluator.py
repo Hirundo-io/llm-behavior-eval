@@ -77,6 +77,7 @@ class CaptureState:
     token: str | None = None
     padding_side_at_preprocess: str | None = None
     init_args: tuple[str, DatasetType] | None = None
+    custom_dataset_id: str | None = None
     engine_inits: list[bool] = field(default_factory=list)
     set_dataset_calls: list[tuple[bool, Sized]] = field(default_factory=list)
     free_model_calls: list[bool] = field(default_factory=list)
@@ -180,6 +181,7 @@ def patch_custom_dataset(
             capture_state.init_args = (file_path, dataset_type)
             capture_state.trust_remote_code = trust_remote_code
             capture_state.token = token
+            capture_state.custom_dataset_id = dataset_id
             self.trust_remote_code = trust_remote_code
             self.dataset_id = dataset_id or file_path
             self.has_stereotype = False
@@ -271,6 +273,34 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
     assert evaluator.eval_loader == "loader"
     assert evaluator.num_samples == 3
     assert capture_state.engine_dataset == evaluator.eval_dataset
+
+
+def test_prepare_dataloader_propagates_explicit_and_default_dataset_id(
+    tmp_path: Path, capture_state: CaptureState
+) -> None:
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    evaluator = ConcreteEvaluator(
+        evaluation_config,
+        DatasetConfig(
+            file_path="/opt/assets/halueval",
+            dataset_id="hirundo-io/halueval",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    assert capture_state.custom_dataset_id == "hirundo-io/halueval"
+
+    evaluator.dataset_config = DatasetConfig(
+        file_path="repo/fallback-dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator.prepare_dataloader()
+
+    assert capture_state.custom_dataset_id == "repo/fallback-dataset"
 
 
 def test_mlflow_initializes_after_dataloader_preparation(
