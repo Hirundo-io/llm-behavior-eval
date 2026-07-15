@@ -110,19 +110,6 @@ class _RefusalGenerationRecord(_GenerationRecord):
 
 
 class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
-    def _validate_generation_record(
-        self, generation: _RefusalGenerationRecord, *, context: str
-    ) -> None:
-        self.validate_generation_alignment(
-            {
-                "input_texts": generation.input_texts,
-                "expected_labels": generation.expected_labels,
-                "answers": generation.answers,
-                "finish_reasons": generation.finish_reasons,
-            },
-            context=context,
-        )
-
     def generate(self) -> Sequence[_GenerationRecord]:
         with torch.inference_mode():
             generations = self._collect_generations()
@@ -193,7 +180,7 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
                 answers=answers,
                 finish_reasons=finish_reasons,
             )
-            self._validate_generation_record(
+            self.validate_generation_record(
                 generation_record, context=f"fresh batch {batch_index}"
             )
             generations.append(generation_record)
@@ -437,7 +424,7 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
-            self._validate_generation_record(generation, context="grading")
+            self.validate_generation_record(generation, context="grading")
             answers = self._format_answers(generation.answers)
             judge_indices = [
                 idx

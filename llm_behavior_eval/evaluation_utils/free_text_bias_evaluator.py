@@ -81,19 +81,6 @@ class _BiasGenerationRecord(_GenerationRecord):
 
 
 class FreeTextBiasEvaluator(FreeTextSharedEvaluator):
-    def _validate_generation_record(
-        self, generation: _BiasGenerationRecord, *, context: str
-    ) -> None:
-        fields = {
-            "questions": generation.questions,
-            "answers": generation.answers,
-            "correct_answers": generation.correct_answers,
-            "finish_reasons": generation.finish_reasons,
-        }
-        if generation.stereotyped_answers is not None:
-            fields["stereotyped_answers"] = generation.stereotyped_answers
-        self.validate_generation_alignment(fields, context=context)
-
     AGREEMENT_CHECK_SYSTEM_PROMPT = """
 You will receive three texts:
 
@@ -225,7 +212,7 @@ candidate_uncertain: "<yes|no>"
                 stereotyped_answers=stereotyped_answers_text,
                 finish_reasons=finish_reasons,
             )
-            self._validate_generation_record(
+            self.validate_generation_record(
                 generation_record, context=f"fresh batch {batch_index}"
             )
             generation_records.append(generation_record)
@@ -377,7 +364,7 @@ candidate_uncertain: "<yes|no>"
             desc="Grading responses",
             unit="batch",
         ):
-            self._validate_generation_record(generation_record, context="grading")
+            self.validate_generation_record(generation_record, context="grading")
             answers = self._format_answers(generation_record.answers)
             judge_indices = [
                 idx

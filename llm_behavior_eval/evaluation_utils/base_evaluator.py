@@ -7,7 +7,7 @@ import re
 import sys
 from abc import ABC, abstractmethod
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, cast
@@ -464,6 +464,18 @@ class BaseEvaluator(ABC):
                 f"expected aligned fields, got {details}."
             )
 
+    def validate_generation_record(
+        self, generation: _GenerationRecord, *, context: str
+    ) -> None:
+        self.validate_generation_alignment(
+            {
+                field.name: value
+                for field in fields(generation)
+                if isinstance((value := getattr(generation, field.name)), list)
+            },
+            context=context,
+        )
+
     def load_aligned_generation_dicts(
         self,
         required_fields: Sequence[str],
@@ -476,40 +488,24 @@ class BaseEvaluator(ABC):
         valid_prefix: list[dict] = []
         for batch_index, item in enumerate(completed_dicts):
             fields: dict[str, Sequence[object]] = {}
-            invalid_field = next(
-                (
-                    name
-                    for name in required_fields
-                    if not isinstance(item.get(name), list)
-                ),
-                None,
-            )
-            if invalid_field is None:
-                invalid_field = next(
-                    (
-                        name
-                        for name in optional_fields
-                        if name in item
-                        and item[name] is not None
-                        and not isinstance(item[name], list)
-                    ),
-                    None,
-                )
-            if invalid_field is None:
-                fields.update({name: item[name] for name in required_fields})
-                fields.update(
-                    {
-                        name: item[name]
-                        for name in optional_fields
-                        if isinstance(item.get(name), list)
-                    }
-                )
             try:
-                if invalid_field is not None:
-                    raise ValueError(
-                        f"Generation record is incomplete (cached batch {batch_index}): "
-                        f"expected {invalid_field} to be a list."
-                    )
+                for name in required_fields:
+                    if not isinstance(item.get(name), list):
+                        raise ValueError(
+                            f"Generation record is incomplete (cached batch {batch_index}): "
+                            f"expected {name} to be a list."
+                        )
+                    fields[name] = item[name]
+                for name in optional_fields:
+                    value = item.get(name)
+                    if value is not None:
+                        if not isinstance(value, list):
+                            raise ValueError(
+                                f"Generation record is incomplete "
+                                f"(cached batch {batch_index}): "
+                                f"expected {name} to be a list."
+                            )
+                        fields[name] = value
                 self.validate_generation_alignment(
                     fields, context=f"cached batch {batch_index}"
                 )

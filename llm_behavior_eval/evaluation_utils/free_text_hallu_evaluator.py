@@ -38,19 +38,6 @@ class _HalluGenerationRecord(_GenerationRecord):
 
 
 class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
-    def _validate_generation_record(
-        self, generation: _HalluGenerationRecord, *, context: str
-    ) -> None:
-        self.validate_generation_alignment(
-            {
-                "input_texts": generation.input_texts,
-                "gt_answers": generation.gt_answers,
-                "answers": generation.answers,
-                "finish_reasons": generation.finish_reasons,
-            },
-            context=context,
-        )
-
     @staticmethod
     def _map_judge_outputs(
         judge_raw: Sequence[Sequence[Mapping[str, str | None]]],
@@ -111,7 +98,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                 answers=answers,
                 finish_reasons=finish_reasons,
             )
-            self._validate_generation_record(
+            self.validate_generation_record(
                 generation_record, context=f"fresh batch {batch_index}"
             )
             generations.append(generation_record)
@@ -197,7 +184,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
-            self._validate_generation_record(generation, context="grading")
+            self.validate_generation_record(generation, context="grading")
             answers = self._format_answers(generation.answers)
             judge_indices = [
                 idx

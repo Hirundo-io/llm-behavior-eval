@@ -40,31 +40,6 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
       """
     ).strip()
 
-    def _validate_generation_record(
-        self, generation: _HalluGenerationRecord, *, context: str
-    ) -> None:
-        injection_generation = cast("_InjectionGenerationRecord", generation)
-        self.validate_generation_alignment(
-            {
-                "input_texts": injection_generation.input_texts,
-                "judge_questions": injection_generation.judge_questions,
-                "gt_answers": injection_generation.gt_answers,
-                "answers": injection_generation.answers,
-                "finish_reasons": injection_generation.finish_reasons,
-            },
-            context=context,
-        )
-
-    @staticmethod
-    def _generation_dict(generation: _InjectionGenerationRecord) -> dict:
-        return {
-            "input_texts": generation.input_texts,
-            "judge_questions": generation.judge_questions,
-            "gt_answers": generation.gt_answers,
-            "answers": generation.answers,
-            "finish_reasons": generation.finish_reasons,
-        }
-
     @staticmethod
     def _generation_from_dict(item: Mapping) -> _InjectionGenerationRecord:
         input_texts = cast("list[str]", item.get("input_texts", []))
@@ -124,10 +99,9 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             ("input_texts", "gt_answers", "answers", "finish_reasons"),
             optional_fields=("judge_questions",),
         )
-        loaded_generations = [
+        completed_generations = [
             self._generation_from_dict(item) for item in completed_dicts
         ]
-        completed_generations = loaded_generations
         completed_samples = sum(
             len(generation.input_texts) for generation in completed_generations
         )
@@ -167,11 +141,21 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 answers=answers,
                 finish_reasons=finish_reasons,
             )
-            self._validate_generation_record(
+            self.validate_generation_record(
                 generation_record, context=f"fresh batch {batch_index}"
             )
             generations.append(generation_record)
-            self.save_generations([self._generation_dict(generation_record)])
+            self.save_generations(
+                [
+                    {
+                        "input_texts": generation_record.input_texts,
+                        "judge_questions": generation_record.judge_questions,
+                        "gt_answers": generation_record.gt_answers,
+                        "answers": generation_record.answers,
+                        "finish_reasons": generation_record.finish_reasons,
+                    }
+                ]
+            )
 
             remaining -= len(input_texts)
             if remaining <= 0:
@@ -214,7 +198,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
-            self._validate_generation_record(generation, context="grading")
+            self.validate_generation_record(generation, context="grading")
             answers = self._format_answers(generation.answers)
             judge_indices = [
                 idx
