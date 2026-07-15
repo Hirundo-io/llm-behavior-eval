@@ -175,11 +175,13 @@ def patch_custom_dataset(
             *,
             trust_remote_code: bool = False,
             token: str | None = None,
+            dataset_id: str | None = None,
         ) -> None:
             capture_state.init_args = (file_path, dataset_type)
             capture_state.trust_remote_code = trust_remote_code
             capture_state.token = token
             self.trust_remote_code = trust_remote_code
+            self.dataset_id = dataset_id or file_path
             self.has_stereotype = False
 
         def preprocess(

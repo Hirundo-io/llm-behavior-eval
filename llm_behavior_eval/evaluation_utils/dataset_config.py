@@ -49,5 +49,5 @@ class DatasetConfig(BaseSettings):
     def default_dataset_id(cls, value: object, info: ValidationInfo) -> object:
         """Use the loading source as the logical identity for legacy callers."""
         if value is None or value == "":
-            return info.data["file_path"]
+            return info.data.get("file_path", value)
         return value

@@ -295,7 +295,10 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
         custom_dataset_module, "safe_apply_chat_template", fake_safe_apply_chat_template
     )
 
-    custom_dataset = CustomDataset(dataset_id, DatasetType.BIAS)
+    load_source = (
+        "/opt/assets/or-bench" if dataset_id == OR_BENCH_DATASET else dataset_id
+    )
+    custom_dataset = CustomDataset(load_source, DatasetType.BIAS, dataset_id=dataset_id)
     if dataset_id == OR_BENCH_DATASET:
         monkeypatch.setattr(
             custom_dataset_module,

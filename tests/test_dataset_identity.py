@@ -12,8 +12,10 @@ from llm_behavior_eval import (
     expand_dataset_preset,
     list_dataset_presets,
 )
+from llm_behavior_eval.evaluation_utils import free_text_hallu_evaluator
 from llm_behavior_eval.evaluation_utils.base_evaluator import BaseEvaluator
 from llm_behavior_eval.evaluation_utils.custom_dataset import CustomDataset
+from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
 from llm_behavior_eval.evaluation_utils.refusal_utils import OR_BENCH_DATASET
 
 
@@ -23,6 +25,11 @@ def test_dataset_id_defaults_to_loading_source() -> None:
     )
 
     assert config.dataset_id == config.file_path
+
+
+def test_missing_file_path_raises_validation_error() -> None:
+    with pytest.raises(ValidationError):
+        DatasetConfig(dataset_type=DatasetType.BIAS)  # type: ignore[call-arg]
 
 
 def test_dataset_id_assignment_cannot_leave_none() -> None:
@@ -56,6 +63,35 @@ def test_local_source_dispatches_by_logical_dataset_id() -> None:
 
     assert config.dataset_id is not None
     assert EvaluateFactory.get_evaluator_family(config.dataset_id) == "hallucination"
+
+
+def test_create_evaluator_dispatches_local_source_by_logical_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    marker = object()
+    captured: list[DatasetConfig] = []
+
+    def fake_evaluator(
+        _eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> object:
+        captured.append(dataset_config)
+        return marker
+
+    monkeypatch.setattr(
+        free_text_hallu_evaluator, "FreeTextHaluEvaluator", fake_evaluator
+    )
+    config = DatasetConfig(
+        file_path="/opt/assets/halueval",
+        dataset_id="hirundo-io/halueval",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    evaluator = EvaluateFactory.create_evaluator(
+        EvaluationConfig(model_path_or_repo_id="model", results_dir=tmp_path), config
+    )
+
+    assert evaluator is marker
+    assert captured == [config]
 
 
 def test_output_and_provenance_retain_logical_identity() -> None:
