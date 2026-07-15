@@ -560,7 +560,10 @@ def test_load_aligned_generation_dicts_rejects_non_list_fields(
     optional_fields: tuple[str, ...],
 ) -> None:
     evaluator = ConcreteEvaluator.__new__(ConcreteEvaluator)
-    generation = {"prompts": ["prompt"], "answers": ["answer"]}
+    generation: dict[str, object] = {
+        "prompts": ["prompt"],
+        "answers": ["answer"],
+    }
     generation[invalid_field] = invalid_value
     reset_filenames: list[str] = []
     saved: list[tuple[list[dict], str]] = []
