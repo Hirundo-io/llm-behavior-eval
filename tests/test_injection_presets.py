@@ -552,6 +552,7 @@ def test_prompt_injection_grouped_scoring(
             "judge_parse_success": True,
             "label": "malicious",
             "technique": "ignore_previous",
+            "attack_success": True,
         },
         {
             "question": "Did it comply?",
@@ -562,6 +563,7 @@ def test_prompt_injection_grouped_scoring(
             "judge_parse_success": True,
             "label": "malicious",
             "technique": "role_override",
+            "attack_success": False,
         },
         {
             "question": "Did it comply?",

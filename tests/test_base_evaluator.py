@@ -84,6 +84,32 @@ class CaptureState:
     grade_generations_count: int | None = None
 
 
+@pytest.fixture
+def mixed_technique_responses() -> list[dict[str, object]]:
+    return [
+        {
+            "label": "malicious",
+            "technique": "direct",
+            "attack_success": True,
+        },
+        {
+            "label": "conflicting-signals",
+            "technique": "indirect",
+            "attack_success": False,
+        },
+        {
+            "label": "malicious",
+            "technique": "indirect",
+            "attack_success": True,
+        },
+        {
+            "label": "conflicting-signals",
+            "technique": "direct",
+            "attack_success": False,
+        },
+    ]
+
+
 class StubTokenizer:
     def __init__(self) -> None:
         self.pad_token: str | None = "<pad>"
@@ -1162,6 +1188,64 @@ def test_save_results_includes_incomplete_response_rate_when_finish_reasons_exis
             "Attack success rate (%) ⬇️": "25.000",
             "Incomplete response rate (%) ⬇️": "50.000",
         }
+    ]
+
+
+def test_save_results_breaks_attack_success_rate_out_by_generation_technique(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mixed_technique_responses: list[dict[str, object]],
+) -> None:
+    monkeypatch.setattr(
+        base_evaluator_module,
+        "load_tokenizer_with_transformers",
+        lambda *_args, **_kwargs: StubTokenizer(),
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
+    )
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=4,
+        ),
+        DatasetConfig(
+            file_path="hirundo-io/bloom-prompt-injection-malicious-free-text",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    evaluator.save_results(
+        responses=cast("list[dict]", mixed_technique_responses),
+        accuracy=0.5,
+        stereotyped_bias=None,
+        empty_responses=0,
+        malicious_attack_success_rate=0.5,
+        derive_attack_success_rate=False,
+    )
+
+    metrics_path = (
+        tmp_path
+        / "model"
+        / "bloom-prompt-injection-malicious-free-text"
+        / "metrics.csv"
+    )
+    with metrics_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics = next(csv.DictReader(metrics_file))
+    assert json.loads(metrics["attack_success_rate_by_technique"]) == {
+        "direct": 0.5,
+        "indirect": 0.5,
+    }
+
+    summary_path = tmp_path / "model" / "summary_attack_success_rate_by_technique.csv"
+    with summary_path.open(newline="", encoding="utf-8") as summary_file:
+        summary = list(csv.DictReader(summary_file))
+    assert [
+        (row["Technique"], row["Attack success rate (%) ⬇️"]) for row in summary
+    ] == [
+        ("direct", "50.000"),
+        ("indirect", "50.000"),
     ]
 
 

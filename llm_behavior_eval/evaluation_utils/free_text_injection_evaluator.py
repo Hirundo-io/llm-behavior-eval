@@ -667,6 +667,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 normalized_technique = (
                     row_technique.strip().lower() if row_technique else None
                 )
+                attack_success: bool | None = None
                 if parsed_row_label is not None:
                     has_grouped_labels = True
                     if (
@@ -684,6 +685,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                         attack_success_counts[parsed_row_label][
                             attack_success_label
                         ] += 1
+                        attack_success = attack_success_label == "Yes"
                     if parsed_row_label in over_defensiveness_labels:
                         if finish_reason == "stop":
                             over_defensiveness_counts[parsed_row_label][
@@ -711,6 +713,8 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                     response["label"] = parsed_row_label
                 if normalized_technique is not None:
                     response["technique"] = normalized_technique
+                if attack_success is not None:
+                    response["attack_success"] = attack_success
                 responses.append(response)
 
         total = sum(counts.values()) or 1
