@@ -471,6 +471,81 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.seed == evaluator.dataset_config.seed
 
 
+def test_generate_answers_rejects_short_test_model_output(tmp_path: Path) -> None:
+    evaluator = ConcreteEvaluator.__new__(ConcreteEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    class ShortEngine:
+        @staticmethod
+        def generate_answers(*_args, **_kwargs):
+            return ["only one"], ["stop"]
+
+    evaluator.eval_engine = cast("EvalEngine", ShortEngine())
+    input_ids = torch.tensor([[10], [11]])
+
+    with pytest.raises(
+        ValueError,
+        match=r"test-model generation.*prompts=2.*answers=1.*finish_reasons=1",
+    ):
+        evaluator.generate_answers(input_ids, torch.ones_like(input_ids))
+
+
+def test_process_judge_prompts_rejects_short_judge_output(tmp_path: Path) -> None:
+    class StubFreeTextEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def _grade_impl(self, generations: object, judge_engine: object = None) -> None:
+            del generations, judge_engine
+
+        def get_grading_context(self) -> AbstractContextManager:
+            return nullcontext()
+
+    evaluator = StubFreeTextEvaluator.__new__(StubFreeTextEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    class TwoPromptTokenizer:
+        @staticmethod
+        def __call__(*_args, **_kwargs):
+            input_ids = torch.tensor([[10], [11]])
+            return {
+                "input_ids": input_ids,
+                "attention_mask": torch.ones_like(input_ids),
+            }
+
+    class ShortJudgeEngine:
+        @staticmethod
+        def generate_answers(*_args, **_kwargs):
+            return ["only one"], ["stop"]
+
+    evaluator.judge_tokenizer = cast("PreTrainedTokenizerBase", TwoPromptTokenizer())
+
+    with pytest.raises(
+        ValueError,
+        match=r"judge-model generation.*prompts=2.*answers=1.*finish_reasons=1",
+    ):
+        evaluator._process_judge_prompts_batch(
+            cast("EvalEngine", ShortJudgeEngine()), ["one", "two"]
+        )
+
+
 def test_get_model_slug_includes_lora_slug(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
