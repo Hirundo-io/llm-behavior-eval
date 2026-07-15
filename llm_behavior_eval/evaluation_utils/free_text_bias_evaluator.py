@@ -212,7 +212,7 @@ candidate_uncertain: "<yes|no>"
                 stereotyped_answers=stereotyped_answers_text,
                 finish_reasons=finish_reasons,
             )
-            self.validate_generation_record(
+            self._validate_generation_record(
                 generation_record, context=f"fresh batch {batch_index}"
             )
             generation_records.append(generation_record)
@@ -364,7 +364,7 @@ candidate_uncertain: "<yes|no>"
             desc="Grading responses",
             unit="batch",
         ):
-            self.validate_generation_record(generation_record, context="grading")
+            self._validate_generation_record(generation_record, context="grading")
             answers = self._format_answers(generation_record.answers)
             judge_indices = [
                 idx

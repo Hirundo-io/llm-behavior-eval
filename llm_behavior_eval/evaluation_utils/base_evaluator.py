@@ -464,7 +464,7 @@ class BaseEvaluator(ABC):
                 f"expected aligned fields, got {details}."
             )
 
-    def validate_generation_record(
+    def _validate_generation_record(
         self, generation: _GenerationRecord, *, context: str
     ) -> None:
         self.validate_generation_alignment(

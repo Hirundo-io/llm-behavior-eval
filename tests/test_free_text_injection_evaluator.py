@@ -35,7 +35,7 @@ def test_generation_record_rejects_short_generated_answers() -> None:
         ValueError,
         match=r"fresh batch 3.*answers=1",
     ):
-        evaluator.validate_generation_record(generation, context="fresh batch 3")
+        evaluator._validate_generation_record(generation, context="fresh batch 3")
 
 
 def test_generation_record_rejects_short_finish_reasons() -> None:
@@ -49,7 +49,7 @@ def test_generation_record_rejects_short_finish_reasons() -> None:
     )
 
     with pytest.raises(ValueError, match=r"grading.*finish_reasons=0"):
-        evaluator.validate_generation_record(generation, context="grading")
+        evaluator._validate_generation_record(generation, context="grading")
 
 
 def test_legacy_cached_generation_uses_input_texts_as_judge_questions() -> None:
@@ -63,7 +63,7 @@ def test_legacy_cached_generation_uses_input_texts_as_judge_questions() -> None:
         }
     )
 
-    evaluator.validate_generation_record(generation, context="cached batch 0")
+    evaluator._validate_generation_record(generation, context="cached batch 0")
     assert generation.judge_questions == ["legacy question"]
 
 
@@ -157,4 +157,4 @@ def test_all_free_text_evaluators_reject_misaligned_generation_records(
     evaluator = object.__new__(evaluator_type)
 
     with pytest.raises(ValueError, match=short_field):
-        evaluator.validate_generation_record(generation, context="grading")
+        evaluator._validate_generation_record(generation, context="grading")

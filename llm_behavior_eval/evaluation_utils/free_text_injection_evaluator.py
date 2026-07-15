@@ -148,7 +148,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 answers=answers,
                 finish_reasons=finish_reasons,
             )
-            self.validate_generation_record(
+            self._validate_generation_record(
                 generation_record, context=f"fresh batch {batch_index}"
             )
             generations.append(generation_record)
@@ -205,7 +205,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
-            self.validate_generation_record(generation, context="grading")
+            self._validate_generation_record(generation, context="grading")
             answers = self._format_answers(generation.answers)
             judge_indices = [
                 idx
