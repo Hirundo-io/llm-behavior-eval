@@ -11,6 +11,7 @@ class SamplingConfig(BaseSettings):
         top_p: The top-p value for sampling.
         top_k: The top-k value for sampling.
         seed: The seed for sampling.
+        stop_strings: Optional strings that stop generation when encountered.
     """
 
     model_config = SettingsConfigDict(env_prefix="bias_sampling_")
@@ -20,3 +21,4 @@ class SamplingConfig(BaseSettings):
     top_p: float | None = 1.0
     top_k: int | None = 0
     seed: int | None = 42
+    stop_strings: list[str] | None = None

@@ -24,6 +24,7 @@ from llm_behavior_eval.evaluation_utils.base_evaluator import (
 from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.eval_config import (
+    FAMILY_TOKEN_DEFAULTS,
     EvaluationConfig,
     MlflowConfig,
 )
@@ -31,6 +32,9 @@ from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
     _HalluGenerationRecord,
+)
+from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
+    FreeTextPromptInjectionEvaluator,
 )
 from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
     FreeTextRefusalEvaluator,
@@ -224,6 +228,26 @@ def patch_dataloader(
         return "loader"
 
     monkeypatch.setattr(base_evaluator_module, "DataLoader", fake_dataloader)
+
+
+class NoopJudgeEngine(EvalEngine):
+    def generate_answers(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        sampling_config: SamplingConfig,
+    ) -> tuple[list[str], list[str | None]]:
+        del attention_mask, sampling_config
+        return [""] * input_ids.shape[0], [None] * input_ids.shape[0]
+
+    def free_model(self) -> None:
+        return None
+
+    def get_batch_size(self) -> int:
+        return 1
+
+    def set_dataset(self, eval_dataset: Dataset) -> None:
+        return None
 
 
 class ConcreteEvaluator(BaseEvaluator):
@@ -455,6 +479,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
         judge_engine,
         ["prompt-a", "prompt-b"],
         do_sample=None,
+        stop_strings=["\n"],
     )
 
     assert outputs == [
@@ -469,6 +494,109 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.top_p == 0.9
     assert sampling_config.top_k == 4
     assert sampling_config.seed == evaluator.dataset_config.seed
+    assert sampling_config.stop_strings == ["\n"]
+
+
+def test_run_judge_with_backoff_propagates_stop_strings(tmp_path: Path) -> None:
+    class StubFreeTextEvaluator(FreeTextSharedEvaluator):
+        def evaluate(self) -> None:
+            return None
+
+        def generate(self) -> Sequence[_GenerationRecord]:
+            return []
+
+        def _grade_impl(self, generations: object, judge_engine: object = None) -> None:
+            del generations, judge_engine
+            return None
+
+    evaluator = StubFreeTextEvaluator.__new__(StubFreeTextEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        judge_batch_size=1,
+    )
+    captured_stop_strings: list[list[str] | None] = []
+
+    def fake_process(
+        judge_engine: EvalEngine,
+        prompts: list[str],
+        batch_size: int | None = None,
+        do_sample: bool | None = None,
+        stop_strings: list[str] | None = None,
+    ) -> list[list[dict[str, str | None]]]:
+        del judge_engine, batch_size, do_sample
+        captured_stop_strings.append(stop_strings)
+        return [
+            [{"generated_text": prompt, "finish_reason": None}] for prompt in prompts
+        ]
+
+    evaluator._process_judge_prompts_batch = fake_process
+
+    outputs = evaluator.run_judge_with_backoff(
+        NoopJudgeEngine(), ["prompt-a", "prompt-b"], stop_strings=["\n"]
+    )
+
+    assert outputs == [
+        [{"generated_text": "prompt-a", "finish_reason": None}],
+        [{"generated_text": "prompt-b", "finish_reason": None}],
+    ]
+    assert captured_stop_strings == [["\n"], ["\n"]]
+
+
+def test_prompt_injection_judge_uses_newline_stop_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = FreeTextPromptInjectionEvaluator.__new__(
+        FreeTextPromptInjectionEvaluator
+    )
+    captured_stop_strings: list[str] | None = None
+
+    class StubTokenizer:
+        name_or_path = "stub/model"
+        chat_template = None
+
+        def apply_chat_template(
+            self, messages, tokenize=False, add_generation_prompt=True
+        ):
+            del tokenize, add_generation_prompt
+            return messages[0]["content"]
+
+    def fake_prepare() -> None:
+        return None
+
+    def fake_get_tokenizer():
+        return StubTokenizer()
+
+    def fake_run(
+        judge_engine: EvalEngine,
+        prompts: list[str],
+        stop_strings: list[str] | None = None,
+    ) -> list[list[dict[str, str | None]]]:
+        nonlocal captured_stop_strings
+        del judge_engine, prompts
+        captured_stop_strings = stop_strings
+        return [[{"generated_text": "Yes", "finish_reason": "stop"}]]
+
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", fake_prepare)
+    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", fake_get_tokenizer)
+    monkeypatch.setattr(evaluator, "run_judge_with_backoff", fake_run)
+
+    assert evaluator._grade_batch(
+        NoopJudgeEngine(), ["question"], ["answer"], ["response"]
+    ) == ["Yes"]
+    assert captured_stop_strings == ["\n"]
+
+
+def test_prompt_injection_default_max_judge_tokens_remains_128() -> None:
+    assert FAMILY_TOKEN_DEFAULTS["prompt-injection"]["max_judge_tokens"] == 128
+
+
+def test_prompt_injection_empty_judge_output_is_unparseable() -> None:
+    raw = [[{"generated_text": "", "finish_reason": "stop"}]]
+
+    assert FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no(raw) == [
+        "unparseable"
+    ]
 
 
 def test_get_model_slug_includes_lora_slug(

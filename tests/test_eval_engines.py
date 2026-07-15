@@ -24,6 +24,7 @@ class RecordingTokenizer:
         self.pad_token_id = pad_token_id
         self.eos_token_id = eos_token_id
         self.batch_decode_calls: list[dict[str, object]] = []
+        self.decode_outputs: list[str] | None = None
         self.pad_token: str | None = None
         self.eos_token = "<eos>"
 
@@ -31,6 +32,8 @@ class RecordingTokenizer:
         self.batch_decode_calls.append(
             {"tokens": tokens.clone(), "skip_special_tokens": skip_special_tokens}
         )
+        if self.decode_outputs is not None:
+            return self.decode_outputs
         return ["decoded"] * tokens.size(0)
 
 
@@ -342,6 +345,7 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
             top_p=0.9,
             top_k=5,
             seed=99,
+            stop_strings=["\n"],
         ),
     )
     assert responses == ["first", ""]
@@ -351,6 +355,7 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
     assert call_kwargs["top_p"] == 0.9
     assert call_kwargs["top_k"] == 5
     assert call_kwargs["seed"] == 99
+    assert call_kwargs["stop"] == ["\n"]
 
 
 @pytest.mark.vllm_engine_test
@@ -495,6 +500,39 @@ def test_transformers_eval_engine_sampling_config_overrides_defaults(
     assert generate_call["temperature"] == 1.0
     assert generate_call["top_p"] == 1.0
     assert generate_call["top_k"] == 0
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_stop_strings_finish_reason(
+    transformers_bundle, tmp_path
+) -> None:
+    transformers_bundle.tokenizer.decode_outputs = ["\nYes"]
+    dataset = Dataset.from_dict({"prompt": ["hi"]})
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        max_answer_tokens=3,
+        sample=False,
+        batch_size=1,
+    )
+
+    engine = TransformersEvalEngine(
+        transformers_bundle.data_collator,
+        config,
+    )
+    engine.set_dataset(dataset)
+
+    answers, finish_reasons = engine.generate_answers(
+        torch.tensor([[7, 8]]),
+        torch.tensor([[1, 1]]),
+        sampling_config=SamplingConfig(stop_strings=["\n"]),
+    )
+
+    assert answers == [""]
+    assert finish_reasons == ["stop"]
+    generate_call = transformers_bundle.model.generate_calls[-1]
+    assert generate_call["stop_strings"] == ["\n"]
+    assert generate_call["tokenizer"] is transformers_bundle.tokenizer
 
 
 @pytest.mark.transformers_engine_test

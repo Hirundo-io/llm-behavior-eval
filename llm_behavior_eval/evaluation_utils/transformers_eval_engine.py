@@ -96,26 +96,50 @@ class TransformersEvalEngine(EvalEngine):
             eos_token_ids = {int(eos_token_id)}
 
         with torch.inference_mode():
-            outputs = self.model.generate(
-                input_ids=model_input_ids,
-                attention_mask=model_attention,
-                max_new_tokens=max_new_tokens,
-                do_sample=do_sample,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                return_dict_in_generate=True,
-            )
+            if sampling_config.stop_strings:
+                outputs = self.model.generate(
+                    input_ids=model_input_ids,
+                    attention_mask=model_attention,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=do_sample,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    return_dict_in_generate=True,
+                    stop_strings=sampling_config.stop_strings,
+                    tokenizer=self.tokenizer,
+                )
+            else:
+                outputs = self.model.generate(
+                    input_ids=model_input_ids,
+                    attention_mask=model_attention,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=do_sample,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    return_dict_in_generate=True,
+                )
         sequences = outputs.sequences
         generated_tokens = sequences[:, model_input_ids.shape[1] :].detach().cpu()
-        answers = self.tokenizer.batch_decode(
+        raw_answers = self.tokenizer.batch_decode(
             generated_tokens, skip_special_tokens=True
         )
+        answers = [
+            self._truncate_at_stop_string(answer, sampling_config.stop_strings)
+            for answer in raw_answers
+        ]
         finish_reasons: list[str | None] = []
-        for sample_generated_tokens in generated_tokens:
-            if eos_token_ids and any(
+        for answer, sample_generated_tokens in zip(
+            raw_answers, generated_tokens, strict=True
+        ):
+            if self._contains_stop_string(answer, sampling_config.stop_strings):
+                finish_reasons.append("stop")
+            elif eos_token_ids and any(
                 int(token_id.item()) in eos_token_ids
                 for token_id in sample_generated_tokens
             ):
@@ -123,6 +147,21 @@ class TransformersEvalEngine(EvalEngine):
             else:
                 finish_reasons.append("length")
         return answers, finish_reasons
+
+    @staticmethod
+    def _contains_stop_string(answer: str, stop_strings: list[str] | None) -> bool:
+        return bool(stop_strings) and any(stop in answer for stop in stop_strings)
+
+    @staticmethod
+    def _truncate_at_stop_string(answer: str, stop_strings: list[str] | None) -> str:
+        if not stop_strings:
+            return answer
+        stop_positions = [
+            position for stop in stop_strings if (position := answer.find(stop)) != -1
+        ]
+        if not stop_positions:
+            return answer
+        return answer[: min(stop_positions)]
 
     def ensure_test_model_ready(self) -> None:
         self.model.eval()

@@ -48,7 +48,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         for item in judge_raw:
             generated_text = (item[0].get("generated_text") or "").strip()
             m = re.search(r"\b(yes|no)\b", generated_text, flags=re.IGNORECASE)
-            labels.append(m.group(1).capitalize() if m else "No")
+            labels.append(m.group(1).capitalize() if m else "unparseable")
         return labels
 
     def _grade_batch(
@@ -77,7 +77,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                     ],
                 )
             )
-        raw = self.run_judge_with_backoff(judge_engine, prompts)
+        raw = self.run_judge_with_backoff(judge_engine, prompts, stop_strings=["\n"])
         return self._map_judge_outputs_yes_no(raw)
 
     def _collect_generations(

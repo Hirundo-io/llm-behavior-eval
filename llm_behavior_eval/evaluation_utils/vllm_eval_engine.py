@@ -183,6 +183,7 @@ class VllmEvalEngine(EvalEngine):
             top_p=top_p,
             top_k=top_k,
             stop_token_ids=stop_token_ids,
+            stop=sampling_config.stop_strings,
             seed=sampling_config.seed,
         )
 
