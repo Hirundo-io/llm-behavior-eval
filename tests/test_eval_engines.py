@@ -315,6 +315,7 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
     assert call_kwargs["max_tokens"] == config.max_answer_tokens
     assert call_kwargs["temperature"] == 0.0
     assert call_kwargs["stop_token_ids"] == [vllm_bundle.tokenizer.eos_token_id]
+    assert "stop" not in call_kwargs
     assert vllm_bundle.tokenizer.pad_token == vllm_bundle.tokenizer.eos_token
     assert engine.get_batch_size() == len(dataset)
 

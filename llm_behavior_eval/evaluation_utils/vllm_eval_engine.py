@@ -177,13 +177,22 @@ class VllmEvalEngine(EvalEngine):
         top_p = sampling_config.top_p if sampling_config.top_p is not None else 1.0
         top_k = sampling_config.top_k if sampling_config.top_k is not None else 0
         stop_token_ids = self._collect_stop_token_ids()
+        if sampling_config.stop_strings:
+            return SamplingParams(
+                max_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                stop_token_ids=stop_token_ids,
+                stop=sampling_config.stop_strings,
+                seed=sampling_config.seed,
+            )
         return SamplingParams(
             max_tokens=max_new_tokens,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
             stop_token_ids=stop_token_ids,
-            stop=sampling_config.stop_strings,
             seed=sampling_config.seed,
         )
 
