@@ -1,5 +1,3 @@
-from typing import cast
-
 from .base_evaluator import BaseEvaluator
 from .dataset_config import DatasetConfig
 from .eval_config import EvaluationConfig, EvaluatorFamily
@@ -37,7 +35,7 @@ class EvaluateFactory:
         Returns:
             An instance of a class that inherits from BaseEvaluator.
         """
-        dataset_id = cast("str", dataset_config.dataset_id)
+        dataset_id = dataset_config.dataset_id
         evaluator_family = EvaluateFactory.get_evaluator_family(dataset_id)
         resolved_eval_config = eval_config.resolve_for_family(evaluator_family)
         if evaluator_family == "hallucination":

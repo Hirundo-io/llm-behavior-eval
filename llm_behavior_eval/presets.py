@@ -62,12 +62,28 @@ PRESET_CATALOG = {preset.name: preset for preset in _PRESETS}
 
 
 def list_dataset_presets() -> tuple[DatasetPreset, ...]:
-    """Return every supported preset and its complete asset expansion."""
+    """Return every supported preset and its complete asset expansion.
+
+    Returns:
+        tuple[DatasetPreset, ...]: Every supported preset and its complete asset
+        expansion in deterministic catalog order.
+    """
     return _PRESETS
 
 
 def expand_dataset_preset(name: str) -> list[str]:
-    """Expand a supported CLI preset into canonical dataset identifiers."""
+    """Expand a supported CLI preset into canonical dataset identifiers.
+
+    Args:
+        name: Case-insensitive preset key from ``PRESET_CATALOG``, such as
+            ``bloom:bias:gender:ambiguous`` or ``refusal:all``.
+
+    Returns:
+        list[str]: Canonical dataset identifiers required by the preset.
+
+    Raises:
+        ValueError: If ``name`` is not a supported preset key.
+    """
     try:
         return list(PRESET_CATALOG[name.lower()].dataset_ids)
     except KeyError as exc:

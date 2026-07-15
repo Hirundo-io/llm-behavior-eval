@@ -238,8 +238,7 @@ class BaseEvaluator(ABC):
         Returns:
             The slug for the dataset.
         """
-        dataset_id = cast("str", self.dataset_config.dataset_id)
-        return dataset_id.split("/")[-1]
+        return self.dataset_config.dataset_id.split("/")[-1]
 
     def get_output_dir(self) -> Path:
         """
@@ -274,7 +273,7 @@ class BaseEvaluator(ABC):
             trust_remote_code=self.trust_remote_code,
             token=self.eval_config.model_token,
         )
-        custom_dataset.dataset_id = cast("str", self.dataset_config.dataset_id)
+        custom_dataset.dataset_id = self.dataset_config.dataset_id
         test_dataset = custom_dataset.preprocess(
             self.tokenizer,
             self.dataset_config.preprocess_config,
@@ -805,7 +804,7 @@ class BaseEvaluator(ABC):
                     "Main MLFlow run not found, cannot launch dataset run before initializing MLFlow"
                 )
             if self.mlflow_config.mlflow_run_id:
-                logging.info(
+                logging.warning(
                     "Attaching dataset to existing run %s (dataset_id=%s, dataset_type=%s)",
                     self.mlflow_config.mlflow_run_id,
                     self.dataset_config.dataset_id,
@@ -990,6 +989,12 @@ class BaseEvaluator(ABC):
 
         with open(config_path) as file_handle:
             existing_run_config = json.load(file_handle)
+
+        existing_dataset_config = existing_run_config.get("dataset_config", {})
+        if "dataset_id" not in existing_dataset_config:
+            existing_dataset_config["dataset_id"] = existing_dataset_config.get(
+                "file_path"
+            )
 
         if existing_run_config == run_config:
             logging.info(

@@ -1,4 +1,4 @@
-from pydantic import model_validator
+from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .enums import DatasetType
@@ -34,17 +34,18 @@ class DatasetConfig(BaseSettings):
         seed: The random seed for reproducibility.
     """
 
-    model_config = SettingsConfigDict(env_prefix="bias_dataset_")
+    model_config = SettingsConfigDict(
+        env_prefix="bias_dataset_", validate_assignment=True, validate_default=True
+    )
 
     file_path: str
-    dataset_id: str | None = None
+    dataset_id: str = ""
     dataset_type: DatasetType
     preprocess_config: PreprocessConfig = PreprocessConfig()
     seed: int | None = 42
 
-    @model_validator(mode="after")
-    def default_dataset_id(self) -> "DatasetConfig":
+    @field_validator("dataset_id", mode="before")
+    @classmethod
+    def default_dataset_id(cls, value: object, info: ValidationInfo) -> object:
         """Use the loading source as the logical identity for legacy callers."""
-        if self.dataset_id is None:
-            self.dataset_id = self.file_path
-        return self
+        return value or info.data["file_path"]

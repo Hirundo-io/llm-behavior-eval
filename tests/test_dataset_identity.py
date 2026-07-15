@@ -24,6 +24,16 @@ def test_dataset_id_defaults_to_loading_source() -> None:
     assert config.dataset_id == config.file_path
 
 
+def test_dataset_id_assignment_cannot_leave_none() -> None:
+    config = DatasetConfig(
+        file_path="hirundo-io/halueval", dataset_type=DatasetType.BIAS
+    )
+
+    config.dataset_id = None  # type: ignore[assignment]
+
+    assert config.dataset_id == config.file_path
+
+
 def test_local_source_dispatches_by_logical_dataset_id() -> None:
     config = DatasetConfig(
         file_path="/opt/assets/halueval",

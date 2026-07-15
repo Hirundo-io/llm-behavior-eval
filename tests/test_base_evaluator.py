@@ -1340,6 +1340,35 @@ def test_run_config_mismatch_allows_skip_reusing_existing_outputs(
     )
 
 
+def test_legacy_run_config_without_dataset_id_reuses_cached_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(eval_config, dataset_config)
+    run_config_path = evaluator.run_config_path()
+    run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+    run_config["dataset_config"].pop("dataset_id")
+    run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
+    monkeypatch.setattr(
+        base_evaluator_module.typer,
+        "prompt",
+        lambda *_args, **_kwargs: pytest.fail("matching legacy config prompted"),
+    )
+
+    ConcreteEvaluator(eval_config, dataset_config)
+
+    persisted = json.loads(run_config_path.read_text(encoding="utf-8"))
+    assert "dataset_id" not in persisted["dataset_config"]
+
+
 def test_run_config_mismatch_cancel_still_raises_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
