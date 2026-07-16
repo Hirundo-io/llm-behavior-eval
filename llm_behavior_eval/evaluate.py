@@ -70,7 +70,10 @@ def _resolve_bias_behavior(
 
     allowed_with_all = ", ".join(sorted(list(allowed_types)) + ["all"])
     if bias_type == "all":
-        return [build_bias_dataset_id(prefix, bt, kind) for bt in sorted(allowed_types)]
+        return [
+            build_bias_dataset_id(prefix, bias_type, kind)
+            for bias_type in sorted(allowed_types)
+        ]
 
     if bias_type not in allowed_types:
         raise ValueError(f"{support_label} supports: {allowed_with_all}")

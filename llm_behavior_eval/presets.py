@@ -2,7 +2,12 @@
 
 from dataclasses import dataclass
 
-from .evaluation_utils.enums import BBQ_BIAS_TYPES, BLOOM_BIAS_TYPES, UNQOVER_BIAS_TYPES
+from .evaluation_utils.enums import (
+    BBQ_BIAS_TYPES,
+    BIAS_KINDS,
+    BLOOM_BIAS_TYPES,
+    UNQOVER_BIAS_TYPES,
+)
 from .evaluation_utils.refusal_utils import OR_BENCH_DATASET, XSTEST_DATASET
 
 
@@ -55,15 +60,15 @@ def _bias_ids(
 
 
 _PRESETS = (
-    *_bias_ids("bbq", {"bias", "unbias"}, BBQ_BIAS_TYPES),
+    *_bias_ids("bbq", BIAS_KINDS, BBQ_BIAS_TYPES),
     *_bias_ids("unqover", {"bias"}, UNQOVER_BIAS_TYPES),
-    *_bias_ids("bloom", {"bias", "unbias"}, BLOOM_BIAS_TYPES),
+    *_bias_ids("bloom", BIAS_KINDS, BLOOM_BIAS_TYPES),
     *(
         DatasetPreset(
-            f"bloom:bias:{kind}:ambiguous",
-            (f"hirundo-io/bloom-{kind}-ambiguous-bias-free-text",),
+            f"bloom:bias:{bias_type}:ambiguous",
+            (f"hirundo-io/bloom-{bias_type}-ambiguous-bias-free-text",),
         )
-        for kind in sorted(BLOOM_BIAS_TYPES)
+        for bias_type in sorted(BLOOM_BIAS_TYPES)
     ),
     DatasetPreset("hallu", ("hirundo-io/halueval",)),
     DatasetPreset("hallu-med", ("hirundo-io/medhallu",)),
@@ -72,7 +77,7 @@ _PRESETS = (
     DatasetPreset("refusal:orbench", (OR_BENCH_DATASET,)),
     DatasetPreset("refusal:all", (XSTEST_DATASET, OR_BENCH_DATASET)),
 )
-PRESET_CATALOG = {preset.name: preset for preset in _PRESETS}
+_PRESETS_BY_NAME = {preset.name: preset for preset in _PRESETS}
 
 
 def list_dataset_presets() -> tuple[DatasetPreset, ...]:
@@ -89,7 +94,7 @@ def expand_dataset_preset(name: str) -> list[str]:
     """Expand a supported CLI preset into canonical dataset identifiers.
 
     Args:
-        name: Case-insensitive preset key from ``PRESET_CATALOG``, such as
+        name: Case-insensitive supported preset key, such as
             ``bloom:bias:gender:ambiguous`` or ``refusal:all``.
 
     Returns:
@@ -99,6 +104,6 @@ def expand_dataset_preset(name: str) -> list[str]:
         ValueError: If ``name`` is not a supported preset key.
     """
     try:
-        return list(PRESET_CATALOG[name.lower()].dataset_ids)
+        return list(_PRESETS_BY_NAME[name.lower()].dataset_ids)
     except KeyError as exc:
         raise ValueError(f"Unknown behavior preset: {name}") from exc
