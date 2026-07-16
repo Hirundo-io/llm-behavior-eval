@@ -35,7 +35,7 @@ class EvaluateFactory:
         Returns:
             An instance of a class that inherits from BaseEvaluator.
         """
-        dataset_id = dataset_config.file_path
+        dataset_id = dataset_config.dataset_id
         evaluator_family = EvaluateFactory.get_evaluator_family(dataset_id)
         resolved_eval_config = eval_config.resolve_for_family(evaluator_family)
         if evaluator_family == "hallucination":

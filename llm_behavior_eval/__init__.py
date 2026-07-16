@@ -13,6 +13,7 @@ from .evaluation_utils.util_functions import (
     safe_apply_chat_template,
 )
 from .evaluation_utils.vllm_config import VllmConfig
+from .presets import DatasetPreset, expand_dataset_preset, list_dataset_presets
 
 __all__ = [
     "EvaluateFactory",
@@ -30,6 +31,9 @@ __all__ = [
     "load_tokenizer_with_transformers",
     "pick_best_dtype",
     "safe_apply_chat_template",
+    "DatasetPreset",
+    "expand_dataset_preset",
+    "list_dataset_presets",
 ]
 
 __version__ = "0.1.6b11"

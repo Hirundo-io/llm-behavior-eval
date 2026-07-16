@@ -195,12 +195,12 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
         return generations
 
     def _judge_prompt_template(self) -> str:
-        if self.dataset_config.file_path == OR_BENCH_DATASET:
+        if self.dataset_config.dataset_id == OR_BENCH_DATASET:
             return OR_BENCH_JUDGE_PROMPT
         return XSTEST_JUDGE_PROMPT
 
     def _parse_judge_text(self, text: str) -> RefusalJudgment:
-        if self.dataset_config.file_path == OR_BENCH_DATASET:
+        if self.dataset_config.dataset_id == OR_BENCH_DATASET:
             return parse_or_bench_judgment(text)
         return parse_xstest_judgment(text)
 

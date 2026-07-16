@@ -77,6 +77,7 @@ class CaptureState:
     token: str | None = None
     padding_side_at_preprocess: str | None = None
     init_args: tuple[str, DatasetType] | None = None
+    custom_dataset_id: str | None = None
     engine_inits: list[bool] = field(default_factory=list)
     set_dataset_calls: list[tuple[bool, Sized]] = field(default_factory=list)
     free_model_calls: list[bool] = field(default_factory=list)
@@ -175,11 +176,14 @@ def patch_custom_dataset(
             *,
             trust_remote_code: bool = False,
             token: str | None = None,
+            dataset_id: str | None = None,
         ) -> None:
             capture_state.init_args = (file_path, dataset_type)
             capture_state.trust_remote_code = trust_remote_code
             capture_state.token = token
+            capture_state.custom_dataset_id = dataset_id
             self.trust_remote_code = trust_remote_code
+            self.dataset_id = dataset_id or file_path
             self.has_stereotype = False
 
         def preprocess(
@@ -269,6 +273,34 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
     assert evaluator.eval_loader == "loader"
     assert evaluator.num_samples == 3
     assert capture_state.engine_dataset == evaluator.eval_dataset
+
+
+def test_prepare_dataloader_propagates_explicit_and_default_dataset_id(
+    tmp_path: Path, capture_state: CaptureState
+) -> None:
+    evaluation_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    evaluator = ConcreteEvaluator(
+        evaluation_config,
+        DatasetConfig(
+            file_path="/opt/assets/halueval",
+            dataset_id="hirundo-io/halueval",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+
+    assert capture_state.custom_dataset_id == "hirundo-io/halueval"
+
+    evaluator.dataset_config = DatasetConfig(
+        file_path="repo/fallback-dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator.prepare_dataloader()
+
+    assert capture_state.custom_dataset_id == "repo/fallback-dataset"
 
 
 def test_mlflow_initializes_after_dataloader_preparation(
@@ -1338,6 +1370,35 @@ def test_run_config_mismatch_allows_skip_reusing_existing_outputs(
     assert persisted_config["evaluation_config"]["model_path_or_repo_id"] == (
         "different/model"
     )
+
+
+def test_legacy_run_config_without_dataset_id_reuses_cached_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(eval_config, dataset_config)
+    run_config_path = evaluator.run_config_path()
+    run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+    run_config["dataset_config"].pop("dataset_id")
+    run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
+    monkeypatch.setattr(
+        base_evaluator_module.typer,
+        "prompt",
+        lambda *_args, **_kwargs: pytest.fail("matching legacy config prompted"),
+    )
+
+    ConcreteEvaluator(eval_config, dataset_config)
+
+    persisted = json.loads(run_config_path.read_text(encoding="utf-8"))
+    assert "dataset_id" not in persisted["dataset_config"]
 
 
 def test_run_config_mismatch_cancel_still_raises_error(

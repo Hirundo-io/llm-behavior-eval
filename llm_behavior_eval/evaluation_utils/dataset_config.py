@@ -1,3 +1,4 @@
+from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .enums import DatasetType
@@ -25,15 +26,28 @@ class DatasetConfig(BaseSettings):
     DatasetConfig is a configuration class for defining the settings of a dataset.
 
     Attributes:
-        file_path: The HuggingFace repo id of the dataset file.
+        file_path: Local path or Hugging Face repository used to load the dataset.
+        dataset_id: Stable logical identity used for evaluator selection and results.
+            Defaults to ``file_path`` for backward compatibility.
         dataset_type: The type of the dataset, represented as an enum.
         preprocess_config: Configuration for preprocessing the dataset.
         seed: The random seed for reproducibility.
     """
 
-    model_config = SettingsConfigDict(env_prefix="bias_dataset_")
+    model_config = SettingsConfigDict(
+        env_prefix="bias_dataset_", validate_assignment=True, validate_default=True
+    )
 
     file_path: str
+    dataset_id: str = ""
     dataset_type: DatasetType
     preprocess_config: PreprocessConfig = PreprocessConfig()
     seed: int | None = 42
+
+    @field_validator("dataset_id", mode="before")
+    @classmethod
+    def default_dataset_id(cls, value: object, info: ValidationInfo) -> object:
+        """Use the loading source as the logical identity for legacy callers."""
+        if value is None or value == "":
+            return info.data.get("file_path", value)
+        return value
