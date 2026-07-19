@@ -511,9 +511,24 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert isinstance(fallback_sampling_config, SamplingConfig)
     assert fallback_sampling_config.stop_strings == ["config-stop"]
 
+    disabled_outputs = evaluator._process_judge_prompts_batch(
+        judge_engine,
+        ["prompt-e", "prompt-f"],
+        do_sample=None,
+        stop_strings=[],
+    )
+
+    assert disabled_outputs == [
+        [{"generated_text": "yes", "finish_reason": None}],
+        [{"generated_text": "yes", "finish_reason": None}],
+    ]
+    disabled_sampling_config = judge_engine.calls[2]["sampling_config"]
+    assert isinstance(disabled_sampling_config, SamplingConfig)
+    assert disabled_sampling_config.stop_strings == []
+
     evaluator.eval_engine = judge_engine
     evaluator.generate_answers(torch.tensor([[1], [2]]), torch.tensor([[1], [1]]))
-    answer_sampling_config = judge_engine.calls[2]["sampling_config"]
+    answer_sampling_config = judge_engine.calls[3]["sampling_config"]
     assert isinstance(answer_sampling_config, SamplingConfig)
     assert answer_sampling_config.stop_strings == ["config-stop"]
 

@@ -1297,7 +1297,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 top_k=self.eval_config.sampling_config.top_k,
                 seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
                 stop_strings=stop_strings
-                or self.eval_config.sampling_config.stop_strings,
+                if stop_strings is not None
+                else self.eval_config.sampling_config.stop_strings,
             ),
         )
 
