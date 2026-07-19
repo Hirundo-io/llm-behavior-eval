@@ -1,6 +1,8 @@
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, cast
 
 import pytest
+import torch
 from datasets import Dataset, DatasetDict
 
 import llm_behavior_eval.evaluation_utils.custom_dataset as custom_dataset_module
@@ -34,6 +36,23 @@ def test_validate_dataset_columns_pass_free_text():
 def test_validate_dataset_columns_fail():
     ds = Dataset.from_dict({"question": ["q"]})
     with pytest.raises(ValueError):
+        validate_dataset_columns(ds)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("label", {"unexpected": "object"}),
+        ("technique", 1),
+        ("protected_value", ["secret"]),
+    ],
+)
+def test_validate_dataset_columns_rejects_malformed_injection_metadata(
+    key: str, value: object
+) -> None:
+    ds = Dataset.from_list([{"question": "q", "answer": "a", key: value}])
+
+    with pytest.raises(ValueError, match=key):
         validate_dataset_columns(ds)
 
 
@@ -71,7 +90,9 @@ def test_free_text_preprocess_function_omits_default_system_prompt_when_disabled
     captured_messages: list[list[dict[str, str]]] = []
 
     class StubTokenizer:
-        def __call__(self, texts, **_kwargs):
+        def __call__(
+            self, texts: str | list[str], **_kwargs: object
+        ) -> dict[str, list[list[int]]]:
             if isinstance(texts, str):
                 texts = [texts]
             return {
@@ -128,7 +149,9 @@ def test_free_text_preprocess_function_emits_refusal_labels(
 
     assert "refusal_labels" in result
     assert "label" not in result
-    assert result["refusal_labels"].tolist() == [1]
+    refusal_labels = result["refusal_labels"]
+    assert isinstance(refusal_labels, torch.Tensor)
+    assert refusal_labels.tolist() == [1]
 
 
 def test_free_text_preprocess_function_uses_default_system_prompt_when_enabled(
@@ -323,3 +346,168 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
     )
 
     assert captured_messages == expected_messages
+
+
+def test_free_text_preprocess_function_emits_prompt_injection_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encoded: dict[str, list[str]] = {}
+
+    class StubTokenizer:
+        def __call__(self, texts, **_kwargs):
+            if isinstance(texts, str):
+                texts = [texts]
+            key = f"call_{len(encoded)}"
+            encoded[key] = texts
+            return {
+                "input_ids": [
+                    [index + 1, index + 2] for index, _text in enumerate(texts)
+                ],
+                "attention_mask": [[1, 1] for _ in texts],
+            }
+
+    monkeypatch.setattr(
+        custom_dataset_module,
+        "safe_apply_chat_template",
+        lambda *_args, **_kwargs: "formatted",
+    )
+
+    result = free_text_preprocess_function(
+        {
+            "question": ["q1"],
+            "answer": ["a1"],
+            "label": ["malicious"],
+            "technique": ["direct"],
+            "protected_value": ["SECRET-123"],
+        },
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
+        max_length=8,
+        gt_max_length=4,
+        has_stereotype=False,
+        include_default_system_prompt=False,
+    )
+
+    assert "refusal_labels" not in result
+    labels = result["labels"]
+    techniques = result["techniques"]
+    assert isinstance(labels, torch.Tensor)
+    assert isinstance(techniques, torch.Tensor)
+    assert labels.tolist() == [[1, 2]]
+    assert techniques.tolist() == [[1, 2]]
+    assert result["protected_values"] == ["SECRET-123"]
+    assert encoded["call_3"] == ["malicious"]
+    assert encoded["call_4"] == ["direct"]
+
+
+def test_free_text_preprocess_function_omits_absent_injection_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubTokenizer:
+        def __call__(
+            self, texts: str | list[str], **_kwargs: object
+        ) -> dict[str, list[list[int]]]:
+            if isinstance(texts, str):
+                texts = [texts]
+            return {
+                "input_ids": [[1, 2] for _ in texts],
+                "attention_mask": [[1, 1] for _ in texts],
+            }
+
+    monkeypatch.setattr(
+        custom_dataset_module,
+        "safe_apply_chat_template",
+        lambda *_args, **_kwargs: "formatted",
+    )
+
+    result = free_text_preprocess_function(
+        {"question": ["q1"], "answer": ["a1"]},
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
+        max_length=8,
+        gt_max_length=4,
+        has_stereotype=False,
+    )
+
+    assert "labels" not in result
+    assert "techniques" not in result
+    assert "protected_values" not in result
+
+
+@pytest.mark.parametrize(
+    ("dataset_id", "expected_cache_reuse"),
+    [
+        (
+            "https://huggingface.co/hirundo-io/bloom-prompt-injection-malicious",
+            False,
+        ),
+        ("hirundo-io/halueval", True),
+    ],
+)
+def test_custom_dataset_preprocess_cache_policy_by_dataset_slug(
+    monkeypatch: pytest.MonkeyPatch,
+    dataset_id: str,
+    expected_cache_reuse: bool,
+) -> None:
+    captured: dict[str, bool] = {}
+
+    class StubDataset:
+        column_names = ["question", "answer"]
+
+        def map(
+            self,
+            function: Callable[
+                [dict[str, list[str]]], dict[str, torch.Tensor | list[str]]
+            ],
+            *,
+            load_from_cache_file: bool,
+            **_kwargs: object,
+        ) -> Dataset:
+            captured["load_from_cache_file"] = load_from_cache_file
+            return Dataset.from_dict(
+                {
+                    key: value.tolist() if isinstance(value, torch.Tensor) else value
+                    for key, value in function(
+                        {"question": ["q1"], "answer": ["a1"]}
+                    ).items()
+                }
+            )
+
+    class StubTokenizer:
+        name_or_path = "fake/model"
+
+        def __call__(
+            self, texts: str | list[str], **_kwargs: object
+        ) -> dict[str, list[list[int]]]:
+            if isinstance(texts, str):
+                texts = [texts]
+            return {
+                "input_ids": [[1, 2] for _ in texts],
+                "attention_mask": [[1, 1] for _ in texts],
+            }
+
+        def batch_decode(
+            self, sequences: Sequence[Sequence[int]], **_kwargs: object
+        ) -> list[str]:
+            return ["decoded" for _ in sequences]
+
+    monkeypatch.setattr(custom_dataset_module, "is_model_multimodal", lambda *_: False)
+    monkeypatch.setattr(
+        custom_dataset_module,
+        "safe_apply_chat_template",
+        lambda *_args, **_kwargs: "formatted",
+    )
+    custom_dataset = object.__new__(CustomDataset)
+    custom_dataset.file_path = dataset_id
+    custom_dataset.dataset_type = DatasetType.BIAS
+    custom_dataset.trust_remote_code = False
+    custom_dataset.token = None
+    custom_dataset.ds = cast("Dataset", StubDataset())
+    custom_dataset.has_stereotype = False
+
+    custom_dataset.preprocess(
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
+        custom_dataset_module.PreprocessConfig(
+            max_length=8, gt_max_length=4, preprocess_batch_size=1
+        ),
+    )
+
+    assert captured["load_from_cache_file"] is expected_cache_reuse

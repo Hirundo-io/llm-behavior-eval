@@ -15,6 +15,18 @@ from .refusal_utils import REFUSAL_DATASETS, normalize_refusal_dataset
 from .util_functions import is_model_multimodal, safe_apply_chat_template
 
 
+def get_dataset_slug(dataset_id: Path | str) -> str:
+    """Return the normalized basename used for dataset-specific routing.
+
+    Args:
+        dataset_id: Dataset ID, URI, or filesystem path as a string or ``Path``.
+
+    Returns:
+        The lowercase final path segment after trailing slashes are removed.
+    """
+    return str(dataset_id).rstrip("/").rsplit("/", 1)[-1].lower()
+
+
 def validate_dataset_columns(hf_dataset: Dataset) -> None:
     """
     Validates that the dataset contains the required columns based on the text format.
@@ -28,6 +40,22 @@ def validate_dataset_columns(hf_dataset: Dataset) -> None:
         raise ValueError(
             f"Dataset is missing required columns: {missing}; found {hf_dataset.column_names}"
         )
+
+    allowed_types = {
+        "label": (int, str),
+        "technique": (str,),
+        "protected_value": (str,),
+    }
+    for key, types in allowed_types.items():
+        if key not in hf_dataset.column_names:
+            continue
+        for value in hf_dataset[key]:
+            if type(value) not in types:
+                allowed = " or ".join(type_.__name__ for type_ in types)
+                raise ValueError(
+                    f"Dataset field '{key}' must contain {allowed} values; "
+                    f"got {value!r} ({type(value).__name__})"
+                )
 
 
 def free_text_preprocess_function(
@@ -44,12 +72,14 @@ def free_text_preprocess_function(
     thinking_start_token: str | None = None,
     thinking_end_token: str | None = None,
     include_default_system_prompt: bool = True,
-) -> dict[str, torch.Tensor]:
+) -> dict[str, torch.Tensor | list[str]]:
     """
     Preprocesses a batch of examples for free-text datasets.
 
     Args:
-        examples_batch: A batch of examples to preprocess.
+        examples_batch: A batch of examples to preprocess. Optional prompt-injection
+            columns are ``label``, ``technique``, and ``protected_value``. Integer
+            labels are refusal targets; string labels are prompt-injection metadata.
         tokenizer: The tokenizer to use for tokenization.
         max_length: The maximum length of the input sequence.
         gt_max_length: The maximum length of the ground truth sequence.
@@ -65,7 +95,10 @@ def free_text_preprocess_function(
             when no per-row system prompt override is provided.
 
     Returns:
-        A dictionary containing the tokenized input and ground truth sequences.
+        A dictionary containing tokenized inputs, ground truths, and judge questions.
+        Integer labels produce ``refusal_labels``. Non-integer labels, techniques,
+        and protected values produce ``labels``, ``techniques``, and the raw-string
+        ``protected_values`` respectively when their source columns are present.
     """
     # 1) Column check
     rows = [
@@ -76,10 +109,24 @@ def free_text_preprocess_function(
     for row in rows:
         if not row.get("question") or not row.get("answer"):
             raise ValueError("Free text row must contain 'question' and 'answer'")
+        for key, types in {
+            "label": (int, str),
+            "technique": (str,),
+            "protected_value": (str,),
+        }.items():
+            if key in row and type(row[key]) not in types:
+                allowed = " or ".join(type_.__name__ for type_ in types)
+                raise ValueError(
+                    f"Free text field '{key}' must be {allowed}; "
+                    f"got {row[key]!r} ({type(row[key]).__name__})"
+                )
     # 2) Apply chat template to dataset messages
     eval_strings, answer_strings = [], []
     stereotyped_strings: list[str] = []
     judge_questions: list[str] = []
+    labels: list[str] = []
+    techniques: list[str] = []
+    protected_values: list[str] = []
     for row in rows:
         question_text = row["question"]
         answer_text = row["answer"]
@@ -114,6 +161,9 @@ def free_text_preprocess_function(
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
         judge_questions.append(judge_question_override or question_text)
+        labels.append(str(row.get("label") or ""))
+        techniques.append(str(row.get("technique") or ""))
+        protected_values.append(str(row.get("protected_value") or ""))
     # 3) Tokenization
     tokenize = partial(
         tokenizer,
@@ -134,6 +184,18 @@ def free_text_preprocess_function(
         max_length=gt_max_length,
         add_special_tokens=False,
     )
+    label_values = examples_batch.get("label")
+    tokenized_labels = (
+        tokenize(labels, max_length=gt_max_length, add_special_tokens=False)
+        if label_values is not None
+        and not all(isinstance(label, int) for label in label_values)
+        else None
+    )
+    tokenized_techniques = (
+        tokenize(techniques, max_length=gt_max_length, add_special_tokens=False)
+        if "technique" in examples_batch
+        else None
+    )
     tokenized_stereotype = None
     if has_stereotype:
         tokenized_stereotype = tokenize(
@@ -142,7 +204,7 @@ def free_text_preprocess_function(
             add_special_tokens=False,
         )
     # 4) Result
-    result = {
+    result: dict[str, torch.Tensor | list[str]] = {
         "test_input_ids": torch.tensor(tokenized_eval["input_ids"]),
         "test_attention_mask": torch.tensor(tokenized_eval["attention_mask"]),
         "gt_answers": torch.tensor(tokenized_gt["input_ids"]),
@@ -150,7 +212,15 @@ def free_text_preprocess_function(
     }
     if has_stereotype and tokenized_stereotype is not None:
         result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])
-    if "label" in examples_batch:
+    if tokenized_labels is not None:
+        result["labels"] = torch.tensor(tokenized_labels["input_ids"])
+    if tokenized_techniques is not None:
+        result["techniques"] = torch.tensor(tokenized_techniques["input_ids"])
+    if "protected_value" in examples_batch:
+        result["protected_values"] = protected_values
+    if "label" in examples_batch and all(
+        isinstance(label, int) for label in examples_batch["label"]
+    ):
         result["refusal_labels"] = torch.tensor(
             examples_batch["label"], dtype=torch.long
         )
@@ -244,6 +314,9 @@ class CustomDataset:
         is_multimodal = is_model_multimodal(
             tokenizer.name_or_path, self.trust_remote_code, self.token
         )
+        load_from_cache_file = not get_dataset_slug(self.file_path).startswith(
+            "bloom-prompt-injection-"
+        )
         processed_dataset = dataset.map(
             lambda examples: free_text_preprocess_function(
                 examples,
@@ -265,7 +338,9 @@ class CustomDataset:
             remove_columns=old_columns,
             batch_size=preprocess_config.preprocess_batch_size,
             num_proc=1,
+            load_from_cache_file=load_from_cache_file,
         )
+        # Dataset column typing is broader than the tokenizer-produced nested token IDs.
         text = tokenizer.batch_decode(
             cast("list[list[int]]", list(processed_dataset["test_input_ids"])),
             skip_special_tokens=True,
