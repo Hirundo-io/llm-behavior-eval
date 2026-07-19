@@ -326,6 +326,7 @@ class BaseEvaluator(ABC):
                 top_p=self.eval_config.sampling_config.top_p,
                 top_k=self.eval_config.sampling_config.top_k,
                 seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
+                stop_strings=self.eval_config.sampling_config.stop_strings,
             ),
         )
 
@@ -1295,7 +1296,8 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 top_p=self.eval_config.sampling_config.top_p,
                 top_k=self.eval_config.sampling_config.top_k,
                 seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
-                stop_strings=stop_strings,
+                stop_strings=stop_strings
+                or self.eval_config.sampling_config.stop_strings,
             ),
         )
 

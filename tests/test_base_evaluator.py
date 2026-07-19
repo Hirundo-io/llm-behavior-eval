@@ -465,6 +465,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
             top_p=0.9,
             top_k=4,
             seed=111,
+            stop_strings=["config-stop"],
         ),
     )
     evaluator.dataset_config = DatasetConfig(
@@ -496,8 +497,30 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.seed == evaluator.dataset_config.seed
     assert sampling_config.stop_strings == ["\n"]
 
+    fallback_outputs = evaluator._process_judge_prompts_batch(
+        judge_engine,
+        ["prompt-c", "prompt-d"],
+        do_sample=None,
+    )
 
-def test_run_judge_with_backoff_propagates_stop_strings(tmp_path: Path) -> None:
+    assert fallback_outputs == [
+        [{"generated_text": "yes", "finish_reason": None}],
+        [{"generated_text": "yes", "finish_reason": None}],
+    ]
+    fallback_sampling_config = judge_engine.calls[1]["sampling_config"]
+    assert isinstance(fallback_sampling_config, SamplingConfig)
+    assert fallback_sampling_config.stop_strings == ["config-stop"]
+
+    evaluator.eval_engine = judge_engine
+    evaluator.generate_answers(torch.tensor([[1], [2]]), torch.tensor([[1], [1]]))
+    answer_sampling_config = judge_engine.calls[2]["sampling_config"]
+    assert isinstance(answer_sampling_config, SamplingConfig)
+    assert answer_sampling_config.stop_strings == ["config-stop"]
+
+
+def test_run_judge_with_backoff_propagates_stop_strings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     class StubFreeTextEvaluator(FreeTextSharedEvaluator):
         def evaluate(self) -> None:
             return None
@@ -530,7 +553,7 @@ def test_run_judge_with_backoff_propagates_stop_strings(tmp_path: Path) -> None:
             [{"generated_text": prompt, "finish_reason": None}] for prompt in prompts
         ]
 
-    evaluator._process_judge_prompts_batch = fake_process
+    monkeypatch.setattr(evaluator, "_process_judge_prompts_batch", fake_process)
 
     outputs = evaluator.run_judge_with_backoff(
         NoopJudgeEngine(), ["prompt-a", "prompt-b"], stop_strings=["\n"]
