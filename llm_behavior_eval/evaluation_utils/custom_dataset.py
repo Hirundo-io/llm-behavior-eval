@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping, Sequence
 from copy import copy
 from functools import partial
 from pathlib import Path
@@ -14,11 +15,41 @@ from .prompts import SYSTEM_PROMPT_DICT
 from .refusal_utils import REFUSAL_DATASETS, normalize_refusal_dataset
 from .util_functions import is_model_multimodal, safe_apply_chat_template
 
+OPTIONAL_METADATA_TYPES: dict[str, tuple[type[object], ...]] = {
+    "label": (int, str),
+    "technique": (str,),
+    "protected_value": (str,),
+}
+
+
+def _validate_optional_metadata(
+    columns: Mapping[str, Sequence[object]], source: str
+) -> None:
+    for key, types in OPTIONAL_METADATA_TYPES.items():
+        if key not in columns:
+            continue
+        for value in columns[key]:
+            if type(value) not in types:
+                allowed = " or ".join(type_.__name__ for type_ in types)
+                raise ValueError(
+                    f"{source} field '{key}' must contain {allowed} values; "
+                    f"got {value!r} ({type(value).__name__})"
+                )
+
+    label_values = columns.get("label")
+    if label_values and len({type(value) for value in label_values}) > 1:
+        raise ValueError(f"{source} field 'label' must use one consistent value type")
+
 
 def validate_dataset_columns(hf_dataset: Dataset) -> None:
-    """
-    Validates that the dataset contains the required columns based on the text format.
-    Raises a ValueError if any required columns are missing.
+    """Validate required columns and optional free-text metadata.
+
+    Args:
+        hf_dataset: Dataset whose columns and prompt-injection metadata are validated.
+
+    Raises:
+        ValueError: If required columns are absent, optional metadata has an invalid
+            type, or the label column mixes integer and string representations.
     """
     # Minimum required columns for free-text
     required = {"question", "answer"}
@@ -28,6 +59,13 @@ def validate_dataset_columns(hf_dataset: Dataset) -> None:
         raise ValueError(
             f"Dataset is missing required columns: {missing}; found {hf_dataset.column_names}"
         )
+
+    metadata = {
+        key: list(hf_dataset[key])
+        for key in OPTIONAL_METADATA_TYPES
+        if key in hf_dataset.column_names
+    }
+    _validate_optional_metadata(metadata, "Dataset")
 
 
 def free_text_preprocess_function(
@@ -44,12 +82,15 @@ def free_text_preprocess_function(
     thinking_start_token: str | None = None,
     thinking_end_token: str | None = None,
     include_default_system_prompt: bool = True,
-) -> dict[str, torch.Tensor]:
+) -> dict[str, torch.Tensor | list[str]]:
     """
     Preprocesses a batch of examples for free-text datasets.
 
     Args:
-        examples_batch: A batch of examples to preprocess.
+        examples_batch: A batch of examples to preprocess. Optional prompt-injection
+            columns are ``label``, ``technique``, and ``protected_value``. Integer
+            labels are refusal targets; string labels are prompt-injection metadata.
+            All columns must have equal lengths; mismatches raise ``ValueError``.
         tokenizer: The tokenizer to use for tokenization.
         max_length: The maximum length of the input sequence.
         gt_max_length: The maximum length of the ground truth sequence.
@@ -65,13 +106,17 @@ def free_text_preprocess_function(
             when no per-row system prompt override is provided.
 
     Returns:
-        A dictionary containing the tokenized input and ground truth sequences.
+        A dictionary containing tokenized inputs, ground truths, and judge questions.
+        Integer labels produce ``refusal_labels``. Non-integer labels, techniques,
+        and protected values produce ``labels``, ``techniques``, and the raw-string
+        ``protected_values`` respectively when their source columns are present.
     """
     # 1) Column check
     rows = [
-        dict(zip(examples_batch.keys(), vals, strict=True))
-        for vals in zip(*examples_batch.values(), strict=True)
+        dict(zip(examples_batch.keys(), row_values, strict=True))
+        for row_values in zip(*examples_batch.values(), strict=True)
     ]
+    _validate_optional_metadata(examples_batch, "Free text")
     # Validate minimally required fields only
     for row in rows:
         if not row.get("question") or not row.get("answer"):
@@ -80,6 +125,9 @@ def free_text_preprocess_function(
     eval_strings, answer_strings = [], []
     stereotyped_strings: list[str] = []
     judge_questions: list[str] = []
+    labels: list[str] = []
+    techniques: list[str] = []
+    protected_values: list[str] = []
     for row in rows:
         question_text = row["question"]
         answer_text = row["answer"]
@@ -114,6 +162,11 @@ def free_text_preprocess_function(
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
         judge_questions.append(judge_question_override or question_text)
+        labels.append(str(row["label"]) if "label" in row else "")
+        techniques.append(str(row["technique"]) if "technique" in row else "")
+        protected_values.append(
+            str(row["protected_value"]) if "protected_value" in row else ""
+        )
     # 3) Tokenization
     tokenize = partial(
         tokenizer,
@@ -134,6 +187,7 @@ def free_text_preprocess_function(
         max_length=gt_max_length,
         add_special_tokens=False,
     )
+    label_values = examples_batch.get("label")
     tokenized_stereotype = None
     if has_stereotype:
         tokenized_stereotype = tokenize(
@@ -142,7 +196,7 @@ def free_text_preprocess_function(
             add_special_tokens=False,
         )
     # 4) Result
-    result = {
+    result: dict[str, torch.Tensor | list[str]] = {
         "test_input_ids": torch.tensor(tokenized_eval["input_ids"]),
         "test_attention_mask": torch.tensor(tokenized_eval["attention_mask"]),
         "gt_answers": torch.tensor(tokenized_gt["input_ids"]),
@@ -150,7 +204,15 @@ def free_text_preprocess_function(
     }
     if has_stereotype and tokenized_stereotype is not None:
         result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])
-    if "label" in examples_batch:
+    if label_values is not None and all(type(label) is str for label in label_values):
+        result["labels"] = labels
+    if "technique" in examples_batch:
+        result["techniques"] = techniques
+    if "protected_value" in examples_batch:
+        result["protected_values"] = protected_values
+    if "label" in examples_batch and all(
+        type(label) is int for label in examples_batch["label"]
+    ):
         result["refusal_labels"] = torch.tensor(
             examples_batch["label"], dtype=torch.long
         )
@@ -244,6 +306,9 @@ class CustomDataset:
         is_multimodal = is_model_multimodal(
             tokenizer.name_or_path, self.trust_remote_code, self.token
         )
+        load_from_cache_file = not str(self.file_path).startswith(
+            "hirundo-io/bloom-prompt-injection-"
+        )
         processed_dataset = dataset.map(
             lambda examples: free_text_preprocess_function(
                 examples,
@@ -265,7 +330,9 @@ class CustomDataset:
             remove_columns=old_columns,
             batch_size=preprocess_config.preprocess_batch_size,
             num_proc=1,
+            load_from_cache_file=load_from_cache_file,
         )
+        # Dataset column typing is broader than the tokenizer-produced nested token IDs.
         text = tokenizer.batch_decode(
             cast("list[list[int]]", list(processed_dataset["test_input_ids"])),
             skip_special_tokens=True,

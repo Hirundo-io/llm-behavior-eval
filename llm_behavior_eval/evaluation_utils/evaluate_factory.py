@@ -1,5 +1,6 @@
 from .base_evaluator import BaseEvaluator
 from .dataset_config import DatasetConfig
+from .enums import BLOOM_INJECTION_DATASETS
 from .eval_config import EvaluationConfig, EvaluatorFamily
 from .refusal_utils import REFUSAL_DATASETS
 
@@ -11,11 +12,21 @@ class EvaluateFactory:
 
     @staticmethod
     def get_evaluator_family(dataset_id: str) -> EvaluatorFamily:
+        """Resolve the evaluator family for a configured dataset identifier.
+
+        Args:
+            dataset_id: Canonical dataset identifier from the evaluation configuration.
+
+        Returns:
+            Evaluator family used to resolve configuration and construct an evaluator.
+        """
         if dataset_id in {"hirundo-io/halueval", "hirundo-io/medhallu"}:
             return "hallucination"
         if dataset_id in REFUSAL_DATASETS:
             return "refusal"
-        if dataset_id == "hirundo-io/prompt-injection-purple-llama":
+        if dataset_id == "hirundo-io/prompt-injection-purple-llama" or dataset_id in (
+            BLOOM_INJECTION_DATASETS.values()
+        ):
             return "prompt-injection"
         if "bbq" in dataset_id or "unqover" in dataset_id or "bloom" in dataset_id:
             return "bias"
@@ -52,7 +63,7 @@ class EvaluateFactory:
             return FreeTextPromptInjectionEvaluator(
                 resolved_eval_config, dataset_config
             )
-        elif "bbq" in dataset_id or "unqover" in dataset_id or "bloom" in dataset_id:
+        elif evaluator_family == "bias":
             from .free_text_bias_evaluator import FreeTextBiasEvaluator
 
             return FreeTextBiasEvaluator(resolved_eval_config, dataset_config)

@@ -10,13 +10,14 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, TypeVar, cast
 
 import pandas as pd
 import torch
 import typer
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 from transformers.data.data_collator import default_data_collator
 from transformers.trainer_utils import set_seed
 
@@ -38,7 +39,7 @@ from .util_functions import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Sequence
+    from collections.abc import Callable, Generator, Mapping, Sequence
 
     from datasets import Dataset as HFDataset
     from torch import Tensor
@@ -109,6 +110,9 @@ class _GenerationRecord:
     """
 
     answers: list[str]
+
+
+_GenerationRecordT = TypeVar("_GenerationRecordT", bound=_GenerationRecord)
 
 
 class BaseEvaluator(ABC):
@@ -1088,6 +1092,78 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     - Free under‑test model before judging
     - Initialize and free judge pipeline
     """
+
+    def _collect_free_text_generations(
+        self,
+        record_from_dict: Callable[[Mapping[str, object], int], _GenerationRecordT],
+        record_from_batch: Callable[
+            [
+                list[str],
+                list[str],
+                list[str],
+                list[str | None],
+                Mapping[str, Tensor],
+                int,
+            ],
+            _GenerationRecordT,
+        ],
+        record_to_dict: Callable[[_GenerationRecordT], dict[str, object]],
+    ) -> list[_GenerationRecordT]:
+        """Resume and generate free-text batches with evaluator-specific metadata.
+
+        Args:
+            record_from_dict: Builds a record from a saved generation dictionary and
+                its starting sample offset.
+            record_from_batch: Builds a record from decoded inputs, ground truths,
+                answers, finish reasons, the source batch, and its sample offset.
+            record_to_dict: Converts a new record to a JSON-serializable dictionary.
+
+        Returns:
+            Resumed and newly generated records up to ``self.num_samples``. New
+            records are persisted as they are generated.
+        """
+        self.ensure_test_model_ready()
+        completed_generations: list[_GenerationRecordT] = []
+        completed_sample_offset = 0
+        for item in self.load_completed_generation_dicts():
+            record = record_from_dict(item, completed_sample_offset)
+            completed_generations.append(record)
+            completed_sample_offset += len(record.answers)
+
+        completed_batches = len(completed_generations)
+        generations = list(completed_generations)
+        remaining = self.num_samples - completed_sample_offset
+        if remaining <= 0:
+            return generations
+
+        for batch_index, batch in enumerate(
+            tqdm(self.eval_loader, desc="Generating answers", unit="batch")
+        ):
+            if batch_index < completed_batches:
+                continue
+            input_ids = batch["test_input_ids"]
+            attention_mask = batch["test_attention_mask"]
+            input_texts = self.tokenizer.batch_decode(
+                input_ids, skip_special_tokens=True
+            )
+            gt_answers = self.tokenizer.batch_decode(
+                batch["gt_answers"], skip_special_tokens=True
+            )
+            answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
+            generation_record = record_from_batch(
+                input_texts,
+                gt_answers,
+                answers,
+                finish_reasons,
+                batch,
+                self.num_samples - remaining,
+            )
+            generations.append(generation_record)
+            self.save_generations([record_to_dict(generation_record)])
+            remaining -= len(generation_record.answers)
+            if remaining <= 0:
+                break
+        return generations
 
     def _run_with_cleanup(self, run_fn: Callable[[], None]) -> None:
         """

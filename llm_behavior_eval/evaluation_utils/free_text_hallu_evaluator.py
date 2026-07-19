@@ -53,64 +53,62 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             )
         return labels
 
-    def _collect_generations(self) -> Sequence[_HalluGenerationRecord]:
-        self.ensure_test_model_ready()
-        completed_dicts = self.load_completed_generation_dicts()
-        completed_generations = [
-            _HalluGenerationRecord(
-                input_texts=item.get("input_texts", []),
-                gt_answers=item.get("gt_answers", []),
-                answers=item.get("answers", []),
-                finish_reasons=item.get("finish_reasons", []),
-            )
-            for item in completed_dicts
-        ]
-        completed_samples = sum(
-            len(generation.input_texts) for generation in completed_generations
+    @staticmethod
+    def _record_from_dict(
+        saved_record_dict: Mapping[str, object], completed_samples: int
+    ) -> _HalluGenerationRecord:
+        del completed_samples
+        # Saved JSON is untyped, but these fields are emitted as string lists below.
+        input_texts = cast("list[str]", saved_record_dict.get("input_texts", []))
+        # Saved JSON is untyped, but ground-truth answers are emitted as strings.
+        gt_answers = cast("list[str]", saved_record_dict.get("gt_answers", []))
+        # Saved JSON is untyped, but generated answers are emitted as strings.
+        answers = cast("list[str]", saved_record_dict.get("answers", []))
+        # Saved JSON is untyped, but finish reasons are nullable strings.
+        finish_reasons = cast(
+            "list[str | None]", saved_record_dict.get("finish_reasons", [])
         )
-        completed_batches = len(completed_generations)
+        return _HalluGenerationRecord(
+            input_texts=input_texts,
+            gt_answers=gt_answers,
+            answers=answers,
+            finish_reasons=finish_reasons,
+        )
 
-        generations: list[_HalluGenerationRecord] = list(completed_generations)
-        remaining = self.num_samples - completed_samples
-        if remaining <= 0:
-            return generations
+    @staticmethod
+    def _record_from_batch(
+        input_texts: list[str],
+        gt_answers: list[str],
+        answers: list[str],
+        finish_reasons: list[str | None],
+        batch: Mapping[str, torch.Tensor],
+        sample_offset: int,
+    ) -> _HalluGenerationRecord:
+        del batch, sample_offset
+        return _HalluGenerationRecord(
+            input_texts=input_texts,
+            gt_answers=gt_answers,
+            answers=answers,
+            finish_reasons=finish_reasons,
+        )
 
-        for batch_index, batch in enumerate(
-            tqdm(self.eval_loader, desc="Generating answers", unit="batch")
-        ):
-            if batch_index < completed_batches:
-                continue
-            input_ids = batch["test_input_ids"]
-            attention_mask = batch["test_attention_mask"]
+    @staticmethod
+    def _generation_record_to_persisted_dict(
+        generation_record: _HalluGenerationRecord,
+    ) -> dict[str, object]:
+        return {
+            "input_texts": generation_record.input_texts,
+            "gt_answers": generation_record.gt_answers,
+            "answers": generation_record.answers,
+            "finish_reasons": generation_record.finish_reasons,
+        }
 
-            input_texts = self.tokenizer.batch_decode(
-                input_ids, skip_special_tokens=True
-            )
-            gt_answers = self.tokenizer.batch_decode(
-                batch["gt_answers"], skip_special_tokens=True
-            )
-            answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
-            generation_record = _HalluGenerationRecord(
-                input_texts=input_texts,
-                gt_answers=gt_answers,
-                answers=answers,
-                finish_reasons=finish_reasons,
-            )
-            generations.append(generation_record)
-            self.save_generations(
-                [
-                    {
-                        "input_texts": generation_record.input_texts,
-                        "gt_answers": generation_record.gt_answers,
-                        "answers": generation_record.answers,
-                        "finish_reasons": generation_record.finish_reasons,
-                    }
-                ]
-            )
-            remaining -= len(input_texts)
-            if remaining <= 0:
-                break
-        return generations
+    def _collect_generations(self) -> Sequence[_HalluGenerationRecord]:
+        return self._collect_free_text_generations(
+            self._record_from_dict,
+            self._record_from_batch,
+            self._generation_record_to_persisted_dict,
+        )
 
     def _grade_batch(
         self,
