@@ -54,9 +54,17 @@ def get_dataset_slug(dataset_id: Path | str) -> str:
 
 
 def validate_dataset_columns(hf_dataset: Dataset) -> None:
-    """
-    Validates that the dataset contains the required columns based on the text format.
-    Raises a ValueError if any required columns are missing.
+    """Validate required columns and optional free-text metadata.
+
+    Args:
+        hf_dataset: Dataset whose columns and prompt-injection metadata are validated.
+
+    Returns:
+        None.
+
+    Raises:
+        ValueError: If required columns are absent, optional metadata has an invalid
+            type, or the label column mixes integer and string representations.
     """
     # Minimum required columns for free-text
     required = {"question", "answer"}
@@ -119,8 +127,8 @@ def free_text_preprocess_function(
     """
     # 1) Column check
     rows = [
-        dict(zip(examples_batch.keys(), vals, strict=True))
-        for vals in zip(*examples_batch.values(), strict=True)
+        dict(zip(examples_batch.keys(), row_values, strict=True))
+        for row_values in zip(*examples_batch.values(), strict=True)
     ]
     _validate_optional_metadata(examples_batch, "Free text")
     # Validate minimally required fields only
@@ -194,17 +202,6 @@ def free_text_preprocess_function(
         add_special_tokens=False,
     )
     label_values = examples_batch.get("label")
-    tokenized_labels = (
-        tokenize(labels, max_length=gt_max_length, add_special_tokens=False)
-        if label_values is not None
-        and all(type(label) is str for label in label_values)
-        else None
-    )
-    tokenized_techniques = (
-        tokenize(techniques, max_length=gt_max_length, add_special_tokens=False)
-        if "technique" in examples_batch
-        else None
-    )
     tokenized_stereotype = None
     if has_stereotype:
         tokenized_stereotype = tokenize(
@@ -221,10 +218,10 @@ def free_text_preprocess_function(
     }
     if has_stereotype and tokenized_stereotype is not None:
         result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])
-    if tokenized_labels is not None:
-        result["labels"] = torch.tensor(tokenized_labels["input_ids"])
-    if tokenized_techniques is not None:
-        result["techniques"] = torch.tensor(tokenized_techniques["input_ids"])
+    if label_values is not None and all(type(label) is str for label in label_values):
+        result["labels"] = labels
+    if "technique" in examples_batch:
+        result["techniques"] = techniques
     if "protected_value" in examples_batch:
         result["protected_values"] = protected_values
     if "label" in examples_batch and all(

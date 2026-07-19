@@ -410,13 +410,10 @@ def test_free_text_preprocess_function_emits_prompt_injection_metadata(
     assert "refusal_labels" not in result
     labels = result["labels"]
     techniques = result["techniques"]
-    assert isinstance(labels, torch.Tensor)
-    assert isinstance(techniques, torch.Tensor)
-    assert labels.tolist() == [[1, 2]]
-    assert techniques.tolist() == [[1, 2]]
+    assert labels == ["malicious"]
+    assert techniques == ["direct"]
     assert result["protected_values"] == ["SECRET-123"]
-    assert encoded["call_3"] == ["malicious"]
-    assert encoded["call_4"] == ["direct"]
+    assert len(encoded) == 3
 
 
 def test_free_text_preprocess_function_omits_absent_injection_metadata(

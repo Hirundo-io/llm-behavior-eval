@@ -15,6 +15,8 @@ from .eval_engine import EvalEngine
 from .free_text_hallu_evaluator import FreeTextHaluEvaluator, _HalluGenerationRecord
 from .util_functions import safe_apply_chat_template
 
+_PROTECTED_VALUE_REDACTION = "[REDACTED_PROTECTED_VALUE]"
+
 
 @dataclass
 class _InjectionGenerationRecord(_HalluGenerationRecord):
@@ -103,6 +105,12 @@ def _has_exact_protected_value_leak(answer: str, protected_value: str | None) ->
     return bool(protected_value) and protected_value in answer
 
 
+def _redact_protected_value(text: str, protected_value: str | None) -> str:
+    if not protected_value:
+        return text
+    return text.replace(protected_value, _PROTECTED_VALUE_REDACTION)
+
+
 def _is_prompt_injection_total_refusal(answer: str) -> bool:
     stripped = answer.strip()
     if not stripped:
@@ -127,6 +135,13 @@ def _is_prompt_injection_total_refusal(answer: str) -> bool:
 
 
 class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
+    """Evaluate Purple Llama and Bloom prompt-injection free-text datasets.
+
+    Bloom records retain raw label metadata for label-aware metrics while protected
+    values remain in memory only. Persisted generations redact those values, preserve
+    only a boolean leak signal, and require a matching dataset fingerprint on resume.
+    """
+
     JUDGE_STOP_STRING = "<END>"
     PROMPT_JUDGE_RESPONSE = (
         """
@@ -211,13 +226,6 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         )
         return self._map_judge_outputs_yes_no(judge_outputs)
 
-    def _decode_optional_batch_column(
-        self, batch: Mapping[str, torch.Tensor], name: str
-    ) -> list[str] | None:
-        if name not in batch:
-            return None
-        return self.tokenizer.batch_decode(batch[name], skip_special_tokens=True)
-
     def _load_optional_dataset_text_column(
         self, start: int, size: int, name: str
     ) -> list[str] | None:
@@ -250,9 +258,15 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         persisted_record = _PersistedInjectionGenerationRecord.model_validate(
             saved_record_dict
         )
-        dataset_fingerprint = getattr(self.eval_dataset, "_fingerprint", None)
+        dataset_fingerprint = self._current_dataset_fingerprint()
+        has_protected_values = "protected_values" in self.eval_dataset.column_names
+        if has_protected_values and persisted_record.dataset_fingerprint is None:
+            raise ValueError(
+                "Prompt-injection generation cache has no dataset fingerprint; "
+                "remove generations.jsonl and rerun"
+            )
         if (
-            "protected_values" in self.eval_dataset.column_names
+            has_protected_values
             and persisted_record.dataset_fingerprint != dataset_fingerprint
         ):
             raise ValueError(
@@ -273,6 +287,11 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             )
         return persisted_record.to_generation_record()
 
+    def _current_dataset_fingerprint(self) -> str | None:
+        """Return the processed dataset identity used to validate resume offsets."""
+        fingerprint = getattr(self.eval_dataset, "_fingerprint", None)
+        return fingerprint if isinstance(fingerprint, str) else None
+
     @staticmethod
     def _generation_record_to_persisted_dict(
         generation_record: _HalluGenerationRecord,
@@ -285,9 +304,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
 
         def redact(values: list[str]) -> list[str]:
             return [
-                value.replace(protected_value, "[REDACTED_PROTECTED_VALUE]")
-                if protected_value
-                else value
+                _redact_protected_value(value, protected_value)
                 for value, protected_value in zip(values, protected_values, strict=True)
             ]
 
@@ -330,12 +347,16 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             gt_answers=gt_answers,
             answers=answers,
             finish_reasons=finish_reasons,
-            labels=self._decode_optional_batch_column(batch, "labels"),
-            techniques=self._decode_optional_batch_column(batch, "techniques"),
+            labels=self._load_optional_dataset_text_column(
+                sample_offset, len(answers), "labels"
+            ),
+            techniques=self._load_optional_dataset_text_column(
+                sample_offset, len(answers), "techniques"
+            ),
             protected_values=self._load_optional_dataset_text_column(
                 sample_offset, len(answers), "protected_values"
             ),
-            dataset_fingerprint=getattr(self.eval_dataset, "_fingerprint", None),
+            dataset_fingerprint=self._current_dataset_fingerprint(),
         )
 
     def _collect_generations(self) -> Sequence[_HalluGenerationRecord]:
@@ -506,12 +527,9 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
     @staticmethod
     def _redact_artifact_row(row: dict[str, object]) -> dict[str, object]:
         protected_value = row.get("protected_value")
-        redaction = "[REDACTED_PROTECTED_VALUE]"
         return {
-            key: value.replace(protected_value, redaction)
-            if isinstance(protected_value, str)
-            and protected_value
-            and isinstance(value, str)
+            key: _redact_protected_value(value, protected_value)
+            if isinstance(protected_value, str) and isinstance(value, str)
             else value
             for key, value in row.items()
             if key != "protected_value"

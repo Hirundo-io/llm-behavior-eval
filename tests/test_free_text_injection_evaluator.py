@@ -286,6 +286,47 @@ def test_record_from_dict_rejects_changed_protected_value_dataset() -> None:
         )
 
 
+def test_record_from_dict_rejects_legacy_protected_value_cache() -> None:
+    evaluator = object.__new__(FreeTextPromptInjectionEvaluator)
+    evaluator.eval_dataset = Dataset.from_dict({"protected_values": ["SECRET"]})
+
+    with pytest.raises(ValueError, match="no dataset fingerprint"):
+        evaluator._record_from_dict(
+            {
+                "input_texts": ["conversation"],
+                "judge_questions": ["judge?"],
+                "gt_answers": ["answer"],
+                "answers": ["model answer"],
+                "finish_reasons": ["stop"],
+            },
+            completed_samples=0,
+        )
+
+
+def test_record_from_batch_preserves_raw_injection_metadata() -> None:
+    evaluator = object.__new__(FreeTextPromptInjectionEvaluator)
+    evaluator.eval_dataset = Dataset.from_dict(
+        {
+            "labels": ["conflicting-signals"],
+            "techniques": ["multi-step-technique"],
+            "protected_values": ["SECRET-123"],
+        }
+    )
+
+    record = evaluator._record_from_batch(
+        input_texts=["conversation"],
+        gt_answers=["answer"],
+        answers=["model answer"],
+        finish_reasons=["stop"],
+        batch={},
+        sample_offset=0,
+    )
+
+    assert record.labels == ["conflicting-signals"]
+    assert record.techniques == ["multi-step-technique"]
+    assert record.protected_values == ["SECRET-123"]
+
+
 class _CapturePromptInjectionEvaluator(FreeTextPromptInjectionEvaluator):
     captured: list[list[dict[str, object]]]
 

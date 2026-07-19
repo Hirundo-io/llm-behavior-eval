@@ -151,6 +151,11 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
 
+- **Prompt Injection** — all Bloom prompt-injection datasets:
+```bash
+llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct injection:bloom-all
+```
+
 ### CLI options
 
 - `--max-samples <N>` — cap how many rows to evaluate per dataset (defaults to 500). Use `0` or any negative value to run the entire split.
@@ -203,6 +208,13 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 - Bloom prompt injection: `bloom-prompt-injection-<malicious|benign|conflicting-signals>` (separate from Bloom bias presets and selected with `injection:*`)
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
+
+Bloom prompt-injection reports label-specific attack-success rates, over-defensive
+refusal rates, and surgical separation for conflicting-signal rows. Unparseable or
+incomplete judge results are excluded from judge-dependent metric denominators. Exact
+protected values are never written to generation or response artifacts; resumable
+generation caches are accepted for protected-value scoring only when their dataset
+fingerprint matches the current processed dataset.
 
 ## Tested on
 
