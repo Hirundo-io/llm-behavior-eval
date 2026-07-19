@@ -56,6 +56,26 @@ def test_validate_dataset_columns_rejects_malformed_injection_metadata(
         validate_dataset_columns(ds)
 
 
+def test_validate_dataset_columns_rejects_mixed_label_types() -> None:
+    mixed_batch = cast(
+        "dict[str, list[str] | list[int]]",
+        {
+            "question": ["q1", "q2"],
+            "answer": ["a1", "a2"],
+            "label": [0, "benign"],
+        },
+    )
+
+    with pytest.raises(ValueError, match="one consistent value type"):
+        free_text_preprocess_function(
+            mixed_batch,
+            cast("PreTrainedTokenizerBase", object()),
+            max_length=8,
+            gt_max_length=4,
+            has_stereotype=False,
+        )
+
+
 def test_normalize_refusal_dataset_maps_prompt_and_label_columns():
     ds = Dataset.from_dict({"prompt": ["q1"], "label": ["unsafe"]})
 

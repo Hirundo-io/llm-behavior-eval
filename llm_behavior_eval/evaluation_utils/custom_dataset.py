@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping, Sequence
 from copy import copy
 from functools import partial
 from pathlib import Path
@@ -13,6 +14,31 @@ from .enums import DatasetType
 from .prompts import SYSTEM_PROMPT_DICT
 from .refusal_utils import REFUSAL_DATASETS, normalize_refusal_dataset
 from .util_functions import is_model_multimodal, safe_apply_chat_template
+
+_OPTIONAL_METADATA_TYPES: dict[str, tuple[type[object], ...]] = {
+    "label": (int, str),
+    "technique": (str,),
+    "protected_value": (str,),
+}
+
+
+def _validate_optional_metadata(
+    columns: Mapping[str, Sequence[object]], source: str
+) -> None:
+    for key, types in _OPTIONAL_METADATA_TYPES.items():
+        if key not in columns:
+            continue
+        for value in columns[key]:
+            if type(value) not in types:
+                allowed = " or ".join(type_.__name__ for type_ in types)
+                raise ValueError(
+                    f"{source} field '{key}' must contain {allowed} values; "
+                    f"got {value!r} ({type(value).__name__})"
+                )
+
+    label_values = columns.get("label")
+    if label_values and len({type(value) for value in label_values}) > 1:
+        raise ValueError(f"{source} field 'label' must use one consistent value type")
 
 
 def get_dataset_slug(dataset_id: Path | str) -> str:
@@ -41,21 +67,12 @@ def validate_dataset_columns(hf_dataset: Dataset) -> None:
             f"Dataset is missing required columns: {missing}; found {hf_dataset.column_names}"
         )
 
-    allowed_types = {
-        "label": (int, str),
-        "technique": (str,),
-        "protected_value": (str,),
+    metadata = {
+        key: list(hf_dataset[key])
+        for key in _OPTIONAL_METADATA_TYPES
+        if key in hf_dataset.column_names
     }
-    for key, types in allowed_types.items():
-        if key not in hf_dataset.column_names:
-            continue
-        for value in hf_dataset[key]:
-            if type(value) not in types:
-                allowed = " or ".join(type_.__name__ for type_ in types)
-                raise ValueError(
-                    f"Dataset field '{key}' must contain {allowed} values; "
-                    f"got {value!r} ({type(value).__name__})"
-                )
+    _validate_optional_metadata(metadata, "Dataset")
 
 
 def free_text_preprocess_function(
@@ -105,21 +122,11 @@ def free_text_preprocess_function(
         dict(zip(examples_batch.keys(), vals, strict=True))
         for vals in zip(*examples_batch.values(), strict=True)
     ]
+    _validate_optional_metadata(examples_batch, "Free text")
     # Validate minimally required fields only
     for row in rows:
         if not row.get("question") or not row.get("answer"):
             raise ValueError("Free text row must contain 'question' and 'answer'")
-        for key, types in {
-            "label": (int, str),
-            "technique": (str,),
-            "protected_value": (str,),
-        }.items():
-            if key in row and type(row[key]) not in types:
-                allowed = " or ".join(type_.__name__ for type_ in types)
-                raise ValueError(
-                    f"Free text field '{key}' must be {allowed}; "
-                    f"got {row[key]!r} ({type(row[key]).__name__})"
-                )
     # 2) Apply chat template to dataset messages
     eval_strings, answer_strings = [], []
     stereotyped_strings: list[str] = []
@@ -161,9 +168,11 @@ def free_text_preprocess_function(
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
         judge_questions.append(judge_question_override or question_text)
-        labels.append(str(row.get("label") or ""))
-        techniques.append(str(row.get("technique") or ""))
-        protected_values.append(str(row.get("protected_value") or ""))
+        labels.append(str(row["label"]) if "label" in row else "")
+        techniques.append(str(row["technique"]) if "technique" in row else "")
+        protected_values.append(
+            str(row["protected_value"]) if "protected_value" in row else ""
+        )
     # 3) Tokenization
     tokenize = partial(
         tokenizer,
@@ -188,7 +197,7 @@ def free_text_preprocess_function(
     tokenized_labels = (
         tokenize(labels, max_length=gt_max_length, add_special_tokens=False)
         if label_values is not None
-        and not all(isinstance(label, int) for label in label_values)
+        and all(type(label) is str for label in label_values)
         else None
     )
     tokenized_techniques = (
@@ -219,7 +228,7 @@ def free_text_preprocess_function(
     if "protected_value" in examples_batch:
         result["protected_values"] = protected_values
     if "label" in examples_batch and all(
-        isinstance(label, int) for label in examples_batch["label"]
+        type(label) is int for label in examples_batch["label"]
     ):
         result["refusal_labels"] = torch.tensor(
             examples_batch["label"], dtype=torch.long
