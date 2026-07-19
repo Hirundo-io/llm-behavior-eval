@@ -461,7 +461,6 @@ def test_save_results_logs_per_label_prompt_injection_asr_as_ratios_to_mlflow(
         empty_responses=0,
         malicious_attack_success_rate=0.5,
         conflicting_signals_attack_success_rate=1 / 3,
-        derive_attack_success_rate=False,
     )
 
     metrics_call = mlflow_mock.log_metrics.call_args
@@ -495,7 +494,6 @@ def test_save_results_logs_conflicting_signals_surgical_separation_to_mlflow(
         conflicting_signals_attack_success_rate=0.25,
         conflicting_signals_over_defensiveness_rate=0.4,
         conflicting_signals_surgical_separation_rate=0.35,
-        derive_attack_success_rate=False,
     )
 
     metrics_call = mlflow_mock.log_metrics.call_args

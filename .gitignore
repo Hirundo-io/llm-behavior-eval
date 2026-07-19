@@ -186,3 +186,8 @@ act-events/pr.secrets
 !.pixi/config.toml
 
 results/
+
+# Local evaluation and audit artifacts
+audit_outputs/
+nohup.out
+scripts/rescore_proxy_leaks.py

@@ -473,17 +473,11 @@ class BaseEvaluator(ABC):
         empty_responses: int,
         incomplete_response_rate: float | None = None,
         over_defensiveness_rate: float | None = None,
-        benign_judge_no_rate: float | None = None,
-        benign_judge_parsed_n: int | None = None,
-        benign_judge_parse_rate: float | None = None,
-        judge_parsed_n: int | None = None,
-        judge_parse_rate: float | None = None,
         attack_success_rate: float | None = None,
         malicious_attack_success_rate: float | None = None,
         conflicting_signals_attack_success_rate: float | None = None,
         conflicting_signals_over_defensiveness_rate: float | None = None,
         conflicting_signals_surgical_separation_rate: float | None = None,
-        derive_attack_success_rate: bool = True,
     ) -> None:
         """
         Save the evaluation results to files.
@@ -495,11 +489,6 @@ class BaseEvaluator(ABC):
             empty_responses: A count of empty response.
             incomplete_response_rate: Optional precomputed incomplete response rate.
             over_defensiveness_rate: Optional prompt-injection over-defensiveness rate.
-            benign_judge_no_rate: Optional benign prompt-injection judge No-rate.
-            benign_judge_parsed_n: Optional count of benign rows with parseable judge outputs.
-            benign_judge_parse_rate: Optional benign judge parse success rate.
-            judge_parsed_n: Optional count of all rows with parseable judge outputs.
-            judge_parse_rate: Optional overall judge parse success rate.
             attack_success_rate: Optional precomputed prompt-injection attack success rate.
             malicious_attack_success_rate: Optional precomputed prompt-injection attack
                 success rate for malicious rows.
@@ -515,8 +504,6 @@ class BaseEvaluator(ABC):
                 conflicting_signals_over_defensiveness_rate): the fraction of
                 conflicting-signals rows that neither followed the injected
                 instruction nor were over-defensive.
-            derive_attack_success_rate: Whether to derive attack success from accuracy
-                when no precomputed rate is provided.
         """
         model_slug = self.get_model_slug()
         dataset_slug = self.get_dataset_slug()
@@ -544,16 +531,10 @@ class BaseEvaluator(ABC):
         is_hallucination = dataset_slug.startswith(
             "halueval"
         ) or dataset_slug.startswith("medhallu")
-        is_prompt_injection = (
-            attack_success_rate is not None
-            or malicious_attack_success_rate is not None
-            or conflicting_signals_attack_success_rate is not None
-            or over_defensiveness_rate is not None
-            or not derive_attack_success_rate
-        )
-        # Bias and legacy prompt-injection report the complement of accuracy.
+        is_prompt_injection = "prompt-injection" in dataset_slug
+        # Bias reports the complement of accuracy; prompt injection is precomputed.
         primary_error_rate = (
-            1 - accuracy if derive_attack_success_rate else attack_success_rate
+            attack_success_rate if is_prompt_injection else 1 - accuracy
         )
         if is_prompt_injection:
             metric_column_name = "Attack success rate (%) ⬇️"
@@ -565,22 +546,24 @@ class BaseEvaluator(ABC):
             metric_column_name = "Error (%) ⬇️"
             metric_ratio_value = primary_error_rate
         metric_percentage_value = self._as_percent(metric_ratio_value)
-        malicious_attack_success_percent = self._as_percent(
-            malicious_attack_success_rate
-        )
-        conflicting_signals_attack_success_percent = self._as_percent(
-            conflicting_signals_attack_success_rate
-        )
-        conflicting_signals_over_defensiveness_percent = self._as_percent(
-            conflicting_signals_over_defensiveness_rate
-        )
-        conflicting_signals_surgical_separation_percent = self._as_percent(
-            conflicting_signals_surgical_separation_rate
-        )
-        over_defensiveness_percent = self._as_percent(over_defensiveness_rate)
-        benign_judge_no_percent = self._as_percent(benign_judge_no_rate)
-        benign_judge_parse_percent = self._as_percent(benign_judge_parse_rate)
-        judge_parse_percent = self._as_percent(judge_parse_rate)
+        injection_percent_metrics = {
+            "Over-defensiveness rate (%) ⬇️": self._as_percent(over_defensiveness_rate),
+            "Malicious attack success rate (%) ⬇️": self._as_percent(
+                malicious_attack_success_rate
+            ),
+            "Conflicting-signals attack success rate (%) ⬇️": self._as_percent(
+                conflicting_signals_attack_success_rate
+            ),
+            "Conflicting-signals over-defensiveness rate (%) ⬇️": self._as_percent(
+                conflicting_signals_over_defensiveness_rate
+            ),
+            "Conflicting-signals surgical separation rate (%) ⬆️": self._as_percent(
+                conflicting_signals_surgical_separation_rate
+            ),
+        }
+        injection_percent_columns = {
+            name: [value] for name, value in injection_percent_metrics.items()
+        }
         incomplete_response_percent = (
             self._as_percent(incomplete_response_rate)
             if incomplete_response_rate is not None
@@ -592,27 +575,12 @@ class BaseEvaluator(ABC):
             {
                 metric_column_name: [metric_percentage_value],
                 "Thinking": [thinking_mode],
-                "Over-defensiveness rate (%) ⬇️": [over_defensiveness_percent],
-                "malicious_attack_success_rate": [malicious_attack_success_percent],
-                "conflicting_signals_attack_success_rate": [
-                    conflicting_signals_attack_success_percent
-                ],
-                "conflicting_signals_over_defensiveness_rate": [
-                    conflicting_signals_over_defensiveness_percent
-                ],
-                "conflicting_signals_surgical_separation_rate": [
-                    conflicting_signals_surgical_separation_percent
-                ],
+                **injection_percent_columns,
                 "attack_success_rate_by_technique": [
                     json.dumps(attack_success_rate_by_technique, sort_keys=True)
                     if attack_success_rate_by_technique
                     else None
                 ],
-                "Benign judge No-rate (%) ⬇️": [benign_judge_no_percent],
-                "Benign judge parsed n": [benign_judge_parsed_n],
-                "Benign judge parse rate (%) ⬆️": [benign_judge_parse_percent],
-                "Judge parsed n": [judge_parsed_n],
-                "Judge parse rate (%) ⬆️": [judge_parse_percent],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [
                     empty_responses,
@@ -659,22 +627,7 @@ class BaseEvaluator(ABC):
                 "Accuracy (%) ⬆️": [full_acc],
                 "Error (%) ⬇️": [full_err],
                 "Attack success rate (%) ⬇️": [full_attack_success_rate],
-                "malicious_attack_success_rate": [malicious_attack_success_percent],
-                "conflicting_signals_attack_success_rate": [
-                    conflicting_signals_attack_success_percent
-                ],
-                "conflicting_signals_over_defensiveness_rate": [
-                    conflicting_signals_over_defensiveness_percent
-                ],
-                "conflicting_signals_surgical_separation_rate": [
-                    conflicting_signals_surgical_separation_percent
-                ],
-                "Over-defensiveness rate (%) ⬇️": [over_defensiveness_percent],
-                "Benign judge No-rate (%) ⬇️": [benign_judge_no_percent],
-                "Benign judge parsed n": [benign_judge_parsed_n],
-                "Benign judge parse rate (%) ⬆️": [benign_judge_parse_percent],
-                "Judge parsed n": [judge_parsed_n],
-                "Judge parse rate (%) ⬆️": [judge_parse_percent],
+                **injection_percent_columns,
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [empty_responses],
                 "Incomplete response rate (%) ⬇️": [incomplete_response_percent],
@@ -754,22 +707,7 @@ class BaseEvaluator(ABC):
                 "Accuracy (%) ⬆️": [brief_acc],
                 "Error (%) ⬇️": [brief_err],
                 "Attack success rate (%) ⬇️": [brief_attack_success_rate],
-                "malicious_attack_success_rate": [malicious_attack_success_percent],
-                "conflicting_signals_attack_success_rate": [
-                    conflicting_signals_attack_success_percent
-                ],
-                "conflicting_signals_over_defensiveness_rate": [
-                    conflicting_signals_over_defensiveness_percent
-                ],
-                "conflicting_signals_surgical_separation_rate": [
-                    conflicting_signals_surgical_separation_percent
-                ],
-                "Over-defensiveness rate (%) ⬇️": [over_defensiveness_percent],
-                "Benign judge No-rate (%) ⬇️": [benign_judge_no_percent],
-                "Benign judge parsed n": [benign_judge_parsed_n],
-                "Benign judge parse rate (%) ⬆️": [benign_judge_parse_percent],
-                "Judge parsed n": [judge_parsed_n],
-                "Judge parse rate (%) ⬆️": [judge_parse_percent],
+                **injection_percent_columns,
                 "Incomplete response rate (%) ⬇️": [incomplete_response_percent],
             }
         )
@@ -807,16 +745,6 @@ class BaseEvaluator(ABC):
                 mlflow_metrics["conflicting_signals_surgical_separation_rate"] = (
                     conflicting_signals_surgical_separation_rate
                 )
-            if benign_judge_no_rate is not None:
-                mlflow_metrics["benign_judge_no_rate"] = benign_judge_no_rate
-            if benign_judge_parsed_n is not None:
-                mlflow_metrics["benign_judge_parsed_n"] = float(benign_judge_parsed_n)
-            if benign_judge_parse_rate is not None:
-                mlflow_metrics["benign_judge_parse_rate"] = benign_judge_parse_rate
-            if judge_parsed_n is not None:
-                mlflow_metrics["judge_parsed_n"] = float(judge_parsed_n)
-            if judge_parse_rate is not None:
-                mlflow_metrics["judge_parse_rate"] = judge_parse_rate
             self._log_mlflow_metrics(mlflow_metrics)
             self._log_mlflow_artifacts()
 

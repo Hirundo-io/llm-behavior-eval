@@ -133,9 +133,7 @@ def free_text_preprocess_function(
                 )
             protected_values.append(protected_value or "")
     if injection_labels and len(injection_labels) != len(rows):
-        raise ValueError(
-            "Free text label values must be consistently strings or integers"
-        )
+        raise ValueError("Free text label values must be all strings or all integers")
     if injection_techniques and len(injection_techniques) != len(rows):
         raise ValueError("Free text technique values must be consistently strings")
     # 3) Tokenization
@@ -220,7 +218,8 @@ class CustomDataset:
     Loads a HuggingFace dataset for free-text evaluation.
 
     Supports optional columns such as ``stereotyped_answer``, ``system_prompt``,
-    ``judge_question``, ``label`` (for refusal and prompt-injection benchmarks), and ``technique`` (for prompt-injection benchmarks).
+    ``judge_question``, ``label`` (for refusal and prompt-injection benchmarks),
+    ``technique``, and ``protected_value`` (for prompt-injection benchmarks).
     """
 
     def __init__(

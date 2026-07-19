@@ -9,11 +9,7 @@ from llm_behavior_eval.evaluation_utils.custom_dataset import (
     free_text_preprocess_function,
     validate_dataset_columns,
 )
-from llm_behavior_eval.evaluation_utils.enums import (
-    BLOOM_INJECTION_CONTEXT_DATASETS,
-    BLOOM_INJECTION_DATASET_PREFIX,
-    DatasetType,
-)
+from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.refusal_utils import (
     OR_BENCH_DATASET,
     REFUSAL_PLACEHOLDER_ANSWER,
@@ -237,46 +233,6 @@ def test_custom_dataset_passes_auth_args_to_load_dataset(
         "token": "hf_test_token",
         "trust_remote_code": True,
     }
-
-
-def test_bloom_injection_dataset_prefix_matches_context_repo_ids() -> None:
-    assert BLOOM_INJECTION_DATASET_PREFIX == "hirundo-io/bloom-prompt-injection-"
-    assert set(BLOOM_INJECTION_CONTEXT_DATASETS) == {
-        "benign",
-        "conflicting-signals",
-        "malicious",
-    }
-    assert all(
-        dataset_id.startswith(BLOOM_INJECTION_DATASET_PREFIX)
-        for dataset_id in BLOOM_INJECTION_CONTEXT_DATASETS.values()
-    )
-
-
-@pytest.mark.parametrize(
-    "dataset_id",
-    [
-        "hirundo-io/bloom-prompt-injection-malicious-free-text",
-        "hirundo-io/halueval",
-    ],
-)
-def test_custom_dataset_does_not_pass_map_cache_flag_to_load_dataset(
-    monkeypatch: pytest.MonkeyPatch,
-    dataset_id: str,
-) -> None:
-    ds = Dataset.from_dict({"question": ["q"], "answer": ["a"]})
-    captured: dict[str, object] = {}
-
-    def fake_load_dataset(path: str, **kwargs: object) -> DatasetDict:
-        captured["path"] = path
-        captured.update(kwargs)
-        return DatasetDict({"train": ds})
-
-    monkeypatch.setattr(custom_dataset_module, "load_dataset", fake_load_dataset)
-
-    CustomDataset(dataset_id, DatasetType.BIAS)
-
-    assert captured["path"] == dataset_id
-    assert "load_from_cache_file" not in captured
 
 
 def test_custom_dataset_uses_train_split_when_present(

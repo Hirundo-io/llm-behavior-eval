@@ -86,10 +86,7 @@ def parse_xstest_judgment(text: str) -> RefusalJudgment:
     return RefusalJudgment.PARTIAL
 
 
-MIN_REFUSAL_HEURISTIC_CHARS = 3
-
-
-def refusal_heuristic(answer: str | None) -> bool:
+def refusal_heuristic(answer: str) -> bool:
     """
     Heuristic for determining whether an answer is a refusal.
 
@@ -99,11 +96,7 @@ def refusal_heuristic(answer: str | None) -> bool:
     Returns:
         True if the answer is a refusal, False otherwise.
     """
-    if answer is None:
-        return False
     normalized = answer.strip().lower()
-    if len(normalized) < MIN_REFUSAL_HEURISTIC_CHARS:
-        return False
     if normalized.startswith(_REFUSAL_PREFIXES):
         return True
     return any(marker in normalized for marker in REFUSAL_MARKERS)
@@ -118,21 +111,12 @@ class _RefusalGenerationRecord(_GenerationRecord):
 
 class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
     def generate(self) -> Sequence[_GenerationRecord]:
-        """
-        Generate refusal-evaluation responses.
-
-        Returns:
-            Refusal generation records.
-        """
         with torch.inference_mode():
             generations = self._collect_generations()
         return generations
 
     def evaluate(self) -> None:
-        """Run refusal generation and grading."""
-
         def _run() -> None:
-            """Run generation and judging with cleanup managed by the evaluator."""
             generations = self.generate()
             self.free_test_model()
             with (
@@ -145,15 +129,6 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
 
     @staticmethod
     def _decode_expected_labels(raw_labels: Any) -> list[str]:
-        """
-        Decode numeric refusal labels into label strings.
-
-        Args:
-            raw_labels: Tensor or iterable containing encoded refusal labels.
-
-        Returns:
-            Refusal label strings aligned with the encoded labels.
-        """
         if isinstance(raw_labels, torch.Tensor):
             values = raw_labels.tolist()
         else:
@@ -164,12 +139,6 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
         ]
 
     def _collect_generations(self) -> Sequence[_RefusalGenerationRecord]:
-        """
-        Generate or load refusal-evaluation model responses.
-
-        Returns:
-            Refusal generation records with expected safety labels.
-        """
         self.ensure_test_model_ready()
         completed_dicts = self.load_completed_generation_dicts()
         completed_generations = [
@@ -226,26 +195,11 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
         return generations
 
     def _judge_prompt_template(self) -> str:
-        """
-        Select the refusal judge prompt for the current dataset.
-
-        Returns:
-            Judge prompt template text.
-        """
         if self.dataset_config.file_path == OR_BENCH_DATASET:
             return OR_BENCH_JUDGE_PROMPT
         return XSTEST_JUDGE_PROMPT
 
     def _parse_judge_text(self, text: str) -> RefusalJudgment:
-        """
-        Parse refusal judge output for the current dataset.
-
-        Args:
-            text: Raw judge output text.
-
-        Returns:
-            Parsed refusal judgment.
-        """
         if self.dataset_config.file_path == OR_BENCH_DATASET:
             return parse_or_bench_judgment(text)
         return parse_xstest_judgment(text)
@@ -256,17 +210,6 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
         questions: list[str],
         generated_answers: list[str],
     ) -> tuple[list[RefusalJudgment], list[str], list[str | None]]:
-        """
-        Judge a batch of refusal responses.
-
-        Args:
-            judge_engine: Engine used to run the judge model.
-            questions: Source prompts to judge.
-            generated_answers: Model responses to judge.
-
-        Returns:
-            Parsed judgments, raw judge outputs, and judge finish reasons.
-        """
         self.prepare_judge_tokenizer()
         judge_tokenizer = self._get_judge_tokenizer()
         prompt_template = self._judge_prompt_template()
@@ -301,15 +244,6 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
 
     @staticmethod
     def _is_refusal(judgment: RefusalJudgment) -> bool:
-        """
-        Return whether a judgment counts as refusal.
-
-        Args:
-            judgment: Parsed refusal judgment.
-
-        Returns:
-            True when the judgment is refusal or partial refusal.
-        """
         return judgment in {RefusalJudgment.REFUSE, RefusalJudgment.PARTIAL}
 
     def _save_refusal_results(
@@ -317,13 +251,6 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
         responses: list[dict[str, Any]],
         metrics: dict[str, float | int],
     ) -> None:
-        """
-        Save refusal responses, summaries, and optional MLflow metrics.
-
-        Args:
-            responses: Per-row refusal evaluation outputs.
-            metrics: Aggregate refusal metrics.
-        """
         output_dir = self.get_output_dir()
         output_responses = output_dir / "responses.json"
         output_metrics = output_dir / "metrics.csv"
@@ -468,13 +395,6 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
         generations: Sequence[_GenerationRecord],
         judge_engine: EvalEngine | None = None,
     ) -> None:
-        """
-        Grade refusal generations and save aggregate metrics.
-
-        Args:
-            generations: Generated model responses to score.
-            judge_engine: Judge engine used for refusal grading.
-        """
         if judge_engine is None:
             raise ValueError(
                 "FreeTextRefusalEvaluator.grade() must be called with a judge engine."

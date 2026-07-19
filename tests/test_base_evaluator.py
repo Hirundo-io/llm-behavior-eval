@@ -107,7 +107,40 @@ def mixed_technique_responses() -> list[dict[str, object]]:
             "technique": "direct",
             "attack_success": False,
         },
+        {
+            "label": "benign",
+            "technique": "direct",
+            "attack_success": True,
+        },
     ]
+
+
+def _make_evaluator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dataset_id: str,
+    max_samples: int,
+) -> ConcreteEvaluator:
+    def load_tokenizer(*_args: object, **_kwargs: object) -> StubTokenizer:
+        return StubTokenizer()
+
+    def empty_cache() -> None:
+        return None
+
+    monkeypatch.setattr(
+        base_evaluator_module, "load_tokenizer_with_transformers", load_tokenizer
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "empty_cuda_cache_if_available", empty_cache
+    )
+    return ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            max_samples=max_samples,
+        ),
+        DatasetConfig(file_path=dataset_id, dataset_type=DatasetType.BIAS),
+    )
 
 
 class StubTokenizer:
@@ -750,7 +783,6 @@ def test_save_results_drops_empty_metric_columns_and_uses_directional_headers(
         stereotyped_bias=None,
         empty_responses=0,
         attack_success_rate=0.25,
-        derive_attack_success_rate=False,
     )
 
     metrics_file_path = (
@@ -790,25 +822,11 @@ def test_save_results_writes_per_label_prompt_injection_asr(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        base_evaluator_module,
-        "load_tokenizer_with_transformers",
-        lambda *_args, **_kwargs: StubTokenizer(),
-    )
-    monkeypatch.setattr(
-        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
-    )
-
-    evaluator = ConcreteEvaluator(
-        EvaluationConfig(
-            model_path_or_repo_id="meta/model",
-            results_dir=tmp_path,
-            max_samples=1,
-        ),
-        DatasetConfig(
-            file_path="hirundo-io/bloom-prompt-injection-all-free-text",
-            dataset_type=DatasetType.BIAS,
-        ),
+    evaluator = _make_evaluator(
+        tmp_path,
+        monkeypatch,
+        "hirundo-io/bloom-prompt-injection-all-free-text",
+        1,
     )
 
     evaluator.save_results(
@@ -818,7 +836,6 @@ def test_save_results_writes_per_label_prompt_injection_asr(
         empty_responses=0,
         malicious_attack_success_rate=0.5,
         conflicting_signals_attack_success_rate=1 / 3,
-        derive_attack_success_rate=False,
     )
 
     metrics_path = (
@@ -830,8 +847,8 @@ def test_save_results_writes_per_label_prompt_injection_asr(
     assert metrics_rows == [
         {
             "Thinking": "off",
-            "malicious_attack_success_rate": "50.000",
-            "conflicting_signals_attack_success_rate": "33.333",
+            "Malicious attack success rate (%) ⬇️": "50.000",
+            "Conflicting-signals attack success rate (%) ⬇️": "33.333",
             "Empty Responses": "0",
             "Incomplete response rate (%) ⬇️": "0.000",
         }
@@ -841,8 +858,8 @@ def test_save_results_writes_per_label_prompt_injection_asr(
     with summary_full_path.open(newline="", encoding="utf-8") as summary_file:
         summary_rows = list(csv.DictReader(summary_file))
 
-    assert summary_rows[0]["malicious_attack_success_rate"] == "50.000"
-    assert summary_rows[0]["conflicting_signals_attack_success_rate"] == "33.333"
+    assert summary_rows[0]["Malicious attack success rate (%) ⬇️"] == "50.000"
+    assert summary_rows[0]["Conflicting-signals attack success rate (%) ⬇️"] == "33.333"
     assert "Attack success rate (%) ⬇️" not in summary_rows[0]
 
 
@@ -850,25 +867,11 @@ def test_save_results_writes_conflicting_signals_surgical_separation_rate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        base_evaluator_module,
-        "load_tokenizer_with_transformers",
-        lambda *_args, **_kwargs: StubTokenizer(),
-    )
-    monkeypatch.setattr(
-        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
-    )
-
-    evaluator = ConcreteEvaluator(
-        EvaluationConfig(
-            model_path_or_repo_id="meta/model",
-            results_dir=tmp_path,
-            max_samples=1,
-        ),
-        DatasetConfig(
-            file_path="hirundo-io/bloom-prompt-injection-all-free-text",
-            dataset_type=DatasetType.BIAS,
-        ),
+    evaluator = _make_evaluator(
+        tmp_path,
+        monkeypatch,
+        "hirundo-io/bloom-prompt-injection-all-free-text",
+        1,
     )
 
     evaluator.save_results(
@@ -879,7 +882,6 @@ def test_save_results_writes_conflicting_signals_surgical_separation_rate(
         conflicting_signals_attack_success_rate=0.25,
         conflicting_signals_over_defensiveness_rate=0.4,
         conflicting_signals_surgical_separation_rate=0.35,
-        derive_attack_success_rate=False,
     )
 
     metrics_path = (
@@ -891,9 +893,9 @@ def test_save_results_writes_conflicting_signals_surgical_separation_rate(
     assert metrics_rows == [
         {
             "Thinking": "off",
-            "conflicting_signals_attack_success_rate": "25.000",
-            "conflicting_signals_over_defensiveness_rate": "40.000",
-            "conflicting_signals_surgical_separation_rate": "35.000",
+            "Conflicting-signals attack success rate (%) ⬇️": "25.000",
+            "Conflicting-signals over-defensiveness rate (%) ⬇️": "40.000",
+            "Conflicting-signals surgical separation rate (%) ⬆️": "35.000",
             "Empty Responses": "0",
             "Incomplete response rate (%) ⬇️": "0.000",
         }
@@ -903,15 +905,24 @@ def test_save_results_writes_conflicting_signals_surgical_separation_rate(
     with summary_full_path.open(newline="", encoding="utf-8") as summary_file:
         summary_rows = list(csv.DictReader(summary_file))
 
-    assert summary_rows[0]["conflicting_signals_over_defensiveness_rate"] == "40.000"
-    assert summary_rows[0]["conflicting_signals_surgical_separation_rate"] == "35.000"
+    assert (
+        summary_rows[0]["Conflicting-signals over-defensiveness rate (%) ⬇️"] == "40.000"
+    )
+    assert (
+        summary_rows[0]["Conflicting-signals surgical separation rate (%) ⬆️"]
+        == "35.000"
+    )
 
     summary_brief_path = tmp_path / "model" / "summary_brief.csv"
     with summary_brief_path.open(newline="", encoding="utf-8") as summary_file:
         brief_rows = list(csv.DictReader(summary_file))
 
-    assert brief_rows[0]["conflicting_signals_over_defensiveness_rate"] == "40.000"
-    assert brief_rows[0]["conflicting_signals_surgical_separation_rate"] == "35.000"
+    assert (
+        brief_rows[0]["Conflicting-signals over-defensiveness rate (%) ⬇️"] == "40.000"
+    )
+    assert (
+        brief_rows[0]["Conflicting-signals surgical separation rate (%) ⬆️"] == "35.000"
+    )
 
 
 def test_save_results_rewrites_summary_with_non_empty_columns_after_append(
@@ -1144,7 +1155,6 @@ def test_save_results_includes_incomplete_response_rate_when_finish_reasons_exis
         stereotyped_bias=None,
         empty_responses=0,
         attack_success_rate=0.25,
-        derive_attack_success_rate=False,
     )
 
     metrics_file_path = (
@@ -1196,24 +1206,11 @@ def test_save_results_breaks_attack_success_rate_out_by_generation_technique(
     monkeypatch: pytest.MonkeyPatch,
     mixed_technique_responses: list[dict[str, object]],
 ) -> None:
-    monkeypatch.setattr(
-        base_evaluator_module,
-        "load_tokenizer_with_transformers",
-        lambda *_args, **_kwargs: StubTokenizer(),
-    )
-    monkeypatch.setattr(
-        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
-    )
-    evaluator = ConcreteEvaluator(
-        EvaluationConfig(
-            model_path_or_repo_id="meta/model",
-            results_dir=tmp_path,
-            max_samples=4,
-        ),
-        DatasetConfig(
-            file_path="hirundo-io/bloom-prompt-injection-malicious-free-text",
-            dataset_type=DatasetType.BIAS,
-        ),
+    evaluator = _make_evaluator(
+        tmp_path,
+        monkeypatch,
+        "hirundo-io/bloom-prompt-injection-malicious-free-text",
+        5,
     )
 
     evaluator.save_results(
@@ -1222,7 +1219,6 @@ def test_save_results_breaks_attack_success_rate_out_by_generation_technique(
         stereotyped_bias=None,
         empty_responses=0,
         malicious_attack_success_rate=0.5,
-        derive_attack_success_rate=False,
     )
 
     metrics_path = (
@@ -1724,80 +1720,3 @@ def test_run_config_choice_not_remembered_prompts_again_without_second_remember_
 
     assert prompt_calls["count"] == 2
     assert confirm_calls["count"] == 1
-
-
-def test_save_results_writes_bloom_injection_benign_judge_metrics(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        base_evaluator_module,
-        "load_tokenizer_with_transformers",
-        lambda *_args, **_kwargs: StubTokenizer(),
-    )
-    monkeypatch.setattr(
-        base_evaluator_module, "empty_cuda_cache_if_available", lambda: None
-    )
-
-    evaluator = ConcreteEvaluator(
-        EvaluationConfig(
-            model_path_or_repo_id="meta/model",
-            results_dir=tmp_path,
-            max_samples=1,
-        ),
-        DatasetConfig(
-            file_path="hirundo-io/bloom-prompt-injection-free-text",
-            dataset_type=DatasetType.BIAS,
-        ),
-    )
-
-    evaluator.save_results(
-        responses=[{"prompt": "test", "response": "value"}],
-        accuracy=0.75,
-        stereotyped_bias=None,
-        empty_responses=0,
-        over_defensiveness_rate=0.5,
-        benign_judge_no_rate=0.25,
-        benign_judge_parsed_n=4,
-        benign_judge_parse_rate=0.8,
-    )
-
-    metrics_file_path = (
-        tmp_path / "model" / "bloom-prompt-injection-free-text" / "metrics.csv"
-    )
-    with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
-        metrics_rows = list(csv.DictReader(metrics_file))
-
-    assert metrics_rows == [
-        {
-            "Attack success rate (%) ⬇️": "25.000",
-            "Thinking": "off",
-            "Over-defensiveness rate (%) ⬇️": "50.000",
-            "Benign judge No-rate (%) ⬇️": "25.000",
-            "Benign judge parsed n": "4",
-            "Benign judge parse rate (%) ⬆️": "80.000",
-            "Empty Responses": "0",
-            "Incomplete response rate (%) ⬇️": "0.000",
-        }
-    ]
-
-    summary_full_path = tmp_path / "model" / "summary_full.csv"
-    with summary_full_path.open(newline="", encoding="utf-8") as summary_file:
-        summary_rows = list(csv.DictReader(summary_file))
-
-    assert summary_rows == [
-        {
-            "Model": "model",
-            "Dataset": "bloom-prompt-injection-free-text",
-            "Dataset Type": "DatasetType.BIAS",
-            "Text Format": "free_text",
-            "Thinking": "off",
-            "Attack success rate (%) ⬇️": "25.000",
-            "Over-defensiveness rate (%) ⬇️": "50.000",
-            "Benign judge No-rate (%) ⬇️": "25.000",
-            "Benign judge parsed n": "4",
-            "Benign judge parse rate (%) ⬆️": "80.000",
-            "Empty Responses": "0",
-            "Incomplete response rate (%) ⬇️": "0.000",
-        }
-    ]
