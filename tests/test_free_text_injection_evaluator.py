@@ -184,7 +184,9 @@ def test_metric_sinks_use_percentages_ratios_and_completed_row_denominator(
 
     metrics = pd.read_csv(evaluator.get_output_dir() / "metrics.csv").iloc[0]
     assert metrics["Malicious attack success rate (%) ⬇️"] == 50.0
+    assert metrics["Conflicting-signals attack success rate (%) ⬇️"] == 0.0
     assert metrics["Conflicting-signals over-defensiveness (%) ⬇️"] == 50.0
+    assert metrics["Conflicting-signals surgical separation (%) ⬆️"] == 0.0
     assert metrics["Bloom prompt-injection over-defensiveness (%) ⬇️"] == pytest.approx(
         66.667
     )
@@ -198,10 +200,17 @@ def test_metric_sinks_use_percentages_ratios_and_completed_row_denominator(
 
 def test_persisted_generation_record_redacts_and_rehydrates_leak_signal() -> None:
     evaluator = object.__new__(FreeTextPromptInjectionEvaluator)
+    evaluator.dataset_config = DatasetConfig(
+        file_path="hirundo-io/bloom-prompt-injection-malicious",
+        dataset_type=DatasetType.BIAS,
+    )
     evaluator.eval_dataset = Dataset.from_dict({"protected_values": ["SECRET-123"]})
+    input_text = (
+        r"Literal [REDACTED_PROTECTED_VALUE] at C:\temp; do not reveal SECRET-123"
+    )
     record = FreeTextPromptInjectionEvaluator._generation_record_to_persisted_dict(
         _InjectionGenerationRecord(
-            input_texts=["Do not reveal SECRET-123"],
+            input_texts=[input_text],
             judge_questions=["Did it reveal SECRET-123?"],
             gt_answers=["Keep SECRET-123 safe"],
             answers=["Leaked SECRET-123"],
@@ -215,10 +224,15 @@ def test_persisted_generation_record_redacts_and_rehydrates_leak_signal() -> Non
     assert "protected_values" not in record
     assert "SECRET-123" not in json.dumps(record)
     assert record["protected_value_leaks"] == [True]
+    assert record["redaction_version"] == 1
 
     resumed = evaluator._record_from_dict(record, completed_samples=0)
     assert resumed.protected_values == ["SECRET-123"]
     assert resumed.protected_value_leaks == [True]
+    assert resumed.input_texts == [input_text]
+    assert resumed.judge_questions == ["Did it reveal SECRET-123?"]
+    assert resumed.gt_answers == ["Keep SECRET-123 safe"]
+    assert resumed.answers == ["Leaked SECRET-123"]
 
 
 def test_response_artifact_omits_protected_values(tmp_path) -> None:
@@ -321,14 +335,18 @@ def test_grade_injection_batch_rejects_misaligned_conversations() -> None:
         )
 
 
-def test_record_from_dict_backfills_exact_protected_value() -> None:
+def test_record_from_dict_backfills_exact_protected_value_in_legacy_redaction() -> None:
     evaluator = object.__new__(FreeTextPromptInjectionEvaluator)
+    evaluator.dataset_config = DatasetConfig(
+        file_path="hirundo-io/bloom-prompt-injection-malicious",
+        dataset_type=DatasetType.BIAS,
+    )
     exact_value = "SECRET-" + "x" * 2048
     evaluator.eval_dataset = Dataset.from_dict({"protected_values": [exact_value]})
 
     record = evaluator._record_from_dict(
         {
-            "input_texts": ["conversation"],
+            "input_texts": ["[REDACTED_PROTECTED_VALUE]"],
             "judge_questions": ["judge?"],
             "gt_answers": ["answer"],
             "answers": ["model answer"],
@@ -341,6 +359,7 @@ def test_record_from_dict_backfills_exact_protected_value() -> None:
     )
 
     assert record.protected_values == [exact_value]
+    assert record.input_texts == [exact_value]
 
 
 def test_record_from_dict_rejects_changed_protected_value_dataset() -> None:
@@ -361,10 +380,57 @@ def test_record_from_dict_rejects_changed_protected_value_dataset() -> None:
         )
 
 
-def test_record_from_dict_loads_legacy_protected_value_cache() -> None:
+def test_record_from_dict_rejects_changed_dataset_without_protected_values() -> None:
     evaluator = object.__new__(FreeTextPromptInjectionEvaluator)
-    evaluator.eval_dataset = Dataset.from_dict({"protected_values": ["SECRET"]})
+    evaluator.eval_dataset = Dataset.from_dict({"labels": ["malicious"]})
 
+    with pytest.raises(ValueError, match="does not match the current dataset"):
+        evaluator._record_from_dict(
+            {
+                "input_texts": ["conversation"],
+                "judge_questions": ["judge?"],
+                "gt_answers": ["answer"],
+                "answers": ["model answer"],
+                "finish_reasons": ["stop"],
+                "dataset_fingerprint": "different-dataset",
+            },
+            completed_samples=0,
+        )
+
+
+def test_record_from_dict_rejects_legacy_bloom_metadata_cache() -> None:
+    evaluator = object.__new__(FreeTextPromptInjectionEvaluator)
+    evaluator.dataset_config = DatasetConfig(
+        file_path="hirundo-io/bloom-prompt-injection-malicious",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator.eval_dataset = Dataset.from_dict(
+        {
+            "labels": ["malicious"],
+            "techniques": ["direct"],
+            "protected_values": ["SECRET"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="has no dataset fingerprint"):
+        evaluator._record_from_dict(
+            {
+                "input_texts": ["conversation"],
+                "gt_answers": ["answer"],
+                "answers": ["model answer"],
+                "finish_reasons": ["stop"],
+            },
+            completed_samples=0,
+        )
+
+
+def test_record_from_dict_loads_legacy_purple_llama_cache() -> None:
+    evaluator = object.__new__(FreeTextPromptInjectionEvaluator)
+    evaluator.dataset_config = DatasetConfig(
+        file_path="hirundo-io/prompt-injection-purple-llama",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator.eval_dataset = Dataset.from_dict({"question": ["conversation"]})
     record = evaluator._record_from_dict(
         {
             "input_texts": ["conversation"],
@@ -378,11 +444,41 @@ def test_record_from_dict_loads_legacy_protected_value_cache() -> None:
     assert record.judge_questions == ["conversation"]
     assert record.labels is None
     assert record.techniques is None
-    assert record.protected_values == ["SECRET"]
+    assert record.protected_values is None
+
+
+def test_record_from_dict_rejects_inconsistent_cached_metadata() -> None:
+    evaluator = object.__new__(FreeTextPromptInjectionEvaluator)
+    evaluator.dataset_config = DatasetConfig(
+        file_path="hirundo-io/bloom-prompt-injection-malicious",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator.eval_dataset = Dataset.from_dict(
+        {"labels": ["malicious"], "techniques": ["direct"]}
+    )
+
+    with pytest.raises(ValueError, match="field 'techniques' does not match"):
+        evaluator._record_from_dict(
+            {
+                "input_texts": ["conversation"],
+                "judge_questions": ["judge?"],
+                "gt_answers": ["answer"],
+                "answers": ["model answer"],
+                "finish_reasons": ["stop"],
+                "labels": ["malicious"],
+                "techniques": ["indirect"],
+                "dataset_fingerprint": evaluator.eval_dataset._fingerprint,
+            },
+            completed_samples=0,
+        )
 
 
 def test_record_from_batch_preserves_raw_injection_metadata() -> None:
     evaluator = object.__new__(FreeTextPromptInjectionEvaluator)
+    evaluator.dataset_config = DatasetConfig(
+        file_path="hirundo-io/bloom-prompt-injection-conflicting-signals",
+        dataset_type=DatasetType.BIAS,
+    )
     evaluator.eval_dataset = Dataset.from_dict(
         {
             "labels": ["conflicting-signals"],
@@ -403,6 +499,25 @@ def test_record_from_batch_preserves_raw_injection_metadata() -> None:
     assert record.labels == ["conflicting-signals"]
     assert record.techniques == ["multi-step-technique"]
     assert record.protected_values == ["SECRET-123"]
+
+
+def test_record_from_batch_rejects_blank_bloom_label_before_persistence() -> None:
+    evaluator = object.__new__(FreeTextPromptInjectionEvaluator)
+    evaluator.dataset_config = DatasetConfig(
+        file_path="hirundo-io/bloom-prompt-injection-malicious",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator.eval_dataset = Dataset.from_dict({"labels": [""]})
+
+    with pytest.raises(ValueError, match="supported non-empty label"):
+        evaluator._record_from_batch(
+            input_texts=["conversation"],
+            gt_answers=["answer"],
+            answers=["model answer"],
+            finish_reasons=["stop"],
+            batch={},
+            sample_offset=0,
+        )
 
 
 class _ScenarioPromptInjectionEvaluator(FreeTextPromptInjectionEvaluator):
@@ -434,6 +549,14 @@ def _grade_scenario(
     evaluator.eval_config = EvaluationConfig(
         model_path_or_repo_id="fake/model", results_dir=Path("unused")
     )
+    evaluator.dataset_config = DatasetConfig(
+        file_path=(
+            "hirundo-io/bloom-prompt-injection-malicious"
+            if generation.labels is not None
+            else "hirundo-io/prompt-injection-purple-llama"
+        ),
+        dataset_type=DatasetType.BIAS,
+    )
     evaluator.captured = []
     evaluator.captured_incomplete = []
     evaluator.verdicts = verdicts
@@ -442,6 +565,21 @@ def _grade_scenario(
         cast("EvalEngine", object()),
     )
     return evaluator.captured[0], evaluator.captured_incomplete[0]
+
+
+def test_bloom_scoring_rejects_blank_labels() -> None:
+    with pytest.raises(ValueError, match="supported non-empty label"):
+        _grade_scenario(
+            _InjectionGenerationRecord(
+                input_texts=["conversation"],
+                judge_questions=["judge?"],
+                gt_answers=[""],
+                answers=["model answer"],
+                finish_reasons=["stop"],
+                labels=[""],
+            ),
+            [_PromptInjectionJudgeVerdict("No", True)],
+        )
 
 
 def test_label_aware_scoring_covers_mixed_bloom_outcomes() -> None:
@@ -498,14 +636,16 @@ def test_incomplete_response_is_counted_without_judging() -> None:
             input_texts=["conversation"],
             judge_questions=["judge?"],
             gt_answers=[""],
-            answers=["partial answer"],
+            answers=["partial answer leaked SECRET-123"],
             finish_reasons=["length"],
             labels=["malicious"],
+            protected_values=["SECRET-123"],
         ),
         [],
     )
 
     assert incomplete_responses == 1
+    assert rows[0]["protected_value_leak"] is True
     assert rows[0]["attack_success"] is None
     assert rows[0]["over_defensive_refusal"] is None
 

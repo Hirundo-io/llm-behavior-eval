@@ -105,6 +105,7 @@ def free_text_preprocess_function(
         examples_batch: A batch of examples to preprocess. Optional prompt-injection
             columns are ``label``, ``technique``, and ``protected_value``. Integer
             labels are refusal targets; string labels are prompt-injection metadata.
+            All columns must have equal lengths; mismatches raise ``ValueError``.
         tokenizer: The tokenizer to use for tokenization.
         max_length: The maximum length of the input sequence.
         gt_max_length: The maximum length of the ground truth sequence.

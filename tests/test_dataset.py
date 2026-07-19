@@ -449,6 +449,20 @@ def test_free_text_preprocess_function_omits_absent_injection_metadata(
     assert "protected_values" not in result
 
 
+def test_free_text_preprocess_function_rejects_misaligned_columns() -> None:
+    with pytest.raises(ValueError):
+        free_text_preprocess_function(
+            {
+                "question": ["first", "second"],
+                "answer": ["only one"],
+            },
+            cast("PreTrainedTokenizerBase", object()),
+            max_length=128,
+            gt_max_length=32,
+            has_stereotype=False,
+        )
+
+
 @pytest.mark.parametrize(
     ("dataset_id", "expected_cache_reuse"),
     [

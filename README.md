@@ -209,12 +209,14 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
 
-Bloom prompt-injection reports label-specific attack-success rates, over-defensive
-refusal rates, and surgical separation for conflicting-signal rows. Unparseable or
-incomplete judge results are excluded from judge-dependent metric denominators. Exact
-protected values are never written to generation or response artifacts; resumable
-generation caches validate their processed-dataset fingerprint. Legacy caches without
-new metadata remain loadable through their original positional alignment.
+Bloom prompt-injection reports attack-success rates for `malicious` and
+`conflicting-signals` rows only. `benign` rows contribute only to over-defensive
+refusal metrics; `conflicting-signals` rows also report surgical separation.
+Unparseable or incomplete judge results are excluded from judge-dependent metric
+denominators. Exact protected values are never written to generation or response
+artifacts. Bloom generation caches require a matching processed-dataset fingerprint so
+resume cannot associate safety metadata with the wrong responses. Legacy Purple Llama
+caches without Bloom metadata remain loadable.
 
 ## Tested on
 
