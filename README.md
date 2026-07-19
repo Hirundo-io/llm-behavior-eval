@@ -213,8 +213,8 @@ Bloom prompt-injection reports label-specific attack-success rates, over-defensi
 refusal rates, and surgical separation for conflicting-signal rows. Unparseable or
 incomplete judge results are excluded from judge-dependent metric denominators. Exact
 protected values are never written to generation or response artifacts; resumable
-generation caches are accepted for protected-value scoring only when their dataset
-fingerprint matches the current processed dataset.
+generation caches validate their processed-dataset fingerprint. Legacy caches without
+new metadata remain loadable through their original positional alignment.
 
 ## Tested on
 
