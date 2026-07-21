@@ -217,8 +217,6 @@ denominators. `protected_value` is tolerated as optional pass-through metadata w
 present, but the judge-only evaluator does not depend on it, fabricate it, write it to
 generation or response artifacts, or score it. Exact protected-value leak scoring
 remains outside the shipped harness until published datasets provide that annotation.
-Legacy Purple Llama caches remain loadable.
-
 ## Tested on
 
 Validated the pipeline on the following models:

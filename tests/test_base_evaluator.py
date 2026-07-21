@@ -639,45 +639,27 @@ def _cached_hallucination_record(
     }
 
 
-@pytest.mark.parametrize(
-    ("ground_truth_fields", "expected"),
-    [
-        ({"ground_truth_answers": ["answer"]}, ["answer"]),
-        ({"gt_answers": ["answer"]}, ["answer"]),
-        (
-            {"ground_truth_answers": ["current"], "gt_answers": ["legacy"]},
-            ["current"],
-        ),
-    ],
-)
-def test_hallucination_cache_validates_ground_truth_field(
-    ground_truth_fields: dict[str, object], expected: list[str]
-) -> None:
+def test_hallucination_cache_validates_ground_truth_answers() -> None:
     record = FreeTextHaluEvaluator._record_from_dict(
-        _cached_hallucination_record(ground_truth_fields),
+        _cached_hallucination_record({"ground_truth_answers": ["answer"]}),
         completed_samples=0,
     )
 
-    assert record.ground_truth_answers == expected
+    assert record.ground_truth_answers == ["answer"]
 
 
 @pytest.mark.parametrize(
-    ("ground_truth_fields", "error_message"),
+    "ground_truth_fields",
     [
-        ({"ground_truth_answers": "answer"}, "Cached ground_truth_answers must be"),
-        (
-            {"ground_truth_answers": ["answer", 1]},
-            "Cached ground_truth_answers must be",
-        ),
-        ({"gt_answers": "answer"}, "Cached gt_answers must be"),
-        ({"gt_answers": ["answer", 1]}, "Cached gt_answers must be"),
-        ({}, "must contain ground_truth_answers"),
+        {"ground_truth_answers": "answer"},
+        {"ground_truth_answers": ["answer", 1]},
+        {},
     ],
 )
 def test_hallucination_cache_rejects_invalid_ground_truth_field(
-    ground_truth_fields: dict[str, object], error_message: str
+    ground_truth_fields: dict[str, object],
 ) -> None:
-    with pytest.raises(ValueError, match=error_message):
+    with pytest.raises(ValueError, match="ground_truth_answers"):
         FreeTextHaluEvaluator._record_from_dict(
             _cached_hallucination_record(ground_truth_fields),
             completed_samples=0,

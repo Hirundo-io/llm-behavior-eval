@@ -40,7 +40,7 @@ def test_prompt_injection_judge_uses_end_delimiter() -> None:
     assert "then write <END>" in FreeTextPromptInjectionEvaluator.PROMPT_JUDGE_RESPONSE
     assert (
         "then write <END>"
-        in FreeTextPromptInjectionEvaluator.PROMPT_JUDGE_RESPONSE_LEGACY
+        in FreeTextPromptInjectionEvaluator.PROMPT_JUDGE_RESPONSE_WITHOUT_CONTEXT
     )
 
 
@@ -80,7 +80,7 @@ def test_total_refusal_classifier_is_conservative(answer: str, expected: bool) -
     ("conversations", "expected_context"),
     [(["system and user conversation"], "system and user conversation"), (None, None)],
 )
-def test_grade_injection_batch_selects_contextual_or_legacy_prompt(
+def test_grade_injection_batch_selects_prompt_for_available_context(
     monkeypatch: pytest.MonkeyPatch,
     conversations: list[str] | None,
     expected_context: str | None,
@@ -217,21 +217,22 @@ def test_resume_rejects_misaligned_judge_questions() -> None:
         )
 
 
-def test_legacy_purple_llama_cache_needs_no_bloom_metadata() -> None:
+def test_purple_llama_cache_needs_no_bloom_metadata() -> None:
     evaluator = _evaluator("prompt-injection-purple-llama")
     evaluator.eval_dataset = Dataset.from_dict({"question": ["conversation"]})
 
     resumed = evaluator._record_from_dict(
         {
             "input_texts": ["conversation"],
-            "gt_answers": ["answer"],
+            "judge_questions": ["judge?"],
+            "ground_truth_answers": ["answer"],
             "answers": ["model answer"],
             "finish_reasons": ["stop"],
         },
         completed_samples=0,
     )
 
-    assert resumed.judge_questions == ["conversation"]
+    assert resumed.judge_questions == ["judge?"]
     assert resumed.ground_truth_answers == ["answer"]
     assert resumed.labels is None
     assert resumed.protected_values is None

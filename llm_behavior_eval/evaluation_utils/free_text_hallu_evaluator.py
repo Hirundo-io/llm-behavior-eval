@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import cast
 
 import torch
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict
 from tqdm import tqdm
 
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
@@ -37,6 +37,15 @@ class _HalluGenerationRecord(_GenerationRecord):
     finish_reasons: list[str | None]
 
 
+class _PersistedHalluGenerationRecord(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+    input_texts: list[str]
+    ground_truth_answers: list[str]
+    answers: list[str]
+    finish_reasons: list[str | None]
+
+
 class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
     @staticmethod
     def _map_judge_outputs(
@@ -58,35 +67,14 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         saved_record_dict: Mapping[str, object], completed_samples: int
     ) -> _HalluGenerationRecord:
         del completed_samples
-        # Saved JSON is untyped, but these fields are emitted as string lists below.
-        input_texts = cast("list[str]", saved_record_dict.get("input_texts", []))
-        if "ground_truth_answers" in saved_record_dict:
-            ground_truth_field = "ground_truth_answers"
-        elif "gt_answers" in saved_record_dict:
-            ground_truth_field = "gt_answers"
-        else:
-            raise ValueError(
-                "Cached record must contain ground_truth_answers or legacy gt_answers"
-            )
-        try:
-            ground_truth_answers = TypeAdapter(list[str]).validate_python(
-                saved_record_dict[ground_truth_field], strict=True
-            )
-        except ValidationError as error:
-            raise ValueError(
-                f"Cached {ground_truth_field} must be a list of strings"
-            ) from error
-        # Saved JSON is untyped, but generated answers are emitted as strings.
-        answers = cast("list[str]", saved_record_dict.get("answers", []))
-        # Saved JSON is untyped, but finish reasons are nullable strings.
-        finish_reasons = cast(
-            "list[str | None]", saved_record_dict.get("finish_reasons", [])
+        persisted_record = _PersistedHalluGenerationRecord.model_validate(
+            saved_record_dict
         )
         return _HalluGenerationRecord(
-            input_texts=input_texts,
-            ground_truth_answers=ground_truth_answers,
-            answers=answers,
-            finish_reasons=finish_reasons,
+            input_texts=persisted_record.input_texts,
+            ground_truth_answers=persisted_record.ground_truth_answers,
+            answers=persisted_record.answers,
+            finish_reasons=persisted_record.finish_reasons,
         )
 
     @staticmethod
