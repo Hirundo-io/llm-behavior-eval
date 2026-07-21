@@ -10,7 +10,7 @@ from pydantic import TypeAdapter, ValidationError
 from tqdm import tqdm
 
 from .base_evaluator import _GenerationRecord
-from .enums import BLOOM_INJECTION_LABELS
+from .enums import BLOOM_INJECTION_DATASETS, BLOOM_INJECTION_LABELS
 from .eval_engine import EvalEngine
 from .free_text_hallu_evaluator import FreeTextHaluEvaluator, _HalluGenerationRecord
 
@@ -360,9 +360,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         return sum(1 for row in scored_rows if row[key]) / len(scored_rows)
 
     def _is_bloom_dataset(self) -> bool:
-        return self.get_dataset_slug() in {
-            f"bloom-prompt-injection-{label}" for label in BLOOM_INJECTION_LABELS
-        }
+        return self.dataset_config.file_path in BLOOM_INJECTION_DATASETS.values()
 
     def _save_prompt_injection_results(
         self, rows: list[dict[str, object]], incomplete_responses: int

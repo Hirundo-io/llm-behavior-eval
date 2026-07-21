@@ -698,26 +698,32 @@ def test_main_defaults_output_dir_to_data_dir(
 @pytest.mark.parametrize(
     ("behavior", "expected"),
     [
-        ("injection:bloom-malicious", ["hirundo-io/bloom-prompt-injection-malicious"]),
-        ("injection:bloom-benign", ["hirundo-io/bloom-prompt-injection-benign"]),
+        (
+            "injection:bloom-malicious",
+            ["hirundo-io/bloom-prompt-injection-malicious-free-text"],
+        ),
+        (
+            "injection:bloom-benign",
+            ["hirundo-io/bloom-prompt-injection-benign-free-text"],
+        ),
         (
             "injection:bloom-conflicting-signals",
-            ["hirundo-io/bloom-prompt-injection-conflicting-signals"],
+            ["hirundo-io/bloom-prompt-injection-conflicting-signals-free-text"],
         ),
         (
             "injection:bloom-all",
             [
-                "hirundo-io/bloom-prompt-injection-malicious",
-                "hirundo-io/bloom-prompt-injection-benign",
-                "hirundo-io/bloom-prompt-injection-conflicting-signals",
+                "hirundo-io/bloom-prompt-injection-malicious-free-text",
+                "hirundo-io/bloom-prompt-injection-benign-free-text",
+                "hirundo-io/bloom-prompt-injection-conflicting-signals-free-text",
             ],
         ),
         (
             "injection:all",
             [
-                "hirundo-io/bloom-prompt-injection-malicious",
-                "hirundo-io/bloom-prompt-injection-benign",
-                "hirundo-io/bloom-prompt-injection-conflicting-signals",
+                "hirundo-io/bloom-prompt-injection-malicious-free-text",
+                "hirundo-io/bloom-prompt-injection-benign-free-text",
+                "hirundo-io/bloom-prompt-injection-conflicting-signals-free-text",
                 "hirundo-io/prompt-injection-purple-llama",
             ],
         ),
@@ -746,7 +752,7 @@ def test_behavior_presets_reject_invalid_bloom_injection(behavior: str) -> None:
 def test_evaluate_factory_routes_bloom_injection_to_prompt_injection() -> None:
     assert (
         EvaluateFactory.get_evaluator_family(
-            "hirundo-io/bloom-prompt-injection-malicious"
+            "hirundo-io/bloom-prompt-injection-malicious-free-text"
         )
         == "prompt-injection"
     )
@@ -788,9 +794,9 @@ def test_typer_entrypoint_expands_bloom_injection_presets(
 
     assert result.exit_code == 0, result.output
     assert [config.dataset_config.file_path for config in captured[:3]] == [
-        "hirundo-io/bloom-prompt-injection-malicious",
-        "hirundo-io/bloom-prompt-injection-benign",
-        "hirundo-io/bloom-prompt-injection-conflicting-signals",
+        "hirundo-io/bloom-prompt-injection-malicious-free-text",
+        "hirundo-io/bloom-prompt-injection-benign-free-text",
+        "hirundo-io/bloom-prompt-injection-conflicting-signals-free-text",
     ]
     assert {config.eval_config.evaluator_family for config in captured[:3]} == {
         "prompt-injection"

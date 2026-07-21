@@ -54,7 +54,7 @@ MEDHALLU_ALIAS = {"hallu-med", "hallucination-med"}
 INJECTION_ALIAS = {"prompt-injection"}
 BLOOM_INJECTION_LABELS: tuple[str, ...] = ("malicious", "benign", "conflicting-signals")
 BLOOM_INJECTION_DATASETS: dict[str, str] = {
-    label: f"hirundo-io/bloom-prompt-injection-{label}"
+    label: f"hirundo-io/bloom-prompt-injection-{label}-free-text"
     for label in BLOOM_INJECTION_LABELS
 }
 REFUSAL_ALIAS = {"refusal"}

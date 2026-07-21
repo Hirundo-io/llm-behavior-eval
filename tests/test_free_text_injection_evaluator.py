@@ -132,7 +132,7 @@ def test_grade_injection_batch_rejects_misaligned_context() -> None:
 
 
 def test_resume_reloads_optional_metadata_without_persisting_it() -> None:
-    evaluator = _evaluator("bloom-prompt-injection-malicious")
+    evaluator = _evaluator("bloom-prompt-injection-malicious-free-text")
     evaluator.eval_dataset = Dataset.from_dict(
         {"labels": ["malicious"], "protected_values": ["SECRET-123"]}
     )
@@ -161,7 +161,7 @@ def test_resume_reloads_optional_metadata_without_persisting_it() -> None:
 
 
 def test_resume_tolerates_absent_protected_value() -> None:
-    evaluator = _evaluator("bloom-prompt-injection-benign")
+    evaluator = _evaluator("bloom-prompt-injection-benign-free-text")
     evaluator.eval_dataset = Dataset.from_dict({"labels": ["benign"]})
 
     resumed = evaluator._record_from_dict(
@@ -239,7 +239,7 @@ def test_purple_llama_cache_needs_no_bloom_metadata() -> None:
 
 
 def test_record_from_batch_reads_label_and_optional_protected_value() -> None:
-    evaluator = _evaluator("bloom-prompt-injection-conflicting-signals")
+    evaluator = _evaluator("bloom-prompt-injection-conflicting-signals-free-text")
     evaluator.eval_dataset = Dataset.from_dict(
         {
             "labels": ["conflicting-signals"],
@@ -262,7 +262,7 @@ def test_record_from_batch_reads_label_and_optional_protected_value() -> None:
 
 @pytest.mark.parametrize("label", ["", "unknown"])
 def test_record_from_batch_rejects_unsupported_bloom_label(label: str) -> None:
-    evaluator = _evaluator("bloom-prompt-injection-malicious")
+    evaluator = _evaluator("bloom-prompt-injection-malicious-free-text")
     evaluator.eval_dataset = Dataset.from_dict({"labels": [label]})
 
     with pytest.raises(ValueError, match="supported non-empty label"):
@@ -308,7 +308,7 @@ def _grade_scenario(
     )
     evaluator.dataset_config = DatasetConfig(
         file_path=(
-            "hirundo-io/bloom-prompt-injection-malicious"
+            "hirundo-io/bloom-prompt-injection-malicious-free-text"
             if generation.labels is not None
             else "hirundo-io/prompt-injection-purple-llama"
         ),
@@ -413,7 +413,7 @@ def test_purple_llama_attack_success_contract_is_unchanged() -> None:
 def test_metric_sinks_use_label_aware_denominators(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    evaluator = _evaluator("bloom-prompt-injection-conflicting-signals")
+    evaluator = _evaluator("bloom-prompt-injection-conflicting-signals-free-text")
     evaluator.mlflow_config = MlflowConfig()
     evaluator.num_samples = 5
     evaluator.eval_config = EvaluationConfig(
@@ -477,7 +477,7 @@ def test_metric_sinks_use_label_aware_denominators(
 
 
 def test_response_artifact_contains_only_scored_fields(tmp_path: Path) -> None:
-    evaluator = _evaluator("bloom-prompt-injection-malicious")
+    evaluator = _evaluator("bloom-prompt-injection-malicious-free-text")
     evaluator.mlflow_config = None
     evaluator.num_samples = 1
     evaluator.eval_config = EvaluationConfig(

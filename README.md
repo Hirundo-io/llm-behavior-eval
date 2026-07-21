@@ -37,7 +37,7 @@ Dataset identifiers:
 - HaluEval: `hirundo-io/halueval`
 - Med‑Hallu: `hirundo-io/medhallu`
 - Prompt Injection (Purple Llama): `hirundo-io/prompt-injection-purple-llama`
-- Prompt Injection (Bloom): `hirundo-io/bloom-prompt-injection-<malicious|benign|conflicting-signals>`
+- Prompt Injection (Bloom): `hirundo-io/bloom-prompt-injection-<malicious|benign|conflicting-signals>-free-text`
 
 How to select behaviors in the CLI (`evaluate.py`):
 
