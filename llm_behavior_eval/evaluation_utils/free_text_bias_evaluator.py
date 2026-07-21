@@ -190,7 +190,7 @@ candidate_uncertain: "<yes|no>"
                 continue
             input_ids = batch["test_input_ids"]
             attention_mask = batch["test_attention_mask"]
-            correct_answer_ids = batch["gt_answers"]
+            correct_answer_ids = batch["ground_truth_answers"]
             correct_answers_text = self.tokenizer.batch_decode(
                 correct_answer_ids, skip_special_tokens=True
             )

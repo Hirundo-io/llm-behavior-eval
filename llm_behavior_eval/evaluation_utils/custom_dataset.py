@@ -168,7 +168,7 @@ def free_text_preprocess_function(
     result: dict[str, torch.Tensor | list[str]] = {
         "test_input_ids": torch.tensor(tokenized_eval["input_ids"]),
         "test_attention_mask": torch.tensor(tokenized_eval["attention_mask"]),
-        "gt_answers": torch.tensor(tokenized_gt["input_ids"]),
+        "ground_truth_answers": torch.tensor(tokenized_gt["input_ids"]),
         "judge_questions": torch.tensor(tokenized_judge_questions["input_ids"]),
     }
     if has_stereotype and tokenized_stereotype is not None:

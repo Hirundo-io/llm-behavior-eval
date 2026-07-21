@@ -830,7 +830,7 @@ def test_format_answers_trims_thinking_trace_and_judge_prompt_uses_trimmed_text(
         [
             _HalluGenerationRecord(
                 input_texts=["question"],
-                gt_answers=["gold"],
+                ground_truth_answers=["gold"],
                 answers=[answer_with_trace],
                 finish_reasons=["stop"],
             )

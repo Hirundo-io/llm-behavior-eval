@@ -139,7 +139,7 @@ def test_resume_reloads_optional_metadata_without_persisting_it() -> None:
     generation = _InjectionGenerationRecord(
         input_texts=["conversation"],
         judge_questions=["judge?"],
-        gt_answers=["answer"],
+        ground_truth_answers=["answer"],
         answers=["model answer"],
         finish_reasons=["stop"],
         labels=["malicious"],
@@ -152,7 +152,7 @@ def test_resume_reloads_optional_metadata_without_persisting_it() -> None:
     assert set(persisted) == {
         "input_texts",
         "judge_questions",
-        "gt_answers",
+        "ground_truth_answers",
         "answers",
         "finish_reasons",
     }
@@ -168,7 +168,7 @@ def test_resume_tolerates_absent_protected_value() -> None:
         {
             "input_texts": ["conversation"],
             "judge_questions": ["judge?"],
-            "gt_answers": ["answer"],
+            "ground_truth_answers": ["answer"],
             "answers": ["model answer"],
             "finish_reasons": ["stop"],
         },
@@ -177,6 +177,44 @@ def test_resume_tolerates_absent_protected_value() -> None:
 
     assert resumed.labels == ["benign"]
     assert resumed.protected_values is None
+
+
+@pytest.mark.parametrize(
+    "judge_questions",
+    ["judge?", ["judge?", 1]],
+)
+def test_resume_rejects_invalid_judge_questions(judge_questions: object) -> None:
+    evaluator = _evaluator("prompt-injection-purple-llama")
+    evaluator.eval_dataset = Dataset.from_dict({"question": ["conversation"]})
+
+    with pytest.raises(ValueError, match="must be a list of strings"):
+        evaluator._record_from_dict(
+            {
+                "input_texts": ["conversation"],
+                "judge_questions": judge_questions,
+                "ground_truth_answers": ["answer"],
+                "answers": ["model answer"],
+                "finish_reasons": ["stop"],
+            },
+            completed_samples=0,
+        )
+
+
+def test_resume_rejects_misaligned_judge_questions() -> None:
+    evaluator = _evaluator("prompt-injection-purple-llama")
+    evaluator.eval_dataset = Dataset.from_dict({"question": ["conversation"]})
+
+    with pytest.raises(ValueError, match="field 'judge_questions' must align"):
+        evaluator._record_from_dict(
+            {
+                "input_texts": ["conversation"],
+                "judge_questions": [],
+                "ground_truth_answers": ["answer"],
+                "answers": ["model answer"],
+                "finish_reasons": ["stop"],
+            },
+            completed_samples=0,
+        )
 
 
 def test_legacy_purple_llama_cache_needs_no_bloom_metadata() -> None:
@@ -194,6 +232,7 @@ def test_legacy_purple_llama_cache_needs_no_bloom_metadata() -> None:
     )
 
     assert resumed.judge_questions == ["conversation"]
+    assert resumed.ground_truth_answers == ["answer"]
     assert resumed.labels is None
     assert resumed.protected_values is None
 
@@ -209,7 +248,7 @@ def test_record_from_batch_reads_label_and_optional_protected_value() -> None:
 
     record = evaluator._record_from_batch(
         input_texts=["conversation"],
-        gt_answers=["answer"],
+        ground_truth_answers=["answer"],
         answers=["model answer"],
         finish_reasons=["stop"],
         batch={},
@@ -228,7 +267,7 @@ def test_record_from_batch_rejects_unsupported_bloom_label(label: str) -> None:
     with pytest.raises(ValueError, match="supported non-empty label"):
         evaluator._record_from_batch(
             input_texts=["conversation"],
-            gt_answers=["answer"],
+            ground_truth_answers=["answer"],
             answers=["model answer"],
             finish_reasons=["stop"],
             batch={},
@@ -287,7 +326,7 @@ def test_label_aware_scoring_covers_bloom_outcomes() -> None:
         _InjectionGenerationRecord(
             input_texts=["c1", "c2", "c3"],
             judge_questions=["q1", "q2", "q3"],
-            gt_answers=["", "", ""],
+            ground_truth_answers=["", "", ""],
             answers=[
                 "I completed only the safe requested task.",
                 "I cannot help with that request.",
@@ -312,7 +351,7 @@ def test_protected_value_is_a_scoring_noop() -> None:
     base = _InjectionGenerationRecord(
         input_texts=["conversation"],
         judge_questions=["judge?"],
-        gt_answers=[""],
+        ground_truth_answers=[""],
         answers=["The answer contains SECRET-123."],
         finish_reasons=["stop"],
         labels=["malicious"],
@@ -320,7 +359,7 @@ def test_protected_value_is_a_scoring_noop() -> None:
     annotated = _InjectionGenerationRecord(
         input_texts=base.input_texts,
         judge_questions=base.judge_questions,
-        gt_answers=base.gt_answers,
+        ground_truth_answers=base.ground_truth_answers,
         answers=base.answers,
         finish_reasons=base.finish_reasons,
         labels=base.labels,
@@ -342,7 +381,7 @@ def test_unscored_judge_result_is_excluded_from_judge_metrics(
         _InjectionGenerationRecord(
             input_texts=["conversation"],
             judge_questions=["judge?"],
-            gt_answers=["answer"],
+            ground_truth_answers=["answer"],
             answers=["model answer"],
             finish_reasons=[finish_reason],
             labels=["conflicting-signals"],
@@ -360,7 +399,7 @@ def test_purple_llama_attack_success_contract_is_unchanged() -> None:
         _InjectionGenerationRecord(
             input_texts=["conversation"],
             judge_questions=["judge?"],
-            gt_answers=["answer"],
+            ground_truth_answers=["answer"],
             answers=["model answer"],
             finish_reasons=["stop"],
         ),

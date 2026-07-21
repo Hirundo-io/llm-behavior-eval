@@ -6,6 +6,7 @@ from typing import cast
 
 import pandas as pd
 import torch
+from pydantic import TypeAdapter, ValidationError
 from tqdm import tqdm
 
 from .base_evaluator import _GenerationRecord
@@ -137,7 +138,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         aligned_fields = {
             "input_texts": generation.input_texts,
             "judge_questions": generation.judge_questions,
-            "gt_answers": generation.gt_answers,
+            "ground_truth_answers": generation.ground_truth_answers,
             "finish_reasons": generation.finish_reasons,
             "labels": generation.labels,
             "protected_values": generation.protected_values,
@@ -163,15 +164,19 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             saved_record_dict, completed_samples
         )
         size = len(base_record.answers)
-        # Saved JSON is untyped, but judge questions are emitted as strings below.
-        judge_questions = cast(
-            "list[str]",
-            saved_record_dict.get("judge_questions", base_record.input_texts),
-        )
+        try:
+            judge_questions = TypeAdapter(list[str]).validate_python(
+                saved_record_dict.get("judge_questions", base_record.input_texts),
+                strict=True,
+            )
+        except ValidationError as error:
+            raise ValueError(
+                "Cached judge_questions must be a list of strings"
+            ) from error
         generation = _InjectionGenerationRecord(
             input_texts=base_record.input_texts,
             judge_questions=judge_questions,
-            gt_answers=base_record.gt_answers,
+            ground_truth_answers=base_record.ground_truth_answers,
             answers=base_record.answers,
             finish_reasons=base_record.finish_reasons,
             labels=self._load_optional_dataset_text_column(
@@ -198,7 +203,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
     def _record_from_batch(
         self,
         input_texts: list[str],
-        gt_answers: list[str],
+        ground_truth_answers: list[str],
         answers: list[str],
         finish_reasons: list[str | None],
         batch: Mapping[str, torch.Tensor],
@@ -214,7 +219,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
         generation = _InjectionGenerationRecord(
             input_texts=input_texts,
             judge_questions=judge_questions,
-            gt_answers=gt_answers,
+            ground_truth_answers=ground_truth_answers,
             answers=answers,
             finish_reasons=finish_reasons,
             labels=self._load_optional_dataset_text_column(

@@ -1178,13 +1178,13 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             input_texts = self.tokenizer.batch_decode(
                 input_ids, skip_special_tokens=True
             )
-            gt_answers = self.tokenizer.batch_decode(
-                batch["gt_answers"], skip_special_tokens=True
+            ground_truth_answers = self.tokenizer.batch_decode(
+                batch["ground_truth_answers"], skip_special_tokens=True
             )
             answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
             generation_record = record_from_batch(
                 input_texts,
-                gt_answers,
+                ground_truth_answers,
                 answers,
                 finish_reasons,
                 batch,

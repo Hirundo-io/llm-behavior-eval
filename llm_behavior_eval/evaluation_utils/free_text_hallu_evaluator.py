@@ -32,7 +32,7 @@ Just return the letters "A", "B", or "C", with no text around it.
 @dataclass
 class _HalluGenerationRecord(_GenerationRecord):
     input_texts: list[str]
-    gt_answers: list[str]
+    ground_truth_answers: list[str]
     finish_reasons: list[str | None]
 
 
@@ -60,7 +60,12 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         # Saved JSON is untyped, but these fields are emitted as string lists below.
         input_texts = cast("list[str]", saved_record_dict.get("input_texts", []))
         # Saved JSON is untyped, but ground-truth answers are emitted as strings.
-        gt_answers = cast("list[str]", saved_record_dict.get("gt_answers", []))
+        ground_truth_answers = cast(
+            "list[str]",
+            saved_record_dict.get(
+                "ground_truth_answers", saved_record_dict.get("gt_answers", [])
+            ),
+        )
         # Saved JSON is untyped, but generated answers are emitted as strings.
         answers = cast("list[str]", saved_record_dict.get("answers", []))
         # Saved JSON is untyped, but finish reasons are nullable strings.
@@ -69,7 +74,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         )
         return _HalluGenerationRecord(
             input_texts=input_texts,
-            gt_answers=gt_answers,
+            ground_truth_answers=ground_truth_answers,
             answers=answers,
             finish_reasons=finish_reasons,
         )
@@ -77,7 +82,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
     @staticmethod
     def _record_from_batch(
         input_texts: list[str],
-        gt_answers: list[str],
+        ground_truth_answers: list[str],
         answers: list[str],
         finish_reasons: list[str | None],
         batch: Mapping[str, torch.Tensor],
@@ -86,7 +91,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         del batch, sample_offset
         return _HalluGenerationRecord(
             input_texts=input_texts,
-            gt_answers=gt_answers,
+            ground_truth_answers=ground_truth_answers,
             answers=answers,
             finish_reasons=finish_reasons,
         )
@@ -97,7 +102,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
     ) -> dict[str, object]:
         return {
             "input_texts": generation_record.input_texts,
-            "gt_answers": generation_record.gt_answers,
+            "ground_truth_answers": generation_record.ground_truth_answers,
             "answers": generation_record.answers,
             "finish_reasons": generation_record.finish_reasons,
         }
@@ -113,17 +118,17 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         self,
         judge_engine: EvalEngine,
         questions: list[str],
-        gt_answers: list[str],
+        ground_truth_answers: list[str],
         generated_answers: list[str],
     ) -> list[str]:
         prompt_texts = [
             GRADER_TEMPLATE.format(
                 question=question,
-                target=gt_answer,
+                target=ground_truth_answer,
                 predicted_answer=generated_answer,
             )
-            for question, gt_answer, generated_answer in zip(
-                questions, gt_answers, generated_answers, strict=True
+            for question, ground_truth_answer, generated_answer in zip(
+                questions, ground_truth_answers, generated_answers, strict=True
             )
         ]
         raw = self._run_judge_user_prompts(judge_engine, prompt_texts)
@@ -177,16 +182,22 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                     judged_labels = self._grade_batch(
                         judge_engine,
                         [generation.input_texts[idx] for idx in judge_indices],
-                        [generation.gt_answers[idx] for idx in judge_indices],
+                        [generation.ground_truth_answers[idx] for idx in judge_indices],
                         [answers[idx] for idx in judge_indices],
                     )
                     for judged_index, label in zip(
                         judge_indices, judged_labels, strict=True
                     ):
                         labels[judged_index] = label
-            for question, gt_answer, generated_answer, label, finish_reason in zip(
+            for (
+                question,
+                ground_truth_answer,
+                generated_answer,
+                label,
+                finish_reason,
+            ) in zip(
                 generation.input_texts,
-                generation.gt_answers,
+                generation.ground_truth_answers,
                 answers,
                 labels,
                 generation.finish_reasons,
@@ -198,7 +209,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                 responses.append(
                     {
                         "question": question,
-                        "gt_answer": gt_answer,
+                        "ground_truth_answer": ground_truth_answer,
                         "llm_answer": generated_answer,
                         "grade": label,
                     }
