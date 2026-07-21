@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import cast
 
 import torch
+from pydantic import TypeAdapter, ValidationError
 from tqdm import tqdm
 
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
@@ -59,13 +60,22 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         del completed_samples
         # Saved JSON is untyped, but these fields are emitted as string lists below.
         input_texts = cast("list[str]", saved_record_dict.get("input_texts", []))
-        # Saved JSON is untyped, but ground-truth answers are emitted as strings.
-        ground_truth_answers = cast(
-            "list[str]",
-            saved_record_dict.get(
-                "ground_truth_answers", saved_record_dict.get("gt_answers", [])
-            ),
-        )
+        if "ground_truth_answers" in saved_record_dict:
+            ground_truth_field = "ground_truth_answers"
+        elif "gt_answers" in saved_record_dict:
+            ground_truth_field = "gt_answers"
+        else:
+            raise ValueError(
+                "Cached record must contain ground_truth_answers or legacy gt_answers"
+            )
+        try:
+            ground_truth_answers = TypeAdapter(list[str]).validate_python(
+                saved_record_dict[ground_truth_field], strict=True
+            )
+        except ValidationError as error:
+            raise ValueError(
+                f"Cached {ground_truth_field} must be a list of strings"
+            ) from error
         # Saved JSON is untyped, but generated answers are emitted as strings.
         answers = cast("list[str]", saved_record_dict.get("answers", []))
         # Saved JSON is untyped, but finish reasons are nullable strings.

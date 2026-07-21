@@ -628,6 +628,62 @@ def test_prompt_injection_default_max_judge_tokens_remains_128() -> None:
     assert FAMILY_TOKEN_DEFAULTS["prompt-injection"]["max_judge_tokens"] == 128
 
 
+def _cached_hallucination_record(
+    ground_truth_fields: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "input_texts": ["question"],
+        **ground_truth_fields,
+        "answers": ["response"],
+        "finish_reasons": ["stop"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("ground_truth_fields", "expected"),
+    [
+        ({"ground_truth_answers": ["answer"]}, ["answer"]),
+        ({"gt_answers": ["answer"]}, ["answer"]),
+        (
+            {"ground_truth_answers": ["current"], "gt_answers": ["legacy"]},
+            ["current"],
+        ),
+    ],
+)
+def test_hallucination_cache_validates_ground_truth_field(
+    ground_truth_fields: dict[str, object], expected: list[str]
+) -> None:
+    record = FreeTextHaluEvaluator._record_from_dict(
+        _cached_hallucination_record(ground_truth_fields),
+        completed_samples=0,
+    )
+
+    assert record.ground_truth_answers == expected
+
+
+@pytest.mark.parametrize(
+    ("ground_truth_fields", "error_message"),
+    [
+        ({"ground_truth_answers": "answer"}, "Cached ground_truth_answers must be"),
+        (
+            {"ground_truth_answers": ["answer", 1]},
+            "Cached ground_truth_answers must be",
+        ),
+        ({"gt_answers": "answer"}, "Cached gt_answers must be"),
+        ({"gt_answers": ["answer", 1]}, "Cached gt_answers must be"),
+        ({}, "must contain ground_truth_answers"),
+    ],
+)
+def test_hallucination_cache_rejects_invalid_ground_truth_field(
+    ground_truth_fields: dict[str, object], error_message: str
+) -> None:
+    with pytest.raises(ValueError, match=error_message):
+        FreeTextHaluEvaluator._record_from_dict(
+            _cached_hallucination_record(ground_truth_fields),
+            completed_samples=0,
+        )
+
+
 def test_prompt_injection_empty_judge_output_is_unparseable() -> None:
     raw = [[{"generated_text": "", "finish_reason": "stop"}]]
 
