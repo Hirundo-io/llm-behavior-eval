@@ -36,6 +36,7 @@ from .util_functions import (
     get_lora_slug,
     infer_mlflow_metric_step_from_lora_path,
     load_tokenizer_with_transformers,
+    safe_apply_chat_template,
 )
 
 if TYPE_CHECKING:
@@ -1092,6 +1093,37 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     - Free under‑test model before judging
     - Initialize and free judge pipeline
     """
+
+    def _run_judge_user_prompts(
+        self,
+        judge_engine: EvalEngine,
+        prompt_texts: Sequence[str],
+        stop_strings: list[str] | None = None,
+    ) -> list[list[dict[str, str | None]]]:
+        """Run rendered single-user prompt bodies through the judge.
+
+        Args:
+            judge_engine: Engine used to generate judge responses.
+            prompt_texts: Evaluator-specific user prompt bodies.
+            stop_strings: Optional strings that stop judge generation.
+
+        Returns:
+            One generation result list per prompt body.
+        """
+        self.prepare_judge_tokenizer()
+        judge_tokenizer = self._get_judge_tokenizer()
+        prompts = [
+            safe_apply_chat_template(
+                judge_tokenizer,
+                [{"role": "user", "content": prompt_text}],
+            )
+            for prompt_text in prompt_texts
+        ]
+        if stop_strings is None:
+            return self.run_judge_with_backoff(judge_engine, prompts)
+        return self.run_judge_with_backoff(
+            judge_engine, prompts, stop_strings=stop_strings
+        )
 
     def _collect_free_text_generations(
         self,

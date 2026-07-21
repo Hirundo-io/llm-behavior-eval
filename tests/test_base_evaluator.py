@@ -14,8 +14,6 @@ import torch
 from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokenizerBase
 
 import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_module
-import llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator as hallu_module
-import llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator as refusal_module
 from llm_behavior_eval.evaluation_utils.base_evaluator import (
     BaseEvaluator,
     FreeTextSharedEvaluator,
@@ -633,13 +631,17 @@ def test_prompt_injection_default_max_judge_tokens_remains_128() -> None:
 def test_prompt_injection_empty_judge_output_is_unparseable() -> None:
     raw = [[{"generated_text": "", "finish_reason": "stop"}]]
 
-    assert FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no(raw) == [None]
+    assert FreeTextPromptInjectionEvaluator._map_judge_outputs_to_verdicts(raw) == [
+        None
+    ]
 
 
 def test_prompt_injection_leading_whitespace_judge_output_is_parseable() -> None:
     raw = [[{"generated_text": "\nYes", "finish_reason": "stop"}]]
 
-    assert FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no(raw) == ["Yes"]
+    assert FreeTextPromptInjectionEvaluator._map_judge_outputs_to_verdicts(raw) == [
+        "Yes"
+    ]
 
 
 def test_get_model_slug_includes_lora_slug(
@@ -806,7 +808,7 @@ def test_format_answers_trims_thinking_trace_and_judge_prompt_uses_trimmed_text(
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        hallu_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: messages[-1]["content"],
     )
@@ -1230,7 +1232,7 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        refusal_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: messages[-1]["content"],
     )
@@ -1347,7 +1349,7 @@ def test_refusal_evaluator_marks_unparseable_outputs_and_excludes_them_from_deno
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        refusal_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: messages[-1]["content"],
     )
@@ -1419,7 +1421,7 @@ def test_refusal_evaluator_only_counts_stop_rows_as_judge_attempts(
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        refusal_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: messages[-1]["content"],
     )
