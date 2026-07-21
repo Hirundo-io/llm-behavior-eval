@@ -204,7 +204,7 @@ def test_resume_rejects_misaligned_judge_questions() -> None:
     evaluator = _evaluator("prompt-injection-purple-llama")
     evaluator.eval_dataset = Dataset.from_dict({"question": ["conversation"]})
 
-    with pytest.raises(ValueError, match="field 'judge_questions' must align"):
+    with pytest.raises(ValueError, match="must align with answers: judge_questions"):
         evaluator._record_from_dict(
             {
                 "input_texts": ["conversation"],

@@ -9,10 +9,16 @@ import torch
 from pydantic import TypeAdapter, ValidationError
 from tqdm import tqdm
 
-from .base_evaluator import _GenerationRecord
+from .base_evaluator import (
+    _GenerationRecord,
+    _validate_free_text_generation_field_alignment,
+)
 from .enums import BLOOM_INJECTION_DATASETS, BLOOM_INJECTION_LABELS
 from .eval_engine import EvalEngine
-from .free_text_hallu_evaluator import FreeTextHaluEvaluator, _HalluGenerationRecord
+from .free_text_hallu_evaluator import (
+    FreeTextHaluEvaluator,
+    _HalluGenerationRecord,
+)
 
 
 @dataclass
@@ -134,20 +140,17 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
     def _validate_generation_record(
         self, generation: _InjectionGenerationRecord
     ) -> _InjectionGenerationRecord:
-        size = len(generation.answers)
-        aligned_fields = {
-            "input_texts": generation.input_texts,
-            "judge_questions": generation.judge_questions,
-            "ground_truth_answers": generation.ground_truth_answers,
-            "finish_reasons": generation.finish_reasons,
-            "labels": generation.labels,
-            "protected_values": generation.protected_values,
-        }
-        for field_name, values in aligned_fields.items():
-            if values is not None and len(values) != size:
-                raise ValueError(
-                    f"Prompt-injection field '{field_name}' must align with answers"
-                )
+        _validate_free_text_generation_field_alignment(
+            generation.answers,
+            {
+                "input_texts": generation.input_texts,
+                "judge_questions": generation.judge_questions,
+                "ground_truth_answers": generation.ground_truth_answers,
+                "finish_reasons": generation.finish_reasons,
+                "labels": generation.labels,
+                "protected_values": generation.protected_values,
+            },
+        )
         if self._is_bloom_dataset() and (
             generation.labels is None
             or any(label not in BLOOM_INJECTION_LABELS for label in generation.labels)

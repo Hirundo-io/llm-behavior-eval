@@ -116,6 +116,20 @@ class _GenerationRecord:
 _GenerationRecordT = TypeVar("_GenerationRecordT", bound=_GenerationRecord)
 
 
+def _validate_free_text_generation_field_alignment(
+    answers: Sequence[object],
+    aligned_fields: Mapping[str, Sequence[object] | None],
+) -> None:
+    misaligned_fields = [
+        field_name
+        for field_name, values in aligned_fields.items()
+        if values is not None and len(values) != len(answers)
+    ]
+    if misaligned_fields:
+        names = ", ".join(misaligned_fields)
+        raise ValueError(f"Generation fields must align with answers: {names}")
+
+
 class BaseEvaluator(ABC):
     def __init__(
         self, eval_config: EvaluationConfig, dataset_config: DatasetConfig

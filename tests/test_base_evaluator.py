@@ -639,13 +639,21 @@ def _cached_hallucination_record(
     }
 
 
-def test_hallucination_cache_validates_ground_truth_answers() -> None:
+def test_hallucination_cache_loads_aligned_fields() -> None:
     record = FreeTextHaluEvaluator._record_from_dict(
-        _cached_hallucination_record({"ground_truth_answers": ["answer"]}),
+        {
+            "input_texts": ["question 1", "question 2"],
+            "ground_truth_answers": ["answer 1", "answer 2"],
+            "answers": ["response 1", "response 2"],
+            "finish_reasons": ["stop", "length"],
+        },
         completed_samples=0,
     )
 
-    assert record.ground_truth_answers == ["answer"]
+    assert record.input_texts == ["question 1", "question 2"]
+    assert record.ground_truth_answers == ["answer 1", "answer 2"]
+    assert record.answers == ["response 1", "response 2"]
+    assert record.finish_reasons == ["stop", "length"]
 
 
 @pytest.mark.parametrize(
@@ -662,6 +670,23 @@ def test_hallucination_cache_rejects_invalid_ground_truth_field(
     with pytest.raises(ValueError, match="ground_truth_answers"):
         FreeTextHaluEvaluator._record_from_dict(
             _cached_hallucination_record(ground_truth_fields),
+            completed_samples=0,
+        )
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["input_texts", "ground_truth_answers", "finish_reasons"],
+)
+def test_hallucination_cache_rejects_missing_required_fields(
+    field_name: str,
+) -> None:
+    saved_record = _cached_hallucination_record({"ground_truth_answers": ["answer"]})
+    del saved_record[field_name]
+
+    with pytest.raises(ValueError, match=field_name):
+        FreeTextHaluEvaluator._record_from_dict(
+            saved_record,
             completed_samples=0,
         )
 
