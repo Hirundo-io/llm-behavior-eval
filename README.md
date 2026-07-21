@@ -213,10 +213,11 @@ Bloom prompt-injection reports attack-success rates for `malicious` and
 `conflicting-signals` rows only. `benign` rows contribute only to over-defensive
 refusal metrics; `conflicting-signals` rows also report surgical separation.
 Unparseable or incomplete judge results are excluded from judge-dependent metric
-denominators. Exact protected values are never written to generation or response
-artifacts. Bloom generation caches require a matching processed-dataset fingerprint so
-resume cannot associate safety metadata with the wrong responses. Legacy Purple Llama
-caches without Bloom metadata remain loadable.
+denominators. `protected_value` is tolerated as optional pass-through metadata when
+present, but the judge-only evaluator does not depend on it, fabricate it, write it to
+generation or response artifacts, or score it. Exact protected-value leak scoring
+remains outside the shipped harness until published datasets provide that annotation.
+Legacy Purple Llama caches remain loadable.
 
 ## Tested on
 

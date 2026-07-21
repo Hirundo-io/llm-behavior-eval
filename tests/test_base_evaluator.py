@@ -622,7 +622,7 @@ def test_prompt_injection_judge_uses_answer_delimiter_stop_string(
     verdicts = evaluator._grade_injection_batch(
         NoopJudgeEngine(), ["question"], ["response"]
     )
-    assert [verdict.label for verdict in verdicts] == ["Yes"]
+    assert verdicts == ["Yes"]
     assert captured_stop_strings == [FreeTextPromptInjectionEvaluator.JUDGE_STOP_STRING]
 
 
@@ -633,17 +633,13 @@ def test_prompt_injection_default_max_judge_tokens_remains_128() -> None:
 def test_prompt_injection_empty_judge_output_is_unparseable() -> None:
     raw = [[{"generated_text": "", "finish_reason": "stop"}]]
 
-    verdict = FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no(raw)[0]
-    assert verdict.label is None
-    assert verdict.parseable is False
+    assert FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no(raw) == [None]
 
 
 def test_prompt_injection_leading_whitespace_judge_output_is_parseable() -> None:
     raw = [[{"generated_text": "\nYes", "finish_reason": "stop"}]]
 
-    verdict = FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no(raw)[0]
-    assert verdict.label == "Yes"
-    assert verdict.parseable is True
+    assert FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no(raw) == ["Yes"]
 
 
 def test_get_model_slug_includes_lora_slug(
