@@ -1,10 +1,10 @@
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import cast
+from typing import Self, cast
 
 import torch
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from tqdm import tqdm
 
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
@@ -44,6 +44,32 @@ class _PersistedHalluGenerationRecord(BaseModel):
     ground_truth_answers: list[str]
     answers: list[str]
     finish_reasons: list[str | None]
+
+    @model_validator(mode="after")
+    def validate_aligned_fields(self) -> Self:
+        """Validate that persisted generation fields describe the same rows.
+
+        Returns:
+            The validated generation record.
+
+        Raises:
+            ValueError: If any persisted field has a different length from answers.
+        """
+        answer_count = len(self.answers)
+        aligned_fields = {
+            "input_texts": self.input_texts,
+            "ground_truth_answers": self.ground_truth_answers,
+            "finish_reasons": self.finish_reasons,
+        }
+        misaligned_fields = [
+            field_name
+            for field_name, values in aligned_fields.items()
+            if len(values) != answer_count
+        ]
+        if misaligned_fields:
+            names = ", ".join(misaligned_fields)
+            raise ValueError(f"Cached fields must align with answers: {names}")
+        return self
 
 
 class FreeTextHaluEvaluator(FreeTextSharedEvaluator):

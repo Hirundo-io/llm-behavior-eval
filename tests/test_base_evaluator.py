@@ -666,6 +666,21 @@ def test_hallucination_cache_rejects_invalid_ground_truth_field(
         )
 
 
+@pytest.mark.parametrize(
+    "field_name",
+    ["input_texts", "ground_truth_answers", "answers", "finish_reasons"],
+)
+def test_hallucination_cache_rejects_misaligned_fields(field_name: str) -> None:
+    saved_record = _cached_hallucination_record({"ground_truth_answers": ["answer"]})
+    saved_record[field_name] = []
+
+    with pytest.raises(ValueError, match="must align with answers"):
+        FreeTextHaluEvaluator._record_from_dict(
+            saved_record,
+            completed_samples=0,
+        )
+
+
 def test_prompt_injection_empty_judge_output_is_unparseable() -> None:
     raw = [[{"generated_text": "", "finish_reason": "stop"}]]
 
