@@ -230,6 +230,8 @@ def patch_dataloader(
 
 
 class NoopJudgeEngine(EvalEngine):
+    """Judge engine stub that returns empty, unfilled answers."""
+
     def generate_answers(
         self,
         input_ids: torch.Tensor,
@@ -250,6 +252,8 @@ class NoopJudgeEngine(EvalEngine):
 
 
 class ConcreteEvaluator(BaseEvaluator):
+    """Minimal concrete subclass to exercise BaseEvaluator's non-abstract behavior."""
+
     def evaluate(self) -> None:
         return None
 
@@ -413,6 +417,8 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
             )
 
     class RecordingJudgeEngine(EvalEngine):
+        """Judge engine stub that records each generate_answers call."""
+
         def __init__(self) -> None:
             self.calls: list[dict[str, object]] = []
 
