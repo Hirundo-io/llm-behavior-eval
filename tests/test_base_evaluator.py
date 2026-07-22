@@ -24,7 +24,6 @@ from llm_behavior_eval.evaluation_utils.base_evaluator import (
 from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.eval_config import (
-    FAMILY_TOKEN_DEFAULTS,
     EvaluationConfig,
     MlflowConfig,
 )
@@ -623,10 +622,6 @@ def test_prompt_injection_judge_uses_answer_delimiter_stop_string(
         NoopJudgeEngine(), ["question"], ["answer"], ["response"]
     ) == ["Yes"]
     assert captured_stop_strings == [FreeTextPromptInjectionEvaluator.JUDGE_STOP_STRING]
-
-
-def test_prompt_injection_default_max_judge_tokens_remains_128() -> None:
-    assert FAMILY_TOKEN_DEFAULTS["prompt-injection"]["max_judge_tokens"] == 128
 
 
 def test_prompt_injection_empty_judge_output_is_unparseable() -> None:

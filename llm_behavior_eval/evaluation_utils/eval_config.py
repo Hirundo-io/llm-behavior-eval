@@ -22,7 +22,7 @@ FAMILY_TOKEN_DEFAULTS: dict[EvaluatorFamily, dict[str, int | bool]] = {
     },
     "prompt-injection": {
         "max_answer_tokens": 128,
-        "max_judge_tokens": 128,
+        "max_judge_tokens": 32,
         "sample_judge": False,
     },
     "refusal": {
