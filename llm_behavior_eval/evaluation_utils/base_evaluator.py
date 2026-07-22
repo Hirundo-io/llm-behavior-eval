@@ -120,6 +120,15 @@ def _validate_free_text_generation_field_alignment(
     answers: Sequence[object],
     aligned_fields: Mapping[str, Sequence[object] | None],
 ) -> None:
+    """Require each present generation field to align with the answers.
+
+    Args:
+        answers: Generated answers that establish the expected row count.
+        aligned_fields: Named optional fields whose lengths must match the answers.
+
+    Raises:
+        ValueError: If any present field has a different row count.
+    """
     misaligned_fields = [
         field_name
         for field_name, values in aligned_fields.items()
