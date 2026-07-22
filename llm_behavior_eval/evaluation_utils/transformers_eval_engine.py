@@ -110,24 +110,27 @@ class TransformersEvalEngine(EvalEngine):
         else:
             eos_token_ids = {int(eos_token_id)}
 
-        generate_kwargs = {
-            "input_ids": model_input_ids,
-            "attention_mask": model_attention,
-            "max_new_tokens": max_new_tokens,
-            "do_sample": do_sample,
-            "pad_token_id": self.tokenizer.pad_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "temperature": temperature,
-            "top_p": top_p,
-            "top_k": top_k,
-            "return_dict_in_generate": True,
-        }
+        stop_kwargs: dict[str, object] = {}
         if sampling_config.stop_strings:
-            generate_kwargs["stop_strings"] = sampling_config.stop_strings
-            generate_kwargs["tokenizer"] = self.tokenizer
+            stop_kwargs = {
+                "stop_strings": sampling_config.stop_strings,
+                "tokenizer": self.tokenizer,
+            }
 
         with torch.inference_mode():
-            outputs = self.model.generate(**generate_kwargs)
+            outputs = self.model.generate(
+                input_ids=model_input_ids,
+                attention_mask=model_attention,
+                max_new_tokens=max_new_tokens,
+                do_sample=do_sample,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                return_dict_in_generate=True,
+                **stop_kwargs,
+            )
         sequences = outputs.sequences
         generated_tokens = sequences[:, model_input_ids.shape[1] :].detach().cpu()
         raw_answers = self.tokenizer.batch_decode(
