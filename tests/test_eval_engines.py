@@ -491,7 +491,7 @@ def test_vllm_eval_engine_allows_multimodal_loading(
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_uses_text_generation_for_judge(
+def test_vllm_eval_engine_forces_text_only_generation_for_judge(
     vllm_bundle: VllmPatchBundle, tmp_path: Path
 ) -> None:
     from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
@@ -501,7 +501,7 @@ def test_vllm_eval_engine_uses_text_generation_for_judge(
         judge_path_or_repo_id="fake/judge",
         results_dir=tmp_path,
         judge_engine="vllm",
-        vllm_config=VllmConfig(),
+        vllm_config=VllmConfig(language_model_only=False),
     )
 
     VllmEvalEngine(config, is_judge=True, max_model_len=2048)

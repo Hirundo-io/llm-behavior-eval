@@ -391,8 +391,8 @@ def main(
         typer.Option(
             "--vllm-language-model-only/--no-vllm-language-model-only",
             help=(
-                "Omit multimodal encoders and load only the language model in vLLM. "
-                "This has no effect on text-only architectures."
+                "Omit multimodal encoders when loading the evaluated model in vLLM. "
+                "Judges always omit them; text-only architectures are unaffected."
             ),
         ),
     ] = True,
