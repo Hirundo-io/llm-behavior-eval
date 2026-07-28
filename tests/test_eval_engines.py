@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
+from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -489,6 +490,36 @@ def test_vllm_eval_engine_allows_multimodal_loading(
     assert last_call["language_model_only"] is False
 
 
+@pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_uses_text_generation_for_judge(
+    vllm_bundle: VllmPatchBundle, tmp_path: Path
+) -> None:
+    from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        judge_path_or_repo_id="fake/judge",
+        results_dir=tmp_path,
+        judge_engine="vllm",
+        vllm_config=VllmConfig(),
+    )
+
+    VllmEvalEngine(config, is_judge=True, max_model_len=2048)
+
+    last_call = vllm_bundle.model_loader.calls[-1]
+    assert last_call.args[0] == "fake/judge"
+    assert last_call.kwargs["max_model_len"] == 2048
+    assert last_call.kwargs["language_model_only"] is True
+    assert last_call.kwargs["runner"] == "generate"
+
+
+def test_vllm_config_rejects_non_generation_runner() -> None:
+    from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+
+    with pytest.raises(ValidationError, match="runner"):
+        VllmConfig.model_validate({"runner": "pooling"})
+
+
 def test_load_vllm_model_uses_text_generation_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -537,6 +568,35 @@ def test_load_vllm_model_uses_text_generation_defaults(
             compilation_config=CompilationConfigStub(cudagraph_specialize_lora=False),
         )
     ]
+
+
+def test_load_vllm_model_forwards_multimodal_opt_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from llm_behavior_eval.evaluation_utils.util_functions import load_vllm_model
+
+    RecordingLlm.calls.clear()
+    monkeypatch.setitem(sys.modules, "vllm", types.SimpleNamespace(LLM=RecordingLlm))
+    monkeypatch.setitem(
+        sys.modules,
+        "vllm.config",
+        types.SimpleNamespace(CompilationConfig=CompilationConfigStub),
+    )
+
+    load_vllm_model(
+        "fake/multimodal-model",
+        torch.bfloat16,
+        trust_remote_code=False,
+        batch_size=8,
+        tensor_parallel_size=1,
+        language_model_only=False,
+    )
+
+    assert len(RecordingLlm.calls) == 1
+    call = RecordingLlm.calls[0]
+    assert call.model == "fake/multimodal-model"
+    assert call.language_model_only is False
+    assert call.runner == "generate"
 
 
 @pytest.mark.vllm_engine_test
