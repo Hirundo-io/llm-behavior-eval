@@ -36,7 +36,10 @@ from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
 )
-from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+from llm_behavior_eval.evaluation_utils.vllm_config import (
+    DEFAULT_VLLM_GPU_MEMORY_UTILIZATION,
+    VllmConfig,
+)
 from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 from llm_behavior_eval.presets import build_bias_dataset_id, expand_dataset_preset
 
@@ -368,7 +371,7 @@ def main(
             min=0.001,
             max=1.0,
         ),
-    ] = 0.9,
+    ] = DEFAULT_VLLM_GPU_MEMORY_UTILIZATION,
     vllm_enforce_eager: Annotated[
         bool,
         typer.Option(

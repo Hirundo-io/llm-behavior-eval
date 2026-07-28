@@ -3,6 +3,8 @@ from torch import cuda
 
 from .vllm_types import TokenizerModeOption
 
+DEFAULT_VLLM_GPU_MEMORY_UTILIZATION = 0.8
+
 
 class VllmConfig(BaseModel):
     """
@@ -30,7 +32,7 @@ class VllmConfig(BaseModel):
     tokenizer_mode: TokenizerModeOption | None = None
     config_format: str | None = None
     load_format: str | None = None
-    gpu_memory_utilization: float = 0.9
+    gpu_memory_utilization: float = DEFAULT_VLLM_GPU_MEMORY_UTILIZATION
     enable_lora: bool = False
     max_lora_rank: int = 128
     language_model_only: bool = False

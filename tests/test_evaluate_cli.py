@@ -28,6 +28,10 @@ from llm_behavior_eval.evaluation_utils.refusal_utils import (
     OR_BENCH_DATASET,
     XSTEST_DATASET,
 )
+from llm_behavior_eval.evaluation_utils.vllm_config import (
+    DEFAULT_VLLM_GPU_MEMORY_UTILIZATION,
+    VllmConfig,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -338,6 +342,19 @@ def test_main_sets_inference_engine_and_sampling(
     assert eval_config.sampling_config.top_k == 12
     assert eval_config.sampling_config.seed == 123
     assert dataset_config.seed == 123
+
+
+def test_vllm_defaults_preserve_vllm_configuration(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main("fake/model", "hallu", inference_engine="vllm")
+
+    vllm_config = capture_eval_config[-1].vllm_config
+    assert vllm_config is not None
+    assert vllm_config.max_model_len is None
+    assert vllm_config.gpu_memory_utilization == DEFAULT_VLLM_GPU_MEMORY_UTILIZATION
+    assert VllmConfig().max_model_len is None
+    assert VllmConfig().gpu_memory_utilization == DEFAULT_VLLM_GPU_MEMORY_UTILIZATION
 
 
 def test_main_allows_replacing_existing_output(
