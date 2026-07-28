@@ -58,6 +58,8 @@ class VllmEvalEngine(EvalEngine):
         quantization: QuantizationMethods | None = "bitsandbytes" if use_4bit else None
         # Extract vLLM configuration
         vllm_config = eval_config.vllm_config or VllmConfig()
+        if max_model_len is None:
+            max_model_len = vllm_config.max_model_len
 
         logging.info(
             "Initializing vLLM with max_num_seqs=%s and gpu_memory_utilization=%s",

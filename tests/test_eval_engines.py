@@ -358,6 +358,7 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
     from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 
     vllm_config = VllmConfig(
+        max_model_len=8192,
         tokenizer_mode="slow",
         config_format="hf-torch",
         load_format="dummy",
@@ -372,6 +373,7 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
     VllmEvalEngine(config)
 
     last_call = vllm_bundle.model_loader.calls[-1]["kwargs"]
+    assert last_call["max_model_len"] == 8192
     assert last_call["tokenizer_mode"] == "slow"
     assert last_call["config_format"] == "hf-torch"
     assert last_call["load_format"] == "dummy"
