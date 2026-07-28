@@ -410,8 +410,13 @@ def load_vllm_model(
         language_model_only: Whether to omit multimodal encoders and load only the
             language model. This has no effect on text-only architectures.
         runner: vLLM runner task. Only text generation is supported.
+
     Returns:
-        An initialized ``vllm.LLM`` instance.
+        An instantiated ``vllm.LLM`` engine configured with the requested dtype,
+        model length, tensor parallelism, quantization, and LoRA settings. If
+        ``tensor_parallel_size`` is omitted, the detected GPU count is used, falling
+        back to vLLM's default when no GPUs are detected. An omitted
+        ``tokenizer_mode`` also uses vLLM's default.
 
     Raises:
         ModuleNotFoundError: If vLLM is not installed. Install it with
