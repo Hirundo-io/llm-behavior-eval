@@ -376,6 +376,83 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
     assert last_call["tokenizer_mode"] == "slow"
     assert last_call["config_format"] == "hf-torch"
     assert last_call["load_format"] == "dummy"
+    assert last_call["language_model_only"] is True
+    assert last_call["runner"] == "generate"
+
+
+def test_load_vllm_model_uses_text_generation_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from llm_behavior_eval.evaluation_utils.util_functions import load_vllm_model
+
+    class RecordingLlm:
+        calls: list[dict[str, object]] = []
+
+        def __init__(
+            self,
+            model: str,
+            *,
+            tokenizer_mode: str = "auto",
+            tensor_parallel_size: int = 1,
+            **kwargs,
+        ) -> None:
+            self.calls.append(
+                {
+                    "model": model,
+                    "tokenizer_mode": tokenizer_mode,
+                    "tensor_parallel_size": tensor_parallel_size,
+                    **kwargs,
+                }
+            )
+
+    class CompilationConfigStub:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    monkeypatch.setitem(sys.modules, "vllm", types.SimpleNamespace(LLM=RecordingLlm))
+    monkeypatch.setitem(
+        sys.modules,
+        "vllm.config",
+        types.SimpleNamespace(CompilationConfig=CompilationConfigStub),
+    )
+
+    load_vllm_model(
+        "fake/model",
+        torch.bfloat16,
+        trust_remote_code=False,
+        batch_size=16,
+        tensor_parallel_size=2,
+        enforce_eager=True,
+        max_model_len=4096,
+        tokenizer_mode="slow",
+        config_format="hf",
+        load_format="safetensors",
+        gpu_memory_utilization=0.8,
+    )
+
+    assert len(RecordingLlm.calls) == 1
+    call = RecordingLlm.calls[0]
+    compilation_config = call.pop("compilation_config")
+    assert isinstance(compilation_config, CompilationConfigStub)
+    assert call == {
+        "model": "fake/model",
+        "tokenizer_mode": "slow",
+        "tensor_parallel_size": 2,
+        "runner": "generate",
+        "trust_remote_code": False,
+        "dtype": "bfloat16",
+        "enforce_eager": True,
+        "quantization": None,
+        "max_num_seqs": 16,
+        "hf_token": None,
+        "max_model_len": 4096,
+        "config_format": "hf",
+        "load_format": "safetensors",
+        "gpu_memory_utilization": 0.8,
+        "enable_lora": False,
+        "max_lora_rank": 128,
+        "language_model_only": True,
+    }
 
 
 @pytest.mark.vllm_engine_test

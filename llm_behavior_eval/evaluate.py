@@ -389,10 +389,10 @@ def main(
     vllm_language_model_only: Annotated[
         bool,
         typer.Option(
-            "--vllm-language-model-only",
+            "--vllm-language-model-only/--no-vllm-language-model-only",
             help="Load only the language model for vLLM.",
         ),
-    ] = False,
+    ] = True,
     replace_existing_output: Annotated[
         bool,
         typer.Option(

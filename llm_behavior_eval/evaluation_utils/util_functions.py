@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from vllm import LLM
     from vllm.model_executor.layers.quantization import QuantizationMethods
 
-    from .vllm_types import TokenizerModeOption
+    from .vllm_types import RunnerOption, TokenizerModeOption
 
 VLLMDType = Literal["bfloat16", "float16", "float32"]
 
@@ -386,7 +386,8 @@ def load_vllm_model(
     gpu_memory_utilization: float = 0.9,
     enable_lora: bool = False,
     max_lora_rank: int = VllmConfig.model_fields["max_lora_rank"].default,
-    language_model_only: bool = False,
+    language_model_only: bool = True,
+    runner: RunnerOption = "generate",
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -407,6 +408,7 @@ def load_vllm_model(
         enable_lora: Whether to enable LoRA.
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
         language_model_only: Whether to load only the language model.
+        runner: vLLM runner task.
     Returns:
         An initialized ``vllm.LLM`` instance.
     """
@@ -433,6 +435,7 @@ def load_vllm_model(
     with _hf_token(token):
         llm_instance = LLM(
             model=model_name,
+            runner=runner,
             trust_remote_code=trust_remote_code,
             dtype=dtype_literal,
             enforce_eager=enforce_eager,

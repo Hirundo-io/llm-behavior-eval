@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from torch import cuda
 
-from .vllm_types import TokenizerModeOption
+from .vllm_types import RunnerOption, TokenizerModeOption
 
 DEFAULT_VLLM_GPU_MEMORY_UTILIZATION = 0.8
 
@@ -23,7 +23,9 @@ class VllmConfig(BaseModel):
         load_format: Checkpoint load format hint forwarded to vLLM (optional).
         enable_lora: Whether to enable LoRA.
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
-        language_model_only: Whether to load only the language model.
+        language_model_only: Whether to load only the language model. Defaults to True
+            so multimodal checkpoints use vLLM's text-only load path.
+        runner: vLLM runner task. Defaults to text generation.
         enforce_eager: Whether to enforce eager execution (useful for CPU-only setups or for saving memory on CUDA graphs).
     """
 
@@ -35,5 +37,6 @@ class VllmConfig(BaseModel):
     gpu_memory_utilization: float = DEFAULT_VLLM_GPU_MEMORY_UTILIZATION
     enable_lora: bool = False
     max_lora_rank: int = 128
-    language_model_only: bool = False
+    language_model_only: bool = True
+    runner: RunnerOption = "generate"
     enforce_eager: bool = not cuda.is_available()
