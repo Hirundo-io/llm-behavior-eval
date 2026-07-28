@@ -412,6 +412,10 @@ def load_vllm_model(
         runner: vLLM runner task. Only text generation is supported.
     Returns:
         An initialized ``vllm.LLM`` instance.
+
+    Raises:
+        ModuleNotFoundError: If vLLM is not installed. Install it with
+            ``uv pip install llm-behavior-eval[vllm]`` to enable vLLM for inference.
     """
     try:
         from vllm import LLM
