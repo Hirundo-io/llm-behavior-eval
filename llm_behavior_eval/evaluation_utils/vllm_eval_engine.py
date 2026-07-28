@@ -81,6 +81,7 @@ class VllmEvalEngine(EvalEngine):
             enable_lora=vllm_config.enable_lora and not self.is_judge,
             max_lora_rank=vllm_config.max_lora_rank,
             language_model_only=vllm_config.language_model_only,
+            runner=vllm_config.runner,
         )
         self._vllm_sampling_params = None
         self.lora_request: LoRARequest | None
