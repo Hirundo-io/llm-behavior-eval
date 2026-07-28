@@ -615,7 +615,11 @@ def main(
     using_vllm = any([arg == "vllm" for arg in vllm_related_args])
     if using_vllm:
         vllm_config = VllmConfig(
-            max_model_len=vllm_max_model_len,
+            max_model_len=(
+                vllm_max_model_len
+                if vllm_max_model_len is not None
+                else DEFAULT_VLLM_MAX_MODEL_LEN
+            ),
             judge_max_model_len=vllm_judge_max_model_len
             if vllm_judge_max_model_len is not None
             else vllm_max_model_len,
