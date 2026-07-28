@@ -4,8 +4,12 @@ import sys
 import types
 from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 pytest.importorskip("torch")
 import torch
@@ -85,13 +89,19 @@ class SamplingParamsRecorder:
         return SimpleNamespace(**kwargs)
 
 
-class ReturnValueStub:
-    def __init__(self, value) -> None:
-        self.value = value
-        self.calls: list[dict[str, object]] = []
+@dataclass(frozen=True)
+class RecordedCall:
+    args: tuple[object, ...]
+    kwargs: dict[str, object]
 
-    def __call__(self, *args, **kwargs):
-        self.calls.append({"args": args, "kwargs": kwargs})
+
+class ReturnValueStub:
+    def __init__(self, value: object) -> None:
+        self.value = value
+        self.calls: list[RecordedCall] = []
+
+    def __call__(self, *args: object, **kwargs: object) -> object:
+        self.calls.append(RecordedCall(args=args, kwargs=kwargs))
         return self.value
 
 
@@ -188,6 +198,82 @@ class TransformersPatchBundle:
     data_collator: ConstantCollator
     find_recorder: FindExecutableBatchSizeRecorder
     candidate_recorder: CandidateRecorder
+
+
+@dataclass(frozen=True)
+class CompilationConfigStub:
+    cudagraph_specialize_lora: bool
+
+
+@dataclass(frozen=True)
+class VllmConstructorCall:
+    model: str
+    runner: str
+    trust_remote_code: bool
+    dtype: str
+    enforce_eager: bool
+    quantization: str | None
+    tensor_parallel_size: int
+    max_num_seqs: int
+    hf_token: str | None
+    max_model_len: int | None
+    tokenizer_mode: str
+    config_format: str | None
+    load_format: str | None
+    gpu_memory_utilization: float
+    enable_lora: bool
+    max_lora_rank: int
+    language_model_only: bool
+    compilation_config: CompilationConfigStub
+
+
+class RecordingLlm:
+    calls: list[VllmConstructorCall] = []
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        runner: str,
+        trust_remote_code: bool,
+        dtype: str,
+        enforce_eager: bool,
+        quantization: str | None,
+        tensor_parallel_size: int,
+        max_num_seqs: int,
+        hf_token: str | None,
+        max_model_len: int | None,
+        tokenizer_mode: str,
+        config_format: str | None,
+        load_format: str | None,
+        gpu_memory_utilization: float,
+        enable_lora: bool,
+        max_lora_rank: int,
+        language_model_only: bool,
+        compilation_config: CompilationConfigStub,
+    ) -> None:
+        self.calls.append(
+            VllmConstructorCall(
+                model=model,
+                runner=runner,
+                trust_remote_code=trust_remote_code,
+                dtype=dtype,
+                enforce_eager=enforce_eager,
+                quantization=quantization,
+                tensor_parallel_size=tensor_parallel_size,
+                max_num_seqs=max_num_seqs,
+                hf_token=hf_token,
+                max_model_len=max_model_len,
+                tokenizer_mode=tokenizer_mode,
+                config_format=config_format,
+                load_format=load_format,
+                gpu_memory_utilization=gpu_memory_utilization,
+                enable_lora=enable_lora,
+                max_lora_rank=max_lora_rank,
+                language_model_only=language_model_only,
+                compilation_config=compilation_config,
+            )
+        )
 
 
 @pytest.fixture
@@ -355,12 +441,15 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
+def test_vllm_eval_engine_passes_optional_kwargs(
+    vllm_bundle: VllmPatchBundle, tmp_path: Path
+) -> None:
     vllm_config = VllmConfig(
         max_model_len=8192,
         tokenizer_mode="slow",
         config_format="hf-torch",
         load_format="dummy",
+        enforce_eager=True,
     )
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -371,13 +460,33 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
 
     VllmEvalEngine(config)
 
-    last_call = vllm_bundle.model_loader.calls[-1]["kwargs"]
+    last_call = vllm_bundle.model_loader.calls[-1].kwargs
     assert last_call["max_model_len"] == 8192
     assert last_call["tokenizer_mode"] == "slow"
     assert last_call["config_format"] == "hf-torch"
     assert last_call["load_format"] == "dummy"
     assert last_call["language_model_only"] is True
     assert last_call["runner"] == "generate"
+    assert last_call["enforce_eager"] is True
+
+
+@pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_allows_multimodal_loading(
+    vllm_bundle: VllmPatchBundle, tmp_path: Path
+) -> None:
+    from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        model_engine="vllm",
+        vllm_config=VllmConfig(language_model_only=False),
+    )
+
+    VllmEvalEngine(config)
+
+    last_call = vllm_bundle.model_loader.calls[-1].kwargs
+    assert last_call["language_model_only"] is False
 
 
 def test_load_vllm_model_uses_text_generation_defaults(
@@ -385,30 +494,7 @@ def test_load_vllm_model_uses_text_generation_defaults(
 ) -> None:
     from llm_behavior_eval.evaluation_utils.util_functions import load_vllm_model
 
-    class RecordingLlm:
-        calls: list[dict[str, object]] = []
-
-        def __init__(
-            self,
-            model: str,
-            *,
-            tokenizer_mode: str = "auto",
-            tensor_parallel_size: int = 1,
-            **kwargs,
-        ) -> None:
-            self.calls.append(
-                {
-                    "model": model,
-                    "tokenizer_mode": tokenizer_mode,
-                    "tensor_parallel_size": tensor_parallel_size,
-                    **kwargs,
-                }
-            )
-
-    class CompilationConfigStub:
-        def __init__(self, **kwargs) -> None:
-            self.kwargs = kwargs
-
+    RecordingLlm.calls.clear()
     monkeypatch.setitem(sys.modules, "vllm", types.SimpleNamespace(LLM=RecordingLlm))
     monkeypatch.setitem(
         sys.modules,
@@ -422,7 +508,6 @@ def test_load_vllm_model_uses_text_generation_defaults(
         trust_remote_code=False,
         batch_size=16,
         tensor_parallel_size=2,
-        enforce_eager=True,
         max_model_len=4096,
         tokenizer_mode="slow",
         config_format="hf",
@@ -430,34 +515,33 @@ def test_load_vllm_model_uses_text_generation_defaults(
         gpu_memory_utilization=0.8,
     )
 
-    assert len(RecordingLlm.calls) == 1
-    call = RecordingLlm.calls[0]
-    compilation_config = call.pop("compilation_config")
-    assert isinstance(compilation_config, CompilationConfigStub)
-    assert call == {
-        "model": "fake/model",
-        "tokenizer_mode": "slow",
-        "tensor_parallel_size": 2,
-        "runner": "generate",
-        "trust_remote_code": False,
-        "dtype": "bfloat16",
-        "enforce_eager": True,
-        "quantization": None,
-        "max_num_seqs": 16,
-        "hf_token": None,
-        "max_model_len": 4096,
-        "config_format": "hf",
-        "load_format": "safetensors",
-        "gpu_memory_utilization": 0.8,
-        "enable_lora": False,
-        "max_lora_rank": 128,
-        "language_model_only": True,
-    }
+    assert RecordingLlm.calls == [
+        VllmConstructorCall(
+            model="fake/model",
+            runner="generate",
+            trust_remote_code=False,
+            dtype="bfloat16",
+            enforce_eager=False,
+            quantization=None,
+            tensor_parallel_size=2,
+            max_num_seqs=16,
+            hf_token=None,
+            max_model_len=4096,
+            tokenizer_mode="slow",
+            config_format="hf",
+            load_format="safetensors",
+            gpu_memory_utilization=0.8,
+            enable_lora=False,
+            max_lora_rank=128,
+            language_model_only=True,
+            compilation_config=CompilationConfigStub(cudagraph_specialize_lora=False),
+        )
+    ]
 
 
 @pytest.mark.vllm_engine_test
 def test_vllm_eval_engine_explicit_length_overrides_config(
-    vllm_bundle, tmp_path
+    vllm_bundle: VllmPatchBundle, tmp_path: Path
 ) -> None:
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -468,7 +552,7 @@ def test_vllm_eval_engine_explicit_length_overrides_config(
 
     VllmEvalEngine(config, max_model_len=4096)
 
-    last_call = vllm_bundle.model_loader.calls[-1]["kwargs"]
+    last_call = vllm_bundle.model_loader.calls[-1].kwargs
     assert last_call["max_model_len"] == 4096
 
 
@@ -490,7 +574,7 @@ def test_vllm_eval_engine_uses_float16_on_t4(
 
     VllmEvalEngine(config)
 
-    assert vllm_bundle.model_loader.calls[-1]["args"][1] == torch.float16
+    assert vllm_bundle.model_loader.calls[-1].args[1] == torch.float16
 
 
 @pytest.mark.transformers_engine_test
