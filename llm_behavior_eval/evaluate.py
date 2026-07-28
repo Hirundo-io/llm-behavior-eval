@@ -38,7 +38,6 @@ from llm_behavior_eval.evaluation_utils.util_functions import (
 )
 from llm_behavior_eval.evaluation_utils.vllm_config import (
     DEFAULT_VLLM_GPU_MEMORY_UTILIZATION,
-    DEFAULT_VLLM_MAX_MODEL_LEN,
     VllmConfig,
 )
 from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
@@ -328,7 +327,7 @@ def main(
             "--vllm-max-model-len",
             help="Maximum model length for vLLM (optional)",
         ),
-    ] = DEFAULT_VLLM_MAX_MODEL_LEN,
+    ] = None,
     judge_engine: Annotated[
         Literal["vllm", "transformers"],
         typer.Option(
@@ -615,11 +614,7 @@ def main(
     using_vllm = any([arg == "vllm" for arg in vllm_related_args])
     if using_vllm:
         vllm_config = VllmConfig(
-            max_model_len=(
-                vllm_max_model_len
-                if vllm_max_model_len is not None
-                else DEFAULT_VLLM_MAX_MODEL_LEN
-            ),
+            max_model_len=vllm_max_model_len,
             judge_max_model_len=vllm_judge_max_model_len
             if vllm_judge_max_model_len is not None
             else vllm_max_model_len,
