@@ -16,6 +16,7 @@ from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
 )
+from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 from llm_behavior_eval.evaluation_utils.vllm_eval_engine import VllmEvalEngine
 
 
@@ -355,8 +356,6 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
 
 @pytest.mark.vllm_engine_test
 def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
-    from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
-
     vllm_config = VllmConfig(
         max_model_len=8192,
         tokenizer_mode="slow",
@@ -377,6 +376,23 @@ def test_vllm_eval_engine_passes_optional_kwargs(vllm_bundle, tmp_path) -> None:
     assert last_call["tokenizer_mode"] == "slow"
     assert last_call["config_format"] == "hf-torch"
     assert last_call["load_format"] == "dummy"
+
+
+@pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_explicit_length_overrides_config(
+    vllm_bundle, tmp_path
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        model_engine="vllm",
+        vllm_config=VllmConfig(max_model_len=8192),
+    )
+
+    VllmEvalEngine(config, max_model_len=4096)
+
+    last_call = vllm_bundle.model_loader.calls[-1]["kwargs"]
+    assert last_call["max_model_len"] == 4096
 
 
 @pytest.mark.vllm_engine_test
