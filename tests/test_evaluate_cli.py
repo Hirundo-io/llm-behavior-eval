@@ -382,7 +382,7 @@ def test_main_passes_vllm_optional_args(
     assert eval_config.vllm_config.load_format == "safetensors"
 
 
-def test_main_defaults_vllm_to_text_generation(
+def test_main_defaults_vllm_to_language_model_only(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
     evaluate.main("fake/model", "hallu", inference_engine="vllm")
@@ -390,7 +390,6 @@ def test_main_defaults_vllm_to_text_generation(
     vllm_config = capture_eval_config[-1].vllm_config
     assert vllm_config is not None
     assert vllm_config.language_model_only is True
-    assert vllm_config.runner == "generate"
 
 
 def test_main_allows_multimodal_vllm_loading(

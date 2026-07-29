@@ -387,7 +387,6 @@ def load_vllm_model(
     enable_lora: bool = False,
     max_lora_rank: int = VllmConfig.model_fields["max_lora_rank"].default,
     language_model_only: bool = True,
-    runner: Literal["generate"] = "generate",
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -409,7 +408,6 @@ def load_vllm_model(
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
         language_model_only: Whether to omit multimodal encoders and load only the
             language model. This has no effect on text-only architectures.
-        runner: vLLM runner task. Only text generation is supported.
 
     Returns:
         An instantiated ``vllm.LLM`` engine configured with the requested dtype,
@@ -445,7 +443,7 @@ def load_vllm_model(
     with _hf_token(token):
         llm_instance = LLM(
             model=model_name,
-            runner=runner,
+            runner="generate",
             trust_remote_code=trust_remote_code,
             dtype=dtype_literal,
             enforce_eager=enforce_eager,

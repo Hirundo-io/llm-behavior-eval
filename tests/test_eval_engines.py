@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
-from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -467,7 +466,6 @@ def test_vllm_eval_engine_passes_optional_kwargs(
     assert last_call["config_format"] == "hf-torch"
     assert last_call["load_format"] == "dummy"
     assert last_call["language_model_only"] is True
-    assert last_call["runner"] == "generate"
     assert last_call["enforce_eager"] is True
 
 
@@ -510,14 +508,6 @@ def test_vllm_eval_engine_forces_text_only_generation_for_judge(
     assert last_call.args[0] == "fake/judge"
     assert last_call.kwargs["max_model_len"] == 2048
     assert last_call.kwargs["language_model_only"] is True
-    assert last_call.kwargs["runner"] == "generate"
-
-
-def test_vllm_config_rejects_non_generation_runner() -> None:
-    from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
-
-    with pytest.raises(ValidationError, match="runner"):
-        VllmConfig.model_validate({"runner": "pooling"})
 
 
 def test_load_vllm_model_uses_text_generation_defaults(
@@ -596,7 +586,6 @@ def test_load_vllm_model_forwards_multimodal_opt_out(
     call = RecordingLlm.calls[0]
     assert call.model == "fake/multimodal-model"
     assert call.language_model_only is False
-    assert call.runner == "generate"
 
 
 @pytest.mark.vllm_engine_test

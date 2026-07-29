@@ -1,5 +1,3 @@
-from typing import Literal
-
 from pydantic import BaseModel
 from torch import cuda
 
@@ -28,7 +26,6 @@ class VllmConfig(BaseModel):
         language_model_only: Whether evaluated-model loads omit multimodal encoders
             and load only the language model. Judge loads always omit multimodal
             encoders. This setting has no effect on text-only architectures.
-        runner: vLLM runner task. The evaluation engine only supports text generation.
         enforce_eager: Whether to enforce eager execution (useful for CPU-only setups or for saving memory on CUDA graphs).
     """
 
@@ -41,5 +38,4 @@ class VllmConfig(BaseModel):
     enable_lora: bool = False
     max_lora_rank: int = 128
     language_model_only: bool = True
-    runner: Literal["generate"] = "generate"
     enforce_eager: bool = not cuda.is_available()
