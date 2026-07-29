@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -11,7 +11,11 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 
-from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
+from .base_evaluator import (
+    FreeTextSharedEvaluator,
+    _GenerationRecord,
+    _validate_free_text_generation_field_alignment,
+)
 from .eval_engine import EvalEngine
 from .refusal_utils import (
     _REFUSAL_PREFIXES,
@@ -22,7 +26,6 @@ from .refusal_utils import (
     UNSAFE_REFUSAL_LABEL,
     XSTEST_JUDGE_PROMPT,
 )
-from .util_functions import safe_apply_chat_template
 
 GRADING_STATUS_MODEL_INCOMPLETE = "model_incomplete"
 GRADING_STATUS_JUDGE_UNPARSEABLE = "judge_unparseable"
@@ -128,71 +131,93 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
         self._run_with_cleanup(_run)
 
     @staticmethod
-    def _decode_expected_labels(raw_labels: Any) -> list[str]:
-        if isinstance(raw_labels, torch.Tensor):
-            values = raw_labels.tolist()
-        else:
-            values = list(raw_labels)
+    def _decode_expected_labels(raw_labels: torch.Tensor) -> list[str]:
+        values = raw_labels.tolist()
         return [
             UNSAFE_REFUSAL_LABEL if int(value) == 1 else SAFE_REFUSAL_LABEL
             for value in values
         ]
 
-    def _collect_generations(self) -> Sequence[_RefusalGenerationRecord]:
-        self.ensure_test_model_ready()
-        completed_dicts = self.load_completed_generation_dicts()
-        completed_generations = [
-            _RefusalGenerationRecord(
-                input_texts=cast("list[str]", item.get("input_texts", [])),
-                expected_labels=cast("list[str]", item.get("expected_labels", [])),
-                answers=cast("list[str]", item.get("answers", [])),
-                finish_reasons=cast("list[str | None]", item.get("finish_reasons", [])),
-            )
-            for item in completed_dicts
-        ]
-        completed_samples = sum(
-            len(generation.input_texts) for generation in completed_generations
+    @staticmethod
+    def _validate_generation_record(
+        generation: _RefusalGenerationRecord,
+    ) -> _RefusalGenerationRecord:
+        _validate_free_text_generation_field_alignment(
+            generation.answers,
+            {
+                "input_texts": generation.input_texts,
+                "expected_labels": generation.expected_labels,
+                "finish_reasons": generation.finish_reasons,
+            },
         )
-        completed_batches = len(completed_generations)
+        return generation
 
-        generations: list[_RefusalGenerationRecord] = list(completed_generations)
-        remaining = self.num_samples - completed_samples
-        if remaining <= 0:
-            return generations
-
-        for batch_index, batch in enumerate(
-            tqdm(self.eval_loader, desc="Generating answers", unit="batch")
-        ):
-            if batch_index < completed_batches:
-                continue
-            input_ids = batch["test_input_ids"]
-            attention_mask = batch["test_attention_mask"]
-            input_texts = self.tokenizer.batch_decode(
-                input_ids, skip_special_tokens=True
+    @classmethod
+    def _record_from_dict(
+        cls,
+        saved_record_dict: Mapping[str, object],
+        completed_samples: int,
+    ) -> _RefusalGenerationRecord:
+        del completed_samples
+        return cls._validate_generation_record(
+            _RefusalGenerationRecord(
+                input_texts=cast(
+                    "list[str]",
+                    saved_record_dict.get("input_texts", []),
+                ),
+                expected_labels=cast(
+                    "list[str]",
+                    saved_record_dict.get("expected_labels", []),
+                ),
+                answers=cast(
+                    "list[str]",
+                    saved_record_dict.get("answers", []),
+                ),
+                finish_reasons=cast(
+                    "list[str | None]",
+                    saved_record_dict.get("finish_reasons", []),
+                ),
             )
-            expected_labels = self._decode_expected_labels(batch["refusal_labels"])
-            answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
-            generation_record = _RefusalGenerationRecord(
+        )
+
+    def _record_from_batch(
+        self,
+        input_texts: list[str],
+        gt_answers: list[str],
+        answers: list[str],
+        finish_reasons: list[str | None],
+        batch: Mapping[str, torch.Tensor],
+        sample_offset: int,
+    ) -> _RefusalGenerationRecord:
+        del gt_answers, sample_offset
+        return self._validate_generation_record(
+            _RefusalGenerationRecord(
                 input_texts=input_texts,
-                expected_labels=expected_labels,
+                expected_labels=self._decode_expected_labels(batch["refusal_labels"]),
                 answers=answers,
                 finish_reasons=finish_reasons,
             )
-            generations.append(generation_record)
-            self.save_generations(
-                [
-                    {
-                        "input_texts": generation_record.input_texts,
-                        "expected_labels": generation_record.expected_labels,
-                        "answers": generation_record.answers,
-                        "finish_reasons": generation_record.finish_reasons,
-                    }
-                ]
-            )
-            remaining -= len(input_texts)
-            if remaining <= 0:
-                break
-        return generations
+        )
+
+    @classmethod
+    def _generation_record_to_persisted_dict(
+        cls,
+        generation_record: _RefusalGenerationRecord,
+    ) -> dict[str, object]:
+        generation = cls._validate_generation_record(generation_record)
+        return {
+            "input_texts": generation.input_texts,
+            "expected_labels": generation.expected_labels,
+            "answers": generation.answers,
+            "finish_reasons": generation.finish_reasons,
+        }
+
+    def _collect_generations(self) -> Sequence[_RefusalGenerationRecord]:
+        return self._collect_free_text_generations(
+            self._record_from_dict,
+            self._record_from_batch,
+            self._generation_record_to_persisted_dict,
+        )
 
     def _judge_prompt_template(self) -> str:
         if self.dataset_config.dataset_id == OR_BENCH_DATASET:
@@ -210,35 +235,27 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
         questions: list[str],
         generated_answers: list[str],
     ) -> tuple[list[RefusalJudgment], list[str], list[str | None]]:
-        self.prepare_judge_tokenizer()
-        judge_tokenizer = self._get_judge_tokenizer()
         prompt_template = self._judge_prompt_template()
-        prompts = []
-        for question, generated_answer in zip(
-            questions, generated_answers, strict=True
-        ):
-            prompts.append(
-                safe_apply_chat_template(
-                    judge_tokenizer,
-                    [
-                        {
-                            "role": "user",
-                            "content": prompt_template.format(
-                                question=question,
-                                response=generated_answer,
-                            ),
-                        }
-                    ],
-                )
+        prompt_texts = [
+            prompt_template.format(
+                question=question,
+                response=generated_answer,
             )
-        raw = self.run_judge_with_backoff(judge_engine, prompts)
-        raw_texts: list[str] = [item[0].get("generated_text") or "" for item in raw]
+            for question, generated_answer in zip(
+                questions, generated_answers, strict=True
+            )
+        ]
+        judge_outputs = self._run_judge_user_prompts(judge_engine, prompt_texts)
+        judge_texts: list[str] = [
+            judge_output[0].get("generated_text") or ""
+            for judge_output in judge_outputs
+        ]
         judge_finish_reasons: list[str | None] = [
-            item[0].get("finish_reason") for item in raw
+            judge_output[0].get("finish_reason") for judge_output in judge_outputs
         ]
         return (
-            [self._parse_judge_text(text) for text in raw_texts],
-            raw_texts,
+            [self._parse_judge_text(text) for text in judge_texts],
+            judge_texts,
             judge_finish_reasons,
         )
 
@@ -421,9 +438,9 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
         ):
             answers = self._format_answers(generation.answers)
             judge_indices = [
-                idx
-                for idx in range(len(generation.answers))
-                if generation.finish_reasons[idx] == "stop"
+                answer_index
+                for answer_index in range(len(generation.answers))
+                if generation.finish_reasons[answer_index] == "stop"
             ]
             judge_attempted_samples += len(judge_indices)
             judgments: list[RefusalJudgment | None] = [None] * len(generation.answers)
@@ -431,17 +448,20 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
             judge_finish_reasons: list[str | None] = [None] * len(generation.answers)
             if judge_indices:
                 with torch.inference_mode():
-                    batch_judgments, batch_raw, batch_finish_reasons = (
+                    batch_judgments, batch_judge_texts, batch_finish_reasons = (
                         self._grade_batch(
                             judge_engine,
-                            [generation.input_texts[idx] for idx in judge_indices],
-                            [answers[idx] for idx in judge_indices],
+                            [
+                                generation.input_texts[answer_index]
+                                for answer_index in judge_indices
+                            ],
+                            [answers[answer_index] for answer_index in judge_indices],
                         )
                     )
                 for judged_index, judgment, raw_text, judge_finish_reason in zip(
                     judge_indices,
                     batch_judgments,
-                    batch_raw,
+                    batch_judge_texts,
                     batch_finish_reasons,
                     strict=True,
                 ):

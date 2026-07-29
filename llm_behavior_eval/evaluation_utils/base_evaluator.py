@@ -10,13 +10,14 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, TypeVar, cast
 
 import pandas as pd
 import torch
 import typer
 from accelerate.utils import find_executable_batch_size
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 from transformers.data.data_collator import default_data_collator
 from transformers.trainer_utils import set_seed
 
@@ -35,10 +36,11 @@ from .util_functions import (
     get_lora_slug,
     infer_mlflow_metric_step_from_lora_path,
     load_tokenizer_with_transformers,
+    safe_apply_chat_template,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator, Sequence
+    from collections.abc import Callable, Generator, Mapping, Sequence
 
     from datasets import Dataset as HFDataset
     from torch import Tensor
@@ -109,6 +111,32 @@ class _GenerationRecord:
     """
 
     answers: list[str]
+
+
+_GenerationRecordT = TypeVar("_GenerationRecordT", bound=_GenerationRecord)
+
+
+def _validate_free_text_generation_field_alignment(
+    answers: Sequence[object],
+    aligned_fields: Mapping[str, Sequence[object] | None],
+) -> None:
+    """Require each present generation field to align with the answers.
+
+    Args:
+        answers: Generated answers that establish the expected row count.
+        aligned_fields: Named optional fields whose lengths must match the answers.
+
+    Raises:
+        ValueError: If any present field has a different row count.
+    """
+    misaligned_fields = [
+        field_name
+        for field_name, values in aligned_fields.items()
+        if values is not None and len(values) != len(answers)
+    ]
+    if misaligned_fields:
+        names = ", ".join(misaligned_fields)
+        raise ValueError(f"Generation fields must align with answers: {names}")
 
 
 class BaseEvaluator(ABC):
@@ -1096,6 +1124,106 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     - Initialize and free judge pipeline
     """
 
+    def _run_judge_user_prompts(
+        self,
+        judge_engine: EvalEngine,
+        prompt_texts: Sequence[str],
+    ) -> list[list[dict[str, str | None]]]:
+        """Run rendered single-user prompt bodies through the judge.
+
+        Args:
+            judge_engine: Engine used to generate judge responses.
+            prompt_texts: Evaluator-specific user prompt bodies.
+
+        Returns:
+            One generation result list per prompt body.
+        """
+        self.prepare_judge_tokenizer()
+        judge_tokenizer = self._get_judge_tokenizer()
+        prompts = [
+            safe_apply_chat_template(
+                judge_tokenizer,
+                [{"role": "user", "content": prompt_text}],
+            )
+            for prompt_text in prompt_texts
+        ]
+        return self.run_judge_with_backoff(judge_engine, prompts)
+
+    def _collect_free_text_generations(
+        self,
+        record_from_dict: Callable[[Mapping[str, object], int], _GenerationRecordT],
+        record_from_batch: Callable[
+            [
+                list[str],
+                list[str],
+                list[str],
+                list[str | None],
+                Mapping[str, Tensor],
+                int,
+            ],
+            _GenerationRecordT,
+        ],
+        record_to_dict: Callable[[_GenerationRecordT], dict[str, object]],
+    ) -> list[_GenerationRecordT]:
+        """Resume and generate free-text batches with evaluator-specific metadata.
+
+        Args:
+            record_from_dict: Builds a record from a saved generation dictionary and
+                its starting sample offset.
+            record_from_batch: Builds a record from decoded inputs, ground truths,
+                answers, finish reasons, the source batch, and its sample offset.
+            record_to_dict: Converts a new record to a JSON-serializable dictionary.
+
+        Returns:
+            Resumed and newly generated records up to ``self.num_samples``. New
+            records are persisted as they are generated.
+        """
+        self.ensure_test_model_ready()
+        completed_generations: list[_GenerationRecordT] = []
+        completed_sample_offset = 0
+        for saved_generation_dict in self.load_completed_generation_dicts():
+            record = record_from_dict(
+                saved_generation_dict,
+                completed_sample_offset,
+            )
+            completed_generations.append(record)
+            completed_sample_offset += len(record.answers)
+
+        completed_batches = len(completed_generations)
+        generations = list(completed_generations)
+        remaining = self.num_samples - completed_sample_offset
+        if remaining <= 0:
+            return generations
+
+        for batch_index, batch in enumerate(
+            tqdm(self.eval_loader, desc="Generating answers", unit="batch")
+        ):
+            if batch_index < completed_batches:
+                continue
+            input_ids = batch["test_input_ids"]
+            attention_mask = batch["test_attention_mask"]
+            input_texts = self.tokenizer.batch_decode(
+                input_ids, skip_special_tokens=True
+            )
+            gt_answers = self.tokenizer.batch_decode(
+                batch["gt_answers"], skip_special_tokens=True
+            )
+            answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
+            generation_record = record_from_batch(
+                input_texts,
+                gt_answers,
+                answers,
+                finish_reasons,
+                batch,
+                self.num_samples - remaining,
+            )
+            generations.append(generation_record)
+            self.save_generations([record_to_dict(generation_record)])
+            remaining -= len(generation_record.answers)
+            if remaining <= 0:
+                break
+        return generations
+
     def _run_with_cleanup(self, run_fn: Callable[[], None]) -> None:
         """
         Execute run_fn and, when appropriate, call cleanup in a finally block.
@@ -1104,12 +1232,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             run_fn: A no-argument callable executed by this helper. Typically
                 contains generate, free_test_model, and grade logic.
 
-        Returns:
-            None.
-
         Raises:
-            Any exception raised by run_fn is re-raised after cleanup runs.
-            If run_fn raises, cleanup is invoked with error=True before the
+            Exception: Exceptions raised by ``run_fn`` are propagated after cleanup.
+            If ``run_fn`` raises, cleanup is invoked with ``error=True`` before the
             exception is propagated. Exceptions raised by cleanup itself are
             not suppressed.
 

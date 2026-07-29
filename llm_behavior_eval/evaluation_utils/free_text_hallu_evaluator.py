@@ -4,11 +4,16 @@ from dataclasses import dataclass
 from typing import cast
 
 import torch
+from pydantic import BaseModel, ConfigDict, model_validator
 from tqdm import tqdm
+from typing_extensions import Self
 
-from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
+from .base_evaluator import (
+    FreeTextSharedEvaluator,
+    _GenerationRecord,
+    _validate_free_text_generation_field_alignment,
+)
 from .eval_engine import EvalEngine
-from .util_functions import safe_apply_chat_template
 
 CHOICE_LETTERS: list[str] = ["A", "B", "C"]
 CHOICE_STRINGS: list[str] = ["CORRECT", "INCORRECT", "NOT_ATTEMPTED"]
@@ -37,14 +42,43 @@ class _HalluGenerationRecord(_GenerationRecord):
     finish_reasons: list[str | None]
 
 
+class _PersistedHalluGenerationRecord(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+    input_texts: list[str]
+    gt_answers: list[str]
+    answers: list[str]
+    finish_reasons: list[str | None]
+
+    @model_validator(mode="after")
+    def validate_aligned_fields(self) -> Self:
+        """Validate that persisted generation fields describe the same rows.
+
+        Returns:
+            The validated generation record.
+
+        Raises:
+            ValueError: If any persisted field has a different length from answers.
+        """
+        _validate_free_text_generation_field_alignment(
+            self.answers,
+            {
+                "input_texts": self.input_texts,
+                "gt_answers": self.gt_answers,
+                "finish_reasons": self.finish_reasons,
+            },
+        )
+        return self
+
+
 class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
     @staticmethod
     def _map_judge_outputs(
-        judge_raw: Sequence[Sequence[Mapping[str, str | None]]],
+        judge_outputs: Sequence[Sequence[Mapping[str, str | None]]],
     ) -> list[str]:
         labels = []
-        for item in judge_raw:
-            generated_text = item[0].get("generated_text") or ""
+        for judge_output in judge_outputs:
+            generated_text = judge_output[0].get("generated_text") or ""
             multiple_choice_answer = re.search(r"\b([ABC])\b", generated_text)
             labels.append(
                 CHOICE_TO_STRING.get(multiple_choice_answer.group(1), "NOT_ATTEMPTED")
@@ -53,64 +87,55 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             )
         return labels
 
-    def _collect_generations(self) -> Sequence[_HalluGenerationRecord]:
-        self.ensure_test_model_ready()
-        completed_dicts = self.load_completed_generation_dicts()
-        completed_generations = [
-            _HalluGenerationRecord(
-                input_texts=item.get("input_texts", []),
-                gt_answers=item.get("gt_answers", []),
-                answers=item.get("answers", []),
-                finish_reasons=item.get("finish_reasons", []),
-            )
-            for item in completed_dicts
-        ]
-        completed_samples = sum(
-            len(generation.input_texts) for generation in completed_generations
+    @staticmethod
+    def _record_from_dict(
+        saved_record_dict: Mapping[str, object], completed_samples: int
+    ) -> _HalluGenerationRecord:
+        del completed_samples
+        persisted_record = _PersistedHalluGenerationRecord.model_validate(
+            saved_record_dict
         )
-        completed_batches = len(completed_generations)
+        return _HalluGenerationRecord(
+            input_texts=persisted_record.input_texts,
+            gt_answers=persisted_record.gt_answers,
+            answers=persisted_record.answers,
+            finish_reasons=persisted_record.finish_reasons,
+        )
 
-        generations: list[_HalluGenerationRecord] = list(completed_generations)
-        remaining = self.num_samples - completed_samples
-        if remaining <= 0:
-            return generations
+    @staticmethod
+    def _record_from_batch(
+        input_texts: list[str],
+        gt_answers: list[str],
+        answers: list[str],
+        finish_reasons: list[str | None],
+        batch: Mapping[str, torch.Tensor],
+        sample_offset: int,
+    ) -> _HalluGenerationRecord:
+        del batch, sample_offset
+        return _HalluGenerationRecord(
+            input_texts=input_texts,
+            gt_answers=gt_answers,
+            answers=answers,
+            finish_reasons=finish_reasons,
+        )
 
-        for batch_index, batch in enumerate(
-            tqdm(self.eval_loader, desc="Generating answers", unit="batch")
-        ):
-            if batch_index < completed_batches:
-                continue
-            input_ids = batch["test_input_ids"]
-            attention_mask = batch["test_attention_mask"]
+    @staticmethod
+    def _generation_record_to_persisted_dict(
+        generation_record: _HalluGenerationRecord,
+    ) -> dict[str, object]:
+        return {
+            "input_texts": generation_record.input_texts,
+            "gt_answers": generation_record.gt_answers,
+            "answers": generation_record.answers,
+            "finish_reasons": generation_record.finish_reasons,
+        }
 
-            input_texts = self.tokenizer.batch_decode(
-                input_ids, skip_special_tokens=True
-            )
-            gt_answers = self.tokenizer.batch_decode(
-                batch["gt_answers"], skip_special_tokens=True
-            )
-            answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
-            generation_record = _HalluGenerationRecord(
-                input_texts=input_texts,
-                gt_answers=gt_answers,
-                answers=answers,
-                finish_reasons=finish_reasons,
-            )
-            generations.append(generation_record)
-            self.save_generations(
-                [
-                    {
-                        "input_texts": generation_record.input_texts,
-                        "gt_answers": generation_record.gt_answers,
-                        "answers": generation_record.answers,
-                        "finish_reasons": generation_record.finish_reasons,
-                    }
-                ]
-            )
-            remaining -= len(input_texts)
-            if remaining <= 0:
-                break
-        return generations
+    def _collect_generations(self) -> Sequence[_HalluGenerationRecord]:
+        return self._collect_free_text_generations(
+            self._record_from_dict,
+            self._record_from_batch,
+            self._generation_record_to_persisted_dict,
+        )
 
     def _grade_batch(
         self,
@@ -119,29 +144,18 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         gt_answers: list[str],
         generated_answers: list[str],
     ) -> list[str]:
-        self.prepare_judge_tokenizer()
-        judge_tokenizer = self._get_judge_tokenizer()
-        prompts = []
-        for question, gt_answer, generated_answer in zip(
-            questions, gt_answers, generated_answers, strict=True
-        ):
-            prompts.append(
-                safe_apply_chat_template(
-                    judge_tokenizer,
-                    [
-                        {
-                            "role": "user",
-                            "content": GRADER_TEMPLATE.format(
-                                question=question,
-                                target=gt_answer,
-                                predicted_answer=generated_answer,
-                            ),
-                        }
-                    ],
-                )
+        prompt_texts = [
+            GRADER_TEMPLATE.format(
+                question=question,
+                target=gt_answer,
+                predicted_answer=generated_answer,
             )
-        raw = self.run_judge_with_backoff(judge_engine, prompts)
-        return self._map_judge_outputs(raw)
+            for question, gt_answer, generated_answer in zip(
+                questions, gt_answers, generated_answers, strict=True
+            )
+        ]
+        judge_outputs = self._run_judge_user_prompts(judge_engine, prompt_texts)
+        return self._map_judge_outputs(judge_outputs)
 
     def generate(self) -> Sequence[_GenerationRecord]:
         with torch.inference_mode():
@@ -181,24 +195,36 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         ):
             answers = self._format_answers(generation.answers)
             judge_indices = [
-                idx
-                for idx in range(len(generation.answers))
-                if generation.finish_reasons[idx] == "stop"
+                answer_index
+                for answer_index in range(len(generation.answers))
+                if generation.finish_reasons[answer_index] == "stop"
             ]
             labels: list[str] = ["NOT_ATTEMPTED"] * len(generation.answers)
             if judge_indices:
                 with torch.inference_mode():
                     judged_labels = self._grade_batch(
                         judge_engine,
-                        [generation.input_texts[idx] for idx in judge_indices],
-                        [generation.gt_answers[idx] for idx in judge_indices],
-                        [answers[idx] for idx in judge_indices],
+                        [
+                            generation.input_texts[answer_index]
+                            for answer_index in judge_indices
+                        ],
+                        [
+                            generation.gt_answers[answer_index]
+                            for answer_index in judge_indices
+                        ],
+                        [answers[answer_index] for answer_index in judge_indices],
                     )
                     for judged_index, label in zip(
                         judge_indices, judged_labels, strict=True
                     ):
                         labels[judged_index] = label
-            for question, gt_answer, generated_answer, label, finish_reason in zip(
+            for (
+                question,
+                gt_answer,
+                generated_answer,
+                label,
+                finish_reason,
+            ) in zip(
                 generation.input_texts,
                 generation.gt_answers,
                 answers,
