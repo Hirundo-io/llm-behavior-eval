@@ -14,8 +14,6 @@ import torch
 from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokenizerBase
 
 import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_module
-import llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator as hallu_module
-import llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator as refusal_module
 from llm_behavior_eval.evaluation_utils.base_evaluator import (
     BaseEvaluator,
     FreeTextSharedEvaluator,
@@ -503,6 +501,97 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.seed == evaluator.dataset_config.seed
 
 
+def _cached_hallucination_record(
+    gt_answer_fields: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "input_texts": ["question"],
+        **gt_answer_fields,
+        "answers": ["response"],
+        "finish_reasons": ["stop"],
+    }
+
+
+def test_hallucination_cache_loads_aligned_fields() -> None:
+    record = FreeTextHaluEvaluator._record_from_dict(
+        {
+            "input_texts": ["question 1", "question 2"],
+            "gt_answers": ["answer 1", "answer 2"],
+            "answers": ["response 1", "response 2"],
+            "finish_reasons": ["stop", "length"],
+        },
+        completed_samples=0,
+    )
+
+    assert record.input_texts == ["question 1", "question 2"]
+    assert record.gt_answers == ["answer 1", "answer 2"]
+    assert record.answers == ["response 1", "response 2"]
+    assert record.finish_reasons == ["stop", "length"]
+
+
+@pytest.mark.parametrize(
+    "gt_answer_fields",
+    [
+        {"gt_answers": "answer"},
+        {"gt_answers": ["answer", 1]},
+        {},
+    ],
+)
+def test_hallucination_cache_rejects_invalid_gt_answer_field(
+    gt_answer_fields: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError, match="gt_answers"):
+        FreeTextHaluEvaluator._record_from_dict(
+            _cached_hallucination_record(gt_answer_fields),
+            completed_samples=0,
+        )
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["input_texts", "gt_answers", "finish_reasons"],
+)
+def test_hallucination_cache_rejects_missing_required_fields(
+    field_name: str,
+) -> None:
+    saved_record = _cached_hallucination_record({"gt_answers": ["answer"]})
+    del saved_record[field_name]
+
+    with pytest.raises(ValueError, match=field_name):
+        FreeTextHaluEvaluator._record_from_dict(
+            saved_record,
+            completed_samples=0,
+        )
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["input_texts", "gt_answers", "answers", "finish_reasons"],
+)
+def test_hallucination_cache_rejects_misaligned_fields(field_name: str) -> None:
+    saved_record = _cached_hallucination_record({"gt_answers": ["answer"]})
+    saved_record[field_name] = []
+
+    with pytest.raises(ValueError, match="must align with answers"):
+        FreeTextHaluEvaluator._record_from_dict(
+            saved_record,
+            completed_samples=0,
+        )
+
+
+def test_refusal_cache_rejects_misaligned_fields() -> None:
+    with pytest.raises(ValueError, match="must align with answers"):
+        FreeTextRefusalEvaluator._record_from_dict(
+            {
+                "input_texts": ["question"],
+                "expected_labels": [],
+                "answers": ["response"],
+                "finish_reasons": ["stop"],
+            },
+            completed_samples=0,
+        )
+
+
 def test_get_model_slug_includes_lora_slug(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -667,7 +756,7 @@ def test_format_answers_trims_thinking_trace_and_judge_prompt_uses_trimmed_text(
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        hallu_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: messages[-1]["content"],
     )
@@ -1091,7 +1180,7 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        refusal_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: messages[-1]["content"],
     )
@@ -1208,7 +1297,7 @@ def test_refusal_evaluator_marks_unparseable_outputs_and_excludes_them_from_deno
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        refusal_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: messages[-1]["content"],
     )
@@ -1280,7 +1369,7 @@ def test_refusal_evaluator_only_counts_stop_rows_as_judge_attempts(
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        refusal_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: messages[-1]["content"],
     )
