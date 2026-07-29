@@ -473,8 +473,6 @@ def test_vllm_eval_engine_passes_optional_kwargs(
 def test_vllm_eval_engine_allows_multimodal_loading(
     vllm_bundle: VllmPatchBundle, tmp_path: Path
 ) -> None:
-    from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
-
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
@@ -492,8 +490,6 @@ def test_vllm_eval_engine_allows_multimodal_loading(
 def test_vllm_eval_engine_forces_text_only_generation_for_judge(
     vllm_bundle: VllmPatchBundle, tmp_path: Path
 ) -> None:
-    from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
-
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         judge_path_or_repo_id="fake/judge",
@@ -607,7 +603,9 @@ def test_vllm_eval_engine_explicit_length_overrides_config(
 
 @pytest.mark.vllm_engine_test
 def test_vllm_eval_engine_uses_float16_on_t4(
-    vllm_bundle, tmp_path, monkeypatch: pytest.MonkeyPatch
+    vllm_bundle: VllmPatchBundle,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.vllm_eval_engine.torch.cuda.is_available",
