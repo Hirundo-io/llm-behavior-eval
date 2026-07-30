@@ -72,9 +72,9 @@ pip install llm-behavior-eval (or uv pip install llm-behavior-eval)
 
 uv is a fast Python package manager from Astral; it’s compatible with pip commands and typically installs dependencies significantly faster.
 
-### vLLM extra & CUDA drivers
+### vLLM extra
 
-The `vllm` extra is pinned to `vllm>=0.23.0,<0.24` — the tested line for the text-only Gemma-4 judge (`runner="generate"`, `language_model_only=True`), which runs on `torch==2.11`. That torch has a `cu128` build compatible with older (CUDA 12.x) drivers, so the pin is not inherently older-driver-hostile; the **upper bound** is what matters, because newer vLLM releases require `torch>=2.13` / cu13x wheels that older drivers cannot run. The `vllm` extra is optional: if your driver is too old for the vLLM stack, run the judge on the transformers backend instead (`--judge-engine transformers`), which needs no vLLM install.
+The `vllm` extra is pinned to `vllm>=0.23.0,<0.24` — the tested line for the text-only Gemma-4 judge (`runner="generate"`, `language_model_only=True`) on `torch==2.11`. The upper bound is deliberate: newer vLLM releases require `torch>=2.13` / cu13x wheels, so an open floor would silently pull an incompatible stack. The extra is optional — if the vLLM stack doesn't fit your environment, run the judge on the transformers backend (`--judge-engine transformers`), which needs no vLLM install.
 
 ## Development Container
 
