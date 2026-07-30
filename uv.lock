@@ -2655,7 +2655,7 @@ requires-dist = [
     { name = "tqdm" },
     { name = "transformers", specifier = ">=5.0.0" },
     { name = "typer", specifier = "<1.0.0" },
-    { name = "vllm", marker = "extra == 'vllm'", specifier = ">=0.23.0" },
+    { name = "vllm", marker = "extra == 'vllm'", specifier = ">=0.23.0,<0.24" },
 ]
 provides-extras = ["mlflow", "vllm", "gcs", "azure", "gpt-oss"]
 
