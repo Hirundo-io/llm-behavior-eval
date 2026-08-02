@@ -76,6 +76,8 @@ uv is a fast Python package manager from Astral; it’s compatible with pip comm
 
 The `vllm` extra is pinned to `vllm>=0.23.0,<0.24` — the tested line for the text-only Gemma-4 judge (`runner="generate"`, `language_model_only=True`) on `torch==2.11`. The upper bound is deliberate: newer vLLM releases require `torch>=2.13` / cu13x wheels, so an open floor would silently pull an incompatible stack. The extra is optional — if the vLLM stack doesn't fit your environment, run the judge on the transformers backend (`--judge-engine transformers`), which needs no vLLM install.
 
+The base `transformers` floor is `>=5.10.4` for the same reason: that is the oldest release verified to load the `gemma4_unified` config. vLLM 0.23 itself allows `transformers>=4.56.0` and its registry does contain `Gemma4UnifiedForConditionalGeneration`, so the architecture is supported — but an older `transformers` fails to recognise the *config* and the engine never starts.
+
 ## Development Container
 
 The repository ships a VS Code Dev Container definition (`.devcontainer/`). The setup script installs the base project dependencies to keep the image lean. If you need optional extras (for example MLflow or vLLM), set `LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS` before the container runs:
