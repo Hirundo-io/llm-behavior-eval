@@ -37,5 +37,5 @@ class VllmConfig(BaseModel):
     gpu_memory_utilization: float = DEFAULT_VLLM_GPU_MEMORY_UTILIZATION
     enable_lora: bool = False
     max_lora_rank: int = 128
-    language_model_only: bool = True
+    language_model_only: bool = False
     enforce_eager: bool = not cuda.is_available()

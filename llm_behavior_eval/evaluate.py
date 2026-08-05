@@ -389,13 +389,14 @@ def main(
     vllm_language_model_only: Annotated[
         bool,
         typer.Option(
-            "--vllm-language-model-only/--no-vllm-language-model-only",
+            "--vllm-language-model-only",
             help=(
                 "Omit multimodal encoders when loading the evaluated model in vLLM. "
-                "Judges always omit them; text-only architectures are unaffected."
+                "Judges always omit them regardless of this flag; text-only "
+                "architectures are unaffected."
             ),
         ),
-    ] = True,
+    ] = False,
     replace_existing_output: Annotated[
         bool,
         typer.Option(

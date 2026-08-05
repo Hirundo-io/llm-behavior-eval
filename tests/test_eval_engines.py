@@ -465,7 +465,7 @@ def test_vllm_eval_engine_passes_optional_kwargs(
     assert last_call["tokenizer_mode"] == "slow"
     assert last_call["config_format"] == "hf-torch"
     assert last_call["load_format"] == "dummy"
-    assert last_call["language_model_only"] is True
+    assert last_call["language_model_only"] is False
     assert last_call["enforce_eager"] is True
 
 
@@ -550,7 +550,7 @@ def test_load_vllm_model_uses_text_generation_defaults(
             gpu_memory_utilization=0.8,
             enable_lora=False,
             max_lora_rank=128,
-            language_model_only=True,
+            language_model_only=False,
             compilation_config=CompilationConfigStub(cudagraph_specialize_lora=False),
         )
     ]

@@ -386,7 +386,7 @@ def load_vllm_model(
     gpu_memory_utilization: float = 0.9,
     enable_lora: bool = False,
     max_lora_rank: int = VllmConfig.model_fields["max_lora_rank"].default,
-    language_model_only: bool = True,
+    language_model_only: bool = False,
 ) -> LLM:
     """Load a vLLM model engine.
 
