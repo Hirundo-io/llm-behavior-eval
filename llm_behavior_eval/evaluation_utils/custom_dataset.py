@@ -16,9 +16,13 @@ from .util_functions import is_model_multimodal, safe_apply_chat_template
 
 
 def validate_dataset_columns(hf_dataset: Dataset) -> None:
-    """
-    Validates that the dataset contains the required columns based on the text format.
-    Raises a ValueError if any required columns are missing.
+    """Validate the columns required by every free-text dataset.
+
+    Args:
+        hf_dataset: Dataset whose columns are validated.
+
+    Raises:
+        ValueError: If a required column is absent.
     """
     # Minimum required columns for free-text
     required = {"question", "answer"}
@@ -44,12 +48,15 @@ def free_text_preprocess_function(
     thinking_start_token: str | None = None,
     thinking_end_token: str | None = None,
     include_default_system_prompt: bool = True,
-) -> dict[str, torch.Tensor]:
+) -> dict[str, torch.Tensor | list[str]]:
     """
     Preprocesses a batch of examples for free-text datasets.
 
     Args:
-        examples_batch: A batch of examples to preprocess.
+        examples_batch: A batch of examples to preprocess. Optional columns are
+            ``stereotyped_answer``, ``system_prompt``, ``judge_question``, and
+            ``label``. Integer labels are refusal targets; string labels are
+            prompt-injection metadata. All columns must have equal lengths.
         tokenizer: The tokenizer to use for tokenization.
         max_length: The maximum length of the input sequence.
         gt_max_length: The maximum length of the ground truth sequence.
@@ -65,21 +72,39 @@ def free_text_preprocess_function(
             when no per-row system prompt override is provided.
 
     Returns:
-        A dictionary containing the tokenized input and ground truth sequences.
+        A dictionary containing tokenized inputs, ground truths, judge questions, and
+        stereotyped answers when present. Integer labels produce ``refusal_labels``;
+        string labels are carried as ``labels``.
+
+    Raises:
+        ValueError: If columns are misaligned, required values are missing, labels
+            have mixed or unsupported types.
     """
     # 1) Column check
     rows = [
-        dict(zip(examples_batch.keys(), vals, strict=True))
-        for vals in zip(*examples_batch.values(), strict=True)
+        dict(zip(examples_batch.keys(), row_values, strict=True))
+        for row_values in zip(*examples_batch.values(), strict=True)
     ]
     # Validate minimally required fields only
     for row in rows:
         if not row.get("question") or not row.get("answer"):
             raise ValueError("Free text row must contain 'question' and 'answer'")
+    label_values = examples_batch.get("label")
+    has_text_labels = label_values is not None and all(
+        type(label) is str for label in label_values
+    )
+    has_refusal_labels = label_values is not None and all(
+        type(label) is int for label in label_values
+    )
+    if label_values is not None and not (has_text_labels or has_refusal_labels):
+        raise ValueError(
+            "Free text field 'label' must contain only strings or only integers"
+        )
     # 2) Apply chat template to dataset messages
     eval_strings, answer_strings = [], []
     stereotyped_strings: list[str] = []
     judge_questions: list[str] = []
+    labels: list[str] = []
     for row in rows:
         question_text = row["question"]
         answer_text = row["answer"]
@@ -114,6 +139,9 @@ def free_text_preprocess_function(
         if has_stereotype:
             stereotyped_strings.append(stereotyped_text or "")
         judge_questions.append(judge_question_override or question_text)
+        label = row.get("label")
+        if isinstance(label, str):
+            labels.append(label)
     # 3) Tokenization
     tokenize = partial(
         tokenizer,
@@ -142,7 +170,7 @@ def free_text_preprocess_function(
             add_special_tokens=False,
         )
     # 4) Result
-    result = {
+    result: dict[str, torch.Tensor | list[str]] = {
         "test_input_ids": torch.tensor(tokenized_eval["input_ids"]),
         "test_attention_mask": torch.tensor(tokenized_eval["attention_mask"]),
         "gt_answers": torch.tensor(tokenized_gt["input_ids"]),
@@ -150,10 +178,10 @@ def free_text_preprocess_function(
     }
     if has_stereotype and tokenized_stereotype is not None:
         result["stereotyped_answers"] = torch.tensor(tokenized_stereotype["input_ids"])
-    if "label" in examples_batch:
-        result["refusal_labels"] = torch.tensor(
-            examples_batch["label"], dtype=torch.long
-        )
+    if has_text_labels:
+        result["labels"] = labels
+    if has_refusal_labels and label_values is not None:
+        result["refusal_labels"] = torch.tensor(label_values, dtype=torch.long)
 
     return result
 
@@ -269,6 +297,7 @@ class CustomDataset:
             batch_size=preprocess_config.preprocess_batch_size,
             num_proc=1,
         )
+        # Dataset column typing is broader than the tokenizer-produced nested token IDs.
         text = tokenizer.batch_decode(
             cast("list[list[int]]", list(processed_dataset["test_input_ids"])),
             skip_special_tokens=True,
