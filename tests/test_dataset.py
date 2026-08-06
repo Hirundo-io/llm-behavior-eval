@@ -1,7 +1,9 @@
 from typing import TYPE_CHECKING, cast
 
 import pytest
+import torch
 from datasets import Dataset, DatasetDict
+from transformers.data.data_collator import default_data_collator
 
 import llm_behavior_eval.evaluation_utils.custom_dataset as custom_dataset_module
 from llm_behavior_eval.evaluation_utils.custom_dataset import (
@@ -67,11 +69,13 @@ def test_normalize_refusal_dataset_rejects_unknown_labels():
 
 def test_free_text_preprocess_function_omits_default_system_prompt_when_disabled(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     captured_messages: list[list[dict[str, str]]] = []
 
     class StubTokenizer:
-        def __call__(self, texts, **_kwargs):
+        def __call__(
+            self, texts: str | list[str], **_kwargs: object
+        ) -> dict[str, list[list[int]]]:
             if isinstance(texts, str):
                 texts = [texts]
             return {
@@ -79,7 +83,11 @@ def test_free_text_preprocess_function_omits_default_system_prompt_when_disabled
                 "attention_mask": [[1, 1] for _ in texts],
             }
 
-    def fake_safe_apply_chat_template(_tokenizer, messages, **_kwargs):
+    def fake_safe_apply_chat_template(
+        _tokenizer: object,
+        messages: list[dict[str, str]],
+        **_kwargs: object,
+    ) -> str:
         captured_messages.append(messages)
         return "formatted"
 
@@ -128,7 +136,9 @@ def test_free_text_preprocess_function_emits_refusal_labels(
 
     assert "refusal_labels" in result
     assert "label" not in result
-    assert result["refusal_labels"].tolist() == [1]
+    refusal_labels = result["refusal_labels"]
+    assert isinstance(refusal_labels, torch.Tensor)
+    assert refusal_labels.tolist() == [1]
 
 
 def test_free_text_preprocess_function_uses_default_system_prompt_when_enabled(
@@ -326,3 +336,147 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
     )
 
     assert captured_messages == expected_messages
+
+
+def test_free_text_preprocess_function_uses_prompt_injection_columns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    encoded: dict[str, list[str]] = {}
+    captured_messages: list[list[dict[str, str]]] = []
+
+    class StubTokenizer:
+        def __call__(
+            self, texts: str | list[str], **_kwargs: object
+        ) -> dict[str, list[list[int]]]:
+            if isinstance(texts, str):
+                texts = [texts]
+            key = f"call_{len(encoded)}"
+            encoded[key] = texts
+            return {
+                "input_ids": [
+                    [index + 1, index + 2] for index, _text in enumerate(texts)
+                ],
+                "attention_mask": [[1, 1] for _ in texts],
+            }
+
+    def capture_chat_template(
+        _tokenizer: object,
+        messages: list[dict[str, str]],
+        **_kwargs: object,
+    ) -> str:
+        captured_messages.append(messages)
+        return "formatted"
+
+    monkeypatch.setattr(
+        custom_dataset_module,
+        "safe_apply_chat_template",
+        capture_chat_template,
+    )
+
+    result = free_text_preprocess_function(
+        {
+            "question": ["q1"],
+            "answer": ["a1"],
+            "system_prompt": ["system override"],
+            "judge_question": ["label-conditional judge question"],
+            "label": ["malicious"],
+        },
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
+        max_length=8,
+        gt_max_length=4,
+        has_stereotype=False,
+        include_default_system_prompt=False,
+    )
+
+    assert "refusal_labels" not in result
+    assert result["labels"] == ["malicious"]
+    assert captured_messages == [
+        [
+            {"role": "system", "content": "system override"},
+            {"role": "user", "content": "q1\n"},
+        ]
+    ]
+    assert encoded["call_2"] == ["label-conditional judge question"]
+    assert len(encoded) == 3
+
+
+def test_default_collator_ignores_string_labels() -> None:
+    batch = default_data_collator(
+        [
+            {
+                "test_input_ids": [1, 2],
+                "labels": "malicious",
+            }
+        ]
+    )
+
+    assert set(batch) == {"test_input_ids"}
+
+
+def test_free_text_preprocess_function_omits_absent_injection_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StubTokenizer:
+        def __call__(
+            self, texts: str | list[str], **_kwargs: object
+        ) -> dict[str, list[list[int]]]:
+            if isinstance(texts, str):
+                texts = [texts]
+            return {
+                "input_ids": [[1, 2] for _ in texts],
+                "attention_mask": [[1, 1] for _ in texts],
+            }
+
+    def fake_safe_apply_chat_template(
+        *_args: object,
+        **_kwargs: object,
+    ) -> str:
+        return "formatted"
+
+    monkeypatch.setattr(
+        custom_dataset_module,
+        "safe_apply_chat_template",
+        fake_safe_apply_chat_template,
+    )
+
+    result = free_text_preprocess_function(
+        {"question": ["q1"], "answer": ["a1"]},
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
+        max_length=8,
+        gt_max_length=4,
+        has_stereotype=False,
+    )
+
+    assert "labels" not in result
+
+
+def test_free_text_preprocess_function_rejects_misaligned_columns() -> None:
+    with pytest.raises(ValueError):
+        free_text_preprocess_function(
+            {
+                "question": ["first", "second"],
+                "answer": ["only one"],
+            },
+            cast("PreTrainedTokenizerBase", object()),
+            max_length=128,
+            gt_max_length=32,
+            has_stereotype=False,
+        )
+
+
+def test_free_text_preprocess_function_rejects_mixed_label_types() -> None:
+    with pytest.raises(ValueError, match="only strings or only integers"):
+        free_text_preprocess_function(
+            cast(
+                "dict[str, list[str] | list[int]]",
+                {
+                    "question": ["first", "second"],
+                    "answer": ["one", "two"],
+                    "label": ["malicious", 1],
+                },
+            ),
+            cast("PreTrainedTokenizerBase", object()),
+            max_length=128,
+            gt_max_length=32,
+            has_stereotype=False,
+        )

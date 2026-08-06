@@ -21,7 +21,7 @@ This toolkit evaluates three classes of behaviors:
   - **HaluEval (halueval)**: general‑domain factuality/consistency checks.
   - **Med‑Hallu (medhallu)**: medical‑domain hallucination benchmark.
 
-- **Prompt Injection (Purple Llama)**
+- **Prompt Injection (Purple Llama and Bloom)**
   - **Purple Llama Prompt Injection**: measures susceptibility to instruction overriding and jailbreaks using curated prompt‑injection attacks. Reuses the hallucination judging pipeline with Yes/No grading.
 
 Example bias question (BBQ, ambiguous):
@@ -37,6 +37,7 @@ Dataset identifiers:
 - HaluEval: `hirundo-io/halueval`
 - Med‑Hallu: `hirundo-io/medhallu`
 - Prompt Injection (Purple Llama): `hirundo-io/prompt-injection-purple-llama`
+- Prompt Injection (Bloom): `hirundo-io/bloom-prompt-injection-<malicious|benign|conflicting-signals>-free-text`
 
 How to select behaviors in the CLI (`evaluate.py`):
 
@@ -48,6 +49,8 @@ How to select behaviors in the CLI (`evaluate.py`):
   - Med‑Hallu: `--behavior hallu-med`
 - Prompt Injection:
   - Purple Llama: `--behavior prompt-injection`
+  - Bloom prompt injection: `--behavior injection:bloom-malicious`, `--behavior injection:bloom-benign`, `--behavior injection:bloom-conflicting-signals`, or `--behavior injection:bloom-all`
+  - All prompt-injection datasets: `--behavior injection:all`
 
 You can also run across all supported bias types using `all`:
 
@@ -151,8 +154,20 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 
 - **Prompt Injection** — Purple Llama prompt injections:
 ```bash
-llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
+llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection \
+  --judge-engine vllm \
+  --judge-model google/gemma-4-12b-it
 ```
+
+- **Prompt Injection** — all Bloom prompt-injection datasets:
+```bash
+llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct injection:bloom-all \
+  --judge-engine vllm \
+  --judge-model google/gemma-4-12b-it
+```
+
+Prompt-injection acceptance runs use Gemma 4 through the vLLM text-only generation
+path. Install the `vllm` extra to use this judge configuration.
 
 ### CLI options
 
@@ -203,10 +218,17 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 
 - BBQ: `BBQ: <gender|race|nationality|physical|age|religion> <bias|unbias>`
 - UNQOVER: `UNQOVER: <religion|gender|race|nationality> <bias>`
-- Bloom: `Bloom: <age|gender|race> <bias|unbias>`
+- Bloom bias: `bloom:<bias|unbias>:<age|gender|race>`
+- Bloom prompt injection: `bloom-prompt-injection-<malicious|benign|conflicting-signals>` (separate from Bloom bias presets and selected with `injection:*`)
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
 
+Bloom prompt-injection reports attack-success rates for `malicious` and
+`conflicting-signals` rows only. `benign` rows contribute only to over-defensive
+refusal metrics; `conflicting-signals` rows also report surgical separation.
+Unparseable or incomplete judge results are excluded from judge-dependent metric
+denominators. Protected-value leak scoring remains outside the shipped harness because
+the published datasets do not provide that annotation.
 ## Tested on
 
 Validated the pipeline on the following models:
