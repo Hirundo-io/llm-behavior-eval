@@ -23,7 +23,9 @@ class VllmConfig(BaseModel):
         load_format: Checkpoint load format hint forwarded to vLLM (optional).
         enable_lora: Whether to enable LoRA.
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
-        language_model_only: Whether to load only the language model.
+        language_model_only: Whether evaluated-model loads omit multimodal encoders
+            and load only the language model. Judge loads always omit multimodal
+            encoders. This setting has no effect on text-only architectures.
         enforce_eager: Whether to enforce eager execution (useful for CPU-only setups or for saving memory on CUDA graphs).
     """
 

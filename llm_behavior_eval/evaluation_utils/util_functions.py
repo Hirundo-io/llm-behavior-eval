@@ -406,9 +406,19 @@ def load_vllm_model(
         gpu_memory_utilization: Optional GPU memory utilization passed to vLLM.
         enable_lora: Whether to enable LoRA.
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
-        language_model_only: Whether to load only the language model.
+        language_model_only: Whether to omit multimodal encoders and load only the
+            language model. This has no effect on text-only architectures.
+
     Returns:
-        An initialized ``vllm.LLM`` instance.
+        An instantiated ``vllm.LLM`` engine configured with the requested dtype,
+        model length, tensor parallelism, quantization, and LoRA settings. If
+        ``tensor_parallel_size`` is omitted, the detected GPU count is used, falling
+        back to vLLM's default when no GPUs are detected. An omitted
+        ``tokenizer_mode`` also uses vLLM's default.
+
+    Raises:
+        ModuleNotFoundError: If vLLM is not installed. Install it with
+            ``uv pip install llm-behavior-eval[vllm]`` to enable vLLM for inference.
     """
     try:
         from vllm import LLM
@@ -433,6 +443,7 @@ def load_vllm_model(
     with _hf_token(token):
         llm_instance = LLM(
             model=model_name,
+            runner="generate",
             trust_remote_code=trust_remote_code,
             dtype=dtype_literal,
             enforce_eager=enforce_eager,

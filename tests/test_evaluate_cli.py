@@ -382,6 +382,21 @@ def test_main_passes_vllm_optional_args(
     assert eval_config.vllm_config.load_format == "safetensors"
 
 
+def test_main_vllm_evaluated_model_loads_multimodal_by_default(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    """The evaluated model keeps its multimodal encoders unless opted out.
+
+    Only judge loads are forced text-only (see the engine test); the evaluated
+    model's default is unchanged from a non-vLLM run.
+    """
+    evaluate.main("fake/model", "hallu", inference_engine="vllm")
+
+    vllm_config = capture_eval_config[-1].vllm_config
+    assert vllm_config is not None
+    assert vllm_config.language_model_only is False
+
+
 def test_main_does_not_create_vllm_config_when_not_using_vllm(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
