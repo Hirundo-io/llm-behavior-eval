@@ -1,4 +1,5 @@
 from .base_evaluator import BaseEvaluator
+from .censorship_utils import CHINESE_CENSORSHIP_DATASET_ID
 from .dataset_config import DatasetConfig
 from .eval_config import EvaluationConfig, EvaluatorFamily
 from .refusal_utils import REFUSAL_DATASETS
@@ -11,6 +12,21 @@ class EvaluateFactory:
 
     @staticmethod
     def get_evaluator_family(dataset_id: str) -> EvaluatorFamily:
+        """Resolve the evaluator family that owns a logical dataset identity.
+
+        Args:
+            dataset_id: Stable logical dataset identity selected by the CLI or preset.
+
+        Returns:
+            The evaluator family responsible for loading and scoring the dataset. The
+            ``chinese_censorship`` logical ID resolves to the dedicated
+            ``"censorship"`` family.
+
+        Raises:
+            ValueError: If the dataset identity is not supported.
+        """
+        if dataset_id == CHINESE_CENSORSHIP_DATASET_ID:
+            return "censorship"
         if dataset_id in {"hirundo-io/halueval", "hirundo-io/medhallu"}:
             return "hallucination"
         if dataset_id in REFUSAL_DATASETS:
@@ -38,6 +54,10 @@ class EvaluateFactory:
         dataset_id = dataset_config.dataset_id
         evaluator_family = EvaluateFactory.get_evaluator_family(dataset_id)
         resolved_eval_config = eval_config.resolve_for_family(evaluator_family)
+        if evaluator_family == "censorship":
+            from .free_text_censorship_evaluator import FreeTextCensorshipEvaluator
+
+            return FreeTextCensorshipEvaluator(resolved_eval_config, dataset_config)
         if evaluator_family == "hallucination":
             from .free_text_hallu_evaluator import FreeTextHaluEvaluator
 

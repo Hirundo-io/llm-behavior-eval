@@ -10,6 +10,7 @@ class SamplingConfig(BaseSettings):
         temperature: The temperature for sampling. DO NOT combine with the do_sample parameter.
         top_p: The top-p value for sampling.
         top_k: The top-k value for sampling.
+        repetition_penalty: Penalize repeated tokens. A value of 1.0 disables it.
         seed: The seed for sampling.
     """
 
@@ -19,4 +20,5 @@ class SamplingConfig(BaseSettings):
     temperature: float | None = None
     top_p: float | None = 1.0
     top_k: int | None = 0
+    repetition_penalty: float = 1.0
     seed: int | None = 42

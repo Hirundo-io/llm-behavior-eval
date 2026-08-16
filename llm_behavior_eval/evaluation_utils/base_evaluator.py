@@ -37,6 +37,8 @@ from .util_functions import (
     load_tokenizer_with_transformers,
 )
 
+DECODING_CONTRACT_VERSION = 2
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
 
@@ -132,6 +134,7 @@ class BaseEvaluator(ABC):
         self.model_engine = eval_config.inference_engine or eval_config.model_engine
         self.judge_engine = eval_config.inference_engine or eval_config.judge_engine
         self.judge_tokenizer: PreTrainedTokenizerBase | None = None
+        self.effective_judge_batch_size: int | None = None
         self._skip_current_run = False
         self.eval_engine: EvalEngine
         self.eval_dataset: HFDataset
@@ -283,6 +286,7 @@ class BaseEvaluator(ABC):
             thinking_start_token=self.eval_config.thinking_start_token,
             thinking_end_token=self.eval_config.thinking_end_token,
             pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
+            model_revision=self.eval_config.model_revision,
         )
         # Deterministic shuffle before sampling
         test_dataset = test_dataset.shuffle(seed=self.dataset_config.seed)
@@ -326,7 +330,12 @@ class BaseEvaluator(ABC):
                 temperature=self.eval_config.sampling_config.temperature,
                 top_p=self.eval_config.sampling_config.top_p,
                 top_k=self.eval_config.sampling_config.top_k,
-                seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
+                repetition_penalty=self.eval_config.sampling_config.repetition_penalty,
+                seed=(
+                    self.dataset_config.seed
+                    if self.dataset_config.seed is not None
+                    else self.eval_config.sampling_config.seed
+                ),
             ),
         )
 
@@ -939,6 +948,7 @@ class BaseEvaluator(ABC):
         return self.get_output_dir() / "metrics.csv"
 
     class RunConfig(TypedDict):
+        decoding_contract_version: int
         evaluation_config: dict[str, Any]
         dataset_config: dict[str, Any]
 
@@ -961,6 +971,7 @@ class BaseEvaluator(ABC):
         dataset_config_snapshot = self.dataset_config.model_dump(exclude_none=True)
 
         return {
+            "decoding_contract_version": DECODING_CONTRACT_VERSION,
             "evaluation_config": json.loads(
                 json.dumps(evaluation_config_snapshot, default=str)
             ),
@@ -974,7 +985,12 @@ class BaseEvaluator(ABC):
             json.dump(run_config, file_handle, indent=2)
 
     def _clear_output_files(self) -> None:
-        for filename in ["responses.json", "metrics.csv", "generations.jsonl"]:
+        for filename in [
+            "evaluation_contract.json",
+            "responses.json",
+            "metrics.csv",
+            "generations.jsonl",
+        ]:
             output_file = self.get_output_dir() / filename
             if output_file.exists():
                 output_file.unlink()
@@ -1162,6 +1178,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 self.eval_config.judge_path_or_repo_id,
                 token=self.eval_config.judge_token,
                 trust_remote_code=self.eval_config.trust_remote_code,
+                revision=self.eval_config.judge_revision,
             )
             # left padding is useful when batch-generating variable-length prompts
             self.judge_tokenizer.padding_side = "left"
@@ -1199,6 +1216,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         # If a fixed judge batch size is provided, run regularly with that size (no backoff)
         if self.eval_config.judge_batch_size is not None:
             fixed_batch_size = max(1, self.eval_config.judge_batch_size)
+            self.effective_judge_batch_size = fixed_batch_size
             outputs_fixed: list[list[dict[str, str | None]]] = []
             for start in range(0, len(prompts), fixed_batch_size):
                 chunk = prompts[start : start + fixed_batch_size]
@@ -1245,7 +1263,9 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             starting_batch_size=starting_batch_size,
             reduce_batch_size_fn=halve_reducer,
         )
-        wrapper()
+        self.effective_judge_batch_size = max(
+            self.effective_judge_batch_size or 0, cast("int", wrapper())
+        )
         return outputs
 
     def _process_judge_prompts_batch(
@@ -1293,7 +1313,12 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 temperature=self.eval_config.sampling_config.temperature,
                 top_p=self.eval_config.sampling_config.top_p,
                 top_k=self.eval_config.sampling_config.top_k,
-                seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
+                repetition_penalty=self.eval_config.sampling_config.repetition_penalty,
+                seed=(
+                    self.dataset_config.seed
+                    if self.dataset_config.seed is not None
+                    else self.eval_config.sampling_config.seed
+                ),
             ),
         )
 

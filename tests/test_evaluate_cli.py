@@ -10,10 +10,18 @@ import pytest
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
+from llm_behavior_eval.evaluation_utils.censorship_utils import (
+    CHINESE_CENSORSHIP_DATASET_ID,
+    CHINESE_CENSORSHIP_DATASET_SOURCE,
+)
+from llm_behavior_eval.evaluation_utils.enums import BEHAVIOR_PRESET_ERROR
 from llm_behavior_eval.evaluation_utils.eval_config import FAMILY_TOKEN_DEFAULTS
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
     FreeTextBiasEvaluator,
+)
+from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
+    FreeTextCensorshipEvaluator,
 )
 from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
@@ -138,11 +146,76 @@ def test_behavior_presets_expand_refusal_orbench() -> None:
     assert evaluate._behavior_presets("refusal:orbench") == [OR_BENCH_DATASET]
 
 
+def test_behavior_presets_reject_removed_refusal_censorship() -> None:
+    with pytest.raises(ValueError, match="Refusal supports"):
+        evaluate._behavior_presets("refusal:censorship")
+
+
+def test_behavior_preset_error_lists_supported_bloom_selectors() -> None:
+    assert "bloom:unbias:<type|all>" in BEHAVIOR_PRESET_ERROR
+    assert "bloom:bias:<type>:ambiguous" in BEHAVIOR_PRESET_ERROR
+
+
+def test_behavior_presets_expand_standalone_censorship() -> None:
+    assert evaluate._behavior_presets(CHINESE_CENSORSHIP_DATASET_ID) == [
+        CHINESE_CENSORSHIP_DATASET_ID
+    ]
+
+
+@pytest.mark.parametrize(
+    "behavior",
+    ["CHINESE_CENSORSHIP", "  chinese_censorship  "],
+)
+def test_behavior_presets_normalize_standalone_censorship(behavior: str) -> None:
+    assert evaluate._behavior_presets(behavior) == [CHINESE_CENSORSHIP_DATASET_ID]
+
+
 def test_behavior_presets_expand_refusal_all() -> None:
     assert evaluate._behavior_presets("refusal:all") == [
         XSTEST_DATASET,
         OR_BENCH_DATASET,
     ]
+
+
+def test_main_routes_standalone_censorship_with_source_identity_split(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", CHINESE_CENSORSHIP_DATASET_ID)
+
+    config = capture_configs[-1].dataset_config
+    assert config.file_path == CHINESE_CENSORSHIP_DATASET_SOURCE
+    assert config.dataset_id == CHINESE_CENSORSHIP_DATASET_ID
+
+
+def test_main_records_explicit_model_and_judge_revisions(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        model_revision="model-sha",
+        judge_revision="judge-sha",
+    )
+
+    assert capture_eval_config[-1].model_revision == "model-sha"
+    assert capture_eval_config[-1].judge_revision == "judge-sha"
+
+
+def test_main_forwards_censorship_decoding_and_vllm_settings(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        CHINESE_CENSORSHIP_DATASET_ID,
+        repetition_penalty=1.2,
+        vllm_tensor_parallel_size=2,
+        inference_engine="vllm",
+    )
+
+    config = capture_eval_config[-1]
+    assert config.sampling_config.repetition_penalty == 1.2
+    assert config.vllm_config is not None
+    assert config.vllm_config.tensor_parallel_size == 2
 
 
 def test_main_runs_full_dataset_when_nonpositive_max_samples(
@@ -225,6 +298,7 @@ def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
     [
         ("hirundo-io/halueval", FreeTextHaluEvaluator),
         (OR_BENCH_DATASET, FreeTextRefusalEvaluator),
+        (CHINESE_CENSORSHIP_DATASET_ID, FreeTextCensorshipEvaluator),
         (
             "hirundo-io/prompt-injection-purple-llama",
             FreeTextPromptInjectionEvaluator,
@@ -249,6 +323,7 @@ def test_evaluate_factory_routes_each_family_to_the_expected_evaluator(
     for evaluator_class in (
         FreeTextHaluEvaluator,
         FreeTextRefusalEvaluator,
+        FreeTextCensorshipEvaluator,
         FreeTextPromptInjectionEvaluator,
         FreeTextBiasEvaluator,
     ):
@@ -665,6 +740,26 @@ def test_eval_config_resolve_for_family_applies_defaults_only_when_values_are_un
     assert resolved_overrides.max_answer_tokens == 384
     assert resolved_overrides.max_judge_tokens == 96
     assert resolved_overrides.sample_judge is True
+
+
+def test_eval_config_resolve_for_censorship_applies_product_defaults(
+    tmp_path: Path,
+) -> None:
+    resolved = EvaluationConfig(
+        model_path_or_repo_id="fake/model", results_dir=tmp_path
+    ).resolve_for_family("censorship")
+
+    assert resolved.max_answer_tokens == 8192
+    assert resolved.max_judge_tokens == 128
+    assert resolved.sample_judge is False
+
+
+@pytest.mark.parametrize("tensor_parallel_size", [0, -1])
+def test_vllm_tensor_parallel_size_rejects_nonpositive_values(
+    tensor_parallel_size: int,
+) -> None:
+    with pytest.raises(ValueError, match="greater than or equal to 1"):
+        VllmConfig(tensor_parallel_size=tensor_parallel_size)
 
 
 def test_main_passes_model_inference_config_options(

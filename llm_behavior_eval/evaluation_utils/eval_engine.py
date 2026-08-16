@@ -55,6 +55,21 @@ class EvalEngine(ABC):
         return eval_config.judge_token if is_judge else eval_config.model_token
 
     @staticmethod
+    def _get_model_revision(
+        eval_config: EvaluationConfig, is_judge: bool
+    ) -> str | None:
+        """Get the immutable model revision for the selected role.
+
+        Args:
+            eval_config: Evaluation configuration containing model revisions.
+            is_judge: Whether the selected role is the judge model.
+
+        Returns:
+            The configured immutable revision for the selected model role.
+        """
+        return eval_config.judge_revision if is_judge else eval_config.model_revision
+
+    @staticmethod
     def _get_use_4bit(eval_config: EvaluationConfig, is_judge: bool) -> bool:
         """Get the 4-bit setting based on whether this is a judge model."""
         return eval_config.use_4bit_judge if is_judge else eval_config.use_4bit

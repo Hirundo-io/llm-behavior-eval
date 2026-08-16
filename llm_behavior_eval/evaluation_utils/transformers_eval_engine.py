@@ -24,13 +24,15 @@ class TransformersEvalEngine(EvalEngine):
     ) -> None:
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
         model_token = self._get_model_token(eval_config, is_judge)
+        model_revision = self._get_model_revision(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
         self.tokenizer, self.model = load_transformers_model_and_tokenizer(
-            model_path_or_repo_id,
-            model_token,
-            use_4bit,
-            eval_config.device_map,
-            eval_config.trust_remote_code,
+            model_name=model_path_or_repo_id,
+            token=model_token,
+            use_4bit=use_4bit,
+            device_map=eval_config.device_map,
+            trust_remote_code=eval_config.trust_remote_code,
+            revision=model_revision,
         )
         self.data_collator = data_collator
         self.eval_config = eval_config
@@ -59,6 +61,7 @@ class TransformersEvalEngine(EvalEngine):
                 attention_mask=attention_mask,
                 max_new_tokens=max_new_tokens,
                 do_sample=do_sample,
+                repetition_penalty=self.eval_config.sampling_config.repetition_penalty,
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
             )
@@ -106,6 +109,7 @@ class TransformersEvalEngine(EvalEngine):
                 temperature=temperature,
                 top_p=top_p,
                 top_k=top_k,
+                repetition_penalty=sampling_config.repetition_penalty,
                 return_dict_in_generate=True,
             )
         sequences = outputs.sequences

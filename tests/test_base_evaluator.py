@@ -14,12 +14,20 @@ import torch
 from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokenizerBase
 
 import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_module
+import llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator as censorship_module
 import llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator as hallu_module
 import llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator as refusal_module
 from llm_behavior_eval.evaluation_utils.base_evaluator import (
     BaseEvaluator,
     FreeTextSharedEvaluator,
     _GenerationRecord,
+)
+from llm_behavior_eval.evaluation_utils.censorship_utils import (
+    CENSORSHIP_JUDGE_PROMPT,
+    CHINESE_CENSORSHIP_DATASET_SOURCE,
+    CHINESE_CENSORSHIP_GROUP_COUNT,
+    CensorshipJudgment,
+    parse_censorship_judgment,
 )
 from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
@@ -28,6 +36,17 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
     MlflowConfig,
 )
 from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
+from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
+    GRADING_STATUS_JUDGE_UNPARSEABLE as CENSORSHIP_STATUS_UNPARSEABLE,
+)
+from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
+    GRADING_STATUS_JUDGED as CENSORSHIP_STATUS_JUDGED,
+)
+from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
+    CensorshipResponse,
+    FreeTextCensorshipEvaluator,
+    _CensorshipGenerationRecord,
+)
 from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
     _HalluGenerationRecord,
@@ -185,6 +204,7 @@ def patch_custom_dataset(
             self.trust_remote_code = trust_remote_code
             self.dataset_id = dataset_id or file_path
             self.has_stereotype = False
+            self.evidence_provenance: list[dict[str, str | int]] = []
 
         def preprocess(
             self,
@@ -197,6 +217,7 @@ def patch_custom_dataset(
             thinking_start_token: str | None = None,
             thinking_end_token: str | None = None,
             pass_max_answer_tokens: bool,
+            model_revision: str | None = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
             # Capture tokenization-time padding before later tokenizer mutations.
@@ -472,13 +493,14 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
             temperature=0.5,
             top_p=0.9,
             top_k=4,
+            repetition_penalty=1.2,
             seed=111,
         ),
     )
     evaluator.dataset_config = DatasetConfig(
         file_path="repo/dataset",
         dataset_type=DatasetType.BIAS,
-        seed=777,
+        seed=0,
     )
     evaluator.judge_tokenizer = StubJudgeTokenizer()
 
@@ -500,7 +522,47 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.temperature == 0.5
     assert sampling_config.top_p == 0.9
     assert sampling_config.top_k == 4
+    assert sampling_config.repetition_penalty == 1.2
     assert sampling_config.seed == evaluator.dataset_config.seed
+
+    evaluator.eval_engine = judge_engine
+    evaluator.generate_answers(torch.tensor([[1]]), torch.tensor([[1]]))
+
+    model_sampling_config = judge_engine.calls[-1]["sampling_config"]
+    assert isinstance(model_sampling_config, SamplingConfig)
+    assert model_sampling_config.seed == 0
+    assert model_sampling_config.repetition_penalty == 1.2
+
+
+def test_fixed_judge_batch_size_replaces_stale_effective_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evaluator = FreeTextHaluEvaluator.__new__(FreeTextHaluEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        judge_batch_size=2,
+    )
+    evaluator.effective_judge_batch_size = 8
+    seen_chunks: list[list[str]] = []
+
+    def fake_process_batch(
+        _judge_engine: EvalEngine, prompts: list[str]
+    ) -> list[list[dict[str, str | None]]]:
+        seen_chunks.append(prompts)
+        return [
+            [{"generated_text": prompt, "finish_reason": None}] for prompt in prompts
+        ]
+
+    monkeypatch.setattr(evaluator, "_process_judge_prompts_batch", fake_process_batch)
+
+    outputs = evaluator.run_judge_with_backoff(
+        cast("EvalEngine", object()), ["a", "b", "c"]
+    )
+
+    assert evaluator.effective_judge_batch_size == 2
+    assert seen_chunks == [["a", "b"], ["c"]]
+    assert [item[0]["generated_text"] for item in outputs] == ["a", "b", "c"]
 
 
 def test_get_model_slug_includes_lora_slug(
@@ -1180,6 +1242,363 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
     assert responses[2]["grading_status"] == "judged"
 
 
+def test_censorship_evaluator_writes_dedicated_standard_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = object.__new__(FreeTextCensorshipEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        model_revision="model-revision",
+        judge_path_or_repo_id="google/gemma-4-26B-A4B-it",
+        judge_revision="judge-revision",
+        results_dir=tmp_path,
+        enable_thinking=False,
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path=CHINESE_CENSORSHIP_DATASET_SOURCE,
+        dataset_id="chinese_censorship",
+        dataset_type=DatasetType.BIAS,
+    )
+    logged_metrics: dict[str, float] = {}
+    logged_artifacts: list[bool] = []
+    evaluator.mlflow_config = MlflowConfig()
+    monkeypatch.setattr(evaluator, "_log_mlflow_metrics", logged_metrics.update)
+    monkeypatch.setattr(
+        evaluator, "_log_mlflow_artifacts", lambda: logged_artifacts.append(True)
+    )
+    evaluator.eval_group_ids = [f"group-{index:03d}" for index in range(288)]
+    evaluator.effective_batch_size = 8
+    evaluator.effective_judge_batch_size = None
+    evaluator.model_engine = "transformers"
+    evaluator.judge_engine = "transformers"
+    attempted_batch_sizes: list[int] = []
+
+    def fake_process_batch(
+        _judge_engine: EvalEngine,
+        prompts: list[str],
+        batch_size: int | None = None,
+        do_sample: bool | None = None,
+    ) -> list[list[dict[str, str | None]]]:
+        del do_sample
+        assert batch_size is not None
+        attempted_batch_sizes.append(batch_size)
+        if batch_size > 4:
+            raise RuntimeError("CUDA out of memory.")
+        return [
+            [{"generated_text": prompt, "finish_reason": "stop"}] for prompt in prompts
+        ]
+
+    monkeypatch.setattr(evaluator, "_process_judge_prompts_batch", fake_process_batch)
+    evaluator.run_judge_with_backoff(cast("EvalEngine", object()), ["prompt"] * 8)
+    responses: list[CensorshipResponse] = [
+        {
+            "dataset": "chinese_censorship",
+            "source_group_id": group_id,
+            "question": "question",
+            "llm_answer": "answer",
+            "finish_reason": "stop",
+            "judge_finish_reason": "stop",
+            "judge_raw": "False",
+            "grading_status": CENSORSHIP_STATUS_JUDGED,
+            "judge_label": "true" if index == 0 else "false",
+        }
+        for index, group_id in enumerate(evaluator.eval_group_ids)
+    ]
+
+    evaluator._save_censorship_results(responses)
+
+    metrics_file_path = tmp_path / "model" / "chinese_censorship" / "metrics.csv"
+    with metrics_file_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics_rows = list(csv.DictReader(metrics_file))
+    assert metrics_rows[0]["Censored Samples"] == "1"
+    assert metrics_rows[0]["Samples"] == "288"
+    assert metrics_rows[0]["Judge Unparseable"] == "0"
+    assert metrics_rows[0]["Metric Valid"] == "True"
+    assert "Safe refusal rate (%) ⬇️" not in metrics_rows[0]
+    assert (tmp_path / "model" / "summary_full.csv").is_file()
+    assert (tmp_path / "model" / "summary_brief.csv").is_file()
+    assert (
+        tmp_path / "model" / "chinese_censorship" / "evaluation_contract.json"
+    ).is_file()
+    contract = json.loads(
+        (
+            tmp_path / "model" / "chinese_censorship" / "evaluation_contract.json"
+        ).read_text()
+    )
+    assert contract["model"]["revision"] == "model-revision"
+    assert contract["judge"]["revision"] == "judge-revision"
+    assert attempted_batch_sizes == [8, 4, 4]
+    assert contract["effective"]["judge_batch_size"] == 4
+    assert logged_metrics["censorship_rate"] == pytest.approx(1 / 288)
+    assert logged_metrics["num_samples"] == 288
+    assert logged_artifacts == [True]
+
+
+@pytest.mark.parametrize(
+    ("response", "message"),
+    [
+        (
+            {
+                "judge_label": "unsupported",
+                "grading_status": CENSORSHIP_STATUS_JUDGED,
+            },
+            "unsupported judge label",
+        ),
+        (
+            {
+                "judge_label": None,
+                "grading_status": "unsupported",
+            },
+            "unsupported grading status",
+        ),
+    ],
+)
+def test_censorship_results_reject_unsupported_categories(
+    response: dict[str, str | None], message: str
+) -> None:
+    """Reject malformed evidence before any censorship artifacts are persisted."""
+    evaluator = object.__new__(FreeTextCensorshipEvaluator)
+
+    with pytest.raises(ValueError, match=message):
+        evaluator._save_censorship_results(
+            [cast("CensorshipResponse", response)] * CHINESE_CENSORSHIP_GROUP_COUNT
+        )
+
+
+def test_censorship_adapter_manifest_ignores_symlinks(tmp_path: Path) -> None:
+    """Exclude symlinked adapter paths from the persisted provenance digest."""
+    adapter_dir = tmp_path / "adapter"
+    adapter_dir.mkdir()
+    adapter_config = adapter_dir / "adapter_config.json"
+    adapter_config.write_text("{}", encoding="utf-8")
+    manifest_digest = censorship_module._adapter_manifest_sha256(str(adapter_dir))
+    symlinked_adapter_dir = tmp_path / "adapter-link"
+    symlinked_adapter_dir.symlink_to(adapter_dir, target_is_directory=True)
+    outside_file = tmp_path / "outside.safetensors"
+    outside_file.write_text("outside", encoding="utf-8")
+    (adapter_dir / "adapter_model.safetensors").symlink_to(outside_file)
+
+    assert manifest_digest is not None
+    assert (
+        censorship_module._adapter_manifest_sha256(str(symlinked_adapter_dir)) is None
+    )
+    assert (
+        censorship_module._adapter_manifest_sha256(str(adapter_dir)) == manifest_digest
+    )
+
+
+def test_censorship_grading_records_binary_labels_and_rate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = object.__new__(FreeTextCensorshipEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        model_revision="model-revision",
+        judge_path_or_repo_id="google/gemma-4-26B-A4B-it",
+        judge_revision="judge-revision",
+        results_dir=tmp_path,
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path=CHINESE_CENSORSHIP_DATASET_SOURCE,
+        dataset_id="chinese_censorship",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator.mlflow_config = None
+    evaluator.eval_group_ids = [f"group-{index:03d}" for index in range(288)]
+    evaluator.effective_batch_size = 8
+    evaluator.effective_judge_batch_size = 8
+    evaluator.model_engine = "transformers"
+    evaluator.judge_engine = "transformers"
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
+    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
+    monkeypatch.setattr(
+        censorship_module,
+        "safe_apply_chat_template",
+        lambda _tokenizer, _messages: "judge prompt",
+    )
+
+    def judge_outputs(
+        _judge_engine: EvalEngine, prompts: list[str]
+    ) -> list[list[dict[str, str]]]:
+        return [
+            [
+                {
+                    "generated_text": "True" if index == 0 else "False",
+                    "finish_reason": "stop",
+                }
+            ]
+            for index, _prompt in enumerate(prompts)
+        ]
+
+    monkeypatch.setattr(evaluator, "run_judge_with_backoff", judge_outputs)
+    generation = _CensorshipGenerationRecord(
+        questions=["question"] * 288,
+        source_group_ids=evaluator.eval_group_ids,
+        answers=["answer"] * 288,
+        finish_reasons=["stop"] * 288,
+    )
+
+    evaluator._grade_impl([generation], cast("EvalEngine", object()))
+
+    responses_path = tmp_path / "model" / "chinese_censorship" / "responses.json"
+    responses = json.loads(responses_path.read_text(encoding="utf-8"))
+    assert responses[0]["grading_status"] == CENSORSHIP_STATUS_JUDGED
+    assert responses[0]["judge_label"] == "true"
+    assert responses[1]["grading_status"] == CENSORSHIP_STATUS_JUDGED
+    assert responses[1]["judge_label"] == "false"
+    metrics_path = tmp_path / "model" / "chinese_censorship" / "metrics.csv"
+    with metrics_path.open(newline="", encoding="utf-8") as metrics_file:
+        metrics = next(csv.DictReader(metrics_file))
+    assert metrics["Censored Samples"] == "1"
+    assert float(metrics["Censorship rate (%) ⬇️"]) == pytest.approx(
+        100 / 288, abs=0.001
+    )
+
+
+@pytest.mark.parametrize(
+    ("model_revision", "judge_revision", "message"),
+    [
+        (None, "b" * 40, "model-revision"),
+        ("a" * 40, None, "judge-revision"),
+    ],
+)
+def test_censorship_evaluator_requires_immutable_model_and_judge_revisions(
+    tmp_path: Path,
+    model_revision: str | None,
+    judge_revision: str | None,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        FreeTextCensorshipEvaluator(
+            EvaluationConfig(
+                model_path_or_repo_id="meta/model",
+                model_revision=model_revision,
+                judge_path_or_repo_id="google/gemma-4-26B-A4B-it",
+                judge_revision=judge_revision,
+                results_dir=tmp_path,
+            ),
+            DatasetConfig(
+                file_path=CHINESE_CENSORSHIP_DATASET_SOURCE,
+                dataset_id="chinese_censorship",
+                dataset_type=DatasetType.BIAS,
+            ),
+        )
+
+
+def test_censorship_metric_is_unavailable_when_coverage_is_incomplete(
+    tmp_path: Path,
+) -> None:
+    evaluator = object.__new__(FreeTextCensorshipEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        model_revision="model-revision",
+        judge_path_or_repo_id="google/gemma-4-26B-A4B-it",
+        judge_revision="judge-revision",
+        results_dir=tmp_path,
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path=CHINESE_CENSORSHIP_DATASET_SOURCE,
+        dataset_id="chinese_censorship",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator.mlflow_config = None
+    evaluator.eval_group_ids = [f"group-{index:03d}" for index in range(288)]
+    evaluator.effective_batch_size = 8
+    evaluator.effective_judge_batch_size = 8
+    evaluator.model_engine = "transformers"
+    evaluator.judge_engine = "transformers"
+    responses: list[CensorshipResponse] = [
+        {
+            "dataset": "chinese_censorship",
+            "source_group_id": group_id,
+            "question": "question",
+            "llm_answer": "answer",
+            "finish_reason": "stop",
+            "judge_finish_reason": "stop",
+            "judge_raw": "False",
+            "grading_status": (
+                CENSORSHIP_STATUS_UNPARSEABLE
+                if index == 0
+                else CENSORSHIP_STATUS_JUDGED
+            ),
+            "judge_label": "unparseable" if index == 0 else "false",
+        }
+        for index, group_id in enumerate(evaluator.eval_group_ids)
+    ]
+
+    evaluator._save_censorship_results(responses)
+
+    metrics_path = tmp_path / "model" / "chinese_censorship" / "metrics.csv"
+    with metrics_path.open(newline="", encoding="utf-8") as metrics_file:
+        row = next(csv.DictReader(metrics_file))
+    assert row["Metric Valid"] == "False"
+    assert row["Censorship rate (%) ⬇️"] == ""
+    assert "Determinate censorship rate (%) ⬇️" not in row
+
+
+def test_censorship_judge_uses_raw_question_and_rejects_truncated_verdict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = object.__new__(FreeTextCensorshipEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        model_revision="model-revision",
+        judge_path_or_repo_id="google/gemma-4-26B-A4B-it",
+        judge_revision="judge-revision",
+        results_dir=tmp_path,
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path=CHINESE_CENSORSHIP_DATASET_SOURCE,
+        dataset_id="chinese_censorship",
+        dataset_type=DatasetType.BIAS,
+    )
+    captured_prompts: list[str] = []
+    captured_responses: list[CensorshipResponse] = []
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
+    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
+    monkeypatch.setattr(
+        censorship_module,
+        "safe_apply_chat_template",
+        lambda _tokenizer, messages: (
+            captured_prompts.append(messages[0]["content"]) or messages[0]["content"]
+        ),
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "run_judge_with_backoff",
+        lambda _engine, _prompts: [
+            [{"generated_text": "True", "finish_reason": "length"}]
+        ],
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "_save_censorship_results",
+        lambda responses: captured_responses.extend(responses),
+    )
+
+    evaluator._grade_impl(
+        [
+            _CensorshipGenerationRecord(
+                questions=["raw question"],
+                source_group_ids=["group-1"],
+                answers=["model answer"],
+                finish_reasons=["stop"],
+            )
+        ],
+        judge_engine=cast("EvalEngine", object()),
+    )
+
+    assert captured_prompts == [
+        CENSORSHIP_JUDGE_PROMPT.format(question="raw question", response="model answer")
+    ]
+    assert parse_censorship_judgment("True") == CensorshipJudgment.CENSORED
+    assert captured_responses[0]["grading_status"] == "judge_incomplete"
+    assert captured_responses[0]["judge_label"] is None
+
+
 def test_refusal_evaluator_marks_unparseable_outputs_and_excludes_them_from_denominator(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1399,6 +1818,34 @@ def test_legacy_run_config_without_dataset_id_reuses_cached_outputs(
 
     persisted = json.loads(run_config_path.read_text(encoding="utf-8"))
     assert "dataset_id" not in persisted["dataset_config"]
+
+
+@pytest.mark.parametrize("legacy_version", [None, 1])
+def test_legacy_decoding_contract_cannot_reuse_cached_outputs(
+    tmp_path: Path,
+    legacy_version: int | None,
+) -> None:
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+        sampling_config=SamplingConfig(repetition_penalty=1.2),
+    )
+    dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(eval_config, dataset_config)
+    run_config_path = evaluator.run_config_path()
+    run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+    if legacy_version is None:
+        run_config.pop("decoding_contract_version")
+    else:
+        run_config["decoding_contract_version"] = legacy_version
+    run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="different configuration"):
+        ConcreteEvaluator(eval_config, dataset_config)
 
 
 def test_run_config_mismatch_cancel_still_raises_error(

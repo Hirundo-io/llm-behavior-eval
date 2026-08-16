@@ -10,6 +10,10 @@ import typer
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
+from llm_behavior_eval.evaluation_utils.censorship_utils import (
+    CHINESE_CENSORSHIP_DATASET_ID,
+    CHINESE_CENSORSHIP_DATASET_SOURCE,
+)
 from llm_behavior_eval.evaluation_utils.dataset_config import (
     DatasetConfig,
     PreprocessConfig,
@@ -56,6 +60,7 @@ DEFAULT_SAMPLE_JUDGE = FAMILY_TOKEN_DEFAULTS["bias"]["sample_judge"]
 DEFAULT_SEED = SamplingConfig.model_fields["seed"].default
 DEFAULT_TOP_P = SamplingConfig.model_fields["top_p"].default
 DEFAULT_TOP_K = SamplingConfig.model_fields["top_k"].default
+DEFAULT_REPETITION_PENALTY = SamplingConfig.model_fields["repetition_penalty"].default
 DEFAULT_MAX_LORA_RANK = VllmConfig.model_fields["max_lora_rank"].default
 
 
@@ -114,16 +119,31 @@ def _behavior_presets(behavior: str) -> list[str]:
     - Hallucinations: "hallu" or "hallu-med"
     - Prompt injection: "prompt-injection"
     - Refusal: "refusal:xstest" | "refusal:orbench" | "refusal:all"
+    - Chinese censorship: "chinese_censorship"
+
+    Args:
+        behavior: User-provided behavior selector. Leading/trailing whitespace and
+            letter case are normalized before lookup.
+
+    Returns:
+        The logical dataset identifiers selected by the behavior preset.
+
+    Raises:
+        ValueError: If ``behavior`` does not name a supported preset or uses an
+            unsupported refusal selector.
     """
-    behavior_parts = [part.strip().lower() for part in behavior.split(":")]
+    normalized_behavior = behavior.strip().lower()
+    behavior_parts = [part.strip() for part in normalized_behavior.split(":")]
 
     # Hallucination shortcuts
-    if behavior in HALUEVAL_ALIAS:
+    if normalized_behavior in HALUEVAL_ALIAS:
         return expand_dataset_preset("hallu")
-    if behavior in MEDHALLU_ALIAS:
+    if normalized_behavior in MEDHALLU_ALIAS:
         return expand_dataset_preset("hallu-med")
-    if behavior in INJECTION_ALIAS:
+    if normalized_behavior in INJECTION_ALIAS:
         return expand_dataset_preset("prompt-injection")
+    if normalized_behavior == CHINESE_CENSORSHIP_DATASET_ID:
+        return [CHINESE_CENSORSHIP_DATASET_ID]
     if len(behavior_parts) == 2 and behavior_parts[0] in REFUSAL_ALIAS:
         _, refusal_dataset = behavior_parts
         if refusal_dataset not in {"xstest", "orbench", "all"}:
@@ -195,7 +215,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'; Chinese censorship: 'chinese_censorship'"
         ),
     ],
     output_dir: Annotated[
@@ -226,6 +246,17 @@ def main(
             "--model-token", help="HuggingFace token for the model (optional)"
         ),
     ] = None,
+    model_revision: Annotated[
+        str | None,
+        typer.Option(
+            "--model-revision",
+            help=(
+                "Immutable Hugging Face revision for the evaluated model. Omit for "
+                "ordinary evaluations; chinese_censorship requires a 40-64 "
+                "character hexadecimal revision."
+            ),
+        ),
+    ] = None,
     judge_token: Annotated[
         str | None,
         typer.Option(
@@ -236,6 +267,17 @@ def main(
         str,
         typer.Option("--judge-model", help="Judge repo id or path (optional)"),
     ] = "google/gemma-3-12b-it",
+    judge_revision: Annotated[
+        str | None,
+        typer.Option(
+            "--judge-revision",
+            help=(
+                "Immutable Hugging Face revision for the judge model. Omit for "
+                "ordinary evaluations; chinese_censorship requires a 40-64 "
+                "character hexadecimal revision."
+            ),
+        ),
+    ] = None,
     use_mlflow: Annotated[
         bool,
         typer.Option(
@@ -326,6 +368,17 @@ def main(
         typer.Option(
             "--vllm-max-model-len",
             help="Maximum model length for vLLM (optional)",
+        ),
+    ] = None,
+    vllm_tensor_parallel_size: Annotated[
+        int | None,
+        typer.Option(
+            "--vllm-tensor-parallel-size",
+            help=(
+                "Tensor-parallel degree for vLLM engines only. When omitted, uses "
+                "the number of visible GPUs."
+            ),
+            min=1,
         ),
     ] = None,
     judge_engine: Annotated[
@@ -531,6 +584,14 @@ def main(
             help="The top-k value for sampling.",
         ),
     ] = DEFAULT_TOP_K,
+    repetition_penalty: Annotated[
+        float,
+        typer.Option(
+            "--repetition-penalty",
+            help="Repetition penalty for model generation; 1.0 disables it.",
+            min=0.001,
+        ),
+    ] = DEFAULT_REPETITION_PENALTY,
     seed: Annotated[
         int | None,
         typer.Option(
@@ -562,6 +623,23 @@ def main(
         ),
     ] = None,
 ) -> None:
+    """Run one behavior-evaluation family with reproducible model configuration.
+
+    Args:
+        model: Hugging Face model ID or local path for the model under evaluation.
+        behavior: One supported behavior preset, or a comma-separated list from the
+            same evaluator family.
+        output_dir: Optional directory for standard result and artifact outputs.
+        model_revision: Optional immutable revision for the evaluated model.
+        judge_model: Hugging Face model ID or local path for the judge.
+        judge_revision: Optional immutable revision for the judge model.
+        repetition_penalty: Generation repetition penalty; ``1.0`` disables it.
+        vllm_tensor_parallel_size: Optional vLLM tensor-parallel degree.
+
+    Raises:
+        ValueError: If the requested behavior mix is unsupported or maps to multiple
+            evaluator families.
+    """
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
     result_dir = output_dir if output_dir is not None else _default_results_dir()
@@ -622,6 +700,7 @@ def main(
             judge_max_model_len=vllm_judge_max_model_len
             if vllm_judge_max_model_len is not None
             else vllm_max_model_len,
+            tensor_parallel_size=vllm_tensor_parallel_size,
             tokenizer_mode=vllm_tokenizer_mode,
             config_format=vllm_config_format,
             load_format=vllm_load_format,
@@ -636,10 +715,12 @@ def main(
 
     eval_config = EvaluationConfig(
         model_path_or_repo_id=model_path_or_repo_id,
+        model_revision=model_revision,
         model_output_dir=model_output_dir,
         model_token=model_token,
         lora_path_or_repo_id=lora_path_or_repo_id,
         judge_path_or_repo_id=judge_path_or_repo_id,
+        judge_revision=judge_revision,
         judge_token=judge_token,
         results_dir=result_dir,
         mlflow_config=mlflow_config,
@@ -671,6 +752,7 @@ def main(
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            repetition_penalty=repetition_penalty,
             seed=seed,
         ),
         evaluator_family=evaluator_family,
@@ -684,7 +766,12 @@ def main(
     try:
         # generation loop
         try:
-            for file_path in file_paths:
+            for dataset_id in file_paths:
+                file_path = (
+                    CHINESE_CENSORSHIP_DATASET_SOURCE
+                    if dataset_id == CHINESE_CENSORSHIP_DATASET_ID
+                    else dataset_id
+                )
                 logging.info(
                     f"Evaluating {file_path} with {model_path_or_repo_id}"
                     + (
@@ -695,6 +782,7 @@ def main(
                 )
                 dataset_config = DatasetConfig(
                     file_path=file_path,
+                    dataset_id=dataset_id,
                     dataset_type=DatasetType.UNBIAS
                     if "-unbias-" in file_path
                     else DatasetType.BIAS,

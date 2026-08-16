@@ -154,6 +154,36 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
 
+- **Chinese Censorship** — the supported `chinese_censorship` benchmark evaluates the dedicated 288-group English dataset with its dedicated binary censorship rubric. It is not a refusal preset and is not included in `refusal:all`. The public source `hirundo-io/chinese-censorship` is pinned to config `default`, split `test`, and revision `bffb7b76440ed69fdb1792a20e6efac298ab2d94`.
+```bash
+llm-behavior-eval Qwen/Qwen3.5-4B chinese_censorship \
+  --model-revision "$MODEL_REVISION" \
+  --model-token "$HF_TOKEN" \
+  --judge-model google/gemma-4-26B-A4B-it \
+  --judge-revision "$JUDGE_REVISION" \
+  --inference-engine vllm \
+  --thinking-off \
+  --temperature 0 \
+  --repetition-penalty 1.10 \
+  --max-answer-tokens 8192 \
+  --max-judge-tokens 128 \
+  --seed 0 \
+  --max-samples 0 \
+  --vllm-tensor-parallel-size "$TENSOR_PARALLEL_SIZE"
+```
+
+The command above is a validated deterministic configuration. In particular, the
+`1.10` repetition penalty prevents observed greedy-decoding loops from turning
+otherwise classifiable responses into token-limit failures. The benchmark remains
+model-agnostic: callers may select compatible decoding settings, which are recorded
+in `evaluation_contract.json` with the model and judge provenance.
+
+The primary output is the raw censorship rate over all 288 groups, and is available only when all 288 model responses and judge verdicts are complete and determinate. `metrics.csv`, `summary_full.csv`, and `summary_brief.csv` use the censorship-specific columns `Censorship rate (%) ⬇️`, `Metric Valid`, `Censored Samples`, `Samples`, `Judged Samples`, and the model/judge incomplete or unparseable counts; they do not populate the generic `Accuracy`, `Error`, or `Attack success rate` columns. `Metric Valid` is `False` and the rate is empty when any group lacks a determinate judgment. `responses.json`, MLflow artifacts, and `evaluation_contract.json` are written using the normal result layout. The contract records the pinned dataset identity, exact rubric prompt, immutable model and judge revisions, adapter identity, decoding settings, effective batch sizes, tensor parallelism, GPU inventory, and relevant runtime versions.
+
+Library callers that construct `DatasetConfig` directly must retain
+`dataset_id="chinese_censorship"` with the expanded source path; this selects the
+dedicated `"censorship"` evaluator family.
+
 ### CLI options
 
 - `--max-samples <N>` — cap how many rows to evaluate per dataset (defaults to 500). Use `0` or any negative value to run the entire split.
@@ -162,6 +192,8 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 - `--judge-model` — pick a different judge checkpoint; the default is `google/gemma-3-12b-it`.
 - `--inference-engine vllm` / `--inference-engine transformers` — switch between vLLM and transformers backends for the evaluated model. There are also `--model-engine` and `--judge-engine` flags for more explicit control.
 - `--vllm-max-model-len` / `--vllm-gpu-memory-utilization` — configure vLLM's maximum context length and GPU memory utilization. Leave the maximum length unset to use the model's native context; the GPU utilization default is 0.8. Override either only after confirming the target GPU's KV-cache capacity; increasing utilization increases that capacity, while lowering it decreases available KV-cache capacity.
+- `--vllm-tensor-parallel-size` — set and record the explicit vLLM tensor-parallel degree instead of relying on automatic visible-GPU detection.
+- `--repetition-penalty` — set the model-generation repetition penalty; `1.0` disables it.
 - `--vllm-tokenizer-mode`, `--vllm-config-format`, `--vllm-load-format` — forward advanced knobs directly to the underlying vLLM engine when you need to align tokenizer behavior, checkpoint formats, or tool-calling semantics with a particular deployment. Tokenizer mode accepts `auto`, `slow`, `mistral`, or `custom`.
 - `--thinking-on/--thinking-off` — enable thinking modes on tokenizers that support them.
 - `--enable-thinking-arg-name` — enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').

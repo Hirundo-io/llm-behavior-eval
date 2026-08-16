@@ -65,6 +65,16 @@ def test_local_source_dispatches_by_logical_dataset_id() -> None:
     assert EvaluateFactory.get_evaluator_family(config.dataset_id) == "hallucination"
 
 
+def test_censorship_source_dispatches_by_logical_dataset_id() -> None:
+    config = DatasetConfig(
+        file_path="hirundo-io/chinese-censorship",
+        dataset_id="chinese_censorship",
+        dataset_type=DatasetType.BIAS,
+    )
+
+    assert EvaluateFactory.get_evaluator_family(config.dataset_id) == "censorship"
+
+
 def test_create_evaluator_dispatches_local_source_by_logical_id(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -147,3 +157,8 @@ def test_catalog_is_complete_and_expansions_are_unique() -> None:
         "hirundo-io/XSTest",
         "hirundo-io/or-bench",
     ]
+    assert expand_dataset_preset("chinese_censorship") == [
+        "hirundo-io/chinese-censorship"
+    ]
+    with pytest.raises(ValueError, match="Unknown behavior preset"):
+        expand_dataset_preset("refusal:censorship")

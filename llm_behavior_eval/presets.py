@@ -2,6 +2,10 @@
 
 from dataclasses import dataclass
 
+from .evaluation_utils.censorship_utils import (
+    CHINESE_CENSORSHIP_DATASET_ID,
+    CHINESE_CENSORSHIP_DATASET_SOURCE,
+)
 from .evaluation_utils.enums import (
     BBQ_BIAS_TYPES,
     BIAS_KINDS,
@@ -76,6 +80,7 @@ _PRESETS = (
     DatasetPreset("refusal:xstest", (XSTEST_DATASET,)),
     DatasetPreset("refusal:orbench", (OR_BENCH_DATASET,)),
     DatasetPreset("refusal:all", (XSTEST_DATASET, OR_BENCH_DATASET)),
+    DatasetPreset(CHINESE_CENSORSHIP_DATASET_ID, (CHINESE_CENSORSHIP_DATASET_SOURCE,)),
 )
 _PRESETS_BY_NAME = {preset.name: preset for preset in _PRESETS}
 

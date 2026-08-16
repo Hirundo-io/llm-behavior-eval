@@ -130,18 +130,36 @@ class TransformModelLoaderStub:
     def __init__(self, tokenizer: RecordingTokenizer, model: DummyTransformersModel):
         self.tokenizer = tokenizer
         self.model = model
+        self.calls: list[RecordedCall] = []
 
-    def __call__(self, *args, **kwargs):
+    def __call__(
+        self, *args: object, **kwargs: object
+    ) -> tuple[RecordingTokenizer, DummyTransformersModel]:
+        self.calls.append(RecordedCall(args=args, kwargs=kwargs))
         return self.tokenizer, self.model
 
 
 class TokenizerLoaderStub:
-    def __init__(self, tokenizer) -> None:
+    def __init__(self, tokenizer: SimpleNamespace) -> None:
         self.tokenizer = tokenizer
+        self.calls: list[RecordedCall] = []
 
     def __call__(
-        self, _model_id, _token: str | None = None, trust_remote_code: bool = False
-    ):
+        self,
+        model_id: object,
+        _token: str | None = None,
+        trust_remote_code: bool = False,
+        revision: str | None = None,
+    ) -> SimpleNamespace:
+        self.calls.append(
+            RecordedCall(
+                args=(model_id, _token),
+                kwargs={
+                    "trust_remote_code": trust_remote_code,
+                    "revision": revision,
+                },
+            )
+        )
         return self.tokenizer
 
 
@@ -225,6 +243,8 @@ class VllmConstructorCall:
     max_lora_rank: int
     language_model_only: bool
     compilation_config: CompilationConfigStub
+    revision: str | None
+    tokenizer_revision: str | None
 
 
 class RecordingLlm:
@@ -251,6 +271,8 @@ class RecordingLlm:
         max_lora_rank: int,
         language_model_only: bool,
         compilation_config: CompilationConfigStub,
+        revision: str | None,
+        tokenizer_revision: str | None,
     ) -> None:
         self.calls.append(
             VllmConstructorCall(
@@ -272,6 +294,8 @@ class RecordingLlm:
                 max_lora_rank=max_lora_rank,
                 language_model_only=language_model_only,
                 compilation_config=compilation_config,
+                revision=revision,
+                tokenizer_revision=tokenizer_revision,
             )
         )
 
@@ -368,6 +392,7 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
     dataset = Dataset.from_dict({"question": ["q1", "q2"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
+        model_revision="immutable-model-sha",
         results_dir=tmp_path,
         max_answer_tokens=16,
         sample=False,
@@ -375,6 +400,12 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
     )
 
     engine = VllmEvalEngine(config)
+    assert vllm_bundle.model_loader.calls[-1].kwargs["revision"] == (
+        "immutable-model-sha"
+    )
+    assert vllm_bundle.tokenizer_loader.calls[-1].kwargs["revision"] == (
+        "immutable-model-sha"
+    )
     engine.set_dataset(dataset)
 
     input_ids = torch.tensor([[1, 2, 3], [4, 5, 6]])
@@ -404,10 +435,30 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
 
 
 @pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_forwards_judge_revision(vllm_bundle, tmp_path) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        judge_path_or_repo_id="fake/judge",
+        judge_revision="immutable-judge-sha",
+        results_dir=tmp_path,
+    )
+
+    VllmEvalEngine(config, is_judge=True)
+
+    assert vllm_bundle.model_loader.calls[-1].kwargs["revision"] == (
+        "immutable-judge-sha"
+    )
+    assert vllm_bundle.tokenizer_loader.calls[-1].kwargs["revision"] == (
+        "immutable-judge-sha"
+    )
+
+
+@pytest.mark.vllm_engine_test
 def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> None:
     dataset = Dataset.from_dict({"question": ["q1", "q2"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
+        model_revision="immutable-model-sha",
         results_dir=tmp_path,
         max_answer_tokens=8,
         sample=False,
@@ -552,6 +603,8 @@ def test_load_vllm_model_uses_text_generation_defaults(
             max_lora_rank=128,
             language_model_only=False,
             compilation_config=CompilationConfigStub(cudagraph_specialize_lora=False),
+            revision=None,
+            tokenizer_revision=None,
         )
     ]
 
@@ -631,6 +684,7 @@ def test_transformers_eval_engine_generate_answers(
     dataset = Dataset.from_dict({"prompt": ["hi"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
+        model_revision="immutable-model-sha",
         results_dir=tmp_path,
         max_answer_tokens=3,
         sample=True,
@@ -640,6 +694,9 @@ def test_transformers_eval_engine_generate_answers(
     engine = TransformersEvalEngine(
         transformers_bundle.data_collator,
         config,
+    )
+    assert transformers_bundle.loader_stub.calls[-1].kwargs["revision"] == (
+        "immutable-model-sha"
     )
     engine.set_dataset(dataset)
 
@@ -681,6 +738,24 @@ def test_transformers_eval_engine_generate_answers(
     engine.free_model()
     assert transformers_bundle.model.cpu_called
     assert not hasattr(engine, "model")
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_forwards_judge_revision(
+    transformers_bundle, tmp_path
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        judge_path_or_repo_id="fake/judge",
+        judge_revision="immutable-judge-sha",
+        results_dir=tmp_path,
+    )
+
+    TransformersEvalEngine(transformers_bundle.data_collator, config, is_judge=True)
+
+    assert transformers_bundle.loader_stub.calls[-1].kwargs["revision"] == (
+        "immutable-judge-sha"
+    )
 
 
 @pytest.mark.transformers_engine_test

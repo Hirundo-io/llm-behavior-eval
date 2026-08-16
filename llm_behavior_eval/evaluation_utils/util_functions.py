@@ -249,6 +249,7 @@ def load_tokenizer_with_transformers(
     model_name: str,
     token: str | None = None,
     trust_remote_code: bool = False,
+    revision: str | None = None,
 ) -> TokenizersBackend | SentencePieceBackend:
     """
     Load a tokenizer by first trying the standard method and, if a ValueError
@@ -258,6 +259,10 @@ def load_tokenizer_with_transformers(
         model_name: The repo-id or local path of the model to load.
         token: The HuggingFace token to use for the model.
         trust_remote_code: Whether to trust remote code.
+        revision: Optional immutable Hugging Face revision to load.
+
+    Returns:
+        The loaded tokenizer backend.
     """
     try:
         # Attempt to load the tokenizer normally
@@ -265,6 +270,7 @@ def load_tokenizer_with_transformers(
             model_name,
             token=token,
             trust_remote_code=trust_remote_code,
+            revision=revision,
         )
         logging.info("Tokenizer loaded successfully from the remote repository.")
     except ValueError as error:
@@ -279,6 +285,7 @@ def load_tokenizer_with_transformers(
             local_files_only=True,
             token=token,
             trust_remote_code=trust_remote_code,
+            revision=revision,
         )
         logging.info("Tokenizer loaded successfully from the local files.")
     # Required for type checking
@@ -314,7 +321,10 @@ def pick_best_vllm_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
 
 
 def is_model_multimodal(
-    repo_id: str, trust_remote_code: bool = False, token: str | None = None
+    repo_id: str,
+    trust_remote_code: bool = False,
+    token: str | None = None,
+    revision: str | None = None,
 ) -> bool:
     """
     Decide whether the model should be loaded with a vision-capable architecture.
@@ -327,6 +337,7 @@ def is_model_multimodal(
         repo_id: The repo-id or local path of the model to load.
         trust_remote_code: Whether to trust remote code.
         token: The HuggingFace token to use for accessing gated models.
+        revision: Optional immutable Hugging Face revision to inspect.
 
     Returns:
         True if the model should be loaded with a vision-capable architecture, False otherwise.
@@ -338,11 +349,16 @@ def is_model_multimodal(
             local_files_only=True,
             trust_remote_code=trust_remote_code,
             token=token,
+            revision=revision,
         )
-    except Exception:
+    except Exception as exc:
         # Fallback to remote if not cached locally
+        logging.info("Local model configuration lookup failed: %s", exc)
         config = AutoConfig.from_pretrained(
-            repo_id, trust_remote_code=trust_remote_code, token=token
+            repo_id,
+            trust_remote_code=trust_remote_code,
+            token=token,
+            revision=revision,
         )
     config_dict = config.to_dict()
 
@@ -387,6 +403,7 @@ def load_vllm_model(
     enable_lora: bool = False,
     max_lora_rank: int = VllmConfig.model_fields["max_lora_rank"].default,
     language_model_only: bool = False,
+    revision: str | None = None,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -408,6 +425,7 @@ def load_vllm_model(
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
         language_model_only: Whether to omit multimodal encoders and load only the
             language model. This has no effect on text-only architectures.
+        revision: Optional immutable Hugging Face revision for model and tokenizer.
 
     Returns:
         An instantiated ``vllm.LLM`` engine configured with the requested dtype,
@@ -462,6 +480,8 @@ def load_vllm_model(
             max_lora_rank=max_lora_rank,
             language_model_only=language_model_only,
             compilation_config=CompilationConfig(cudagraph_specialize_lora=False),
+            revision=revision,
+            tokenizer_revision=revision,
         )
 
     return llm_instance
@@ -491,6 +511,7 @@ def load_transformers_model_and_tokenizer(
     use_4bit: bool = False,
     device_map: str | dict[str, int] | None = "auto",
     trust_remote_code: bool = False,
+    revision: str | None = None,
 ) -> tuple[PreTrainedTokenizerBase, GenerativePreTrainedModel]:
     """
     Load a tokenizer and a causal language model based on the model name/path,
@@ -505,6 +526,7 @@ def load_transformers_model_and_tokenizer(
         use_4bit: If True, load the model in 4-bit mode using bitsandbytes.
         device_map: The device map to use for the model.
         trust_remote_code: Whether to trust remote code.
+        revision: Optional immutable Hugging Face revision for model and tokenizer.
 
     Returns:
         A tuple containing the loaded tokenizer and model.
@@ -515,7 +537,10 @@ def load_transformers_model_and_tokenizer(
     logging.info("Using dtype: %s", dtype)
     # Load tokenizer
     tokenizer = load_tokenizer_with_transformers(
-        model_name, token=token, trust_remote_code=trust_remote_code
+        model_name,
+        token=token,
+        trust_remote_code=trust_remote_code,
+        revision=revision,
     )
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
         raise ValueError("Tokenizer is not supported!")
@@ -534,7 +559,7 @@ def load_transformers_model_and_tokenizer(
             bnb_4bit_quant_type="nf4",
         )
 
-    if is_model_multimodal(model_name, trust_remote_code, token):
+    if is_model_multimodal(model_name, trust_remote_code, token, revision):
         model = AutoModelForImageTextToText.from_pretrained(
             model_name,
             dtype=dtype,
@@ -543,6 +568,7 @@ def load_transformers_model_and_tokenizer(
             quantization_config=quantization_config,
             trust_remote_code=trust_remote_code,
             token=token,
+            revision=revision,
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
@@ -553,6 +579,7 @@ def load_transformers_model_and_tokenizer(
             quantization_config=quantization_config,
             trust_remote_code=trust_remote_code,
             token=token,
+            revision=revision,
         )
 
     return tokenizer, cast("GenerativePreTrainedModel", model)

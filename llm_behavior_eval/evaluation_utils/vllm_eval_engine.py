@@ -42,6 +42,7 @@ class VllmEvalEngine(EvalEngine):
             eval_config.lora_path_or_repo_id if not self.is_judge else None
         )
         model_token = self._get_model_token(eval_config, is_judge)
+        model_revision = self._get_model_revision(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
         batch_size_config = self._get_batch_size_from_config(eval_config, is_judge)
         batch_size = batch_size_config or 256
@@ -50,6 +51,7 @@ class VllmEvalEngine(EvalEngine):
             model_path_or_repo_id,
             model_token,
             trust_remote_code=eval_config.trust_remote_code,
+            revision=model_revision,
         )
         if not self.tokenizer.pad_token:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -74,6 +76,7 @@ class VllmEvalEngine(EvalEngine):
             eval_config.trust_remote_code,
             batch_size,
             model_token,
+            tensor_parallel_size=vllm_config.tensor_parallel_size,
             enforce_eager=vllm_config.enforce_eager,
             quantization=quantization,
             max_model_len=max_model_len,
@@ -86,6 +89,7 @@ class VllmEvalEngine(EvalEngine):
             language_model_only=True
             if self.is_judge
             else vllm_config.language_model_only,
+            revision=model_revision,
         )
         self._vllm_sampling_params = None
         self.lora_request: LoRARequest | None
@@ -187,6 +191,7 @@ class VllmEvalEngine(EvalEngine):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            repetition_penalty=sampling_config.repetition_penalty,
             stop_token_ids=stop_token_ids,
             seed=sampling_config.seed,
         )
