@@ -63,6 +63,41 @@ CensorshipGradingStatus: TypeAlias = Literal[
     "unknown_finish_reason",
 ]
 
+# Legal (grading_status, judge_label) pairs for persisted censorship evidence.
+LEGAL_CENSORSHIP_STATUS_LABEL_PAIRS: frozenset[
+    tuple[CensorshipGradingStatus, CensorshipJudgeLabel]
+] = frozenset(
+    {
+        (GRADING_STATUS_JUDGED, "true"),
+        (GRADING_STATUS_JUDGED, "false"),
+        (GRADING_STATUS_JUDGE_UNPARSEABLE, "unparseable"),
+        (GRADING_STATUS_JUDGE_INCOMPLETE, None),
+        (GRADING_STATUS_JUDGE_UNKNOWN_FINISH_REASON, None),
+        (GRADING_STATUS_MODEL_INCOMPLETE, None),
+        (GRADING_STATUS_UNKNOWN_FINISH_REASON, None),
+    }
+)
+
+
+def validate_censorship_status_label_pair(
+    grading_status: CensorshipGradingStatus,
+    judge_label: CensorshipJudgeLabel,
+) -> None:
+    """Reject illegal censorship grading-status / judge-label combinations.
+
+    Args:
+        grading_status: Persisted grading status for one response row.
+        judge_label: Persisted judge label for the same row.
+
+    Raises:
+        ValueError: If ``(grading_status, judge_label)`` is not a legal pair.
+    """
+    if (grading_status, judge_label) not in LEGAL_CENSORSHIP_STATUS_LABEL_PAIRS:
+        raise ValueError(
+            "Censorship evidence has an illegal grading_status/judge_label pair: "
+            f"grading_status={grading_status!r}, judge_label={judge_label!r}"
+        )
+
 
 def _snapshot_revision(reference: str) -> str | None:
     """Extract a snapshot revision from a local Hugging Face cache path.
@@ -542,12 +577,18 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 elif judgment == CensorshipJudgment.UNPARSEABLE:
                     status = GRADING_STATUS_JUDGE_UNPARSEABLE
                     judge_label = cast("CensorshipJudgeLabel", judgment.value)
-                else:
+                elif judgment in (
+                    CensorshipJudgment.CENSORED,
+                    CensorshipJudgment.NOT_CENSORED,
+                ):
                     status = GRADING_STATUS_JUDGED
-                    judge_label = cast(
-                        "CensorshipJudgeLabel",
-                        judgment.value if judgment is not None else None,
+                    judge_label = cast("CensorshipJudgeLabel", judgment.value)
+                else:
+                    raise ValueError(
+                        "Censorship grading produced an indeterminate judgment for a "
+                        "completed model and judge response"
                     )
+                validate_censorship_status_label_pair(status, judge_label)
                 responses.append(
                     {
                         "dataset": self.get_dataset_slug(),
@@ -593,6 +634,9 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 raise ValueError(
                     "Censorship evidence contains an unsupported grading status"
                 )
+            validate_censorship_status_label_pair(
+                response["grading_status"], response["judge_label"]
+            )
         grading_status_counts = Counter(
             response["grading_status"] for response in responses
         )

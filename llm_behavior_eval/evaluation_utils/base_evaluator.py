@@ -6,6 +6,7 @@ import logging
 import re
 import sys
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -38,6 +39,33 @@ from .util_functions import (
 )
 
 DECODING_CONTRACT_VERSION = 2
+
+# EvaluationConfig fields whose change invalidates cached generations.jsonl.
+GENERATION_EVAL_CONFIG_KEYS = frozenset(
+    {
+        "max_samples",
+        "sample",
+        "use_4bit",
+        "max_answer_tokens",
+        "pass_max_answer_tokens",
+        "model_path_or_repo_id",
+        "model_revision",
+        "lora_path_or_repo_id",
+        "inference_engine",
+        "model_engine",
+        "enable_thinking",
+        "enable_thinking_arg_name",
+        "thinking_start_token",
+        "thinking_end_token",
+        "trust_remote_code",
+        "sampling_config",
+        "evaluator_family",
+        "vllm_config",
+    }
+)
+
+# Nested vLLM fields that affect only judge loading, not under-test generation.
+JUDGE_ONLY_VLLM_CONFIG_KEYS = frozenset({"judge_max_model_len"})
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
@@ -995,6 +1023,97 @@ class BaseEvaluator(ABC):
             if output_file.exists():
                 output_file.unlink()
 
+    @staticmethod
+    def _normalized_dataset_config(
+        dataset_config: Mapping[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Normalize a persisted dataset_config snapshot for contract comparison.
+
+        Args:
+            dataset_config: Dataset configuration fragment from a run config.
+
+        Returns:
+            A shallow copy with legacy ``dataset_id`` inferred from ``file_path``.
+        """
+        normalized = dict(dataset_config or {})
+        # Pre-dataset_id run configs used file_path as both source and identity.
+        if "dataset_id" not in normalized:
+            normalized["dataset_id"] = normalized.get("file_path")
+        return normalized
+
+    @classmethod
+    def _generation_vllm_config(
+        cls, vllm_config: Mapping[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Return the generation-affecting subset of a vLLM config snapshot.
+
+        Args:
+            vllm_config: Nested ``vllm_config`` from an evaluation config snapshot.
+
+        Returns:
+            The snapshot with judge-only keys removed, or ``None`` when absent.
+        """
+        if vllm_config is None:
+            return None
+        return {
+            key: value
+            for key, value in vllm_config.items()
+            if key not in JUDGE_ONLY_VLLM_CONFIG_KEYS
+        }
+
+    @classmethod
+    def _generation_contract(cls, run_config: Mapping[str, Any]) -> dict[str, Any]:
+        """Extract the contract that must match for generations.jsonl reuse.
+
+        Args:
+            run_config: Persisted or current run configuration snapshot.
+
+        Returns:
+            A comparable mapping of generation-affecting fields only.
+        """
+        evaluation_config = dict(run_config.get("evaluation_config") or {})
+        generation_eval: dict[str, Any] = {}
+        for key in sorted(GENERATION_EVAL_CONFIG_KEYS):
+            if key not in evaluation_config:
+                continue
+            if key == "vllm_config":
+                raw_vllm = evaluation_config["vllm_config"]
+                generation_eval[key] = (
+                    cls._generation_vllm_config(raw_vllm)
+                    if isinstance(raw_vllm, Mapping)
+                    else raw_vllm
+                )
+            else:
+                generation_eval[key] = evaluation_config[key]
+        return {
+            "decoding_contract_version": run_config.get("decoding_contract_version"),
+            "evaluation_config": generation_eval,
+            "dataset_config": cls._normalized_dataset_config(
+                run_config.get("dataset_config")
+            ),
+        }
+
+    def _raise_run_configuration_mismatch(self, *, generation_mismatch: bool) -> None:
+        """Raise a safe failure for incompatible cached evaluation outputs.
+
+        Args:
+            generation_mismatch: Whether the mismatch invalidates cached generations.
+
+        Raises:
+            RuntimeError: Always; instructs the caller to replace existing outputs.
+        """
+        if generation_mismatch:
+            raise RuntimeError(
+                "Existing evaluation outputs were produced with a different "
+                "generation contract (model, decoding, sampling, thinking, or "
+                "dataset settings). Cached generations cannot be reused. "
+                "Re-run with --replace-existing-output to overwrite them."
+            )
+        raise RuntimeError(
+            "Existing evaluation outputs were produced with a different configuration. "
+            "Re-run with --replace-existing-output to overwrite them."
+        )
+
     def _ensure_run_configuration_allowed(self) -> None:
         run_config = self._current_run_config()
         config_path = self.run_config_path()
@@ -1006,12 +1125,9 @@ class BaseEvaluator(ABC):
         with open(config_path) as file_handle:
             existing_run_config = json.load(file_handle)
 
-        existing_dataset_config = existing_run_config.get("dataset_config", {})
-        # Pre-dataset_id run configs used file_path as both source and identity.
-        if "dataset_id" not in existing_dataset_config:
-            existing_dataset_config["dataset_id"] = existing_dataset_config.get(
-                "file_path"
-            )
+        existing_run_config["dataset_config"] = self._normalized_dataset_config(
+            existing_run_config.get("dataset_config")
+        )
 
         if existing_run_config == run_config:
             logging.info(
@@ -1020,7 +1136,6 @@ class BaseEvaluator(ABC):
             )
             return
 
-        what_exists = "evaluation outputs were"
         if self.eval_config.replace_existing_output:
             logging.info(
                 "Replacing outputs at %s because --replace-existing-output was provided.",
@@ -1030,15 +1145,20 @@ class BaseEvaluator(ABC):
             self._write_run_config(run_config)
             return
 
+        generation_mismatch = self._generation_contract(
+            existing_run_config
+        ) != self._generation_contract(run_config)
+
         self._skip_current_run = False
+        what_exists = "evaluation outputs were"
         if hasattr(self, "eval_engine") and self.eval_engine.is_judge:
-            if not self.metrics_path().exists():
+            if not generation_mismatch and not self.metrics_path().exists():
                 logging.info(
                     "No metrics file found at %s; grading cached generations.",
                     self.metrics_path(),
                 )
                 return
-            else:
+            if not generation_mismatch and self.metrics_path().exists():
                 logging.info(
                     "Metrics file found at %s; attempting to query user for action.",
                     self.metrics_path(),
@@ -1046,6 +1166,8 @@ class BaseEvaluator(ABC):
                 what_exists = "metrics file was"
 
         if sys.stdin.isatty():
+            # Recognize skip even on generation mismatches so an explicit skip
+            # fails closed instead of looping, but never reuse generations.
             action_map = {
                 "r": "replace",
                 "replace": "replace",
@@ -1054,22 +1176,43 @@ class BaseEvaluator(ABC):
                 "c": "cancel",
                 "cancel": "cancel",
             }
-            if (action := self._remembered_run_config_action) is not None:
+            if generation_mismatch:
+                prompt = (
+                    f"Existing {what_exists} produced with a different generation "
+                    "contract. Cached generations cannot be reused. "
+                    "Choose: [r]eplace outputs and regenerate, or [c]ancel"
+                )
+            else:
+                prompt = (
+                    f"Existing {what_exists} produced with a different "
+                    "judge/postprocess configuration. "
+                    "Choose: [r]eplace outputs and rerun, [s]kip and reuse "
+                    "existing generations, or [c]ancel"
+                )
+
+            action = self._remembered_run_config_action
+            if action is not None and generation_mismatch and action == "skip":
+                logging.info(
+                    "Ignoring remembered skip action for generation-contract mismatch at %s.",
+                    config_path,
+                )
+                action = None
+
+            if action is not None:
                 logging.info(
                     "Reusing remembered run-configuration action '%s' for %s.",
                     action,
                     config_path,
                 )
             else:
-                prompt = (
-                    f"Existing {what_exists} produced with a different configuration. "
-                    "Choose: [r]eplace outputs and rerun, [s]kip and reuse existing outputs, or [c]ancel"
-                )
                 while action is None:
                     user_choice = typer.prompt(prompt, default="c").strip().lower()
                     action = action_map.get(user_choice)
                     if action is None:
-                        typer.echo("Invalid choice. Enter r, s, or c.")
+                        if generation_mismatch:
+                            typer.echo("Invalid choice. Enter r or c.")
+                        else:
+                            typer.echo("Invalid choice. Enter r, s, or c.")
 
                 if not self._remember_choice_prompt_asked:
                     self._remember_choice_prompt_asked = True
@@ -1090,6 +1233,8 @@ class BaseEvaluator(ABC):
                 self._write_run_config(run_config)
                 return
             if action == "skip":
+                if generation_mismatch:
+                    self._raise_run_configuration_mismatch(generation_mismatch=True)
                 logging.info(
                     "User chose to reuse existing outputs at %s and continue with cached generations if present.",
                     config_path,
@@ -1098,10 +1243,7 @@ class BaseEvaluator(ABC):
                     self._skip_current_run = True
                 return
 
-        raise RuntimeError(
-            "Existing evaluation outputs were produced with a different configuration. "
-            "Re-run with --replace-existing-output to overwrite them."
-        )
+        self._raise_run_configuration_mismatch(generation_mismatch=generation_mismatch)
 
 
 class FreeTextSharedEvaluator(BaseEvaluator):

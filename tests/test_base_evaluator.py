@@ -37,15 +37,21 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
 )
 from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
+    GRADING_STATUS_JUDGE_INCOMPLETE,
+    GRADING_STATUS_JUDGE_UNKNOWN_FINISH_REASON,
+    GRADING_STATUS_MODEL_INCOMPLETE,
+    GRADING_STATUS_UNKNOWN_FINISH_REASON,
+    LEGAL_CENSORSHIP_STATUS_LABEL_PAIRS,
+    CensorshipResponse,
+    FreeTextCensorshipEvaluator,
+    _CensorshipGenerationRecord,
+    validate_censorship_status_label_pair,
+)
+from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
     GRADING_STATUS_JUDGE_UNPARSEABLE as CENSORSHIP_STATUS_UNPARSEABLE,
 )
 from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
     GRADING_STATUS_JUDGED as CENSORSHIP_STATUS_JUDGED,
-)
-from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
-    CensorshipResponse,
-    FreeTextCensorshipEvaluator,
-    _CensorshipGenerationRecord,
 )
 from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
@@ -1352,6 +1358,34 @@ def test_censorship_evaluator_writes_dedicated_standard_artifacts(
             },
             "unsupported grading status",
         ),
+        (
+            {
+                "judge_label": None,
+                "grading_status": CENSORSHIP_STATUS_JUDGED,
+            },
+            "illegal grading_status/judge_label pair",
+        ),
+        (
+            {
+                "judge_label": "unparseable",
+                "grading_status": CENSORSHIP_STATUS_JUDGED,
+            },
+            "illegal grading_status/judge_label pair",
+        ),
+        (
+            {
+                "judge_label": "true",
+                "grading_status": CENSORSHIP_STATUS_UNPARSEABLE,
+            },
+            "illegal grading_status/judge_label pair",
+        ),
+        (
+            {
+                "judge_label": "false",
+                "grading_status": GRADING_STATUS_MODEL_INCOMPLETE,
+            },
+            "illegal grading_status/judge_label pair",
+        ),
     ],
 )
 def test_censorship_results_reject_unsupported_categories(
@@ -1363,6 +1397,43 @@ def test_censorship_results_reject_unsupported_categories(
     with pytest.raises(ValueError, match=message):
         evaluator._save_censorship_results(
             [cast("CensorshipResponse", response)] * CHINESE_CENSORSHIP_GROUP_COUNT
+        )
+
+
+@pytest.mark.parametrize(
+    ("grading_status", "judge_label"),
+    sorted(LEGAL_CENSORSHIP_STATUS_LABEL_PAIRS),
+)
+def test_censorship_status_label_legal_pairs_are_accepted(
+    grading_status: str, judge_label: str | None
+) -> None:
+    """Every documented legal status/label pair validates successfully."""
+    validate_censorship_status_label_pair(
+        cast("Any", grading_status), cast("Any", judge_label)
+    )
+
+
+@pytest.mark.parametrize(
+    ("grading_status", "judge_label"),
+    [
+        (CENSORSHIP_STATUS_JUDGED, None),
+        (CENSORSHIP_STATUS_JUDGED, "unparseable"),
+        (CENSORSHIP_STATUS_UNPARSEABLE, "true"),
+        (CENSORSHIP_STATUS_UNPARSEABLE, "false"),
+        (CENSORSHIP_STATUS_UNPARSEABLE, None),
+        (GRADING_STATUS_MODEL_INCOMPLETE, "true"),
+        (GRADING_STATUS_UNKNOWN_FINISH_REASON, "false"),
+        (GRADING_STATUS_JUDGE_INCOMPLETE, "unparseable"),
+        (GRADING_STATUS_JUDGE_UNKNOWN_FINISH_REASON, "true"),
+    ],
+)
+def test_censorship_status_label_illegal_pairs_fail_fast(
+    grading_status: str, judge_label: str | None
+) -> None:
+    """Impossible status/label combinations raise before metrics are derived."""
+    with pytest.raises(ValueError, match="illegal grading_status/judge_label pair"):
+        validate_censorship_status_label_pair(
+            cast("Any", grading_status), cast("Any", judge_label)
         )
 
 
@@ -1743,23 +1814,62 @@ def test_refusal_evaluator_only_counts_stop_rows_as_judge_attempts(
     assert responses[1]["grading_status"] == "unknown_finish_reason"
 
 
-def test_run_config_mismatch_allows_skip_reusing_existing_outputs(
+def test_run_config_matching_generation_contract_reuses_cached_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    output_dir = tmp_path / "model" / "dataset"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    run_config_path = output_dir / "run_config.json"
-    run_config_path.write_text(
-        json.dumps(
-            {
-                "evaluation_config": {"model_path_or_repo_id": "different/model"},
-                "dataset_config": {"file_path": "repo/other-dataset"},
-            }
-        ),
-        encoding="utf-8",
+    """Matching generation contracts continue without prompting or clearing cache."""
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
     )
-    responses_path = output_dir / "responses.json"
+    dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(eval_config, dataset_config)
+    generations_path = evaluator.generations_path()
+    generations_path.write_text(
+        json.dumps({"answers": ["cached"]}) + "\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        base_evaluator_module.typer,
+        "prompt",
+        lambda *_args, **_kwargs: pytest.fail("matching config prompted"),
+    )
+
+    ConcreteEvaluator(eval_config, dataset_config)
+
+    assert generations_path.read_text(encoding="utf-8") == (
+        json.dumps({"answers": ["cached"]}) + "\n"
+    )
+
+
+def test_run_config_judge_only_mismatch_allows_skip_reusing_generations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Judge/postprocess-only mismatches may reuse cached generations via skip."""
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        judge_path_or_repo_id="google/gemma-3-12b-it",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(eval_config, dataset_config)
+    run_config_path = evaluator.run_config_path()
+    run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+    run_config["evaluation_config"]["judge_path_or_repo_id"] = "other/judge"
+    run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
+
+    generations_path = evaluator.generations_path()
+    generations_path.write_text(
+        json.dumps({"answers": ["cached"]}) + "\n", encoding="utf-8"
+    )
+    responses_path = evaluator.get_output_dir() / "responses.json"
     responses_path.write_text('{"preserved": true}', encoding="utf-8")
 
     class _StubStdin:
@@ -1771,24 +1881,113 @@ def test_run_config_mismatch_allows_skip_reusing_existing_outputs(
     monkeypatch.setattr(base_evaluator_module.typer, "prompt", lambda *_a, **_k: "s")
     monkeypatch.setattr(base_evaluator_module.typer, "confirm", lambda *_a, **_k: False)
 
-    ConcreteEvaluator(
-        EvaluationConfig(
-            model_path_or_repo_id="meta/model",
-            results_dir=tmp_path,
-            max_samples=1,
-        ),
-        DatasetConfig(
-            file_path="repo/dataset",
-            dataset_type=DatasetType.BIAS,
-        ),
-    )
+    ConcreteEvaluator(eval_config, dataset_config)
 
     assert responses_path.read_text(encoding="utf-8") == '{"preserved": true}'
-    with run_config_path.open(encoding="utf-8") as file_handle:
-        persisted_config = json.load(file_handle)
-    assert persisted_config["evaluation_config"]["model_path_or_repo_id"] == (
-        "different/model"
+    assert generations_path.read_text(encoding="utf-8") == (
+        json.dumps({"answers": ["cached"]}) + "\n"
     )
+    persisted = json.loads(run_config_path.read_text(encoding="utf-8"))
+    assert persisted["evaluation_config"]["judge_path_or_repo_id"] == "other/judge"
+
+
+@pytest.mark.parametrize(
+    ("mutate_existing", "match"),
+    [
+        (
+            lambda run_config: run_config.__setitem__("decoding_contract_version", 1),
+            "generation contract",
+        ),
+        (
+            lambda run_config: run_config["evaluation_config"].__setitem__(
+                "sample", True
+            ),
+            "generation contract",
+        ),
+        (
+            lambda run_config: run_config["evaluation_config"].__setitem__(
+                "model_path_or_repo_id", "other/model"
+            ),
+            "generation contract",
+        ),
+    ],
+)
+def test_run_config_generation_mismatch_interactive_skip_cannot_reuse_generations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutate_existing: Callable[[dict[str, Any]], None],
+    match: str,
+) -> None:
+    """Interactive skip must fail closed on generation-affecting contract changes."""
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+        sample=False,
+    )
+    dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(eval_config, dataset_config)
+    run_config_path = evaluator.run_config_path()
+    run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+    mutate_existing(run_config)
+    run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
+
+    generations_path = evaluator.generations_path()
+    generations_payload = json.dumps({"answers": ["cached"]}) + "\n"
+    generations_path.write_text(generations_payload, encoding="utf-8")
+
+    class _StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return True
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", _StubStdin())
+    monkeypatch.setattr(base_evaluator_module.typer, "prompt", lambda *_a, **_k: "s")
+    monkeypatch.setattr(base_evaluator_module.typer, "confirm", lambda *_a, **_k: False)
+
+    with pytest.raises(RuntimeError, match=match):
+        ConcreteEvaluator(eval_config, dataset_config)
+
+    assert generations_path.read_text(encoding="utf-8") == generations_payload
+
+
+def test_run_config_decoding_contract_mismatch_non_tty_cannot_reuse_generations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Non-interactive decoding-contract mismatches must not reuse generations."""
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(eval_config, dataset_config)
+    run_config_path = evaluator.run_config_path()
+    run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+    run_config["decoding_contract_version"] = 1
+    run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
+
+    generations_path = evaluator.generations_path()
+    generations_payload = json.dumps({"answers": ["cached"]}) + "\n"
+    generations_path.write_text(generations_payload, encoding="utf-8")
+
+    class _StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return False
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", _StubStdin())
+
+    with pytest.raises(RuntimeError, match="generation contract"):
+        ConcreteEvaluator(eval_config, dataset_config)
+
+    assert generations_path.read_text(encoding="utf-8") == generations_payload
 
 
 def test_legacy_run_config_without_dataset_id_reuses_cached_outputs(
@@ -1844,7 +2043,9 @@ def test_legacy_decoding_contract_cannot_reuse_cached_outputs(
         run_config["decoding_contract_version"] = legacy_version
     run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
 
-    with pytest.raises(RuntimeError, match="different configuration"):
+    with pytest.raises(
+        RuntimeError, match="generation contract|different configuration"
+    ):
         ConcreteEvaluator(eval_config, dataset_config)
 
 
@@ -1888,26 +2089,38 @@ def test_run_config_mismatch_cancel_still_raises_error(
         )
 
 
+def _write_judge_only_mismatched_run_config(evaluator: ConcreteEvaluator) -> None:
+    """Persist a run config that differs only in judge identity.
+
+    Args:
+        evaluator: Evaluator whose current matching run config should be mutated.
+    """
+    run_config_path = evaluator.run_config_path()
+    run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+    run_config["evaluation_config"]["judge_path_or_repo_id"] = "other/judge"
+    run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
+
+
 def test_run_config_choice_remembered_for_rest_of_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    first_output_dir = tmp_path / "model" / "dataset-first"
-    second_output_dir = tmp_path / "model" / "dataset-second"
-    first_output_dir.mkdir(parents=True, exist_ok=True)
-    second_output_dir.mkdir(parents=True, exist_ok=True)
-
-    run_config_payload = json.dumps(
-        {
-            "evaluation_config": {"model_path_or_repo_id": "different/model"},
-            "dataset_config": {"file_path": "repo/other-dataset"},
-        }
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
     )
-    (first_output_dir / "run_config.json").write_text(
-        run_config_payload, encoding="utf-8"
+    first_dataset = DatasetConfig(
+        file_path="repo/dataset-first",
+        dataset_type=DatasetType.BIAS,
     )
-    (second_output_dir / "run_config.json").write_text(
-        run_config_payload, encoding="utf-8"
+    second_dataset = DatasetConfig(
+        file_path="repo/dataset-second",
+        dataset_type=DatasetType.BIAS,
     )
+    first_evaluator = ConcreteEvaluator(eval_config, first_dataset)
+    _write_judge_only_mismatched_run_config(first_evaluator)
+    second_evaluator = ConcreteEvaluator(eval_config, second_dataset)
+    _write_judge_only_mismatched_run_config(second_evaluator)
 
     class _StubStdin:
         @staticmethod
@@ -1929,24 +2142,8 @@ def test_run_config_choice_remembered_for_rest_of_run(
     monkeypatch.setattr(base_evaluator_module.typer, "prompt", _prompt)
     monkeypatch.setattr(base_evaluator_module.typer, "confirm", _confirm)
 
-    evaluator = ConcreteEvaluator(
-        EvaluationConfig(
-            model_path_or_repo_id="meta/model",
-            results_dir=tmp_path,
-            max_samples=1,
-        ),
-        DatasetConfig(
-            file_path="repo/dataset-first",
-            dataset_type=DatasetType.BIAS,
-        ),
-    )
-
-    evaluator.update_dataset_config(
-        DatasetConfig(
-            file_path="repo/dataset-second",
-            dataset_type=DatasetType.BIAS,
-        )
-    )
+    evaluator = ConcreteEvaluator(eval_config, first_dataset)
+    evaluator.update_dataset_config(second_dataset)
 
     assert prompt_calls["count"] == 1
     assert confirm_calls["count"] == 1
@@ -1955,23 +2152,23 @@ def test_run_config_choice_remembered_for_rest_of_run(
 def test_run_config_choice_not_remembered_prompts_again_without_second_remember_prompt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    first_output_dir = tmp_path / "model" / "dataset-first"
-    second_output_dir = tmp_path / "model" / "dataset-second"
-    first_output_dir.mkdir(parents=True, exist_ok=True)
-    second_output_dir.mkdir(parents=True, exist_ok=True)
-
-    run_config_payload = json.dumps(
-        {
-            "evaluation_config": {"model_path_or_repo_id": "different/model"},
-            "dataset_config": {"file_path": "repo/other-dataset"},
-        }
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
     )
-    (first_output_dir / "run_config.json").write_text(
-        run_config_payload, encoding="utf-8"
+    first_dataset = DatasetConfig(
+        file_path="repo/dataset-first",
+        dataset_type=DatasetType.BIAS,
     )
-    (second_output_dir / "run_config.json").write_text(
-        run_config_payload, encoding="utf-8"
+    second_dataset = DatasetConfig(
+        file_path="repo/dataset-second",
+        dataset_type=DatasetType.BIAS,
     )
+    first_evaluator = ConcreteEvaluator(eval_config, first_dataset)
+    _write_judge_only_mismatched_run_config(first_evaluator)
+    second_evaluator = ConcreteEvaluator(eval_config, second_dataset)
+    _write_judge_only_mismatched_run_config(second_evaluator)
 
     class _StubStdin:
         @staticmethod
@@ -1993,24 +2190,8 @@ def test_run_config_choice_not_remembered_prompts_again_without_second_remember_
     monkeypatch.setattr(base_evaluator_module.typer, "prompt", _prompt)
     monkeypatch.setattr(base_evaluator_module.typer, "confirm", _confirm)
 
-    evaluator = ConcreteEvaluator(
-        EvaluationConfig(
-            model_path_or_repo_id="meta/model",
-            results_dir=tmp_path,
-            max_samples=1,
-        ),
-        DatasetConfig(
-            file_path="repo/dataset-first",
-            dataset_type=DatasetType.BIAS,
-        ),
-    )
-
-    evaluator.update_dataset_config(
-        DatasetConfig(
-            file_path="repo/dataset-second",
-            dataset_type=DatasetType.BIAS,
-        )
-    )
+    evaluator = ConcreteEvaluator(eval_config, first_dataset)
+    evaluator.update_dataset_config(second_dataset)
 
     assert prompt_calls["count"] == 2
     assert confirm_calls["count"] == 1

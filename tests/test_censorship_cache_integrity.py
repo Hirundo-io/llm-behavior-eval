@@ -126,6 +126,19 @@ def _configure_two_sample_eval(evaluator: FreeTextCensorshipEvaluator) -> None:
         pytest.param(
             [
                 {
+                    "questions": ["q0", "q1"],
+                    "source_group_ids": ["g1", "g0"],
+                    "answers": ["a0", "a1"],
+                    "finish_reasons": ["stop", "stop"],
+                }
+            ],
+            "pinned dataset order|replace-existing",
+            2,
+            id="reordered-source-group-ids-valid-questions",
+        ),
+        pytest.param(
+            [
+                {
                     "questions": ["q0"],
                     "source_group_ids": ["g0", "g1"],
                     "answers": ["a0", "a1"],
