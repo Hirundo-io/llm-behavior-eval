@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 import torch
 
-import llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator as censorship_module
+import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_module
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CHINESE_CENSORSHIP_DATASET_SOURCE,
 )
@@ -410,7 +410,7 @@ def test_censorship_responses_preserve_raw_thinking_trace(
         evaluator, "_get_judge_tokenizer", lambda: object(), raising=False
     )
     monkeypatch.setattr(
-        censorship_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: messages[0]["content"],
     )

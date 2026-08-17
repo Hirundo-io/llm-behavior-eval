@@ -16,7 +16,6 @@ from transformers.tokenization_utils_base import BatchEncoding, PreTrainedTokeni
 import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_module
 import llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator as censorship_module
 import llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator as hallu_module
-import llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator as refusal_module
 from llm_behavior_eval.evaluation_utils.base_evaluator import (
     BaseEvaluator,
     FreeTextSharedEvaluator,
@@ -66,6 +65,7 @@ from llm_behavior_eval.evaluation_utils.refusal_utils import (
     XSTEST_DATASET,
 )
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
+from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence, Sized
@@ -1159,7 +1159,7 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        refusal_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: messages[-1]["content"],
     )
@@ -1485,7 +1485,7 @@ def test_censorship_grading_records_binary_labels_and_rate(
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        censorship_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, _messages: "judge prompt",
     )
@@ -1631,7 +1631,7 @@ def test_censorship_judge_uses_raw_question_and_rejects_truncated_verdict(
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        censorship_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: (
             captured_prompts.append(messages[0]["content"]) or messages[0]["content"]
@@ -1698,7 +1698,7 @@ def test_refusal_evaluator_marks_unparseable_outputs_and_excludes_them_from_deno
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        refusal_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: messages[-1]["content"],
     )
@@ -1770,7 +1770,7 @@ def test_refusal_evaluator_only_counts_stop_rows_as_judge_attempts(
     monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
     monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: object())
     monkeypatch.setattr(
-        refusal_module,
+        base_evaluator_module,
         "safe_apply_chat_template",
         lambda _tokenizer, messages: messages[-1]["content"],
     )
@@ -1889,6 +1889,176 @@ def test_run_config_judge_only_mismatch_allows_skip_reusing_generations(
     )
     persisted = json.loads(run_config_path.read_text(encoding="utf-8"))
     assert persisted["evaluation_config"]["judge_path_or_repo_id"] == "other/judge"
+
+
+def test_run_config_judge_only_vllm_fields_do_not_invalidate_transformer_generations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Judge-only vLLM settings must not block reuse when the model is transformers."""
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+        model_engine="transformers",
+        judge_engine="vllm",
+        vllm_config=VllmConfig(
+            gpu_memory_utilization=0.5,
+            judge_max_model_len=1024,
+            enforce_eager=True,
+        ),
+    )
+    dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(eval_config, dataset_config)
+    run_config_path = evaluator.run_config_path()
+    run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+    run_config["evaluation_config"]["vllm_config"]["gpu_memory_utilization"] = 0.9
+    run_config["evaluation_config"]["vllm_config"]["judge_max_model_len"] = 2048
+    run_config["evaluation_config"]["vllm_config"]["enforce_eager"] = False
+    run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
+
+    generations_path = evaluator.generations_path()
+    generations_payload = json.dumps({"answers": ["cached"]}) + "\n"
+    generations_path.write_text(generations_payload, encoding="utf-8")
+
+    class _StubStdin:
+        @staticmethod
+        def isatty() -> bool:
+            return True
+
+    monkeypatch.setattr(base_evaluator_module.sys, "stdin", _StubStdin())
+    monkeypatch.setattr(base_evaluator_module.typer, "prompt", lambda *_a, **_k: "s")
+    monkeypatch.setattr(base_evaluator_module.typer, "confirm", lambda *_a, **_k: False)
+
+    ConcreteEvaluator(eval_config, dataset_config)
+
+    assert generations_path.read_text(encoding="utf-8") == generations_payload
+
+
+def test_generation_contract_vllm_fields_depend_on_model_engine() -> None:
+    """vLLM settings enter the generation contract only when the model uses vLLM."""
+    base_run_config = {
+        "decoding_contract_version": 2,
+        "evaluation_config": {
+            "model_path_or_repo_id": "meta/model",
+            "model_engine": "vllm",
+            "vllm_config": {
+                "max_model_len": 8192,
+                "judge_max_model_len": 1024,
+                "gpu_memory_utilization": 0.5,
+            },
+        },
+        "dataset_config": {
+            "file_path": "repo/dataset",
+            "dataset_id": "repo/dataset",
+        },
+    }
+    changed_generation = json.loads(json.dumps(base_run_config))
+    changed_generation["evaluation_config"]["vllm_config"]["max_model_len"] = 4096
+    assert BaseEvaluator._generation_contract(
+        base_run_config
+    ) != BaseEvaluator._generation_contract(changed_generation)
+
+    changed_judge_only = json.loads(json.dumps(base_run_config))
+    changed_judge_only["evaluation_config"]["vllm_config"]["judge_max_model_len"] = 2048
+    assert BaseEvaluator._generation_contract(
+        base_run_config
+    ) == BaseEvaluator._generation_contract(changed_judge_only)
+
+    transformers_run_config = json.loads(json.dumps(base_run_config))
+    transformers_run_config["evaluation_config"]["model_engine"] = "transformers"
+    transformers_changed = json.loads(json.dumps(transformers_run_config))
+    transformers_changed["evaluation_config"]["vllm_config"][
+        "gpu_memory_utilization"
+    ] = 0.9
+    assert BaseEvaluator._generation_contract(
+        transformers_run_config
+    ) == BaseEvaluator._generation_contract(transformers_changed)
+
+
+def test_run_config_malformed_dataset_config_raises_replace_error(
+    tmp_path: Path,
+) -> None:
+    """Malformed nested run-config shapes must raise RuntimeError, not TypeError."""
+    output_dir = tmp_path / "model" / "dataset"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "run_config.json").write_text(
+        json.dumps(
+            {
+                "evaluation_config": {"model_path_or_repo_id": "meta/model"},
+                "dataset_config": ["not-a-mapping"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="malformed"):
+        ConcreteEvaluator(
+            EvaluationConfig(
+                model_path_or_repo_id="meta/model",
+                results_dir=tmp_path,
+                max_samples=1,
+            ),
+            DatasetConfig(
+                file_path="repo/dataset",
+                dataset_type=DatasetType.BIAS,
+            ),
+        )
+
+
+def test_judge_only_regrade_persists_current_run_config(
+    tmp_path: Path,
+) -> None:
+    """Judge-only regrade without metrics must rewrite run_config to the current contract."""
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        judge_path_or_repo_id="google/gemma-3-12b-it",
+        results_dir=tmp_path,
+        max_samples=1,
+    )
+    dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(eval_config, dataset_config)
+    run_config_path = evaluator.run_config_path()
+    run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+    run_config["evaluation_config"]["judge_path_or_repo_id"] = "other/judge"
+    run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
+    evaluator.eval_engine.is_judge = True
+
+    evaluator._ensure_run_configuration_allowed()
+
+    persisted = json.loads(run_config_path.read_text(encoding="utf-8"))
+    assert (
+        persisted["evaluation_config"]["judge_path_or_repo_id"]
+        == "google/gemma-3-12b-it"
+    )
+
+    # A later non-interactive invocation should treat configs as matching.
+    ConcreteEvaluator(eval_config, dataset_config)
+
+
+def test_censorship_grade_rejects_generic_generation_records(
+    tmp_path: Path,
+) -> None:
+    """Generic _GenerationRecord inputs must fail fast instead of AttributeError."""
+    evaluator = object.__new__(FreeTextCensorshipEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        model_revision="a" * 40,
+        judge_path_or_repo_id="google/gemma-4-26B-A4B-it",
+        judge_revision="b" * 40,
+        results_dir=tmp_path,
+    )
+
+    with pytest.raises(ValueError, match="_CensorshipGenerationRecord"):
+        evaluator._grade_impl(
+            [_GenerationRecord(answers=["answer"])],
+            judge_engine=cast("EvalEngine", object()),
+        )
 
 
 @pytest.mark.parametrize(

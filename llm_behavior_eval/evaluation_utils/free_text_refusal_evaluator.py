@@ -22,7 +22,6 @@ from .refusal_utils import (
     UNSAFE_REFUSAL_LABEL,
     XSTEST_JUDGE_PROMPT,
 )
-from .util_functions import safe_apply_chat_template
 
 GRADING_STATUS_MODEL_INCOMPLETE = "model_incomplete"
 GRADING_STATUS_JUDGE_UNPARSEABLE = "judge_unparseable"
@@ -210,36 +209,16 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
         questions: list[str],
         generated_answers: list[str],
     ) -> tuple[list[RefusalJudgment], list[str], list[str | None]]:
-        self.prepare_judge_tokenizer()
-        judge_tokenizer = self._get_judge_tokenizer()
         prompt_template = self._judge_prompt_template()
-        prompts = []
-        for question, generated_answer in zip(
-            questions, generated_answers, strict=True
-        ):
-            prompts.append(
-                safe_apply_chat_template(
-                    judge_tokenizer,
-                    [
-                        {
-                            "role": "user",
-                            "content": prompt_template.format(
-                                question=question,
-                                response=generated_answer,
-                            ),
-                        }
-                    ],
-                )
-            )
-        raw = self.run_judge_with_backoff(judge_engine, prompts)
-        raw_texts: list[str] = [item[0].get("generated_text") or "" for item in raw]
-        judge_finish_reasons: list[str | None] = [
-            item[0].get("finish_reason") for item in raw
-        ]
-        return (
-            [self._parse_judge_text(text) for text in raw_texts],
-            raw_texts,
-            judge_finish_reasons,
+        return self._grade_prompt_batch(
+            judge_engine,
+            questions,
+            generated_answers,
+            prompt_builder=lambda question, generated_answer: prompt_template.format(
+                question=question,
+                response=generated_answer,
+            ),
+            judgment_parser=self._parse_judge_text,
         )
 
     @staticmethod

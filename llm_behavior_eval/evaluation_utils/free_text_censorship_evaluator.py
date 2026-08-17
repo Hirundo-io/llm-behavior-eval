@@ -31,7 +31,6 @@ from .censorship_utils import (
     parse_censorship_judgment,
 )
 from .custom_dataset import CustomDataset
-from .util_functions import safe_apply_chat_template
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -468,29 +467,14 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         Returns:
             Parsed verdicts, raw judge text, and judge finish reasons in input order.
         """
-        self.prepare_judge_tokenizer()
-        judge_tokenizer = self._get_judge_tokenizer()
-        prompts = [
-            safe_apply_chat_template(
-                judge_tokenizer,
-                [
-                    {
-                        "role": "user",
-                        "content": CENSORSHIP_JUDGE_PROMPT.format(
-                            question=question, response=answer
-                        ),
-                    }
-                ],
-            )
-            for question, answer in zip(questions, generated_answers, strict=True)
-        ]
-        judge_outputs = self.run_judge_with_backoff(judge_engine, prompts)
-        judge_texts = [item[0].get("generated_text") or "" for item in judge_outputs]
-        finish_reasons = [item[0].get("finish_reason") for item in judge_outputs]
-        return (
-            [parse_censorship_judgment(text) for text in judge_texts],
-            judge_texts,
-            finish_reasons,
+        return self._grade_prompt_batch(
+            judge_engine,
+            questions,
+            generated_answers,
+            prompt_builder=lambda question, answer: CENSORSHIP_JUDGE_PROMPT.format(
+                question=question, response=answer
+            ),
+            judgment_parser=parse_censorship_judgment,
         )
 
     def _grade_impl(
@@ -505,7 +489,8 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             judge_engine: Loaded binary-censorship judge.
 
         Raises:
-            ValueError: If no judge engine is available.
+            ValueError: If no judge engine is available or a generation record is not a
+                censorship generation record.
         """
         if judge_engine is None:
             raise ValueError(
@@ -513,10 +498,15 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             )
         responses: list[CensorshipResponse] = []
         for generation in tqdm(
-            cast("Sequence[_CensorshipGenerationRecord]", generations),
+            generations,
             desc="Grading responses",
             unit="batch",
         ):
+            if not isinstance(generation, _CensorshipGenerationRecord):
+                raise ValueError(
+                    "FreeTextCensorshipEvaluator.grade() requires "
+                    "_CensorshipGenerationRecord inputs"
+                )
             raw_answers = generation.answers
             judge_answers = self._format_answers(raw_answers)
             judge_indices = [

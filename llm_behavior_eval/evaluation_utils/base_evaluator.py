@@ -11,7 +11,7 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypedDict, TypeVar, cast
 
 import pandas as pd
 import torch
@@ -36,6 +36,7 @@ from .util_functions import (
     get_lora_slug,
     infer_mlflow_metric_step_from_lora_path,
     load_tokenizer_with_transformers,
+    safe_apply_chat_template,
 )
 
 DECODING_CONTRACT_VERSION = 2
@@ -66,6 +67,8 @@ GENERATION_EVAL_CONFIG_KEYS = frozenset(
 
 # Nested vLLM fields that affect only judge loading, not under-test generation.
 JUDGE_ONLY_VLLM_CONFIG_KEYS = frozenset({"judge_max_model_len"})
+
+JudgmentT = TypeVar("JudgmentT")
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
@@ -1024,6 +1027,26 @@ class BaseEvaluator(ABC):
                 output_file.unlink()
 
     @staticmethod
+    def _as_config_mapping(value: object, *, field_name: str) -> dict[str, Any]:
+        """Coerce a run-config fragment to a dict or fail for malformed shapes.
+
+        Args:
+            value: JSON fragment expected to be an object/mapping.
+            field_name: Human-readable field name for error context.
+
+        Returns:
+            A shallow ``dict`` copy of ``value``, or ``{}`` when ``value`` is ``None``.
+
+        Raises:
+            TypeError: If ``value`` is neither ``None`` nor a mapping.
+        """
+        if value is None:
+            return {}
+        if isinstance(value, Mapping):
+            return dict(value)
+        raise TypeError(f"run_config {field_name} must be a JSON object")
+
+    @staticmethod
     def _normalized_dataset_config(
         dataset_config: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
@@ -1040,6 +1063,22 @@ class BaseEvaluator(ABC):
         if "dataset_id" not in normalized:
             normalized["dataset_id"] = normalized.get("file_path")
         return normalized
+
+    @staticmethod
+    def _model_uses_vllm(evaluation_config: Mapping[str, Any]) -> bool:
+        """Return whether the under-test model loads through vLLM.
+
+        Args:
+            evaluation_config: Evaluation configuration snapshot.
+
+        Returns:
+            ``True`` when ``inference_engine`` or ``model_engine`` selects vLLM.
+        """
+        inference_engine = evaluation_config.get("inference_engine")
+        model_engine = inference_engine or evaluation_config.get(
+            "model_engine", "transformers"
+        )
+        return model_engine == "vllm"
 
     @classmethod
     def _generation_vllm_config(
@@ -1070,26 +1109,38 @@ class BaseEvaluator(ABC):
 
         Returns:
             A comparable mapping of generation-affecting fields only.
+
+        Raises:
+            TypeError: If nested config fragments are not mappings.
         """
-        evaluation_config = dict(run_config.get("evaluation_config") or {})
+        evaluation_config = cls._as_config_mapping(
+            run_config.get("evaluation_config"), field_name="evaluation_config"
+        )
         generation_eval: dict[str, Any] = {}
+        model_uses_vllm = cls._model_uses_vllm(evaluation_config)
         for key in sorted(GENERATION_EVAL_CONFIG_KEYS):
             if key not in evaluation_config:
                 continue
             if key == "vllm_config":
+                if not model_uses_vllm:
+                    # Judge-only vLLM settings must not invalidate transformer gens.
+                    continue
                 raw_vllm = evaluation_config["vllm_config"]
-                generation_eval[key] = (
-                    cls._generation_vllm_config(raw_vllm)
-                    if isinstance(raw_vllm, Mapping)
-                    else raw_vllm
-                )
+                if raw_vllm is None:
+                    generation_eval[key] = None
+                elif isinstance(raw_vllm, Mapping):
+                    generation_eval[key] = cls._generation_vllm_config(raw_vllm)
+                else:
+                    raise TypeError("run_config vllm_config must be a JSON object")
             else:
                 generation_eval[key] = evaluation_config[key]
         return {
             "decoding_contract_version": run_config.get("decoding_contract_version"),
             "evaluation_config": generation_eval,
             "dataset_config": cls._normalized_dataset_config(
-                run_config.get("dataset_config")
+                cls._as_config_mapping(
+                    run_config.get("dataset_config"), field_name="dataset_config"
+                )
             ),
         }
 
@@ -1114,6 +1165,17 @@ class BaseEvaluator(ABC):
             "Re-run with --replace-existing-output to overwrite them."
         )
 
+    def _raise_malformed_run_config(self) -> None:
+        """Raise when persisted run_config.json cannot be compared safely.
+
+        Raises:
+            RuntimeError: Always; instructs the caller to replace existing outputs.
+        """
+        raise RuntimeError(
+            "Existing run_config.json is malformed and cannot be compared safely. "
+            "Re-run with --replace-existing-output to overwrite them."
+        )
+
     def _ensure_run_configuration_allowed(self) -> None:
         run_config = self._current_run_config()
         config_path = self.run_config_path()
@@ -1125,9 +1187,27 @@ class BaseEvaluator(ABC):
         with open(config_path) as file_handle:
             existing_run_config = json.load(file_handle)
 
-        existing_run_config["dataset_config"] = self._normalized_dataset_config(
-            existing_run_config.get("dataset_config")
-        )
+        generation_mismatch = True
+        try:
+            if not isinstance(existing_run_config, Mapping):
+                raise TypeError("run_config root must be a JSON object")
+            existing_run_config = dict(existing_run_config)
+            existing_run_config["dataset_config"] = self._normalized_dataset_config(
+                self._as_config_mapping(
+                    existing_run_config.get("dataset_config"),
+                    field_name="dataset_config",
+                )
+            )
+            # Validate evaluation_config shape early for clear mismatch handling.
+            self._as_config_mapping(
+                existing_run_config.get("evaluation_config"),
+                field_name="evaluation_config",
+            )
+            generation_mismatch = self._generation_contract(
+                existing_run_config
+            ) != self._generation_contract(run_config)
+        except TypeError:
+            self._raise_malformed_run_config()
 
         if existing_run_config == run_config:
             logging.info(
@@ -1145,10 +1225,6 @@ class BaseEvaluator(ABC):
             self._write_run_config(run_config)
             return
 
-        generation_mismatch = self._generation_contract(
-            existing_run_config
-        ) != self._generation_contract(run_config)
-
         self._skip_current_run = False
         what_exists = "evaluation outputs were"
         if hasattr(self, "eval_engine") and self.eval_engine.is_judge:
@@ -1157,6 +1233,8 @@ class BaseEvaluator(ABC):
                     "No metrics file found at %s; grading cached generations.",
                     self.metrics_path(),
                 )
+                # Keep judge/postprocess contract aligned with outputs about to be written.
+                self._write_run_config(run_config)
                 return
             if not generation_mismatch and self.metrics_path().exists():
                 logging.info(
@@ -1327,6 +1405,50 @@ class FreeTextSharedEvaluator(BaseEvaluator):
             # ensure we have a pad token for the judge model as not all models have it
             if not self.judge_tokenizer.pad_token:
                 self.judge_tokenizer.pad_token = self.judge_tokenizer.eos_token
+
+    def _grade_prompt_batch(
+        self,
+        judge_engine: EvalEngine,
+        questions: list[str],
+        generated_answers: list[str],
+        *,
+        prompt_builder: Callable[[str, str], str],
+        judgment_parser: Callable[[str], JudgmentT],
+    ) -> tuple[list[JudgmentT], list[str], list[str | None]]:
+        """Run a free-text judge batch with caller-supplied prompt and parser.
+
+        Args:
+            judge_engine: Loaded judge inference engine.
+            questions: Original questions paired with ``generated_answers``.
+            generated_answers: Model answers in the same order as ``questions``.
+            prompt_builder: Builds the judge user-message body from question/answer.
+            judgment_parser: Parses one raw judge completion into a typed verdict.
+
+        Returns:
+            Parsed verdicts, raw judge texts, and judge finish reasons in input order.
+        """
+        self.prepare_judge_tokenizer()
+        judge_tokenizer = self._get_judge_tokenizer()
+        prompts = [
+            safe_apply_chat_template(
+                judge_tokenizer,
+                [
+                    {
+                        "role": "user",
+                        "content": prompt_builder(question, answer),
+                    }
+                ],
+            )
+            for question, answer in zip(questions, generated_answers, strict=True)
+        ]
+        judge_outputs = self.run_judge_with_backoff(judge_engine, prompts)
+        judge_texts = [item[0].get("generated_text") or "" for item in judge_outputs]
+        finish_reasons = [item[0].get("finish_reason") for item in judge_outputs]
+        return (
+            [judgment_parser(text) for text in judge_texts],
+            judge_texts,
+            finish_reasons,
+        )
 
     def free_judge(self, judge_engine: EvalEngine | None = None) -> None:
         if judge_engine is not None:
