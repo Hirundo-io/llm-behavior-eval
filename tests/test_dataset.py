@@ -244,6 +244,9 @@ def test_censorship_preprocessing_and_generation_preserve_group_order(
     evaluator.eval_group_ids = [
         custom_dataset.censorship_group_ids[index] for index in shuffled_group_indexes
     ]
+    evaluator.eval_questions = [
+        custom_dataset.censorship_questions[index] for index in shuffled_group_indexes
+    ]
     evaluator.num_samples = len(shuffled)
     evaluator.eval_loader = DataLoader(
         cast("TorchDataset", shuffled),

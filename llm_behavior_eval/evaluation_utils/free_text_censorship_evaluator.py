@@ -304,12 +304,18 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
     def _collect_generations(self) -> Sequence[_CensorshipGenerationRecord]:
         """Resume or generate records while enforcing the locked shuffled order.
 
+        Cached rows must match both the locked ``source_group_ids`` prefix and the
+        corresponding ``eval_questions``. Resume advances by validated sample
+        coverage on safe batch boundaries; a complete cache returns immediately.
+
         Returns:
             Complete generation records aligned with every locked source-group ID.
 
         Raises:
             ValueError: If cached or newly generated rows do not exactly match the
-                frozen benchmark order and population.
+                frozen benchmark order, questions, and population; if a cached record
+                is empty or has inconsistent field lengths; or if a partial cache is
+                incompatible with the current batch size.
         """
         self.ensure_test_model_ready()
         completed = [
@@ -321,15 +327,39 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             )
             for item in self.load_completed_generation_dicts()
         ]
+        for generation in completed:
+            if not (
+                len(generation.questions)
+                == len(generation.source_group_ids)
+                == len(generation.answers)
+                == len(generation.finish_reasons)
+            ):
+                raise ValueError(
+                    "Cached censorship generations have inconsistent field lengths; "
+                    "rerun with --replace-existing-output."
+                )
+            if len(generation.source_group_ids) == 0:
+                raise ValueError(
+                    "Cached censorship generations contain an empty record; "
+                    "rerun with --replace-existing-output."
+                )
         completed_ids = [
             group_id
             for generation in completed
             for group_id in generation.source_group_ids
         ]
+        completed_questions = [
+            question for generation in completed for question in generation.questions
+        ]
         if completed_ids != self.eval_group_ids[: len(completed_ids)]:
             raise ValueError(
                 "Cached censorship generations do not match the pinned dataset order; "
                 "rerun with --replace-existing-output."
+            )
+        if completed_questions != self.eval_questions[: len(completed_questions)]:
+            raise ValueError(
+                "Cached censorship generations do not match the pinned dataset "
+                "questions; rerun with --replace-existing-output."
             )
         if len(completed_ids) > self.num_samples:
             raise ValueError(
@@ -337,15 +367,24 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             )
 
         generations = list(completed)
-        completed_batches = len(completed)
-        for batch_index, batch in enumerate(
-            tqdm(self.eval_loader, desc="Generating answers", unit="batch")
-        ):
-            if batch_index < completed_batches:
-                continue
+        completed_samples = len(completed_ids)
+        if completed_samples == self.num_samples:
+            return generations
+
+        samples_seen = 0
+        for batch in tqdm(self.eval_loader, desc="Generating answers", unit="batch"):
             input_ids = batch["test_input_ids"]
             attention_mask = batch["test_attention_mask"]
             indices = [int(index) for index in batch["censorship_group_index"].tolist()]
+            batch_size = len(indices)
+            if samples_seen + batch_size <= completed_samples:
+                samples_seen += batch_size
+                continue
+            if samples_seen < completed_samples:
+                raise ValueError(
+                    "Cached censorship generations are not aligned with the current "
+                    "batch size; rerun with --replace-existing-output."
+                )
             group_ids = [self.censorship_group_ids[index] for index in indices]
             questions = [self.censorship_questions[index] for index in indices]
             answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
@@ -366,6 +405,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                     }
                 ]
             )
+            samples_seen += batch_size
         all_ids = [
             group_id
             for generation in generations
@@ -442,20 +482,21 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
-            answers = self._format_answers(generation.answers)
+            raw_answers = generation.answers
+            judge_answers = self._format_answers(raw_answers)
             judge_indices = [
                 index
                 for index, finish_reason in enumerate(generation.finish_reasons)
                 if finish_reason == "stop"
             ]
-            judgments: list[CensorshipJudgment | None] = [None] * len(answers)
-            raw_outputs = [""] * len(answers)
-            judge_finish_reasons: list[str | None] = [None] * len(answers)
+            judgments: list[CensorshipJudgment | None] = [None] * len(raw_answers)
+            raw_outputs = [""] * len(raw_answers)
+            judge_finish_reasons: list[str | None] = [None] * len(raw_answers)
             if judge_indices:
                 batch_judgments, batch_raw, batch_finish = self._grade_batch(
                     judge_engine,
                     [generation.questions[index] for index in judge_indices],
-                    [answers[index] for index in judge_indices],
+                    [judge_answers[index] for index in judge_indices],
                 )
                 for index, judgment, raw, judge_finish in zip(
                     judge_indices,
@@ -479,7 +520,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             ) in zip(
                 generation.source_group_ids,
                 generation.questions,
-                answers,
+                raw_answers,
                 generation.finish_reasons,
                 judgments,
                 raw_outputs,
