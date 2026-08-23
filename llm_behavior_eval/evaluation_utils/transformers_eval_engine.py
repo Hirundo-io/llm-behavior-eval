@@ -69,6 +69,7 @@ class TransformersEvalEngine(EvalEngine):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         sampling_config: SamplingConfig,
+        repetition_penalty: float = 1.0,
     ) -> tuple[list[str], list[str | None]]:
         if sampling_config.do_sample is None:
             do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
@@ -106,6 +107,7 @@ class TransformersEvalEngine(EvalEngine):
                 temperature=temperature,
                 top_p=top_p,
                 top_k=top_k,
+                repetition_penalty=repetition_penalty,
                 return_dict_in_generate=True,
             )
         sequences = outputs.sequences

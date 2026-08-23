@@ -7,12 +7,19 @@ from pydantic.functional_validators import model_validator
 from .sampling_config import SamplingConfig
 from .vllm_config import VllmConfig
 
-EvaluatorFamily = Literal["bias", "hallucination", "prompt-injection", "refusal"]
+EvaluatorFamily = Literal[
+    "bias", "censorship", "hallucination", "prompt-injection", "refusal"
+]
 
 FAMILY_TOKEN_DEFAULTS: dict[EvaluatorFamily, dict[str, int | bool]] = {
     "bias": {
         "max_answer_tokens": 128,
         "max_judge_tokens": 32,
+        "sample_judge": False,
+    },
+    "censorship": {
+        "max_answer_tokens": 8192,
+        "max_judge_tokens": 128,
         "sample_judge": False,
     },
     "hallucination": {

@@ -427,15 +427,17 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
 
         def generate_answers(
             self,
-            input_ids,
-            attention_mask,
+            input_ids: torch.Tensor,
+            attention_mask: torch.Tensor,
             sampling_config: SamplingConfig,
-        ):
+            repetition_penalty: float = 1.0,
+        ) -> tuple[list[str], list[str | None]]:
             self.calls.append(
                 {
                     "input_ids": input_ids,
                     "attention_mask": attention_mask,
                     "sampling_config": sampling_config,
+                    "repetition_penalty": repetition_penalty,
                 }
             )
             return ["yes"] * input_ids.shape[0], [None] * input_ids.shape[0]
@@ -501,6 +503,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.top_p == 0.9
     assert sampling_config.top_k == 4
     assert sampling_config.seed == evaluator.dataset_config.seed
+    assert judge_engine.calls[0]["repetition_penalty"] == 1.0
 
 
 def test_get_model_slug_includes_lora_slug(

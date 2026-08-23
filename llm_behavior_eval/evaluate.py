@@ -10,6 +10,7 @@ import typer
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
+from llm_behavior_eval.evaluation_utils.censorship_utils import CCPC_DATASET_ID
 from llm_behavior_eval.evaluation_utils.dataset_config import (
     DatasetConfig,
     PreprocessConfig,
@@ -124,6 +125,8 @@ def _behavior_presets(behavior: str) -> list[str]:
         return expand_dataset_preset("hallu-med")
     if behavior in INJECTION_ALIAS:
         return expand_dataset_preset("prompt-injection")
+    if behavior_parts == [CCPC_DATASET_ID]:
+        return [CCPC_DATASET_ID]
     if len(behavior_parts) == 2 and behavior_parts[0] in REFUSAL_ALIAS:
         _, refusal_dataset = behavior_parts
         if refusal_dataset not in {"xstest", "orbench", "all"}:

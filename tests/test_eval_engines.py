@@ -398,6 +398,7 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
     call_kwargs = vllm_bundle.sampling_recorder.calls[0]
     assert call_kwargs["max_tokens"] == config.max_answer_tokens
     assert call_kwargs["temperature"] == 0.0
+    assert call_kwargs["repetition_penalty"] == 1.0
     assert call_kwargs["stop_token_ids"] == [vllm_bundle.tokenizer.eos_token_id]
     assert vllm_bundle.tokenizer.pad_token == vllm_bundle.tokenizer.eos_token
     assert engine.get_batch_size() == len(dataset)
@@ -430,6 +431,7 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
             top_k=5,
             seed=99,
         ),
+        repetition_penalty=1.1,
     )
     assert responses == ["first", ""]
     assert finish_reasons == [None, None]
@@ -437,6 +439,7 @@ def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> No
     assert call_kwargs["temperature"] == 1.0
     assert call_kwargs["top_p"] == 0.9
     assert call_kwargs["top_k"] == 5
+    assert call_kwargs["repetition_penalty"] == 1.1
     assert call_kwargs["seed"] == 99
 
 
@@ -668,6 +671,7 @@ def test_transformers_eval_engine_generate_answers(
     assert generate_call["temperature"] == sampling_config.temperature
     assert generate_call["top_p"] == sampling_config.top_p
     assert generate_call["top_k"] == sampling_config.top_k
+    assert generate_call["repetition_penalty"] == 1.0
     decode_call = transformers_bundle.tokenizer.batch_decode_calls[0]
     assert decode_call["skip_special_tokens"] is True
     assert torch.equal(
@@ -715,12 +719,14 @@ def test_transformers_eval_engine_sampling_config_overrides_defaults(
         input_ids,
         attention_mask,
         sampling_config=sampling_config,
+        repetition_penalty=1.1,
     )
     generate_call = transformers_bundle.model.generate_calls[-1]
     assert generate_call["do_sample"] is True
     assert generate_call["temperature"] == 1.0
     assert generate_call["top_p"] == 1.0
     assert generate_call["top_k"] == 0
+    assert generate_call["repetition_penalty"] == 1.1
 
 
 @pytest.mark.transformers_engine_test
