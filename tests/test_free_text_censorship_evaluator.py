@@ -364,12 +364,10 @@ def test_model_and_judge_use_role_specific_repetition_penalties(
         repetition_penalty: float = 1.0,
     ) -> list[list[dict[str, str]]]:
         """Record the explicit judge repetition penalty.
-
         Args:
             judge_engine: Judge engine ignored by this fixture.
             prompts: Judge prompts used to size the deterministic result.
             repetition_penalty: Repetition penalty supplied by the evaluator.
-
         Returns:
             Deterministic successful judge outputs.
         """

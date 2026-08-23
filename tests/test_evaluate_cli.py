@@ -218,10 +218,8 @@ def test_main_enforces_ccpc_judge_contract_and_retains_generic_default(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
     """Verify CCPC routing locks its judge and remote-code default.
-
     Args:
         capture_eval_config: Evaluation configurations captured by the factory stub.
-
     Returns:
         None.
     """

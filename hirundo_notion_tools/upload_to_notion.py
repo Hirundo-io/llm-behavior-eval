@@ -142,7 +142,9 @@ def find_results_pages(results_dir: Path) -> list[Path]:
 
 
 def parse_summary_brief(summary_brief_csv: Path) -> dict[str, float]:
-    """
+    """Parse legacy Dataset/Accuracy/Error or CCPC Dataset/rate/validity rows.
+    Legacy rows prefer Error; CCPC rows use the rate only when Metric Valid is true.
+    Blank metrics are skipped; malformed values or unsupported schemas raise ValueError.
     Args:
         summary_brief_csv: The path to the summary_brief.csv file.
 
