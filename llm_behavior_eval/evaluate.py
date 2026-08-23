@@ -115,6 +115,12 @@ def _behavior_presets(behavior: str) -> list[str]:
     - Hallucinations: "hallu" or "hallu-med"
     - Prompt injection: "prompt-injection"
     - Refusal: "refusal:xstest" | "refusal:orbench" | "refusal:all"
+
+    Args:
+        behavior: Behavior preset or explicit behavior-and-dataset selector.
+
+    Returns:
+        Dataset identifiers selected by the normalized behavior preset.
     """
     behavior_parts = [part.strip().lower() for part in behavior.split(":")]
 

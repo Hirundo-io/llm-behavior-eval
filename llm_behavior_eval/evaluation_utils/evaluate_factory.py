@@ -12,6 +12,14 @@ class EvaluateFactory:
 
     @staticmethod
     def get_evaluator_family(dataset_id: str) -> EvaluatorFamily:
+        """Resolve a supported dataset identifier to its evaluator family.
+
+        Args:
+            dataset_id: Dataset identifier or supported benchmark alias.
+
+        Returns:
+            The evaluator family that owns the dataset contract.
+        """
         if dataset_id == CCPC_DATASET_ID:
             return "censorship"
         if dataset_id in {"hirundo-io/halueval", "hirundo-io/medhallu"}:

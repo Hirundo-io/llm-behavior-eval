@@ -373,6 +373,15 @@ def test_dataset_is_tokenized_with_left_padding(
 
 
 def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> None:
+    """Verify judge generation uses judge sampling and repetition defaults.
+
+    Args:
+        tmp_path: Temporary results directory supplied by pytest.
+
+    Returns:
+        None.
+    """
+
     class StubJudgeTokenizer(PreTrainedTokenizerBase):
         def __call__(
             self,
@@ -432,6 +441,17 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
             sampling_config: SamplingConfig,
             repetition_penalty: float = 1.0,
         ) -> tuple[list[str], list[str | None]]:
+            """Record one judge generation call.
+
+            Args:
+                input_ids: Token identifiers for judge prompts.
+                attention_mask: Attention mask for the judge prompts.
+                sampling_config: Judge decoding settings.
+                repetition_penalty: Repetition penalty for judge generation.
+
+            Returns:
+                Deterministic answers and placeholder finish reasons.
+            """
             self.calls.append(
                 {
                     "input_ids": input_ids,

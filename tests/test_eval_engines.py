@@ -4,7 +4,7 @@ import sys
 import types
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -364,7 +364,18 @@ def _apply_transformers_patching(request, monkeypatch):
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
+def test_vllm_eval_engine_generate_answers(
+    vllm_bundle: VllmPatchBundle, tmp_path: Path
+) -> None:
+    """Verify vLLM receives the default repetition penalty.
+
+    Args:
+        vllm_bundle: Patched vLLM dependencies and call recorders.
+        tmp_path: Temporary results directory supplied by pytest.
+
+    Returns:
+        None.
+    """
     dataset = Dataset.from_dict({"question": ["q1", "q2"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -405,7 +416,18 @@ def test_vllm_eval_engine_generate_answers(vllm_bundle, tmp_path) -> None:
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_sampling_overrides_config(vllm_bundle, tmp_path) -> None:
+def test_vllm_eval_engine_sampling_overrides_config(
+    vllm_bundle: VllmPatchBundle, tmp_path: Path
+) -> None:
+    """Verify vLLM receives explicit sampling and repetition settings.
+
+    Args:
+        vllm_bundle: Patched vLLM dependencies and call recorders.
+        tmp_path: Temporary results directory supplied by pytest.
+
+    Returns:
+        None.
+    """
     dataset = Dataset.from_dict({"question": ["q1", "q2"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -629,8 +651,17 @@ def test_vllm_eval_engine_uses_float16_on_t4(
 
 @pytest.mark.transformers_engine_test
 def test_transformers_eval_engine_generate_answers(
-    transformers_bundle, tmp_path
+    transformers_bundle: TransformersPatchBundle, tmp_path: Path
 ) -> None:
+    """Verify Transformers receives the default repetition penalty.
+
+    Args:
+        transformers_bundle: Patched Transformers dependencies and call recorders.
+        tmp_path: Temporary results directory supplied by pytest.
+
+    Returns:
+        None.
+    """
     dataset = Dataset.from_dict({"prompt": ["hi"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -675,7 +706,7 @@ def test_transformers_eval_engine_generate_answers(
     decode_call = transformers_bundle.tokenizer.batch_decode_calls[0]
     assert decode_call["skip_special_tokens"] is True
     assert torch.equal(
-        decode_call["tokens"],
+        cast("torch.Tensor", decode_call["tokens"]),
         torch.tensor([[9]], dtype=torch.long),
     )
 
@@ -689,8 +720,17 @@ def test_transformers_eval_engine_generate_answers(
 
 @pytest.mark.transformers_engine_test
 def test_transformers_eval_engine_sampling_config_overrides_defaults(
-    transformers_bundle, tmp_path
+    transformers_bundle: TransformersPatchBundle, tmp_path: Path
 ) -> None:
+    """Verify Transformers receives explicit sampling and repetition settings.
+
+    Args:
+        transformers_bundle: Patched Transformers dependencies and call recorders.
+        tmp_path: Temporary results directory supplied by pytest.
+
+    Returns:
+        None.
+    """
     dataset = Dataset.from_dict({"prompt": ["hi"]})
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",

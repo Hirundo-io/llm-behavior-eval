@@ -71,6 +71,17 @@ class TransformersEvalEngine(EvalEngine):
         sampling_config: SamplingConfig,
         repetition_penalty: float = 1.0,
     ) -> tuple[list[str], list[str | None]]:
+        """Generate and decode one batch with Transformers.
+
+        Args:
+            input_ids: Token identifiers for the input prompts.
+            attention_mask: Attention mask corresponding to the input tokens.
+            sampling_config: Backend-independent decoding settings.
+            repetition_penalty: Repetition penalty for this generation call.
+
+        Returns:
+            Generated answers and their inferred finish reasons.
+        """
         if sampling_config.do_sample is None:
             do_sample = self._get_sample_from_config(self.eval_config, self.is_judge)
         else:

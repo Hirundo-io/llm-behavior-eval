@@ -5,7 +5,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import TypedDict, cast
 
 import pandas as pd
 import torch
@@ -44,11 +44,35 @@ class _CensorshipGenerationRecord(_GenerationRecord):
     finish_reasons: list[str | None]
 
 
+class _CensorshipBenchmarkConfig(TypedDict):
+    contract_version: str
+    dataset_repository: str
+    dataset_config: str
+    dataset_split: str
+    dataset_revision: str
+    expected_rows: int
+    judge_model: str
+    rubric_version: str
+    model_repetition_penalty: float
+    judge_repetition_penalty: float
+
+
 class _CensorshipRunConfig(FreeTextSharedEvaluator.RunConfig):
-    ccpc_benchmark: dict[str, object]
+    ccpc_benchmark: _CensorshipBenchmarkConfig
 
 
-CensorshipResponse = dict[str, Any]
+class CensorshipResponse(TypedDict):
+    source_group_id: str
+    question: str
+    llm_answer: str
+    finish_reason: str | None
+    judge_finish_reason: str | None
+    judge_raw: str
+    judge_verdict: bool | None
+    status: str
+
+
+MetricValue = str | int | float | bool | None
 
 
 class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
@@ -57,6 +81,15 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
     def __init__(
         self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
     ) -> None:
+        """Initialize the evaluator after validating its frozen model contract.
+
+        Args:
+            eval_config: Evaluation and model settings for the run.
+            dataset_config: Dataset settings identifying CCPC-Bench.
+
+        Returns:
+            None.
+        """
         if dataset_config.dataset_id != CCPC_DATASET_ID:
             raise ValueError(f"CCPC-Bench requires dataset_id={CCPC_DATASET_ID!r}.")
         if eval_config.judge_path_or_repo_id != CCPC_JUDGE_MODEL:
@@ -67,6 +100,14 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         super().__init__(eval_config, dataset_config)
 
     def prepare_dataloader(self) -> None:
+        """Load and tokenize every benchmark row in published order.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
         benchmark = load_censorship_benchmark(self.eval_config.model_token)
         self.benchmark_questions = cast("list[str]", benchmark["question"])
         self.benchmark_group_ids = cast("list[str]", benchmark["source_group_id"])
@@ -115,6 +156,15 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
     def _generate_model_answers(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
     ) -> tuple[list[str], list[str | None]]:
+        """Generate model answers with the frozen model repetition penalty.
+
+        Args:
+            input_ids: Tokenized benchmark prompts.
+            attention_mask: Attention mask corresponding to the prompt tokens.
+
+        Returns:
+            Generated answers and their finish reasons.
+        """
         sampling = self.eval_config.sampling_config
         return self.eval_engine.generate_answers(
             input_ids,
@@ -134,6 +184,14 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         )
 
     def generate(self) -> Sequence[_GenerationRecord]:
+        """Generate answers for the complete benchmark cohort.
+
+        Args:
+            None.
+
+        Returns:
+            Batched generation records covering all benchmark rows.
+        """
         self.ensure_test_model_ready()
         generations: list[_CensorshipGenerationRecord] = []
         with torch.inference_mode():
@@ -155,7 +213,24 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         return generations
 
     def evaluate(self) -> None:
+        """Run complete generation and grading with evaluator cleanup.
+
+        Args:
+            None.
+
+        Returns:
+            None.
+        """
+
         def _run() -> None:
+            """Run generation and grading inside the cleanup wrapper.
+
+            Args:
+                None.
+
+            Returns:
+                None.
+            """
             generations = self.generate()
             self.free_test_model()
             with (
@@ -172,6 +247,16 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         questions: list[str],
         answers: list[str],
     ) -> tuple[list[bool | None], list[str], list[str | None]]:
+        """Grade one batch with the frozen binary judge rubric.
+
+        Args:
+            judge_engine: Engine hosting the approved judge model.
+            questions: Original benchmark questions for this batch.
+            answers: Model answers corresponding to the questions.
+
+        Returns:
+            Parsed verdicts, raw judge texts, and judge finish reasons.
+        """
         self.prepare_judge_tokenizer()
         tokenizer = self._get_judge_tokenizer()
         prompts = [
@@ -203,6 +288,16 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         judge_finish: str | None,
         verdict: bool | None,
     ) -> CensorshipStatus:
+        """Resolve model and judge outcomes to one exhaustive row status.
+
+        Args:
+            model_finish: Finish reason from evaluated-model generation.
+            judge_finish: Finish reason from judge generation.
+            verdict: Parsed judge verdict, if determinate.
+
+        Returns:
+            The status that preserves the first relevant failure condition.
+        """
         if model_finish == "length":
             return CensorshipStatus.MODEL_INCOMPLETE
         if model_finish != "stop":
@@ -218,27 +313,38 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         )
 
     def _save_results(self, responses: list[CensorshipResponse]) -> None:
+        """Persist row evidence and complete-cohort metrics.
+
+        Args:
+            responses: Results in the benchmark's published row order.
+
+        Returns:
+            None.
+        """
         statuses = Counter(response["status"] for response in responses)
-        accounted = [
-            response["source_group_id"] for response in responses
-        ] == self.benchmark_group_ids
+        response_group_ids = [response["source_group_id"] for response in responses]
+        if response_group_ids != self.benchmark_group_ids:
+            raise ValueError(
+                "CCPC-Bench responses must cover every source_group_id in "
+                "published order."
+            )
         judged = (
             statuses[CensorshipStatus.JUDGED_TRUE.value]
             + statuses[CensorshipStatus.JUDGED_FALSE.value]
         )
-        metric_valid = accounted and judged == CCPC_EXPECTED_ROWS
+        metric_valid = judged == CCPC_EXPECTED_ROWS
         censorship_rate = (
             statuses[CensorshipStatus.JUDGED_TRUE.value] / CCPC_EXPECTED_ROWS
             if metric_valid
             else None
         )
-        metrics: dict[str, Any] = {
+        metrics: dict[str, MetricValue] = {
             "Censorship rate (%) ⬇️": (
                 censorship_rate * 100 if censorship_rate is not None else None
             ),
             "Metric Valid": metric_valid,
             "Expected Samples": CCPC_EXPECTED_ROWS,
-            "Accounted Samples": len(responses) if accounted else 0,
+            "Accounted Samples": len(responses),
             "Judged True": statuses[CensorshipStatus.JUDGED_TRUE.value],
             "Judged False": statuses[CensorshipStatus.JUDGED_FALSE.value],
             **{
@@ -267,6 +373,15 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         generations: Sequence[_GenerationRecord],
         judge_engine: EvalEngine | None = None,
     ) -> None:
+        """Grade generated rows and preserve all determinate and failure states.
+
+        Args:
+            generations: Batched evaluated-model generation records.
+            judge_engine: Engine hosting the approved judge model.
+
+        Returns:
+            None.
+        """
         if judge_engine is None:
             raise ValueError("CCPC-Bench grading requires a judge engine.")
         responses: list[CensorshipResponse] = []
@@ -330,6 +445,14 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         self._save_results(responses)
 
     def _current_run_config(self) -> _CensorshipRunConfig:
+        """Return the base run identity plus frozen CCPC-Bench provenance.
+
+        Args:
+            None.
+
+        Returns:
+            The serializable run configuration and benchmark contract pins.
+        """
         return {
             **super()._current_run_config(),
             "ccpc_benchmark": {

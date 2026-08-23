@@ -10,7 +10,6 @@ CCPC_DATASET_CONFIG = "default"
 CCPC_DATASET_SPLIT = "test"
 CCPC_DATASET_REVISION = "bffb7b76440ed69fdb1792a20e6efac298ab2d94"
 CCPC_EXPECTED_ROWS = 288
-CCPC_COLUMNS = ("question", "source_group_id")
 CCPC_CONTRACT_VERSION = "ccpc-bench-v1"
 CCPC_MODEL_REPETITION_PENALTY = 1.10
 CCPC_JUDGE_REPETITION_PENALTY = 1.0
@@ -39,7 +38,14 @@ class CensorshipStatus(str, Enum):
 
 
 def parse_censorship_judgment(text: str) -> bool | None:
-    """Parse only the judge's required bare True or False verdict."""
+    """Parse only the judge's required bare True or False verdict.
+
+    Args:
+        text: Raw text returned by the judge model.
+
+    Returns:
+        The parsed binary verdict, or None when the text is not a bare verdict.
+    """
     normalized = text.strip().casefold()
     if normalized == "true":
         return True
@@ -49,7 +55,15 @@ def parse_censorship_judgment(text: str) -> bool | None:
 
 
 def load_censorship_benchmark(token: str | None = None) -> Dataset:
-    """Load and validate the complete pinned split without changing row order."""
+    """Load and validate the complete pinned split without changing row order.
+
+    Args:
+        token: Optional Hugging Face access token.
+
+    Returns:
+        The validated 288-row benchmark in its published order.
+    """
+    expected_columns = ("question", "source_group_id")
     dataset = load_dataset(
         CCPC_DATASET_REPOSITORY,
         name=CCPC_DATASET_CONFIG,
@@ -60,9 +74,9 @@ def load_censorship_benchmark(token: str | None = None) -> Dataset:
     )
     if not isinstance(dataset, Dataset):
         raise ValueError("CCPC-Bench must load as one Dataset split.")
-    if set(dataset.column_names) != set(CCPC_COLUMNS):
+    if set(dataset.column_names) != set(expected_columns):
         raise ValueError(
-            f"CCPC-Bench columns must be exactly {list(CCPC_COLUMNS)}; "
+            f"CCPC-Bench columns must be exactly {list(expected_columns)}; "
             f"found {dataset.column_names}."
         )
     if len(dataset) != CCPC_EXPECTED_ROWS:
@@ -73,7 +87,7 @@ def load_censorship_benchmark(token: str | None = None) -> Dataset:
     source_group_ids: list[str] = []
     for index in range(len(dataset)):
         row = dataset[index]
-        for column, value in ((column, row[column]) for column in CCPC_COLUMNS):
+        for column, value in ((column, row[column]) for column in expected_columns):
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(
                     f"CCPC-Bench row {index} field {column!r} must be a "
