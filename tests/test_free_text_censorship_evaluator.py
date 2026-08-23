@@ -555,6 +555,11 @@ def test_cli_and_factory_route_to_the_dedicated_evaluator(
             )
         ),
     )
-    evaluate.main("fake/model", "chinese_censorship", output_dir=tmp_path)
+    evaluate.main(
+        "fake/model",
+        "chinese_censorship",
+        output_dir=tmp_path,
+        judge_model=CCPC_JUDGE_MODEL,
+    )
     assert captured[-1].dataset_id == CCPC_DATASET_ID
     assert EvaluateFactory.get_evaluator_family(CCPC_DATASET_ID) == "censorship"

@@ -10,7 +10,10 @@ import typer
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
-from llm_behavior_eval.evaluation_utils.censorship_utils import CCPC_DATASET_ID
+from llm_behavior_eval.evaluation_utils.censorship_utils import (
+    CCPC_DATASET_ID,
+    CCPC_JUDGE_MODEL,
+)
 from llm_behavior_eval.evaluation_utils.dataset_config import (
     DatasetConfig,
     PreprocessConfig,
@@ -589,6 +592,11 @@ def main(
             "Cannot evaluate behaviors from multiple evaluator families in one invocation."
         )
     evaluator_family: EvaluatorFamily | None = next(iter(evaluator_families), None)
+    if evaluator_family == "censorship" and judge_path_or_repo_id != CCPC_JUDGE_MODEL:
+        raise ValueError(
+            "The chinese_censorship benchmark requires "
+            f"--judge-model {CCPC_JUDGE_MODEL}."
+        )
 
     logging.basicConfig(
         level=logging.INFO,

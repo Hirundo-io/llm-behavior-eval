@@ -10,10 +10,17 @@ import pytest
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
+from llm_behavior_eval.evaluation_utils.censorship_utils import (
+    CCPC_DATASET_ID,
+    CCPC_JUDGE_MODEL,
+)
 from llm_behavior_eval.evaluation_utils.eval_config import FAMILY_TOKEN_DEFAULTS
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
     FreeTextBiasEvaluator,
+)
+from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
+    FreeTextCensorshipEvaluator,
 )
 from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
@@ -207,6 +214,24 @@ def test_main_rejects_mixed_evaluator_families() -> None:
         evaluate.main("fake/model", "hallu,refusal:all")
 
 
+def test_main_enforces_ccpc_judge_contract_and_retains_generic_default(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "chinese_censorship",
+        judge_model=CCPC_JUDGE_MODEL,
+    )
+    assert capture_eval_config[-1].evaluator_family == "censorship"
+
+    with pytest.raises(ValueError, match="chinese_censorship benchmark requires"):
+        evaluate.main("fake/model", "chinese_censorship")
+    assert len(capture_eval_config) == 1
+
+    evaluate.main("fake/model", "hallu")
+    assert capture_eval_config[-1].judge_path_or_repo_id == "google/gemma-3-12b-it"
+
+
 def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
     capture_eval_config: list[EvaluationConfig],
     monkeypatch: pytest.MonkeyPatch,
@@ -299,6 +324,27 @@ def test_evaluate_factory_applies_refusal_defaults_for_programmatic_callers(
     assert original_config.evaluator_family is None
     assert original_config.max_answer_tokens is None
     assert original_config.max_judge_tokens is None
+
+
+def test_evaluate_factory_constructs_censorship_evaluator(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def fake_init(
+        self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> None:
+        del eval_config, dataset_config
+
+    monkeypatch.setattr(FreeTextCensorshipEvaluator, "__init__", fake_init)
+
+    evaluator = EvaluateFactory.create_evaluator(
+        EvaluationConfig(model_path_or_repo_id="fake/model", results_dir=tmp_path),
+        DatasetConfig(
+            file_path=CCPC_DATASET_ID,
+            dataset_type=evaluate.DatasetType.BIAS,
+        ),
+    )
+
+    assert isinstance(evaluator, FreeTextCensorshipEvaluator)
 
 
 def test_evaluate_factory_reports_evaluator_family() -> None:
