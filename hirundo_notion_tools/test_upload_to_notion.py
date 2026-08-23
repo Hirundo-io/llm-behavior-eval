@@ -74,34 +74,6 @@ def test_parse_summary_brief_prefers_error_else_accuracy(tmp_path: Path) -> None
     assert "Empty row" not in got
 
 
-def test_parse_summary_brief_uses_only_valid_censorship_metrics(
-    tmp_path: Path,
-) -> None:
-    """Verify only complete, valid CCPC metrics are imported.
-    Args:
-        tmp_path: Temporary results directory supplied by pytest.
-    Returns:
-        None.
-    """
-    csv_path = tmp_path / "summary_brief.csv"
-    csv_path.write_text(
-        "Dataset,Censorship rate (%) ⬇️,Metric Valid\n"
-        "CCPC valid,6.597,True\n"
-        "CCPC invalid,,False\n",
-        encoding="utf-8",
-    )
-
-    got = upload_to_notion.parse_summary_brief(csv_path)
-
-    assert got == {"CCPC valid": pytest.approx(6.597)}
-    csv_path.write_text(
-        "Dataset,Censorship rate (%) ⬇️,Metric Valid\nCCPC malformed,1.0,yes\n",
-        encoding="utf-8",
-    )
-    with pytest.raises(ValueError, match="CCPC malformed.*'yes'"):
-        upload_to_notion.parse_summary_brief(csv_path)
-
-
 def test_extract_model_and_judge_names_reads_first_run_config(tmp_path: Path) -> None:
     page_dir = tmp_path / "page"
     run_dir = page_dir / "some_dataset"

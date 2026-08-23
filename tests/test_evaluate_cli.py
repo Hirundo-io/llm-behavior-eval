@@ -345,9 +345,28 @@ def test_evaluate_factory_applies_refusal_defaults_for_programmatic_callers(
 def test_evaluate_factory_constructs_censorship_evaluator(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Verify the factory constructs the dedicated censorship evaluator.
+
+    Args:
+        monkeypatch: Pytest patching helper.
+        tmp_path: Temporary results directory supplied by pytest.
+
+    Returns:
+        None.
+    """
+
     def fake_init(
         self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
     ) -> None:
+        """Replace model-loading initialization for the routing test.
+
+        Args:
+            eval_config: Evaluation settings ignored by this fixture.
+            dataset_config: Dataset settings ignored by this fixture.
+
+        Returns:
+            None.
+        """
         del eval_config, dataset_config
 
     monkeypatch.setattr(FreeTextCensorshipEvaluator, "__init__", fake_init)
