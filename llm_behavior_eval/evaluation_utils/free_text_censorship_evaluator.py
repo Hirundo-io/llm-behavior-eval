@@ -178,7 +178,11 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 temperature=sampling.temperature,
                 top_p=sampling.top_p,
                 top_k=sampling.top_k,
-                seed=self.dataset_config.seed or sampling.seed,
+                seed=(
+                    self.dataset_config.seed
+                    if self.dataset_config.seed is not None
+                    else sampling.seed
+                ),
             ),
             repetition_penalty=CCPC_MODEL_REPETITION_PENALTY,
         )
@@ -273,7 +277,11 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             )
             for question, answer in zip(questions, answers, strict=True)
         ]
-        outputs = self.run_judge_with_backoff(judge_engine, prompts)
+        outputs = self.run_judge_with_backoff(
+            judge_engine,
+            prompts,
+            repetition_penalty=CCPC_JUDGE_REPETITION_PENALTY,
+        )
         texts = [item[0].get("generated_text") or "" for item in outputs]
         finish_reasons = [item[0].get("finish_reason") for item in outputs]
         return (

@@ -155,22 +155,36 @@ def parse_summary_brief(summary_brief_csv: Path) -> dict[str, float]:
     out: dict[str, float] = {}
     with summary_brief_csv.open("r", encoding="utf-8", newline="") as summary_file:
         reader = csv.DictReader(summary_file)
-        required_cols = {"Dataset", "Accuracy (%)", "Error (%)"}
-        if reader.fieldnames is None or not required_cols.issubset(
-            set(reader.fieldnames)
+        legacy_cols = {"Dataset", "Accuracy (%)", "Error (%)"}
+        censorship_cols = {"Dataset", "Censorship rate (%) ⬇️", "Metric Valid"}
+        fieldnames = set(reader.fieldnames or [])
+        if not (
+            legacy_cols.issubset(fieldnames) or censorship_cols.issubset(fieldnames)
         ):
             raise ValueError(
                 f"{summary_brief_csv} missing required columns. "
-                f"Got: {reader.fieldnames}; required: {sorted(required_cols)}"
+                f"Got: {reader.fieldnames}; expected either "
+                f"{sorted(legacy_cols)} or {sorted(censorship_cols)}"
             )
 
         for row in reader:
             dataset = (row.get("Dataset") or "").strip()
             if not dataset:
                 continue
-            err_raw = (row.get("Error (%)") or "").strip()
-            acc_raw = (row.get("Accuracy (%)") or "").strip()
-            chosen = err_raw if err_raw != "" else acc_raw
+            metric_valid_raw = (row.get("Metric Valid") or "").strip().casefold()
+            if metric_valid_raw:
+                if metric_valid_raw not in {"true", "false"}:
+                    raise ValueError(
+                        f"Invalid Metric Valid value for dataset={dataset!r} in "
+                        f"{summary_brief_csv}: {metric_valid_raw!r}"
+                    )
+                if metric_valid_raw == "false":
+                    continue
+                chosen = (row.get("Censorship rate (%) ⬇️") or "").strip()
+            else:
+                err_raw = (row.get("Error (%)") or "").strip()
+                acc_raw = (row.get("Accuracy (%)") or "").strip()
+                chosen = err_raw if err_raw != "" else acc_raw
             if chosen == "":
                 continue
             try:

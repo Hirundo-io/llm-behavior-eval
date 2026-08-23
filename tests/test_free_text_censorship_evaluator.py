@@ -331,11 +331,13 @@ class _RecordingEngine:
 
 
 def test_model_and_judge_use_role_specific_repetition_penalties(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     """Verify model and judge calls use their frozen role-specific penalties.
 
     Args:
+        monkeypatch: Pytest patching helper.
         tmp_path: Temporary results directory supplied by pytest.
 
     Returns:
@@ -354,14 +356,42 @@ def test_model_and_judge_use_role_specific_repetition_penalties(
     engine = _RecordingEngine()
     evaluator.eval_engine = cast("EvalEngine", engine)
     evaluator.judge_tokenizer = cast("PreTrainedTokenizerBase", _Tokenizer())
+    judge_penalties: list[float] = []
+
+    def fake_run_judge_with_backoff(
+        judge_engine: "EvalEngine",
+        prompts: list[str],
+        repetition_penalty: float = 1.0,
+    ) -> list[list[dict[str, str]]]:
+        """Record the explicit judge repetition penalty.
+
+        Args:
+            judge_engine: Judge engine ignored by this fixture.
+            prompts: Judge prompts used to size the deterministic result.
+            repetition_penalty: Repetition penalty supplied by the evaluator.
+
+        Returns:
+            Deterministic successful judge outputs.
+        """
+        del judge_engine
+        judge_penalties.append(repetition_penalty)
+        return [[{"generated_text": "False", "finish_reason": "stop"}] for _ in prompts]
+
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
+    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: _Tokenizer())
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.safe_apply_chat_template",
+        lambda tokenizer, messages: messages[-1]["content"],
+    )
+    monkeypatch.setattr(
+        evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff
+    )
 
     evaluator._generate_model_answers(torch.tensor([[1]]), torch.tensor([[1]]))
-    evaluator._process_judge_prompts_batch(cast("EvalEngine", engine), ["judge prompt"])
+    evaluator._grade_batch(cast("EvalEngine", engine), ["question"], ["answer"])
 
-    assert engine.penalties == [
-        CCPC_MODEL_REPETITION_PENALTY,
-        CCPC_JUDGE_REPETITION_PENALTY,
-    ]
+    assert engine.penalties == [CCPC_MODEL_REPETITION_PENALTY]
+    assert judge_penalties == [CCPC_JUDGE_REPETITION_PENALTY]
     provenance = evaluator._current_run_config()["ccpc_benchmark"]
     assert provenance["model_repetition_penalty"] == CCPC_MODEL_REPETITION_PENALTY
     assert provenance["judge_repetition_penalty"] == CCPC_JUDGE_REPETITION_PENALTY

@@ -217,19 +217,37 @@ def test_main_rejects_mixed_evaluator_families() -> None:
 def test_main_enforces_ccpc_judge_contract_and_retains_generic_default(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
+    """Verify CCPC routing locks its judge and remote-code default.
+
+    Args:
+        capture_eval_config: Evaluation configurations captured by the factory stub.
+
+    Returns:
+        None.
+    """
     evaluate.main(
-        "fake/model",
+        "google/model",
         "chinese_censorship",
         judge_model=CCPC_JUDGE_MODEL,
     )
     assert capture_eval_config[-1].evaluator_family == "censorship"
+    assert capture_eval_config[-1].trust_remote_code is False
+
+    evaluate.main(
+        "google/model",
+        "chinese_censorship",
+        judge_model=CCPC_JUDGE_MODEL,
+        trust_remote_code=True,
+    )
+    assert capture_eval_config[-1].trust_remote_code
 
     with pytest.raises(ValueError, match="chinese_censorship benchmark requires"):
         evaluate.main("fake/model", "chinese_censorship")
-    assert len(capture_eval_config) == 1
+    assert len(capture_eval_config) == 2
 
-    evaluate.main("fake/model", "hallu")
+    evaluate.main("google/model", "hallu")
     assert capture_eval_config[-1].judge_path_or_repo_id == "google/gemma-3-12b-it"
+    assert capture_eval_config[-1].trust_remote_code
 
 
 def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(

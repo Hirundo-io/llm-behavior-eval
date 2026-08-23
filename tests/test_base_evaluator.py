@@ -372,11 +372,15 @@ def test_dataset_is_tokenized_with_left_padding(
     assert capture_state.padding_side_at_preprocess == "left"
 
 
-def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> None:
+@pytest.mark.parametrize("judge_batch_size", [None, 2])
+def test_process_judge_prompts_batch_uses_sampling_config(
+    tmp_path: Path, judge_batch_size: int | None
+) -> None:
     """Verify judge generation uses judge sampling and repetition defaults.
 
     Args:
         tmp_path: Temporary results directory supplied by pytest.
+        judge_batch_size: Fixed size or dynamic backoff path to exercise.
 
     Returns:
         None.
@@ -490,6 +494,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
         model_path_or_repo_id="meta/model",
         results_dir=tmp_path,
         sample_judge=True,
+        judge_batch_size=judge_batch_size,
         sampling_config=SamplingConfig(
             temperature=0.5,
             top_p=0.9,
@@ -500,15 +505,15 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     evaluator.dataset_config = DatasetConfig(
         file_path="repo/dataset",
         dataset_type=DatasetType.BIAS,
-        seed=777,
+        seed=0,
     )
     evaluator.judge_tokenizer = StubJudgeTokenizer()
 
     judge_engine = RecordingJudgeEngine()
-    outputs = evaluator._process_judge_prompts_batch(
+    outputs = evaluator.run_judge_with_backoff(
         judge_engine,
         ["prompt-a", "prompt-b"],
-        do_sample=None,
+        repetition_penalty=0.75,
     )
 
     assert outputs == [
@@ -523,7 +528,7 @@ def test_process_judge_prompts_batch_uses_sampling_config(tmp_path: Path) -> Non
     assert sampling_config.top_p == 0.9
     assert sampling_config.top_k == 4
     assert sampling_config.seed == evaluator.dataset_config.seed
-    assert judge_engine.calls[0]["repetition_penalty"] == 1.0
+    assert judge_engine.calls[0]["repetition_penalty"] == 0.75
 
 
 def test_get_model_slug_includes_lora_slug(

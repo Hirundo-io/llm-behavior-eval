@@ -574,6 +574,18 @@ def main(
         ),
     ] = None,
 ) -> None:
+    """Run evaluations; CCPC locks its judge and requires remote-code opt-in.
+    Args:
+        model: Model repository identifier or local path.
+        behavior: Behavior preset or comma-separated presets to evaluate.
+        judge_model: Judge repository identifier or local path.
+        trust_remote_code: Explicit remote-code authorization, when provided.
+    Returns:
+        None.
+    Raises:
+        ValueError: If evaluator families are mixed or the censorship judge differs
+            from :data:`CCPC_JUDGE_MODEL`.
+    """
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
     result_dir = output_dir if output_dir is not None else _default_results_dir()
@@ -651,6 +663,13 @@ def main(
     else:
         vllm_config = None
 
+    resolved_trust_remote_code = (
+        trust_remote_code
+        if trust_remote_code is not None
+        else False
+        if evaluator_family == "censorship"
+        else model_path_or_repo_id.split("/")[0] in TRUSTED_MODEL_PROVIDERS
+    )
     eval_config = EvaluationConfig(
         model_path_or_repo_id=model_path_or_repo_id,
         model_output_dir=model_output_dir,
@@ -666,9 +685,7 @@ def main(
         thinking_start_token=thinking_start_token,
         thinking_end_token=thinking_end_token,
         exclude_thinking_trace_for_judge=exclude_thinking_trace_for_judge,
-        trust_remote_code=trust_remote_code
-        if trust_remote_code is not None
-        else model_path_or_repo_id.split("/")[0] in TRUSTED_MODEL_PROVIDERS,
+        trust_remote_code=resolved_trust_remote_code,
         inference_engine=inference_engine,
         model_engine=model_engine,
         judge_engine=judge_engine,
