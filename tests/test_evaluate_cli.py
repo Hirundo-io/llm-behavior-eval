@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from typer.testing import CliRunner
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
@@ -150,6 +151,20 @@ def test_behavior_presets_expand_refusal_all() -> None:
         XSTEST_DATASET,
         OR_BENCH_DATASET,
     ]
+
+
+def test_cli_help_includes_chinese_censorship_guidance() -> None:
+    result = CliRunner().invoke(evaluate.app, ["--help"])
+
+    assert result.exit_code == 0
+    assert "chinese_censorship" in result.output
+    assert "--judge-model" in result.output
+    assert "google/gemma-4-26B-A4B-it" in result.output
+
+
+def test_invalid_behavior_guidance_includes_chinese_censorship() -> None:
+    with pytest.raises(ValueError, match="chinese_censorship"):
+        evaluate._behavior_presets("invalid")
 
 
 def test_main_runs_full_dataset_when_nonpositive_max_samples(

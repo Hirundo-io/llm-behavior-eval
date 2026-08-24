@@ -207,7 +207,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type>' or 'unbias:<type>'; UNQOVER: 'unqover:bias:<type>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'; Chinese censorship: 'chinese_censorship' (requires --judge-model google/gemma-4-26B-A4B-it)"
         ),
     ],
     output_dir: Annotated[
