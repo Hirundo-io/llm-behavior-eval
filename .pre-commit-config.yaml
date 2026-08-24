@@ -23,7 +23,14 @@ repos:
     hooks:
       - id: pyrefly
         name: pyrefly
-        entry: .venv/bin/pyrefly check
+        entry: >-
+          bash -c 'if [ "$(uname)" = "Darwin" ]; then .venv/bin/pyrefly check
+          --replace-imports-with-any vllm
+          --replace-imports-with-any vllm.model_executor.layers.quantization
+          --replace-imports-with-any vllm.config
+          --replace-imports-with-any vllm.lora.request
+          --replace-imports-with-any vllm.distributed;
+          else .venv/bin/pyrefly check; fi'
         language: system
         types: [python]
         pass_filenames: false

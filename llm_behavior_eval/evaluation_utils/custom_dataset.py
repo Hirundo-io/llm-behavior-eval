@@ -193,7 +193,6 @@ class CustomDataset:
             raw = load_dataset(
                 str(self.file_path),
                 token=token,
-                trust_remote_code=trust_remote_code,
             )
         except (OSError, ValueError) as exc:
             raise RuntimeError(

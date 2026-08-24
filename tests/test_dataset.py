@@ -170,16 +170,15 @@ def test_free_text_preprocess_function_uses_default_system_prompt_when_enabled(
     ]
 
 
-def test_custom_dataset_passes_auth_args_to_load_dataset(
+def test_custom_dataset_passes_token_without_obsolete_remote_code_arg(
     monkeypatch: pytest.MonkeyPatch,
 ):
     ds = Dataset.from_dict({"question": ["q"], "answer": ["a"]})
     captured: dict[str, object] = {}
 
-    def fake_load_dataset(path, *, token=None, trust_remote_code=False):
+    def fake_load_dataset(path, *, token=None):
         captured["path"] = path
         captured["token"] = token
-        captured["trust_remote_code"] = trust_remote_code
         return DatasetDict({"train": ds})
 
     monkeypatch.setattr(custom_dataset_module, "load_dataset", fake_load_dataset)
@@ -194,7 +193,6 @@ def test_custom_dataset_passes_auth_args_to_load_dataset(
     assert captured == {
         "path": "repo/gated-dataset",
         "token": "hf_test_token",
-        "trust_remote_code": True,
     }
 
 
