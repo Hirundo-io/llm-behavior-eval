@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 import llm_behavior_eval.evaluate as evaluate
@@ -155,11 +156,14 @@ def test_behavior_presets_expand_refusal_all() -> None:
 
 def test_cli_help_includes_chinese_censorship_guidance() -> None:
     result = CliRunner().invoke(evaluate.app, ["--help"])
+    visible_output = strip_ansi(result.output)
 
     assert result.exit_code == 0
-    assert "chinese_censorship" in result.output
-    assert "--judge-model" in result.output
-    assert "google/gemma-4-26B-A4B-it" in result.output
+    assert "chinese_censorship" in visible_output
+    assert "--judge-model" in visible_output
+    assert "google/gemma-4-26B-A4B-it" in visible_output
+    assert "bias:<type|all>" in visible_output
+    assert "unbias:<type|all>" in visible_output
 
 
 def test_invalid_behavior_guidance_includes_chinese_censorship() -> None:
