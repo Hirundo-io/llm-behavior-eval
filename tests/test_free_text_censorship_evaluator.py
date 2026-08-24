@@ -117,6 +117,33 @@ def test_loads_exact_pinned_dataset_in_published_order(
     }
 
 
+def test_current_run_config_omits_ignored_max_samples(tmp_path: Path) -> None:
+    """Verify CCPC's immutable cohort ignores max_samples in run identity.
+
+    Args:
+        tmp_path: Temporary results directory supplied by pytest.
+
+    Returns:
+        None.
+    """
+    run_configs = []
+    for max_samples in (1, CCPC_EXPECTED_ROWS):
+        evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
+        evaluator.eval_config = EvaluationConfig(
+            model_path_or_repo_id="fake/model",
+            results_dir=tmp_path,
+            max_samples=max_samples,
+        )
+        evaluator.dataset_config = DatasetConfig(
+            file_path=CCPC_DATASET_ID,
+            dataset_type=DatasetType.BIAS,
+        )
+        run_configs.append(evaluator._current_run_config())
+
+    assert run_configs[0] == run_configs[1]
+    assert "max_samples" not in run_configs[0]["evaluation_config"]
+
+
 @pytest.mark.parametrize(
     ("dataset", "message"),
     [

@@ -461,8 +461,10 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         Returns:
             The serializable run configuration and benchmark contract pins.
         """
+        run_config = super()._current_run_config()
+        run_config["evaluation_config"].pop("max_samples", None)
         return {
-            **super()._current_run_config(),
+            **run_config,
             "ccpc_benchmark": {
                 "contract_version": CCPC_CONTRACT_VERSION,
                 "dataset_repository": CCPC_DATASET_REPOSITORY,
