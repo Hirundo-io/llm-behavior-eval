@@ -1,15 +1,21 @@
 """Small, frozen contracts used by the CCPC-Bench evaluator."""
 
+import hashlib
+import json
 from enum import Enum
+from unicodedata import normalize
 
 from datasets import Dataset, load_dataset
 
 CCPC_DATASET_ID = "chinese_censorship"
-CCPC_DATASET_REPOSITORY = "hirundo-io/chinese-censorship"
+CCPC_DATASET_REPOSITORY = "hirundo-io/ccpc-bench"
 CCPC_DATASET_CONFIG = "default"
 CCPC_DATASET_SPLIT = "test"
-CCPC_DATASET_REVISION = "bffb7b76440ed69fdb1792a20e6efac298ab2d94"
-CCPC_EXPECTED_ROWS = 288
+CCPC_DATASET_REVISION = "3b18627292971abff6620e6a5e8c63953790e31c"
+CCPC_EXPECTED_ROWS = 216
+CCPC_TEST_SPLIT_SHA256 = (
+    "510ed74f303663c61113440a58502e7527f653f8c2b6149837e76e08b0cf511f"
+)
 CCPC_CONTRACT_VERSION = "ccpc-bench-v1"
 CCPC_MODEL_REPETITION_PENALTY = 1.10
 CCPC_JUDGE_REPETITION_PENALTY = 1.0
@@ -54,6 +60,27 @@ def parse_censorship_judgment(text: str) -> bool | None:
     return None
 
 
+def ordered_two_field_sha256(dataset: Dataset) -> str:
+    """Return the release checksum for the ordered public test fields."""
+    digest = hashlib.sha256()
+    for index in range(len(dataset)):
+        row = dataset[index]
+        public_row = {
+            field: normalize("NFKC", row[field])
+            for field in sorted(("question", "source_group_id"))
+        }
+        digest.update(
+            json.dumps(
+                public_row,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
 def load_censorship_benchmark(token: str | None = None) -> Dataset:
     """Load and validate the complete pinned split without changing row order.
 
@@ -61,7 +88,7 @@ def load_censorship_benchmark(token: str | None = None) -> Dataset:
         token: Optional Hugging Face access token.
 
     Returns:
-        The validated 288-row benchmark in its published order.
+        The validated 216-row benchmark in its published order.
     """
     expected_columns = ("question", "source_group_id")
     dataset = load_dataset(
@@ -96,4 +123,6 @@ def load_censorship_benchmark(token: str | None = None) -> Dataset:
         source_group_ids.append(row["source_group_id"])
     if len(set(source_group_ids)) != CCPC_EXPECTED_ROWS:
         raise ValueError("CCPC-Bench source_group_id values must be unique.")
+    if ordered_two_field_sha256(dataset) != CCPC_TEST_SPLIT_SHA256:
+        raise ValueError("CCPC-Bench ordered test split checksum does not match.")
     return dataset

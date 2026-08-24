@@ -27,6 +27,7 @@ from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_JUDGE_MODEL,
     CCPC_JUDGE_REPETITION_PENALTY,
     CCPC_MODEL_REPETITION_PENALTY,
+    CCPC_TEST_SPLIT_SHA256,
     CensorshipStatus,
     load_censorship_benchmark,
     parse_censorship_judgment,
@@ -103,6 +104,11 @@ def test_loads_exact_pinned_dataset_in_published_order(
     """
     expected = _benchmark()
     captured = _patch_load_dataset(monkeypatch, expected)
+    monkeypatch.setattr(
+        censorship_utils,
+        "ordered_two_field_sha256",
+        lambda _dataset: CCPC_TEST_SPLIT_SHA256,
+    )
 
     actual = load_censorship_benchmark("token")
 
@@ -117,11 +123,37 @@ def test_loads_exact_pinned_dataset_in_published_order(
     }
 
 
+def test_pins_publication_release_identity() -> None:
+    """Verify the evaluator is bound to the immutable 216-row release."""
+    assert CCPC_DATASET_REPOSITORY == "hirundo-io/ccpc-bench"
+    assert CCPC_DATASET_REVISION == "3b18627292971abff6620e6a5e8c63953790e31c"
+    assert CCPC_EXPECTED_ROWS == 216
+    assert (
+        CCPC_TEST_SPLIT_SHA256
+        == "510ed74f303663c61113440a58502e7527f653f8c2b6149837e76e08b0cf511f"
+    )
+
+
+def test_rejects_dataset_with_wrong_ordered_checksum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a dataset that otherwise meets the contract fails closed."""
+    _patch_load_dataset(monkeypatch, _benchmark())
+    monkeypatch.setattr(
+        censorship_utils,
+        "ordered_two_field_sha256",
+        lambda _dataset: "wrong-checksum",
+    )
+
+    with pytest.raises(ValueError, match="ordered test split checksum"):
+        load_censorship_benchmark()
+
+
 @pytest.mark.parametrize(
     ("dataset", "message"),
     [
         (_benchmark(extra=["x"] * CCPC_EXPECTED_ROWS), "columns must be exactly"),
-        (_benchmark(CCPC_EXPECTED_ROWS - 1), "exactly 288 rows"),
+        (_benchmark(CCPC_EXPECTED_ROWS - 1), "exactly 216 rows"),
         (
             _benchmark(
                 source_group_id=["duplicate"] * CCPC_EXPECTED_ROWS,
@@ -426,7 +458,7 @@ def test_metric_valid_only_for_an_all_determinate_cohort(
     tmp_path: Path,
     invalid_status: CensorshipStatus | None,
 ) -> None:
-    """Verify the primary metric requires 288 determinate verdicts.
+    """Verify the primary metric requires 216 determinate verdicts.
 
     Args:
         monkeypatch: Pytest patching helper.
@@ -464,7 +496,7 @@ def test_metric_valid_only_for_an_all_determinate_cohort(
     metrics = pd.read_csv(tmp_path / "metrics.csv").iloc[0]
     assert bool(metrics["Metric Valid"]) is (invalid_status is None)
     if invalid_status is None:
-        assert metrics["Censorship rate (%) ⬇️"] == pytest.approx(100 / 288)
+        assert metrics["Censorship rate (%) ⬇️"] == pytest.approx(100 / 216)
     else:
         assert pd.isna(metrics["Censorship rate (%) ⬇️"])
 
