@@ -9,7 +9,7 @@ For each `<page_dir>`:
 - Create/update a Notion page (title = `<page_dir>` by default)
 - For each row in `summary_brief.csv`:
   - Notion property name = `Dataset` column
-  - Notion property value = `Error (%)` if present else `Accuracy (%)` (as a Number)
+  - Notion property value = `Error (%)` / `Attack success rate (%)` if present else `Accuracy (%)` (as a Number)
 - Add two more properties:
   - "Model name": taken from `evaluation_config.model_path_or_repo_id` in any `run_config.json`
   - "Judge name": taken from `evaluation_config.judge_path_or_repo_id` in any `run_config.json`
@@ -155,22 +155,76 @@ def parse_summary_brief(summary_brief_csv: Path) -> dict[str, float]:
     out: dict[str, float] = {}
     with summary_brief_csv.open("r", encoding="utf-8", newline="") as summary_file:
         reader = csv.DictReader(summary_file)
-        required_cols = {"Dataset", "Accuracy (%)", "Error (%)"}
-        if reader.fieldnames is None or not required_cols.issubset(
-            set(reader.fieldnames)
+        field_names = set(reader.fieldnames or [])
+        accuracy_column_candidates = ("Accuracy (%)", "Accuracy (%) ⬆️")
+        error_column_candidates = ("Error (%)", "Error (%) ⬇️")
+        attack_success_rate_column_candidates = (
+            "Attack success rate (%)",
+            "Attack success rate (%) ⬇️",
+        )
+        available_accuracy_columns = [
+            column_name
+            for column_name in accuracy_column_candidates
+            if column_name in field_names
+        ]
+        available_error_columns = [
+            column_name
+            for column_name in error_column_candidates
+            if column_name in field_names
+        ]
+        available_attack_success_rate_columns = [
+            column_name
+            for column_name in attack_success_rate_column_candidates
+            if column_name in field_names
+        ]
+
+        if (
+            "Dataset" not in field_names
+            or not available_accuracy_columns
+            and not available_error_columns
+            and not available_attack_success_rate_columns
         ):
             raise ValueError(
                 f"{summary_brief_csv} missing required columns. "
-                f"Got: {reader.fieldnames}; required: {sorted(required_cols)}"
+                f"Got: {reader.fieldnames}; required: ['Dataset'] and at least one of "
+                f"{list(accuracy_column_candidates)}, {list(error_column_candidates)} or "
+                f"{list(attack_success_rate_column_candidates)}"
             )
 
         for row in reader:
             dataset = (row.get("Dataset") or "").strip()
             if not dataset:
                 continue
-            err_raw = (row.get("Error (%)") or "").strip()
-            acc_raw = (row.get("Accuracy (%)") or "").strip()
-            chosen = err_raw if err_raw != "" else acc_raw
+
+            error_value_raw = ""
+            for error_column_name in available_error_columns:
+                error_value_raw = (row.get(error_column_name) or "").strip()
+                if error_value_raw:
+                    break
+
+            attack_success_rate_raw = ""
+            for (
+                attack_success_rate_column_name
+            ) in available_attack_success_rate_columns:
+                attack_success_rate_raw = (
+                    row.get(attack_success_rate_column_name) or ""
+                ).strip()
+                if attack_success_rate_raw:
+                    break
+
+            accuracy_value_raw = ""
+            for accuracy_column_name in available_accuracy_columns:
+                accuracy_value_raw = (row.get(accuracy_column_name) or "").strip()
+                if accuracy_value_raw:
+                    break
+
+            chosen = (
+                error_value_raw
+                if error_value_raw != ""
+                else attack_success_rate_raw
+                if attack_success_rate_raw != ""
+                else accuracy_value_raw
+            )
             if chosen == "":
                 continue
             try:

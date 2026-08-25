@@ -74,6 +74,62 @@ def test_parse_summary_brief_prefers_error_else_accuracy(tmp_path: Path) -> None
     assert "Empty row" not in got
 
 
+def test_parse_summary_brief_supports_renamed_metric_columns(tmp_path: Path) -> None:
+    csv_path = tmp_path / "summary_brief.csv"
+    csv_path.write_text(
+        "Dataset,Accuracy (%) ⬆️,Error (%) ⬇️\n"
+        "BBQ: race bias,,41.600\n"
+        "BBQ: race unbias,72.200,\n",
+        encoding="utf-8",
+    )
+
+    got = upload_to_notion.parse_summary_brief(csv_path)
+    assert got["BBQ: race bias"] == pytest.approx(41.6)
+    assert got["BBQ: race unbias"] == pytest.approx(72.2)
+
+
+def test_parse_summary_brief_allows_single_metric_column(tmp_path: Path) -> None:
+    csv_path = tmp_path / "summary_brief.csv"
+    csv_path.write_text(
+        "Dataset,Accuracy (%) ⬆️\nCrows Pairs,67.000\n",
+        encoding="utf-8",
+    )
+
+    got = upload_to_notion.parse_summary_brief(csv_path)
+    assert got["Crows Pairs"] == pytest.approx(67.0)
+
+
+def test_parse_summary_brief_supports_attack_success_rate_columns(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "summary_brief.csv"
+    csv_path.write_text(
+        "Dataset,Attack success rate (%) ⬇️\nJailbreakBench,25.000\n",
+        encoding="utf-8",
+    )
+
+    got = upload_to_notion.parse_summary_brief(csv_path)
+    assert got["JailbreakBench"] == pytest.approx(25.0)
+
+
+def test_parse_summary_brief_prefers_error_then_attack_success_rate_then_accuracy(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "summary_brief.csv"
+    csv_path.write_text(
+        "Dataset,Accuracy (%) ⬆️,Attack success rate (%),Error (%) ⬇️\n"
+        "Dataset one,70.000,31.000,12.000\n"
+        "Dataset two,66.000,22.000,\n"
+        "Dataset three,55.000,,\n",
+        encoding="utf-8",
+    )
+
+    got = upload_to_notion.parse_summary_brief(csv_path)
+    assert got["Dataset one"] == pytest.approx(12.0)
+    assert got["Dataset two"] == pytest.approx(22.0)
+    assert got["Dataset three"] == pytest.approx(55.0)
+
+
 def test_extract_model_and_judge_names_reads_first_run_config(tmp_path: Path) -> None:
     page_dir = tmp_path / "page"
     run_dir = page_dir / "some_dataset"
