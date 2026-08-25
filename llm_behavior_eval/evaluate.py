@@ -581,8 +581,6 @@ def main(
         behavior: Behavior preset or comma-separated presets to evaluate.
         judge_model: Judge repository identifier or local path.
         trust_remote_code: Explicit remote-code authorization, when provided.
-    Returns:
-        None.
     Raises:
         ValueError: If evaluator families are mixed or the censorship judge differs
             from :data:`CCPC_JUDGE_MODEL`.
