@@ -7,7 +7,7 @@ llm-behavior-eval = "llm_behavior_eval.evaluate:app"
 
 [project]
 name = "llm-behavior-eval"
-version = "0.1.6b13"
+version = "0.1.6b14"
 description = "Evaluate large-language models for undesirable behaviors such as bias."
 authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
 readme = "README.md"
@@ -30,7 +30,7 @@ keywords = [
 requires-python = ">=3.10.12,<3.14"
 # Please only install Python >=3.10.12 or >=3.11.4 or >=3.12 to avoid GHSA-4xh5-x5gv-qwph vulnerability
 dependencies = [
-  "datasets>=4.0.0,<5.0.0",
+  "datasets>=5.0.1,<6.0.0",
   "numpy<3.0.0",
   "pandas<3.0.0",
   "pydantic<3.0.0",
@@ -82,7 +82,7 @@ include = ["llm_behavior_eval*"]
 exclude = ["results*"]
 
 [tool.bumpver]
-current_version = "0.1.6b13"
+current_version = "0.1.6b14"
 version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
 
 [tool.bumpver.file_patterns]
