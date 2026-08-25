@@ -321,8 +321,9 @@ def main(
         typer.Option(
             "--trust-remote-code/--no-trust-remote-code",
             help=(
-                "Trust remote code when loading models. "
-                "Automatically set to True for providers defined in TRUSTED_MODEL_PROVIDERS."
+                "Trust remote code when loading the evaluated model and judge. "
+                "Other evaluator families enable it automatically for providers "
+                "defined in TRUSTED_MODEL_PROVIDERS; CCPC requires explicit opt-in."
             ),
         ),
     ] = None,

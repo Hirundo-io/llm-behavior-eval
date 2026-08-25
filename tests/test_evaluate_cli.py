@@ -162,6 +162,8 @@ def test_cli_help_includes_chinese_censorship_guidance() -> None:
     assert "chinese_censorship" in visible_output
     assert "--judge-model" in visible_output
     assert "google/gemma-4-26B-A4B-it" in visible_output
+    assert "evaluated model" in visible_output
+    assert "explicit opt-in" in visible_output
     assert "bias:<type|all>" in visible_output
     assert "unbias:<type|all>" in visible_output
 

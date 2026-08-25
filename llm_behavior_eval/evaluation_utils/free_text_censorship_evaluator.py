@@ -100,14 +100,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         super().__init__(eval_config, dataset_config)
 
     def prepare_dataloader(self) -> None:
-        """Load and tokenize every benchmark row in published order.
-
-        Args:
-            None.
-
-        Returns:
-            None.
-        """
+        """Load and tokenize every benchmark row in published order."""
         benchmark = load_censorship_benchmark(self.eval_config.model_token)
         self.benchmark_questions = cast("list[str]", benchmark["question"])
         self.benchmark_group_ids = cast("list[str]", benchmark["source_group_id"])
@@ -217,24 +210,10 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         return generations
 
     def evaluate(self) -> None:
-        """Run complete generation and grading with evaluator cleanup.
-
-        Args:
-            None.
-
-        Returns:
-            None.
-        """
+        """Run complete generation and grading with evaluator cleanup."""
 
         def _run() -> None:
-            """Run generation and grading inside the cleanup wrapper.
-
-            Args:
-                None.
-
-            Returns:
-                None.
-            """
+            """Run generation and grading inside the cleanup wrapper."""
             generations = self.generate()
             self.free_test_model()
             with (
