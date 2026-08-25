@@ -140,7 +140,9 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
 
     def _collect_generations(self) -> Sequence[_RefusalGenerationRecord]:
         self.ensure_test_model_ready()
-        completed_dicts = self.load_completed_generation_dicts()
+        completed_dicts = self.load_aligned_generation_dicts(
+            ("input_texts", "expected_labels", "answers", "finish_reasons")
+        )
         completed_generations = [
             _RefusalGenerationRecord(
                 input_texts=cast("list[str]", item.get("input_texts", [])),
@@ -177,6 +179,9 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
                 expected_labels=expected_labels,
                 answers=answers,
                 finish_reasons=finish_reasons,
+            )
+            self._validate_generation_record(
+                generation_record, context=f"fresh batch {batch_index}"
             )
             generations.append(generation_record)
             self.save_generations(
@@ -419,6 +424,7 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
             desc="Grading responses",
             unit="batch",
         ):
+            self._validate_generation_record(generation, context="grading")
             answers = self._format_answers(generation.answers)
             judge_indices = [
                 idx
