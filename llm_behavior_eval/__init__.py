@@ -36,4 +36,4 @@ __all__ = [
     "list_dataset_presets",
 ]
 
-__version__ = "0.1.6b14"
+__version__ = "0.1.6b15"
