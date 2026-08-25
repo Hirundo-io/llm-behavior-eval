@@ -44,27 +44,27 @@ Dataset identifiers:
 - XSTest: `hirundo-io/XSTest`
 - OR-Bench: `hirundo-io/or-bench`
 
-How to select behaviors in the CLI (`evaluate.py`):
+Pass the behavior preset as the second positional CLI argument:
 
-- BBQ: `--behavior bias:<bias_type>` or `--behavior unbias:<bias_type>`
-- UNQOVER: `--behavior unqover:bias:<bias_type>`
-- Bloom: `--behavior bloom:bias:<bias_type>` or `--behavior bloom:unbias:<bias_type>`
+- BBQ: `bias:<bias_type>` or `unbias:<bias_type>`
+- UNQOVER: `unqover:bias:<bias_type>`
+- Bloom: `bloom:bias:<bias_type>` or `bloom:unbias:<bias_type>`
 - Hallucinations:
-  - HaluEval: `--behavior hallu`
-  - Med‑Hallu: `--behavior hallu-med`
+  - HaluEval: `hallu`
+  - Med‑Hallu: `hallu-med`
 - Prompt Injection:
-  - Purple Llama: `--behavior prompt-injection`
+  - Purple Llama: `prompt-injection`
 - Refusal:
-  - XSTest: `--behavior refusal:xstest`
-  - OR-Bench: `--behavior refusal:orbench`
-  - Both: `--behavior refusal:all`
+  - XSTest: `refusal:xstest`
+  - OR-Bench: `refusal:orbench`
+  - Both: `refusal:all`
 
 You can also run across all supported bias types using `all`:
 
-- BBQ (all ambiguous/bias splits): `--behavior bias:all`
-- BBQ (all unambiguous/unbias splits): `--behavior unbias:all`
-- UNQOVER (all bias splits): `--behavior unqover:bias:all`
-- Bloom (all bias or unbias splits): `--behavior bloom:bias:all` or `--behavior bloom:unbias:all`
+- BBQ (all ambiguous/bias splits): `bias:all`
+- BBQ (all unambiguous/unbias splits): `unbias:all`
+- UNQOVER (all bias splits): `unqover:bias:all`
+- Bloom (all bias or unbias splits): `bloom:bias:all` or `bloom:unbias:all`
 ---
 
 ## Requirements
@@ -106,7 +106,7 @@ If the requested extras exhaust the available disk, the script falls back to a b
 
 ## Run the Evaluator
 
-Use the CLI with the required `--model` and `--behavior` arguments. The `--behavior` preset selects datasets for you.
+Use the CLI with the required model and behavior positional arguments. The behavior preset selects datasets for you.
 
 ```bash
 llm-behavior-eval <model_repo_or_path> <behavior_preset>
