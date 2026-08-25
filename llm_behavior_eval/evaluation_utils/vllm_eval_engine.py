@@ -121,12 +121,26 @@ class VllmEvalEngine(EvalEngine):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         sampling_config: SamplingConfig,
+        repetition_penalty: float = 1.0,
     ) -> tuple[list[str], list[str | None]]:
+        """Generate and decode one batch with vLLM.
+
+        Args:
+            input_ids: Token identifiers for the input prompts.
+            attention_mask: Attention mask corresponding to the input tokens.
+            sampling_config: Backend-independent decoding settings.
+            repetition_penalty: Repetition penalty for this generation call.
+
+        Returns:
+            Generated answers and their vLLM finish reasons.
+        """
         prompt_token_ids = build_vllm_prompt_token_ids(input_ids, attention_mask)
         prompts: list[PromptType] = [
             {"prompt_token_ids": tokens} for tokens in prompt_token_ids
         ]
-        sampling_params = self._get_vllm_sampling_params(sampling_config)
+        sampling_params = self._get_vllm_sampling_params(
+            sampling_config, repetition_penalty
+        )
         outputs = self.model.generate(
             prompts=prompts,
             sampling_params=sampling_params,
@@ -153,17 +167,14 @@ class VllmEvalEngine(EvalEngine):
         return responses, finish_reasons
 
     def _get_vllm_sampling_params(
-        self, sampling_config: SamplingConfig
+        self, sampling_config: SamplingConfig, repetition_penalty: float = 1.0
     ) -> SamplingParams:
         """
         Get the sampling parameters for vLLM.
 
         Args:
-            do_sample: Whether to sample from the model.
-            temperature: The temperature for sampling. None means the default vLLM temperature is used. Overrides the do_sample argument.
-            top_p: The top-p value for sampling. Defaults to 1.0.
-            top_k: The top-k value for sampling. Defaults to 0.
-            seed: The seed for sampling. None means no seed is set.
+            sampling_config: Backend-independent decoding settings.
+            repetition_penalty: Repetition penalty for this generation call.
 
         Returns:
             The sampling parameters for vLLM.
@@ -187,6 +198,7 @@ class VllmEvalEngine(EvalEngine):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            repetition_penalty=repetition_penalty,
             stop_token_ids=stop_token_ids,
             seed=sampling_config.seed,
         )

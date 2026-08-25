@@ -24,7 +24,19 @@ class EvalEngine(ABC):
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         sampling_config: SamplingConfig,
+        repetition_penalty: float = 1.0,
     ) -> tuple[list[str], list[str | None]]:
+        """Generate decoded answers for one tokenized batch.
+
+        Args:
+            input_ids: Token identifiers for the input prompts.
+            attention_mask: Attention mask corresponding to the input tokens.
+            sampling_config: Backend-independent decoding settings.
+            repetition_penalty: Repetition penalty for this generation call.
+
+        Returns:
+            Generated answers and their finish reasons.
+        """
         raise NotImplementedError("Subclasses must implement generate_answers().")
 
     def ensure_test_model_ready(self) -> None:

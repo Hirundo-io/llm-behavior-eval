@@ -137,6 +137,7 @@ def test_catalog_is_complete_and_expansions_are_unique() -> None:
 
     assert presets
     assert len({preset.name for preset in presets}) == len(presets)
+    assert any(preset.name == "chinese_censorship" for preset in presets)
     assert expand_dataset_preset("bias:all") == [
         f"hirundo-io/bbq-{bias_type}-bias-free-text"
         for bias_type in sorted(
@@ -147,3 +148,4 @@ def test_catalog_is_complete_and_expansions_are_unique() -> None:
         "hirundo-io/XSTest",
         "hirundo-io/or-bench",
     ]
+    assert expand_dataset_preset("chinese_censorship") == ["hirundo-io/ccpc-bench"]

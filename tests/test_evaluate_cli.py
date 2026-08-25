@@ -7,13 +7,22 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from click.utils import strip_ansi
+from typer.testing import CliRunner
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
+from llm_behavior_eval.evaluation_utils.censorship_utils import (
+    CCPC_DATASET_ID,
+    CCPC_JUDGE_MODEL,
+)
 from llm_behavior_eval.evaluation_utils.eval_config import FAMILY_TOKEN_DEFAULTS
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
     FreeTextBiasEvaluator,
+)
+from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
+    FreeTextCensorshipEvaluator,
 )
 from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
@@ -145,6 +154,26 @@ def test_behavior_presets_expand_refusal_all() -> None:
     ]
 
 
+def test_cli_help_includes_chinese_censorship_guidance() -> None:
+    result = CliRunner().invoke(evaluate.app, ["--help"])
+    visible_output = strip_ansi(result.output)
+
+    assert result.exit_code == 0
+    assert "chinese_censorship" in visible_output
+    assert "--judge-model" in visible_output
+    assert "google/gemma-4-26B-A4B-it" in visible_output
+    assert "evaluated model" in visible_output
+    assert "both" in visible_output
+    assert "explicit flag" in visible_output
+    assert "bias:<type|all>" in visible_output
+    assert "unbias:<type|all>" in visible_output
+
+
+def test_invalid_behavior_guidance_includes_chinese_censorship() -> None:
+    with pytest.raises(ValueError, match="chinese_censorship"):
+        evaluate._behavior_presets("invalid")
+
+
 def test_main_runs_full_dataset_when_nonpositive_max_samples(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
@@ -205,6 +234,48 @@ def test_main_passes_model_output_dir_override(
 def test_main_rejects_mixed_evaluator_families() -> None:
     with pytest.raises(ValueError, match="multiple evaluator families"):
         evaluate.main("fake/model", "hallu,refusal:all")
+
+
+def test_main_enforces_ccpc_judge_contract_and_checks_both_trusted_providers(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    """Verify CCPC routing locks its judge and checks both providers for trust.
+    Args:
+        capture_eval_config: Evaluation configurations captured by the factory stub.
+    """
+    evaluate.main(
+        "google/model",
+        "chinese_censorship",
+        judge_model=CCPC_JUDGE_MODEL,
+    )
+    assert capture_eval_config[-1].evaluator_family == "censorship"
+    assert capture_eval_config[-1].trust_remote_code
+
+    evaluate.main(
+        "google/model",
+        "chinese_censorship",
+        judge_model=CCPC_JUDGE_MODEL,
+        trust_remote_code=False,
+    )
+    assert not capture_eval_config[-1].trust_remote_code
+
+    evaluate.main(
+        "untrusted/model",
+        "chinese_censorship",
+        judge_model=CCPC_JUDGE_MODEL,
+    )
+    assert not capture_eval_config[-1].trust_remote_code
+
+    with pytest.raises(ValueError, match="chinese_censorship benchmark requires"):
+        evaluate.main("fake/model", "chinese_censorship")
+    assert len(capture_eval_config) == 3
+
+    evaluate.main("google/model", "hallu")
+    assert capture_eval_config[-1].judge_path_or_repo_id == "google/gemma-3-12b-it"
+    assert capture_eval_config[-1].trust_remote_code
+
+    evaluate.main("google/model", "hallu", judge_model="untrusted/judge")
+    assert not capture_eval_config[-1].trust_remote_code
 
 
 def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
@@ -299,6 +370,46 @@ def test_evaluate_factory_applies_refusal_defaults_for_programmatic_callers(
     assert original_config.evaluator_family is None
     assert original_config.max_answer_tokens is None
     assert original_config.max_judge_tokens is None
+
+
+def test_evaluate_factory_constructs_censorship_evaluator(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify the factory constructs the dedicated censorship evaluator.
+
+    Args:
+        monkeypatch: Pytest patching helper.
+        tmp_path: Temporary results directory supplied by pytest.
+
+    Returns:
+        None.
+    """
+
+    def fake_init(
+        self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
+    ) -> None:
+        """Replace model-loading initialization for the routing test.
+
+        Args:
+            eval_config: Evaluation settings ignored by this fixture.
+            dataset_config: Dataset settings ignored by this fixture.
+
+        Returns:
+            None.
+        """
+        del eval_config, dataset_config
+
+    monkeypatch.setattr(FreeTextCensorshipEvaluator, "__init__", fake_init)
+
+    evaluator = EvaluateFactory.create_evaluator(
+        EvaluationConfig(model_path_or_repo_id="fake/model", results_dir=tmp_path),
+        DatasetConfig(
+            file_path=CCPC_DATASET_ID,
+            dataset_type=evaluate.DatasetType.BIAS,
+        ),
+    )
+
+    assert isinstance(evaluator, FreeTextCensorshipEvaluator)
 
 
 def test_evaluate_factory_reports_evaluator_family() -> None:
