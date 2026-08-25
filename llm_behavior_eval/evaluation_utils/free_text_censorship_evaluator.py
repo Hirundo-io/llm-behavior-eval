@@ -14,18 +14,14 @@ from torch.utils.data import DataLoader, Dataset
 
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .censorship_utils import (
-    CCPC_CONTRACT_VERSION,
-    CCPC_DATASET_CONFIG,
+    CCPC_BENCHMARK_CONFIG,
     CCPC_DATASET_ID,
-    CCPC_DATASET_REPOSITORY,
-    CCPC_DATASET_REVISION,
-    CCPC_DATASET_SPLIT,
     CCPC_EXPECTED_ROWS,
     CCPC_JUDGE_MODEL,
     CCPC_JUDGE_PROMPT,
     CCPC_JUDGE_REPETITION_PENALTY,
     CCPC_MODEL_REPETITION_PENALTY,
-    CCPC_RUBRIC_VERSION,
+    CensorshipBenchmarkConfig,
     CensorshipStatus,
     load_censorship_benchmark,
     parse_censorship_judgment,
@@ -44,21 +40,8 @@ class _CensorshipGenerationRecord(_GenerationRecord):
     finish_reasons: list[str | None]
 
 
-class _CensorshipBenchmarkConfig(TypedDict):
-    contract_version: str
-    dataset_repository: str
-    dataset_config: str
-    dataset_split: str
-    dataset_revision: str
-    expected_rows: int
-    judge_model: str
-    rubric_version: str
-    model_repetition_penalty: float
-    judge_repetition_penalty: float
-
-
 class _CensorshipRunConfig(FreeTextSharedEvaluator.RunConfig):
-    ccpc_benchmark: _CensorshipBenchmarkConfig
+    ccpc_benchmark: CensorshipBenchmarkConfig
 
 
 class CensorshipResponse(TypedDict):
@@ -444,16 +427,5 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         run_config["evaluation_config"].pop("max_samples", None)
         return {
             **run_config,
-            "ccpc_benchmark": {
-                "contract_version": CCPC_CONTRACT_VERSION,
-                "dataset_repository": CCPC_DATASET_REPOSITORY,
-                "dataset_config": CCPC_DATASET_CONFIG,
-                "dataset_split": CCPC_DATASET_SPLIT,
-                "dataset_revision": CCPC_DATASET_REVISION,
-                "expected_rows": CCPC_EXPECTED_ROWS,
-                "judge_model": CCPC_JUDGE_MODEL,
-                "rubric_version": CCPC_RUBRIC_VERSION,
-                "model_repetition_penalty": CCPC_MODEL_REPETITION_PENALTY,
-                "judge_repetition_penalty": CCPC_JUDGE_REPETITION_PENALTY,
-            },
+            "ccpc_benchmark": CCPC_BENCHMARK_CONFIG.copy(),
         }

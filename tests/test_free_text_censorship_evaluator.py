@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 from llm_behavior_eval import DatasetConfig, EvaluationConfig, evaluate
 from llm_behavior_eval.evaluation_utils import censorship_utils
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
+    CCPC_BENCHMARK_CONFIG,
     CCPC_DATASET_CONFIG,
     CCPC_DATASET_ID,
     CCPC_DATASET_REPOSITORY,
@@ -418,6 +419,8 @@ def test_model_and_judge_use_role_specific_repetition_penalties(
     assert engine.penalties == [CCPC_MODEL_REPETITION_PENALTY]
     assert judge_penalties == [CCPC_JUDGE_REPETITION_PENALTY]
     provenance = evaluator._current_run_config()["ccpc_benchmark"]
+    assert provenance == CCPC_BENCHMARK_CONFIG
+    assert provenance is not CCPC_BENCHMARK_CONFIG
     assert provenance["model_repetition_penalty"] == CCPC_MODEL_REPETITION_PENALTY
     assert provenance["judge_repetition_penalty"] == CCPC_JUDGE_REPETITION_PENALTY
 

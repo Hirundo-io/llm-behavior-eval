@@ -322,8 +322,8 @@ def main(
             "--trust-remote-code/--no-trust-remote-code",
             help=(
                 "Trust remote code when loading the evaluated model and judge. "
-                "Other evaluator families enable it automatically for providers "
-                "defined in TRUSTED_MODEL_PROVIDERS; CCPC requires explicit opt-in."
+                "Automatically enabled only when both providers are defined in "
+                "TRUSTED_MODEL_PROVIDERS; an explicit flag overrides inference."
             ),
         ),
     ] = None,
@@ -575,7 +575,7 @@ def main(
         ),
     ] = None,
 ) -> None:
-    """Run evaluations; CCPC locks its judge and requires remote-code opt-in.
+    """Run evaluations; CCPC locks its judge and trust inference checks both roles.
     Args:
         model: Model repository identifier or local path.
         behavior: Behavior preset or comma-separated presets to evaluate.
@@ -667,9 +667,10 @@ def main(
     resolved_trust_remote_code = (
         trust_remote_code
         if trust_remote_code is not None
-        else False
-        if evaluator_family == "censorship"
-        else model_path_or_repo_id.split("/")[0] in TRUSTED_MODEL_PROVIDERS
+        else all(
+            path_or_repo_id.split("/", 1)[0] in TRUSTED_MODEL_PROVIDERS
+            for path_or_repo_id in (model_path_or_repo_id, judge_path_or_repo_id)
+        )
     )
     eval_config = EvaluationConfig(
         model_path_or_repo_id=model_path_or_repo_id,

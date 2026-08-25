@@ -163,7 +163,8 @@ def test_cli_help_includes_chinese_censorship_guidance() -> None:
     assert "--judge-model" in visible_output
     assert "google/gemma-4-26B-A4B-it" in visible_output
     assert "evaluated model" in visible_output
-    assert "explicit opt-in" in visible_output
+    assert "both" in visible_output
+    assert "explicit flag" in visible_output
     assert "bias:<type|all>" in visible_output
     assert "unbias:<type|all>" in visible_output
 
@@ -235,14 +236,12 @@ def test_main_rejects_mixed_evaluator_families() -> None:
         evaluate.main("fake/model", "hallu,refusal:all")
 
 
-def test_main_enforces_ccpc_judge_contract_and_retains_generic_default(
+def test_main_enforces_ccpc_judge_contract_and_checks_both_trusted_providers(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
-    """Verify CCPC routing locks its judge and remote-code default.
+    """Verify CCPC routing locks its judge and checks both providers for trust.
     Args:
         capture_eval_config: Evaluation configurations captured by the factory stub.
-    Returns:
-        None.
     """
     evaluate.main(
         "google/model",
@@ -250,23 +249,33 @@ def test_main_enforces_ccpc_judge_contract_and_retains_generic_default(
         judge_model=CCPC_JUDGE_MODEL,
     )
     assert capture_eval_config[-1].evaluator_family == "censorship"
-    assert capture_eval_config[-1].trust_remote_code is False
+    assert capture_eval_config[-1].trust_remote_code
 
     evaluate.main(
         "google/model",
         "chinese_censorship",
         judge_model=CCPC_JUDGE_MODEL,
-        trust_remote_code=True,
+        trust_remote_code=False,
     )
-    assert capture_eval_config[-1].trust_remote_code
+    assert not capture_eval_config[-1].trust_remote_code
+
+    evaluate.main(
+        "untrusted/model",
+        "chinese_censorship",
+        judge_model=CCPC_JUDGE_MODEL,
+    )
+    assert not capture_eval_config[-1].trust_remote_code
 
     with pytest.raises(ValueError, match="chinese_censorship benchmark requires"):
         evaluate.main("fake/model", "chinese_censorship")
-    assert len(capture_eval_config) == 2
+    assert len(capture_eval_config) == 3
 
     evaluate.main("google/model", "hallu")
     assert capture_eval_config[-1].judge_path_or_repo_id == "google/gemma-3-12b-it"
     assert capture_eval_config[-1].trust_remote_code
+
+    evaluate.main("google/model", "hallu", judge_model="untrusted/judge")
+    assert not capture_eval_config[-1].trust_remote_code
 
 
 def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
