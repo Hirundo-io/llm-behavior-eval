@@ -44,6 +44,7 @@ def free_text_preprocess_function(
     thinking_start_token: str | None = None,
     thinking_end_token: str | None = None,
     include_default_system_prompt: bool = True,
+    reasoning_effort: str | None = None,
 ) -> dict[str, torch.Tensor]:
     """
     Preprocesses a batch of examples for free-text datasets.
@@ -63,6 +64,8 @@ def free_text_preprocess_function(
         pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
         include_default_system_prompt: Whether to prepend the shared free-text system prompt
             when no per-row system prompt override is provided.
+        reasoning_effort: Harmony-style reasoning effort level forwarded to chat
+            template rendering (ignored by tokenizers that don't support it).
 
     Returns:
         A dictionary containing the tokenized input and ground truth sequences.
@@ -108,6 +111,7 @@ def free_text_preprocess_function(
                 thinking_start_token=thinking_start_token,
                 thinking_end_token=thinking_end_token,
                 pass_max_answer_tokens=pass_max_answer_tokens,
+                reasoning_effort=reasoning_effort,
             )
         )
         answer_strings.append(answer_text)
@@ -173,6 +177,7 @@ class CustomDataset:
         trust_remote_code: bool = False,
         token: str | None = None,
         dataset_id: str | None = None,
+        dataset_revision: str | None = None,
     ):
         """
         Initializes the custom dataset with a specified dataset type and behavior type.
@@ -183,6 +188,7 @@ class CustomDataset:
             trust_remote_code: Whether to trust remote code when loading the dataset.
             token: HuggingFace token for gated or private dataset repos.
             dataset_id (optional): Logical dataset identity. Defaults to ``file_path``.
+            dataset_revision: HuggingFace revision pinning the loaded dataset.
         """
         self.file_path = file_path
         self.dataset_id = dataset_id or str(file_path)
@@ -192,6 +198,7 @@ class CustomDataset:
         try:
             raw = load_dataset(
                 str(self.file_path),
+                revision=dataset_revision,
                 token=token,
             )
         except (OSError, ValueError) as exc:
@@ -221,6 +228,7 @@ class CustomDataset:
         thinking_start_token: str | None = None,
         thinking_end_token: str | None = None,
         pass_max_answer_tokens: bool = False,
+        model_reasoning_effort: str | None = None,
     ) -> Dataset:
         """
         Tokenize the loaded dataset for free-text evaluation.
@@ -234,6 +242,8 @@ class CustomDataset:
             thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
             thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
             pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
+            model_reasoning_effort: Harmony-style reasoning effort level forwarded to
+                chat template rendering (ignored by tokenizers that don't support it).
 
         Returns:
             A tokenized dataset ready for evaluation.
@@ -262,6 +272,7 @@ class CustomDataset:
                 pass_max_answer_tokens=pass_max_answer_tokens,
                 include_default_system_prompt=not refusal_dataset,
                 # ⬆️ The default system prompt is detrimental to refusal evaluation, and therefore is avoided for refusal datasets.
+                reasoning_effort=model_reasoning_effort,
             ),
             batched=True,
             remove_columns=old_columns,

@@ -231,6 +231,62 @@ def test_main_passes_model_output_dir_override(
     assert capture_eval_config[-1].model_output_dir == "custom-model-dir"
 
 
+def test_main_threads_model_and_judge_revisions_into_eval_config(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main("fake/model", "hallu")
+    eval_config = capture_eval_config[-1]
+    assert eval_config.model_revision is None
+    assert eval_config.judge_revision is None
+
+    evaluate.main(
+        "fake/model",
+        "hallu",
+        model_revision="target-sha",
+        judge_revision="judge-sha",
+    )
+    eval_config = capture_eval_config[-1]
+    assert eval_config.model_revision == "target-sha"
+    assert eval_config.judge_revision == "judge-sha"
+
+
+def test_cli_help_exposes_revision_pinning_flags() -> None:
+    # A wide terminal keeps long option names from being ellipsized in the
+    # rendered help table.
+    result = CliRunner().invoke(
+        evaluate.app, ["--help"], env={"COLUMNS": "250", "LINES": "50"}
+    )
+    visible_output = strip_ansi(result.output)
+
+    assert result.exit_code == 0
+    assert "--model-revision" in visible_output
+    assert "--judge-revision" in visible_output
+    assert "--dataset-revision" in visible_output
+    assert "--model-reasoning-effort" in visible_output
+
+
+def test_main_threads_dataset_revision_into_dataset_config(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "hallu", dataset_revision="dataset-sha")
+
+    assert capture_configs
+    assert all(
+        captured.dataset_config.dataset_revision == "dataset-sha"
+        for captured in capture_configs
+    )
+
+
+def test_main_threads_model_reasoning_effort_into_eval_config(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    evaluate.main("fake/model", "hallu")
+    assert capture_eval_config[-1].model_reasoning_effort is None
+
+    evaluate.main("fake/model", "hallu", model_reasoning_effort="low")
+    assert capture_eval_config[-1].model_reasoning_effort == "low"
+
+
 def test_main_rejects_mixed_evaluator_families() -> None:
     with pytest.raises(ValueError, match="multiple evaluator families"):
         evaluate.main("fake/model", "hallu,refusal:all")

@@ -273,6 +273,7 @@ class BaseEvaluator(ABC):
             trust_remote_code=self.trust_remote_code,
             token=self.eval_config.model_token,
             dataset_id=self.dataset_config.dataset_id,
+            dataset_revision=self.dataset_config.dataset_revision,
         )
         test_dataset = custom_dataset.preprocess(
             self.tokenizer,
@@ -283,6 +284,7 @@ class BaseEvaluator(ABC):
             thinking_start_token=self.eval_config.thinking_start_token,
             thinking_end_token=self.eval_config.thinking_end_token,
             pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
+            model_reasoning_effort=self.eval_config.model_reasoning_effort,
         )
         # Deterministic shuffle before sampling
         test_dataset = test_dataset.shuffle(seed=self.dataset_config.seed)
@@ -1162,6 +1164,7 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 self.eval_config.judge_path_or_repo_id,
                 token=self.eval_config.judge_token,
                 trust_remote_code=self.eval_config.trust_remote_code,
+                revision=self.eval_config.judge_revision,
             )
             # left padding is useful when batch-generating variable-length prompts
             self.judge_tokenizer.padding_side = "left"

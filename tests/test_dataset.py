@@ -99,6 +99,44 @@ def test_free_text_preprocess_function_omits_default_system_prompt_when_disabled
     assert captured_messages == [[{"role": "user", "content": "q1\n"}]]
 
 
+@pytest.mark.parametrize("reasoning_effort", ["low", None])
+def test_free_text_preprocess_function_forwards_reasoning_effort(
+    monkeypatch: pytest.MonkeyPatch,
+    reasoning_effort: str | None,
+) -> None:
+    captured_kwargs: list[dict] = []
+
+    class StubTokenizer:
+        name_or_path = "fake/model"
+
+        def __call__(self, texts, **_kwargs):
+            if isinstance(texts, str):
+                texts = [texts]
+            return {
+                "input_ids": [[1, 2] for _ in texts],
+                "attention_mask": [[1, 1] for _ in texts],
+            }
+
+    def fake_safe_apply_chat_template(_tokenizer, _messages, **kwargs):
+        captured_kwargs.append(kwargs)
+        return "formatted"
+
+    monkeypatch.setattr(
+        custom_dataset_module, "safe_apply_chat_template", fake_safe_apply_chat_template
+    )
+
+    free_text_preprocess_function(
+        {"question": ["q1"], "answer": ["a1"]},
+        cast("PreTrainedTokenizerBase", StubTokenizer()),
+        max_length=8,
+        gt_max_length=4,
+        has_stereotype=False,
+        reasoning_effort=reasoning_effort,
+    )
+
+    assert captured_kwargs[0]["reasoning_effort"] == reasoning_effort
+
+
 def test_free_text_preprocess_function_emits_refusal_labels(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -170,15 +208,18 @@ def test_free_text_preprocess_function_uses_default_system_prompt_when_enabled(
     ]
 
 
-def test_custom_dataset_passes_token_without_obsolete_remote_code_arg(
+@pytest.mark.parametrize("dataset_revision", [None, "dataset-sha"])
+def test_custom_dataset_passes_token_and_dataset_revision_to_load_dataset(
     monkeypatch: pytest.MonkeyPatch,
-):
+    dataset_revision: str | None,
+) -> None:
     ds = Dataset.from_dict({"question": ["q"], "answer": ["a"]})
     captured: dict[str, object] = {}
 
-    def fake_load_dataset(path, *, token=None):
+    def fake_load_dataset(path, *, token=None, revision=None):
         captured["path"] = path
         captured["token"] = token
+        captured["revision"] = revision
         return DatasetDict({"train": ds})
 
     monkeypatch.setattr(custom_dataset_module, "load_dataset", fake_load_dataset)
@@ -188,11 +229,13 @@ def test_custom_dataset_passes_token_without_obsolete_remote_code_arg(
         DatasetType.BIAS,
         trust_remote_code=True,
         token="hf_test_token",
+        dataset_revision=dataset_revision,
     )
 
     assert captured == {
         "path": "repo/gated-dataset",
         "token": "hf_test_token",
+        "revision": dataset_revision,
     }
 
 

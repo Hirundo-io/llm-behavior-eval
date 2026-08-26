@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING
 import torch
 
 from .eval_engine import EvalEngine
+from .gptoss_harmony import (
+    HarmonyParseError,
+    extract_harmony_final_answer,
+    is_gpt_oss_model,
+)
 from .util_functions import (
     build_vllm_prompt_token_ids,
     load_tokenizer_with_transformers,
@@ -38,6 +43,7 @@ class VllmEvalEngine(EvalEngine):
         self.max_model_len = max_model_len
 
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
+        self._is_gpt_oss = is_gpt_oss_model(model_path_or_repo_id)
         lora_path_or_repo_id = (
             eval_config.lora_path_or_repo_id if not self.is_judge else None
         )
@@ -46,10 +52,14 @@ class VllmEvalEngine(EvalEngine):
         batch_size_config = self._get_batch_size_from_config(eval_config, is_judge)
         batch_size = batch_size_config or 256
 
+        revision = (
+            eval_config.judge_revision if is_judge else eval_config.model_revision
+        )
         self.tokenizer = load_tokenizer_with_transformers(
             model_path_or_repo_id,
             model_token,
             trust_remote_code=eval_config.trust_remote_code,
+            revision=revision,
         )
         if not self.tokenizer.pad_token:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -86,6 +96,8 @@ class VllmEvalEngine(EvalEngine):
             language_model_only=True
             if self.is_judge
             else vllm_config.language_model_only,
+            revision=revision,
+            tokenizer_revision=revision,
         )
         self._vllm_sampling_params = None
         self.lora_request: LoRARequest | None
@@ -156,8 +168,18 @@ class VllmEvalEngine(EvalEngine):
                 finish_reasons.append(None)
                 continue
             first_candidate = candidates[0]
-            responses.append(getattr(first_candidate, "text", ""))
+            text = getattr(first_candidate, "text", "")
             finish_reason = getattr(first_candidate, "finish_reason", None)
+            if self._is_gpt_oss:
+                try:
+                    text = extract_harmony_final_answer(text)
+                except HarmonyParseError:
+                    # Fail closed: never fall back to the raw, possibly
+                    # analysis/commentary-contaminated completion text.
+                    responses.append("")
+                    finish_reasons.append("harmony_parse_error")
+                    continue
+            responses.append(text)
             if finish_reason == "length":
                 finish_reasons.append("length")
             elif finish_reason == "stop":
@@ -201,6 +223,9 @@ class VllmEvalEngine(EvalEngine):
             repetition_penalty=repetition_penalty,
             stop_token_ids=stop_token_ids,
             seed=sampling_config.seed,
+            # GPT-OSS Harmony channel markers must survive decoding so the
+            # final-channel answer can be parsed out of the raw completion text.
+            skip_special_tokens=not self._is_gpt_oss,
         )
 
     def _collect_stop_token_ids(self) -> list[int] | None:

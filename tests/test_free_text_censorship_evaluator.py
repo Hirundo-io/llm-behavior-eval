@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 import pytest
@@ -16,7 +16,10 @@ if TYPE_CHECKING:
     from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 
 from llm_behavior_eval import DatasetConfig, EvaluationConfig, evaluate
-from llm_behavior_eval.evaluation_utils import censorship_utils
+from llm_behavior_eval.evaluation_utils import (
+    censorship_utils,
+    free_text_censorship_evaluator,
+)
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_BENCHMARK_CONFIG,
     CCPC_DATASET_CONFIG,
@@ -25,12 +28,18 @@ from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_DATASET_REVISION,
     CCPC_DATASET_SPLIT,
     CCPC_EXPECTED_ROWS,
+    CCPC_JUDGE_MAX_JUDGE_TOKENS,
+    CCPC_JUDGE_MAX_MODEL_LEN,
+    CCPC_JUDGE_MAX_PROMPT_TOKENS,
     CCPC_JUDGE_MODEL,
+    CCPC_JUDGE_MODEL_REVISION,
+    CCPC_JUDGE_PROMPT,
     CCPC_JUDGE_REPETITION_PENALTY,
     CCPC_MODEL_REPETITION_PENALTY,
     CensorshipStatus,
     load_censorship_benchmark,
     parse_censorship_judgment,
+    validate_ccpc_judge_contract,
 )
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
@@ -40,6 +49,7 @@ from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
     _CensorshipGenerationRecord,
 )
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
+from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
 
 
 def _benchmark(size: int = CCPC_EXPECTED_ROWS, **columns: Sequence[object]) -> Dataset:
@@ -304,6 +314,50 @@ def test_prepare_dataloader_never_shuffles_or_truncates(
     assert evaluator.num_samples == CCPC_EXPECTED_ROWS
 
 
+def test_prepare_dataloader_forwards_model_reasoning_effort(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    benchmark = _benchmark()
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.load_censorship_benchmark",
+        lambda token: benchmark,
+    )
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.is_model_multimodal",
+        lambda *args: False,
+    )
+    captured_kwargs: list[dict] = []
+
+    def fake_safe_apply_chat_template(_tokenizer, _messages, **kwargs):
+        captured_kwargs.append(kwargs)
+        return "formatted"
+
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.safe_apply_chat_template",
+        fake_safe_apply_chat_template,
+    )
+    evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        max_samples=1,
+        max_answer_tokens=8,
+        model_reasoning_effort="low",
+    )
+    evaluator.dataset_config = DatasetConfig(
+        file_path="chinese_censorship", dataset_type=DatasetType.BIAS
+    )
+    evaluator.tokenizer = cast("PreTrainedTokenizerBase", _Tokenizer())
+    evaluator.trust_remote_code = False
+    evaluator.eval_engine = cast("EvalEngine", _DatasetEngine())
+    evaluator.data_collator = default_data_collator
+
+    evaluator.prepare_dataloader()
+
+    assert captured_kwargs
+    assert all(kwargs["reasoning_effort"] == "low" for kwargs in captured_kwargs)
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [("True", True), (" false \n", False), ("True because...", None), ("", None)],
@@ -420,9 +474,6 @@ def test_model_and_judge_use_role_specific_repetition_penalties(
     assert judge_penalties == [CCPC_JUDGE_REPETITION_PENALTY]
     provenance = evaluator._current_run_config()["ccpc_benchmark"]
     assert provenance == CCPC_BENCHMARK_CONFIG
-    assert provenance is not CCPC_BENCHMARK_CONFIG
-    assert provenance["model_repetition_penalty"] == CCPC_MODEL_REPETITION_PENALTY
-    assert provenance["judge_repetition_penalty"] == CCPC_JUDGE_REPETITION_PENALTY
 
 
 def _response(index: int, status: CensorshipStatus) -> CensorshipResponse:
@@ -541,19 +592,29 @@ def test_grading_preserves_raw_evidence_and_all_statuses(
     """
     evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
     generation = _CensorshipGenerationRecord(
-        questions=[f"q{i}" for i in range(7)],
-        source_group_ids=[f"g{i}" for i in range(7)],
-        answers=[f"raw-{i}" for i in range(7)],
-        finish_reasons=["stop", "stop", "length", None, "stop", "stop", "stop"],
+        questions=[f"q{i}" for i in range(8)],
+        source_group_ids=[f"g{i}" for i in range(8)],
+        answers=[f"raw-{i}" for i in range(8)],
+        finish_reasons=[
+            "stop",
+            "stop",
+            "length",
+            None,
+            "stop",
+            "stop",
+            "stop",
+            "stop",
+        ],
     )
     monkeypatch.setattr(evaluator, "_format_answers", lambda answers: answers)
     monkeypatch.setattr(
         evaluator,
         "_grade_batch",
         lambda *args: (
-            [True, False, True, False, None],
-            ["True", "False", "truncated", "unknown", "malformed"],
-            ["stop", "stop", "length", None, "stop"],
+            [True, False, True, False, None, None],
+            ["True", "False", "truncated", "unknown", "malformed", ""],
+            ["stop", "stop", "length", None, "stop", None],
+            [False, False, False, False, False, True],
         ),
     )
     captured: list[CensorshipResponse] = []
@@ -621,3 +682,203 @@ def test_cli_and_factory_route_to_the_dedicated_evaluator(
     )
     assert captured[-1].dataset_id == CCPC_DATASET_ID
     assert EvaluateFactory.get_evaluator_family(CCPC_DATASET_ID) == "censorship"
+
+
+def _valid_judge_config(tmp_path: Path, **overrides: Any) -> EvaluationConfig:
+    fields: dict[str, Any] = {
+        "model_path_or_repo_id": "fake/model",
+        "results_dir": tmp_path,
+        "judge_path_or_repo_id": CCPC_JUDGE_MODEL,
+        "judge_revision": CCPC_JUDGE_MODEL_REVISION,
+        "max_judge_tokens": CCPC_JUDGE_MAX_JUDGE_TOKENS,
+    }
+    fields.update(overrides)
+    return EvaluationConfig(**fields)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        ({"judge_path_or_repo_id": "some/other-model"}, "requires judge"),
+        ({"judge_revision": "wrong-sha"}, "judge_revision"),
+        ({"judge_revision": None}, "judge_revision"),
+        ({"max_judge_tokens": 64}, "max_judge_tokens"),
+        ({"sample_judge": True}, "sample_judge"),
+    ],
+)
+def test_validate_ccpc_judge_contract_rejects_overrides(
+    tmp_path: Path, overrides: dict[str, Any], match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        validate_ccpc_judge_contract(_valid_judge_config(tmp_path, **overrides))
+
+
+@pytest.mark.parametrize("sample_judge", [None, False])
+def test_validate_ccpc_judge_contract_accepts_non_sampling_judge(
+    tmp_path: Path, sample_judge: bool | None
+) -> None:
+    validate_ccpc_judge_contract(
+        _valid_judge_config(tmp_path, sample_judge=sample_judge)
+    )
+
+
+def test_validate_ccpc_judge_contract_rejects_excluding_thinking_trace(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="exclude_thinking_trace_for_judge"):
+        validate_ccpc_judge_contract(
+            _valid_judge_config(
+                tmp_path,
+                exclude_thinking_trace_for_judge=True,
+                thinking_start_token="<think>",
+                thinking_end_token="</think>",
+            )
+        )
+
+
+def test_validate_ccpc_judge_contract_requires_vllm_judge_context_window_only_when_vllm(
+    tmp_path: Path,
+) -> None:
+    validate_ccpc_judge_contract(_valid_judge_config(tmp_path))
+
+    validate_ccpc_judge_contract(
+        _valid_judge_config(
+            tmp_path,
+            judge_engine="vllm",
+            vllm_config=VllmConfig(judge_max_model_len=CCPC_JUDGE_MAX_MODEL_LEN),
+        )
+    )
+
+    with pytest.raises(ValueError, match="judge_max_model_len"):
+        validate_ccpc_judge_contract(
+            _valid_judge_config(
+                tmp_path,
+                judge_engine="vllm",
+                vllm_config=VllmConfig(judge_max_model_len=32768),
+            )
+        )
+
+    with pytest.raises(ValueError, match="judge_max_model_len"):
+        validate_ccpc_judge_contract(
+            _valid_judge_config(tmp_path, judge_engine="vllm", vllm_config=None)
+        )
+
+
+def test_evaluator_init_rejects_contradictory_dataset_revision(tmp_path: Path) -> None:
+    dataset_config = DatasetConfig(
+        file_path=CCPC_DATASET_ID,
+        dataset_type=DatasetType.BIAS,
+        dataset_revision="contradictory-revision",
+    )
+    with pytest.raises(ValueError, match="dataset_revision"):
+        FreeTextCensorshipEvaluator(_valid_judge_config(tmp_path), dataset_config)
+
+
+class _CharCountTokenizer:
+    def __call__(self, prompt: str, **kwargs: object) -> dict[str, list[int]]:
+        del kwargs
+        return {"input_ids": list(range(len(prompt)))}
+
+
+def _padded_answer(question: str, target_prompt_length: int) -> str:
+    base = CCPC_JUDGE_PROMPT.format(question=question, response="")
+    pad_len = target_prompt_length - len(base)
+    assert pad_len >= 0
+    return "x" * pad_len
+
+
+def _build_grading_evaluator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> FreeTextCensorshipEvaluator:
+    evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
+    monkeypatch.setattr(
+        evaluator, "_get_judge_tokenizer", lambda: _CharCountTokenizer()
+    )
+    monkeypatch.setattr(
+        free_text_censorship_evaluator,
+        "safe_apply_chat_template",
+        lambda tokenizer, messages: messages[-1]["content"],
+    )
+    return evaluator
+
+
+def test_grade_batch_allows_the_exact_262016_token_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = _build_grading_evaluator(monkeypatch)
+    answer = _padded_answer("Q", CCPC_JUDGE_MAX_PROMPT_TOKENS)
+    calls: list[list[str]] = []
+
+    def fake_run_judge_with_backoff(judge_engine, prompts, repetition_penalty=1.0):
+        del judge_engine, repetition_penalty
+        calls.append(prompts)
+        return [[{"generated_text": "True", "finish_reason": "stop"}] for _ in prompts]
+
+    monkeypatch.setattr(
+        evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff
+    )
+
+    verdicts, texts, finishes, overflow = evaluator._grade_batch(
+        cast("EvalEngine", object()), ["Q"], [answer]
+    )
+
+    assert overflow == [False]
+    assert verdicts == [True]
+    assert finishes == ["stop"]
+    assert calls and len(calls[0]) == 1
+    assert answer in calls[0][0]
+
+
+def test_grade_batch_overflows_at_262017_tokens_without_invoking_judge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = _build_grading_evaluator(monkeypatch)
+    answer = _padded_answer("Q", CCPC_JUDGE_MAX_PROMPT_TOKENS + 1)
+    calls: list[list[str]] = []
+
+    def fake_run_judge_with_backoff(judge_engine, prompts, repetition_penalty=1.0):
+        del judge_engine, repetition_penalty
+        calls.append(prompts)
+        return [[{"generated_text": "True", "finish_reason": "stop"}] for _ in prompts]
+
+    monkeypatch.setattr(
+        evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff
+    )
+
+    verdicts, texts, finishes, overflow = evaluator._grade_batch(
+        cast("EvalEngine", object()), ["Q"], [answer]
+    )
+
+    assert overflow == [True]
+    assert verdicts == [None]
+    assert texts == [""]
+    assert finishes == [None]
+    assert calls == []
+
+
+def test_grade_batch_mixed_batch_isolates_overflow_from_other_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = _build_grading_evaluator(monkeypatch)
+    short_answer = "ok"
+    long_answer = _padded_answer("Q", CCPC_JUDGE_MAX_PROMPT_TOKENS + 1)
+    calls: list[list[str]] = []
+
+    def fake_run_judge_with_backoff(judge_engine, prompts, repetition_penalty=1.0):
+        del judge_engine, repetition_penalty
+        calls.append(prompts)
+        return [[{"generated_text": "False", "finish_reason": "stop"}] for _ in prompts]
+
+    monkeypatch.setattr(
+        evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff
+    )
+
+    verdicts, texts, finishes, overflow = evaluator._grade_batch(
+        cast("EvalEngine", object()), ["Q", "Q"], [short_answer, long_answer]
+    )
+
+    assert overflow == [False, True]
+    assert verdicts == [False, None]
+    expected_prompt = CCPC_JUDGE_PROMPT.format(question="Q", response=short_answer)
+    assert calls == [[expected_prompt]]

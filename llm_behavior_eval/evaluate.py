@@ -222,6 +222,16 @@ def main(
             ),
         ),
     ] = None,
+    model_revision: Annotated[
+        str | None,
+        typer.Option(
+            "--model-revision",
+            help=(
+                "HuggingFace revision (e.g. a commit SHA) pinning the evaluated "
+                "model and its tokenizer."
+            ),
+        ),
+    ] = None,
     model_output_dir: Annotated[
         str | None,
         typer.Option(
@@ -248,6 +258,17 @@ def main(
         str,
         typer.Option("--judge-model", help="Judge repo id or path (optional)"),
     ] = "google/gemma-3-12b-it",
+    judge_revision: Annotated[
+        str | None,
+        typer.Option(
+            "--judge-revision",
+            help=(
+                "HuggingFace revision (e.g. a commit SHA) pinning the judge model "
+                "and its tokenizer. Required by the chinese_censorship benchmark, "
+                "which pins the judge to a frozen revision."
+            ),
+        ),
+    ] = None,
     use_mlflow: Annotated[
         bool,
         typer.Option(
@@ -574,13 +595,36 @@ def main(
             show_default=str(DEFAULT_MAX_JUDGE_TOKENS),
         ),
     ] = None,
+    model_reasoning_effort: Annotated[
+        str | None,
+        typer.Option(
+            "--model-reasoning-effort",
+            help=(
+                "Harmony-style reasoning effort level (e.g. 'low') forwarded to "
+                "target prompt rendering. Ignored by tokenizers whose chat "
+                "template does not support a reasoning_effort kwarg."
+            ),
+        ),
+    ] = None,
+    dataset_revision: Annotated[
+        str | None,
+        typer.Option(
+            "--dataset-revision",
+            help=(
+                "HuggingFace revision (e.g. a commit SHA) pinning the loaded dataset."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Run evaluations; CCPC locks its judge and trust inference checks both roles.
     Args:
         model: Model repository identifier or local path.
+        model_revision: Revision pinning the evaluated model and tokenizer.
         behavior: Behavior preset or comma-separated presets to evaluate.
         judge_model: Judge repository identifier or local path.
-        trust_remote_code: Explicit remote-code authorization, when provided.
+        judge_revision: Revision pinning the judge model and tokenizer.
+        dataset_revision: Revision pinning the loaded dataset(s).
+        trust_remote_code: Explicit remote-code authorization.
     Raises:
         ValueError: If evaluator families are mixed or the censorship judge differs
             from :data:`CCPC_JUDGE_MODEL`.
@@ -672,10 +716,12 @@ def main(
     )
     eval_config = EvaluationConfig(
         model_path_or_repo_id=model_path_or_repo_id,
+        model_revision=model_revision,
         model_output_dir=model_output_dir,
         model_token=model_token,
         lora_path_or_repo_id=lora_path_or_repo_id,
         judge_path_or_repo_id=judge_path_or_repo_id,
+        judge_revision=judge_revision,
         judge_token=judge_token,
         results_dir=result_dir,
         mlflow_config=mlflow_config,
@@ -698,6 +744,7 @@ def main(
         pass_max_answer_tokens=pass_max_answer_tokens,
         judge_batch_size=judge_batch_size,
         max_judge_tokens=max_judge_tokens,
+        model_reasoning_effort=model_reasoning_effort,
         sample_judge=sample_judge,
         use_4bit_judge=use_4bit_judge,
         sampling_config=SamplingConfig(
@@ -734,6 +781,7 @@ def main(
                     else DatasetType.BIAS,
                     preprocess_config=PreprocessConfig(),
                     seed=seed,
+                    dataset_revision=dataset_revision,
                 )
                 if evaluator is None:
                     evaluator = EvaluateFactory.create_evaluator(

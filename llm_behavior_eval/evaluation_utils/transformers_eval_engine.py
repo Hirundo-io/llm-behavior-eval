@@ -10,6 +10,7 @@ from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
 from .eval_engine import EvalEngine
+from .gptoss_harmony import is_gpt_oss_model
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import load_transformers_model_and_tokenizer
@@ -23,14 +24,23 @@ class TransformersEvalEngine(EvalEngine):
         is_judge: bool = False,
     ) -> None:
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
+        if is_gpt_oss_model(model_path_or_repo_id):
+            raise ValueError(
+                f"GPT-OSS model {model_path_or_repo_id!r} requires the vLLM engine: "
+                "the Transformers backend does not implement Harmony extraction."
+            )
         model_token = self._get_model_token(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
+        revision = (
+            eval_config.judge_revision if is_judge else eval_config.model_revision
+        )
         self.tokenizer, self.model = load_transformers_model_and_tokenizer(
             model_path_or_repo_id,
             model_token,
             use_4bit,
             eval_config.device_map,
             eval_config.trust_remote_code,
+            revision=revision,
         )
         self.data_collator = data_collator
         self.eval_config = eval_config

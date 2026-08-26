@@ -78,6 +78,8 @@ class CaptureState:
     padding_side_at_preprocess: str | None = None
     init_args: tuple[str, DatasetType] | None = None
     custom_dataset_id: str | None = None
+    dataset_revision: str | None = None
+    model_reasoning_effort: str | None = None
     engine_inits: list[bool] = field(default_factory=list)
     set_dataset_calls: list[tuple[bool, Sized]] = field(default_factory=list)
     free_model_calls: list[bool] = field(default_factory=list)
@@ -177,11 +179,13 @@ def patch_custom_dataset(
             trust_remote_code: bool = False,
             token: str | None = None,
             dataset_id: str | None = None,
+            dataset_revision: str | None = None,
         ) -> None:
             capture_state.init_args = (file_path, dataset_type)
             capture_state.trust_remote_code = trust_remote_code
             capture_state.token = token
             capture_state.custom_dataset_id = dataset_id
+            capture_state.dataset_revision = dataset_revision
             self.trust_remote_code = trust_remote_code
             self.dataset_id = dataset_id or file_path
             self.has_stereotype = False
@@ -197,6 +201,7 @@ def patch_custom_dataset(
             thinking_start_token: str | None = None,
             thinking_end_token: str | None = None,
             pass_max_answer_tokens: bool,
+            model_reasoning_effort: str | None = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
             # Capture tokenization-time padding before later tokenizer mutations.
@@ -208,6 +213,7 @@ def patch_custom_dataset(
             capture_state.thinking_start_token = thinking_start_token
             capture_state.thinking_end_token = thinking_end_token
             capture_state.pass_max_answer_tokens = pass_max_answer_tokens
+            capture_state.model_reasoning_effort = model_reasoning_effort
             return StubDataset()
 
     monkeypatch.setattr(base_evaluator_module, "CustomDataset", StubCustomDataset)

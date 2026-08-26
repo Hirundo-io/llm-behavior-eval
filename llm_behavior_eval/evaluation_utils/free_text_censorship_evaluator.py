@@ -16,15 +16,17 @@ from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .censorship_utils import (
     CCPC_BENCHMARK_CONFIG,
     CCPC_DATASET_ID,
+    CCPC_DATASET_REVISION,
     CCPC_EXPECTED_ROWS,
-    CCPC_JUDGE_MODEL,
     CCPC_JUDGE_PROMPT,
     CCPC_JUDGE_REPETITION_PENALTY,
     CCPC_MODEL_REPETITION_PENALTY,
     CensorshipBenchmarkConfig,
     CensorshipStatus,
+    judge_prompt_overflows,
     load_censorship_benchmark,
     parse_censorship_judgment,
+    validate_ccpc_judge_contract,
 )
 from .dataset_config import DatasetConfig
 from .eval_config import EvaluationConfig
@@ -64,22 +66,20 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
     def __init__(
         self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
     ) -> None:
-        """Initialize the evaluator after validating its frozen model contract.
+        """Initialize after validating the frozen CCPC contract.
 
         Args:
-            eval_config: Evaluation and model settings for the run.
-            dataset_config: Dataset settings identifying CCPC-Bench.
-
-        Returns:
-            None.
+            eval_config: Evaluation settings, including the frozen judge contract.
+            dataset_config: CCPC dataset identity and optional frozen revision.
         """
         if dataset_config.dataset_id != CCPC_DATASET_ID:
             raise ValueError(f"CCPC-Bench requires dataset_id={CCPC_DATASET_ID!r}.")
-        if eval_config.judge_path_or_repo_id != CCPC_JUDGE_MODEL:
+        if dataset_config.dataset_revision not in (None, CCPC_DATASET_REVISION):
             raise ValueError(
-                f"CCPC-Bench requires judge {CCPC_JUDGE_MODEL!r}; "
-                f"got {eval_config.judge_path_or_repo_id!r}."
+                "CCPC-Bench requires dataset_revision=None or "
+                f"{CCPC_DATASET_REVISION!r}; got {dataset_config.dataset_revision!r}."
             )
+        validate_ccpc_judge_contract(eval_config)
         super().__init__(eval_config, dataset_config)
 
     def prepare_dataloader(self) -> None:
@@ -102,6 +102,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 thinking_start_token=self.eval_config.thinking_start_token,
                 thinking_end_token=self.eval_config.thinking_end_token,
                 pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
+                reasoning_effort=self.eval_config.model_reasoning_effort,
             )
             for question in self.benchmark_questions
         ]
@@ -212,16 +213,20 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         judge_engine: EvalEngine,
         questions: list[str],
         answers: list[str],
-    ) -> tuple[list[bool | None], list[str], list[str | None]]:
+    ) -> tuple[list[bool | None], list[str], list[str | None], list[bool]]:
         """Grade one batch with the frozen binary judge rubric.
 
+        Overflowing prompts are excluded from the judge call (never truncated);
+        see ``CCPC_JUDGE_MAX_PROMPT_TOKENS``.
+
         Args:
-            judge_engine: Engine hosting the approved judge model.
-            questions: Original benchmark questions for this batch.
-            answers: Model answers corresponding to the questions.
+            judge_engine: Engine hosting the frozen judge model.
+            questions: Source questions aligned with ``answers``.
+            answers: Complete target answers to score.
 
         Returns:
-            Parsed verdicts, raw judge texts, and judge finish reasons.
+            Verdicts, raw judge texts, finish reasons, and overflow flags aligned
+            with ``questions``/``answers``.
         """
         self.prepare_judge_tokenizer()
         tokenizer = self._get_judge_tokenizer()
@@ -239,39 +244,53 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             )
             for question, answer in zip(questions, answers, strict=True)
         ]
-        outputs = self.run_judge_with_backoff(
-            judge_engine,
-            prompts,
-            repetition_penalty=CCPC_JUDGE_REPETITION_PENALTY,
-        )
-        texts = [item[0].get("generated_text") or "" for item in outputs]
-        finish_reasons = [item[0].get("finish_reason") for item in outputs]
-        return (
-            [parse_censorship_judgment(text) for text in texts],
-            texts,
-            finish_reasons,
-        )
+        overflow_flags = [
+            judge_prompt_overflows(len(tokenizer(prompt)["input_ids"]))
+            for prompt in prompts
+        ]
+        judged_indices = [
+            index for index, overflow in enumerate(overflow_flags) if not overflow
+        ]
+        verdicts: list[bool | None] = [None] * len(prompts)
+        texts: list[str] = [""] * len(prompts)
+        finish_reasons: list[str | None] = [None] * len(prompts)
+        if judged_indices:
+            outputs = self.run_judge_with_backoff(
+                judge_engine,
+                [prompts[index] for index in judged_indices],
+                repetition_penalty=CCPC_JUDGE_REPETITION_PENALTY,
+            )
+            for index, output in zip(judged_indices, outputs, strict=True):
+                text = output[0].get("generated_text") or ""
+                texts[index] = text
+                finish_reasons[index] = output[0].get("finish_reason")
+                verdicts[index] = parse_censorship_judgment(text)
+        return verdicts, texts, finish_reasons, overflow_flags
 
     @staticmethod
     def _status(
         model_finish: str | None,
         judge_finish: str | None,
         verdict: bool | None,
+        judge_overflow: bool = False,
     ) -> CensorshipStatus:
         """Resolve model and judge outcomes to one exhaustive row status.
 
         Args:
-            model_finish: Finish reason from evaluated-model generation.
-            judge_finish: Finish reason from judge generation.
-            verdict: Parsed judge verdict, if determinate.
+            model_finish: Target generation finish reason.
+            judge_finish: Judge generation finish reason.
+            verdict: Parsed judge verdict, if any.
+            judge_overflow: Whether the complete judge prompt exceeded its budget.
 
         Returns:
-            The status that preserves the first relevant failure condition.
+            The determinate or failure status for one benchmark row.
         """
         if model_finish == "length":
             return CensorshipStatus.MODEL_INCOMPLETE
         if model_finish != "stop":
             return CensorshipStatus.MODEL_UNKNOWN
+        if judge_overflow:
+            return CensorshipStatus.JUDGE_PROMPT_OVERFLOW
         if judge_finish == "length":
             return CensorshipStatus.JUDGE_INCOMPLETE
         if judge_finish != "stop":
@@ -348,9 +367,6 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         Args:
             generations: Batched evaluated-model generation records.
             judge_engine: Engine hosting the approved judge model.
-
-        Returns:
-            None.
         """
         if judge_engine is None:
             raise ValueError("CCPC-Bench grading requires a judge engine.")
@@ -365,16 +381,29 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             verdicts: list[bool | None] = [None] * len(generation.answers)
             judge_raw = [""] * len(generation.answers)
             judge_finishes: list[str | None] = [None] * len(generation.answers)
+            judge_overflows = [False] * len(generation.answers)
             if indices:
-                batch_verdicts, batch_raw, batch_finishes = self._grade_batch(
-                    judge_engine,
-                    [generation.questions[i] for i in indices],
-                    [judge_answers[i] for i in indices],
+                batch_verdicts, batch_raw, batch_finishes, batch_overflows = (
+                    self._grade_batch(
+                        judge_engine,
+                        [generation.questions[i] for i in indices],
+                        [judge_answers[i] for i in indices],
+                    )
                 )
-                for i, verdict, raw, finish in zip(
-                    indices, batch_verdicts, batch_raw, batch_finishes, strict=True
+                for i, verdict, raw, finish, overflow in zip(
+                    indices,
+                    batch_verdicts,
+                    batch_raw,
+                    batch_finishes,
+                    batch_overflows,
+                    strict=True,
                 ):
-                    verdicts[i], judge_raw[i], judge_finishes[i] = verdict, raw, finish
+                    verdicts[i], judge_raw[i], judge_finishes[i], judge_overflows[i] = (
+                        verdict,
+                        raw,
+                        finish,
+                        overflow,
+                    )
             for (
                 group_id,
                 question,
@@ -383,6 +412,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 verdict,
                 raw,
                 judge_finish,
+                judge_overflow,
             ) in zip(
                 generation.source_group_ids,
                 generation.questions,
@@ -391,9 +421,12 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 verdicts,
                 judge_raw,
                 judge_finishes,
+                judge_overflows,
                 strict=True,
             ):
-                status = self._status(model_finish, judge_finish, verdict)
+                status = self._status(
+                    model_finish, judge_finish, verdict, judge_overflow
+                )
                 responses.append(
                     {
                         "source_group_id": group_id,
@@ -416,9 +449,6 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
 
     def _current_run_config(self) -> _CensorshipRunConfig:
         """Return the base run identity plus frozen CCPC-Bench provenance.
-
-        Args:
-            None.
 
         Returns:
             The serializable run configuration and benchmark contract pins.

@@ -87,6 +87,7 @@ class SafeApplyChatTemplate:
         thinking_end_token: str | None = None,
         pass_max_answer_tokens: bool = False,
         reasoning: bool | None = None,
+        reasoning_effort: str | None = None,
     ) -> str:
         """
         Applies the chat template to the messages, ensuring that the system message is handled correctly.
@@ -107,6 +108,8 @@ class SafeApplyChatTemplate:
             pass_max_answer_tokens: Whether to pass the max_answer_tokens to the chat template.
             reasoning (optional): Backward-compatible alias for `enable_thinking`.
                 When provided, this takes precedence over `enable_thinking`.
+            reasoning_effort: Harmony-style reasoning effort level (e.g. 'low')
+                forwarded to `apply_chat_template` when the tokenizer supports it.
 
         Returns:
             The formatted string after applying the chat template.
@@ -191,11 +194,18 @@ class SafeApplyChatTemplate:
             thinking_kwarg: dict = (
                 {thinking_kwarg_name: enable_thinking} if thinking_kwarg_name else {}
             )
+            reasoning_effort_kwarg: dict = (
+                {"reasoning_effort": reasoning_effort}
+                if reasoning_effort is not None
+                and _supports_reasoning_kwarg_or_token(tokenizer, "reasoning_effort")
+                else {}
+            )
             return tokenizer.apply_chat_template(
                 conversation,
                 tokenize=False,
                 add_generation_prompt=True,
                 **thinking_kwarg,
+                **reasoning_effort_kwarg,
             )
 
         # Construct the input message
@@ -249,6 +259,7 @@ def load_tokenizer_with_transformers(
     model_name: str,
     token: str | None = None,
     trust_remote_code: bool = False,
+    revision: str | None = None,
 ) -> TokenizersBackend | SentencePieceBackend:
     """
     Load a tokenizer by first trying the standard method and, if a ValueError
@@ -258,6 +269,7 @@ def load_tokenizer_with_transformers(
         model_name: The repo-id or local path of the model to load.
         token: The HuggingFace token to use for the model.
         trust_remote_code: Whether to trust remote code.
+        revision: HuggingFace revision pinning the tokenizer.
     """
     try:
         # Attempt to load the tokenizer normally
@@ -265,6 +277,7 @@ def load_tokenizer_with_transformers(
             model_name,
             token=token,
             trust_remote_code=trust_remote_code,
+            revision=revision,
         )
         logging.info("Tokenizer loaded successfully from the remote repository.")
     except ValueError as error:
@@ -279,6 +292,7 @@ def load_tokenizer_with_transformers(
             local_files_only=True,
             token=token,
             trust_remote_code=trust_remote_code,
+            revision=revision,
         )
         logging.info("Tokenizer loaded successfully from the local files.")
     # Required for type checking
@@ -387,6 +401,8 @@ def load_vllm_model(
     enable_lora: bool = False,
     max_lora_rank: int = VllmConfig.model_fields["max_lora_rank"].default,
     language_model_only: bool = False,
+    revision: str | None = None,
+    tokenizer_revision: str | None = None,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -408,6 +424,9 @@ def load_vllm_model(
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
         language_model_only: Whether to omit multimodal encoders and load only the
             language model. This has no effect on text-only architectures.
+        revision: HuggingFace revision pinning the model.
+        tokenizer_revision: HuggingFace revision pinning the tokenizer.
+            Defaults to ``revision`` when omitted and ``revision`` is set.
 
     Returns:
         An instantiated ``vllm.LLM`` engine configured with the requested dtype,
@@ -455,12 +474,14 @@ def load_vllm_model(
             hf_token=token,
             max_model_len=max_model_len,
             tokenizer_mode=tokenizer_mode or default_tokenizer_mode,
-            config_format=config_format,
-            load_format=load_format,
+            config_format=config_format or "auto",
+            load_format=load_format or "auto",
             gpu_memory_utilization=gpu_memory_utilization,
             enable_lora=enable_lora,
             max_lora_rank=max_lora_rank,
             language_model_only=language_model_only,
+            revision=revision,
+            tokenizer_revision=tokenizer_revision or revision,
             compilation_config=CompilationConfig(cudagraph_specialize_lora=False),
         )
 
@@ -491,6 +512,7 @@ def load_transformers_model_and_tokenizer(
     use_4bit: bool = False,
     device_map: str | dict[str, int] | None = "auto",
     trust_remote_code: bool = False,
+    revision: str | None = None,
 ) -> tuple[PreTrainedTokenizerBase, GenerativePreTrainedModel]:
     """
     Load a tokenizer and a causal language model based on the model name/path,
@@ -505,6 +527,7 @@ def load_transformers_model_and_tokenizer(
         use_4bit: If True, load the model in 4-bit mode using bitsandbytes.
         device_map: The device map to use for the model.
         trust_remote_code: Whether to trust remote code.
+        revision: HuggingFace revision pinning both the model and its tokenizer.
 
     Returns:
         A tuple containing the loaded tokenizer and model.
@@ -515,7 +538,7 @@ def load_transformers_model_and_tokenizer(
     logging.info("Using dtype: %s", dtype)
     # Load tokenizer
     tokenizer = load_tokenizer_with_transformers(
-        model_name, token=token, trust_remote_code=trust_remote_code
+        model_name, token=token, trust_remote_code=trust_remote_code, revision=revision
     )
     if not isinstance(tokenizer, PreTrainedTokenizerBase):
         raise ValueError("Tokenizer is not supported!")
@@ -543,6 +566,7 @@ def load_transformers_model_and_tokenizer(
             quantization_config=quantization_config,
             trust_remote_code=trust_remote_code,
             token=token,
+            revision=revision,
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
@@ -553,6 +577,7 @@ def load_transformers_model_and_tokenizer(
             quantization_config=quantization_config,
             trust_remote_code=trust_remote_code,
             token=token,
+            revision=revision,
         )
 
     return tokenizer, cast("GenerativePreTrainedModel", model)
