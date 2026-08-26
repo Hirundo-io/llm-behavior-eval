@@ -474,6 +474,7 @@ def test_model_and_judge_use_role_specific_repetition_penalties(
     assert judge_penalties == [CCPC_JUDGE_REPETITION_PENALTY]
     provenance = evaluator._current_run_config()["ccpc_benchmark"]
     assert provenance == CCPC_BENCHMARK_CONFIG
+    assert provenance is not CCPC_BENCHMARK_CONFIG
 
 
 def _response(index: int, status: CensorshipStatus) -> CensorshipResponse:
@@ -701,7 +702,6 @@ def _valid_judge_config(tmp_path: Path, **overrides: Any) -> EvaluationConfig:
     [
         ({"judge_path_or_repo_id": "some/other-model"}, "requires judge"),
         ({"judge_revision": "wrong-sha"}, "judge_revision"),
-        ({"judge_revision": None}, "judge_revision"),
         ({"max_judge_tokens": 64}, "max_judge_tokens"),
         ({"sample_judge": True}, "sample_judge"),
     ],
@@ -711,6 +711,19 @@ def test_validate_ccpc_judge_contract_rejects_overrides(
 ) -> None:
     with pytest.raises(ValueError, match=match):
         validate_ccpc_judge_contract(_valid_judge_config(tmp_path, **overrides))
+
+
+def test_validate_ccpc_judge_contract_applies_omitted_defaults(tmp_path: Path) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        judge_path_or_repo_id=CCPC_JUDGE_MODEL,
+    )
+
+    validate_ccpc_judge_contract(config)
+
+    assert config.judge_revision == CCPC_JUDGE_MODEL_REVISION
+    assert config.max_judge_tokens == CCPC_JUDGE_MAX_JUDGE_TOKENS
 
 
 @pytest.mark.parametrize("sample_judge", [None, False])
@@ -819,12 +832,13 @@ def test_grade_batch_allows_the_exact_262016_token_boundary(
         evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff
     )
 
-    verdicts, texts, finishes, overflow = evaluator._grade_batch(
+    verdicts, judge_texts, finishes, overflow = evaluator._grade_batch(
         cast("EvalEngine", object()), ["Q"], [answer]
     )
 
     assert overflow == [False]
     assert verdicts == [True]
+    assert judge_texts == ["True"]
     assert finishes == ["stop"]
     assert calls and len(calls[0]) == 1
     assert answer in calls[0][0]
@@ -846,13 +860,13 @@ def test_grade_batch_overflows_at_262017_tokens_without_invoking_judge(
         evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff
     )
 
-    verdicts, texts, finishes, overflow = evaluator._grade_batch(
+    verdicts, judge_texts, finishes, overflow = evaluator._grade_batch(
         cast("EvalEngine", object()), ["Q"], [answer]
     )
 
     assert overflow == [True]
     assert verdicts == [None]
-    assert texts == [""]
+    assert judge_texts == [""]
     assert finishes == [None]
     assert calls == []
 
@@ -874,11 +888,12 @@ def test_grade_batch_mixed_batch_isolates_overflow_from_other_rows(
         evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff
     )
 
-    verdicts, texts, finishes, overflow = evaluator._grade_batch(
+    verdicts, judge_texts, finishes, overflow = evaluator._grade_batch(
         cast("EvalEngine", object()), ["Q", "Q"], [short_answer, long_answer]
     )
 
     assert overflow == [False, True]
     assert verdicts == [False, None]
+    assert judge_texts == ["False", ""]
     expected_prompt = CCPC_JUDGE_PROMPT.format(question="Q", response=short_answer)
     assert calls == [[expected_prompt]]

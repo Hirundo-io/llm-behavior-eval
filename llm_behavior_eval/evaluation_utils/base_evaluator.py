@@ -285,6 +285,7 @@ class BaseEvaluator(ABC):
             thinking_end_token=self.eval_config.thinking_end_token,
             pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
             model_reasoning_effort=self.eval_config.model_reasoning_effort,
+            model_revision=self.eval_config.model_revision,
         )
         # Deterministic shuffle before sampling
         test_dataset = test_dataset.shuffle(seed=self.dataset_config.seed)

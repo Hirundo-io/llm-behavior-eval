@@ -95,6 +95,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                     self.tokenizer.name_or_path,
                     self.trust_remote_code,
                     self.eval_config.model_token,
+                    self.eval_config.model_revision,
                 ),
                 max_answer_tokens=self.eval_config.max_answer_tokens,
                 enable_thinking=self.eval_config.enable_thinking,
@@ -252,7 +253,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             index for index, overflow in enumerate(overflow_flags) if not overflow
         ]
         verdicts: list[bool | None] = [None] * len(prompts)
-        texts: list[str] = [""] * len(prompts)
+        judge_texts: list[str] = [""] * len(prompts)
         finish_reasons: list[str | None] = [None] * len(prompts)
         if judged_indices:
             outputs = self.run_judge_with_backoff(
@@ -262,10 +263,10 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             )
             for index, output in zip(judged_indices, outputs, strict=True):
                 text = output[0].get("generated_text") or ""
-                texts[index] = text
+                judge_texts[index] = text
                 finish_reasons[index] = output[0].get("finish_reason")
                 verdicts[index] = parse_censorship_judgment(text)
-        return verdicts, texts, finish_reasons, overflow_flags
+        return verdicts, judge_texts, finish_reasons, overflow_flags
 
     @staticmethod
     def _status(

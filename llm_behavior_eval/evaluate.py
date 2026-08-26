@@ -227,8 +227,8 @@ def main(
         typer.Option(
             "--model-revision",
             help=(
-                "HuggingFace revision (e.g. a commit SHA) pinning the evaluated "
-                "model and its tokenizer."
+                "HuggingFace revision selection (e.g. a commit SHA, tag, or branch) "
+                "for the evaluated model and tokenizer."
             ),
         ),
     ] = None,
@@ -263,9 +263,9 @@ def main(
         typer.Option(
             "--judge-revision",
             help=(
-                "HuggingFace revision (e.g. a commit SHA) pinning the judge model "
-                "and its tokenizer. Required by the chinese_censorship benchmark, "
-                "which pins the judge to a frozen revision."
+                "HuggingFace revision selection (e.g. a commit SHA, tag, or branch) "
+                "for the judge model and tokenizer. CCPC defaults to its canonical "
+                "judge revision."
             ),
         ),
     ] = None,
@@ -617,13 +617,16 @@ def main(
     ] = None,
 ) -> None:
     """Run evaluations; CCPC locks its judge and trust inference checks both roles.
+
     Args:
         model: Model repository identifier or local path.
-        model_revision: Revision pinning the evaluated model and tokenizer.
+        model_revision: Revision selection for the evaluated model and tokenizer.
         behavior: Behavior preset or comma-separated presets to evaluate.
         judge_model: Judge repository identifier or local path.
-        judge_revision: Revision pinning the judge model and tokenizer.
-        dataset_revision: Revision pinning the loaded dataset(s).
+        judge_revision: Revision selection for the judge model and tokenizer.
+        model_reasoning_effort: Optional reasoning-effort value such as ``low``
+            forwarded to target prompt rendering and omitted for unsupported templates.
+        dataset_revision: Revision selection for the loaded dataset(s).
         trust_remote_code: Explicit remote-code authorization.
     Raises:
         ValueError: If evaluator families are mixed or the censorship judge differs

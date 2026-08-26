@@ -40,18 +40,31 @@ class HarmonyParseError(ValueError):
 
 
 def is_gpt_oss_model(model_path_or_repo_id: str) -> bool:
-    """Return True when ``gpt-oss`` appears as a standalone name segment."""
+    """Return whether a model path or repository ID identifies GPT-OSS.
+
+    Args:
+        model_path_or_repo_id: Model repository ID or local model path.
+
+    Returns:
+        True when ``gpt-oss`` appears as a standalone name segment.
+    """
     return _GPT_OSS_MODEL_MARKER_RE.search(model_path_or_repo_id) is not None
 
 
 def extract_harmony_final_answer(raw_text: str) -> str:
     """Concatenate ``final``-channel content from a Harmony completion.
 
-    ``raw_text`` must retain Harmony control tokens (``skip_special_tokens=False``).
+    Args:
+        raw_text: Completion retaining Harmony control tokens
+            (``skip_special_tokens=False``).
+
+    Returns:
+        Concatenated, stripped content from ``final``-channel messages.
 
     Raises:
         HarmonyParseError: If no Harmony messages are found, or none are on the
-            ``final`` channel. Callers must not fall back to the raw text.
+            ``final`` channel, or final content is empty. Callers must not fall
+            back to the raw text.
     """
     matches = list(_HARMONY_MESSAGE_RE.finditer(raw_text))
     if not matches:
@@ -67,4 +80,9 @@ def extract_harmony_final_answer(raw_text: str) -> str:
         raise HarmonyParseError(
             "Malformed Harmony completion: no message on the 'final' channel."
         )
-    return "".join(final_segments).strip()
+    final_answer = "".join(final_segments).strip()
+    if not final_answer:
+        raise HarmonyParseError(
+            "Malformed Harmony completion: final-channel content is empty."
+        )
+    return final_answer

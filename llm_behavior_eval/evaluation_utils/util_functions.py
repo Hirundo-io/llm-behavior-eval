@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import shutil
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from inspect import signature
@@ -137,10 +138,21 @@ class SafeApplyChatTemplate:
             cached = self._CHAT_TEMPLATE_SUPPORTS_REASONING.get(cache_key)
             if cached is not None and cached[0]() is tokenizer:
                 return cached[1]
-            supports = (
-                isinstance(tokenizer.chat_template, str)
-                and name in tokenizer.chat_template
+            chat_template = tokenizer.chat_template
+            template_texts = (
+                (chat_template,)
+                if isinstance(chat_template, str)
+                else (
+                    tuple(
+                        value
+                        for value in chat_template.values()
+                        if isinstance(value, str)
+                    )
+                    if isinstance(chat_template, Mapping)
+                    else ()
+                )
             )
+            supports = any(name in template for template in template_texts)
             self._CHAT_TEMPLATE_SUPPORTS_REASONING[cache_key] = (
                 ref(tokenizer),
                 supports,
@@ -328,7 +340,10 @@ def pick_best_vllm_dtype(device: str, prefer_bf16: bool = True) -> torch.dtype:
 
 
 def is_model_multimodal(
-    repo_id: str, trust_remote_code: bool = False, token: str | None = None
+    repo_id: str,
+    trust_remote_code: bool = False,
+    token: str | None = None,
+    revision: str | None = None,
 ) -> bool:
     """
     Decide whether the model should be loaded with a vision-capable architecture.
@@ -341,6 +356,7 @@ def is_model_multimodal(
         repo_id: The repo-id or local path of the model to load.
         trust_remote_code: Whether to trust remote code.
         token: The HuggingFace token to use for accessing gated models.
+        revision: Optional Hugging Face revision to inspect.
 
     Returns:
         True if the model should be loaded with a vision-capable architecture, False otherwise.
@@ -352,11 +368,15 @@ def is_model_multimodal(
             local_files_only=True,
             trust_remote_code=trust_remote_code,
             token=token,
+            revision=revision,
         )
     except Exception:
         # Fallback to remote if not cached locally
         config = AutoConfig.from_pretrained(
-            repo_id, trust_remote_code=trust_remote_code, token=token
+            repo_id,
+            trust_remote_code=trust_remote_code,
+            token=token,
+            revision=revision,
         )
     config_dict = config.to_dict()
 
@@ -557,7 +577,7 @@ def load_transformers_model_and_tokenizer(
             bnb_4bit_quant_type="nf4",
         )
 
-    if is_model_multimodal(model_name, trust_remote_code, token):
+    if is_model_multimodal(model_name, trust_remote_code, token, revision):
         model = AutoModelForImageTextToText.from_pretrained(
             model_name,
             dtype=dtype,

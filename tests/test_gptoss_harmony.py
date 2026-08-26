@@ -54,3 +54,10 @@ def test_extract_harmony_final_answer_fails_closed_when_no_final_channel() -> No
     )
     with pytest.raises(HarmonyParseError):
         extract_harmony_final_answer(raw)
+
+
+def test_extract_harmony_final_answer_fails_closed_when_final_content_is_empty() -> (
+    None
+):
+    with pytest.raises(HarmonyParseError, match="final-channel content is empty"):
+        extract_harmony_final_answer("<|channel|>final<|message|>  <|return|>")

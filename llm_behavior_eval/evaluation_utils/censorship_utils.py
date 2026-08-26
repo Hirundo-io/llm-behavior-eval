@@ -81,19 +81,31 @@ class CensorshipStatus(str, Enum):
 
 
 def judge_prompt_overflows(judge_prompt_token_count: int) -> bool:
-    """Return True when a fully rendered judge prompt exceeds 262016 tokens.
+    """Return whether a fully rendered judge prompt exceeds its token budget.
 
-    See ``CCPC_JUDGE_MAX_PROMPT_TOKENS`` for the 262144−128 budget rule.
+    Args:
+        judge_prompt_token_count: Number of tokens in the rendered judge prompt.
+
+    Returns:
+        True only when the count is strictly greater than
+        ``CCPC_JUDGE_MAX_PROMPT_TOKENS``.
     """
     return judge_prompt_token_count > CCPC_JUDGE_MAX_PROMPT_TOKENS
 
 
 def validate_ccpc_judge_contract(eval_config: "EvaluationConfig") -> None:
-    """Validate the frozen CCPC-Bench judge scoring contract.
+    """Apply omitted CCPC judge defaults and validate the frozen scoring contract.
+
+    Args:
+        eval_config: Evaluation configuration whose CCPC judge settings are checked.
 
     Raises:
         ValueError: If any frozen judge contract value has been overridden.
     """
+    if eval_config.judge_revision is None:
+        eval_config.judge_revision = CCPC_JUDGE_MODEL_REVISION
+    if eval_config.max_judge_tokens is None:
+        eval_config.max_judge_tokens = CCPC_JUDGE_MAX_JUDGE_TOKENS
     if eval_config.judge_path_or_repo_id != CCPC_JUDGE_MODEL:
         raise ValueError(
             f"CCPC-Bench requires judge {CCPC_JUDGE_MODEL!r}; "

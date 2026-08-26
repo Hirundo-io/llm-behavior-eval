@@ -54,7 +54,7 @@ class MockConfig:
 
 
 class StubTokenizer:
-    def __init__(self, name: str, template: str) -> None:
+    def __init__(self, name: str, template: str | dict[str, str]) -> None:
         self.name_or_path = name
         self.chat_template = template
 
@@ -78,6 +78,26 @@ class ReasoningTokenizer(StubTokenizer):
         enable_thinking=False,
     ):
         self.enable_thinking = enable_thinking
+        return super().apply_chat_template(
+            messages,
+            tokenize=tokenize,
+            add_generation_prompt=add_generation_prompt,
+        )
+
+
+class ReasoningEffortTokenizer(StubTokenizer):
+    def __init__(self, template: str | dict[str, str]) -> None:
+        super().__init__("openai/gpt-oss-20b", template)
+        self.kwargs: dict[str, object] = {}
+
+    def apply_chat_template(
+        self,
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        **kwargs: object,
+    ):
+        self.kwargs = kwargs
         return super().apply_chat_template(
             messages,
             tokenize=tokenize,
@@ -206,6 +226,28 @@ def test_safe_apply_chat_template_ignores_stale_cache_entry(
     assert tokenizer.enable_thinking is True
 
 
+@pytest.mark.parametrize(
+    ("template", "expected_kwargs"),
+    [
+        ("{{ reasoning_effort }}", {"reasoning_effort": "low"}),
+        ("{{ messages }}", {}),
+        ({"default": "{{ reasoning_effort }}"}, {"reasoning_effort": "low"}),
+    ],
+)
+def test_safe_apply_chat_template_forwards_reasoning_effort_only_when_supported(
+    template: str | dict[str, str], expected_kwargs: dict[str, str]
+) -> None:
+    tokenizer = ReasoningEffortTokenizer(template)
+
+    safe_apply_chat_template(
+        cast("PreTrainedTokenizerBase", tokenizer),
+        [{"role": "user", "content": "Hello"}],
+        reasoning_effort="low",
+    )
+
+    assert tokenizer.kwargs == expected_kwargs
+
+
 def test_torch_dtype_to_str_supported() -> None:
     assert torch_dtype_to_str(torch.float16) == "float16"
     assert torch_dtype_to_str(torch.bfloat16) == "bfloat16"
@@ -276,40 +318,35 @@ def mock_auto_config_local_load(monkeypatch: pytest.MonkeyPatch) -> dict[str, An
     return {"calls": calls}
 
 
-def test_is_model_multimodal_passes_token_on_remote_fallback(
+def test_is_model_multimodal_passes_revision_on_remote_fallback(
     mock_auto_config_remote_fallback: dict[str, Any],
 ) -> None:
-    """Test that is_model_multimodal passes the token parameter on remote fallback."""
-    # Test with token parameter
     result = is_model_multimodal(
-        "test/model", trust_remote_code=False, token="test_token"
+        "test/model",
+        trust_remote_code=False,
+        token="test_token",
+        revision="test-revision",
     )
 
-    # Verify that both calls occurred (local then remote)
     calls = mock_auto_config_remote_fallback["calls"]
     assert len(calls) == 2
-
-    # Check the remote call (second call) includes the token
-    remote_call = calls[1]
-    assert remote_call[1].get("token") == "test_token"
+    assert all(call[1]["token"] == "test_token" for call in calls)
+    assert all(call[1]["revision"] == "test-revision" for call in calls)
     assert result is False
 
 
-def test_is_model_multimodal_passes_token_on_local_load(
+def test_is_model_multimodal_keeps_unset_revision_none(
     mock_auto_config_local_load: dict[str, Any],
 ) -> None:
-    """Test that is_model_multimodal passes the token parameter when loading locally."""
-    # Test with token parameter
     result = is_model_multimodal(
         "test/model", trust_remote_code=False, token="test_token"
     )
 
-    # Verify that only the local call occurred
     calls = mock_auto_config_local_load["calls"]
     assert len(calls) == 1
-
     local_call = calls[0]
-    assert local_call[1].get("token") == "test_token"
+    assert local_call[1]["token"] == "test_token"
+    assert local_call[1]["revision"] is None
     assert result is False
 
 

@@ -229,6 +229,7 @@ class CustomDataset:
         thinking_end_token: str | None = None,
         pass_max_answer_tokens: bool = False,
         model_reasoning_effort: str | None = None,
+        model_revision: str | None = None,
     ) -> Dataset:
         """
         Tokenize the loaded dataset for free-text evaluation.
@@ -244,6 +245,7 @@ class CustomDataset:
             pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
             model_reasoning_effort: Harmony-style reasoning effort level forwarded to
                 chat template rendering (ignored by tokenizers that don't support it).
+            model_revision: Hugging Face revision used to identify model modality.
 
         Returns:
             A tokenized dataset ready for evaluation.
@@ -254,7 +256,10 @@ class CustomDataset:
         old_columns = dataset.column_names
         # Compute once to avoid per-batch remote config lookups
         is_multimodal = is_model_multimodal(
-            tokenizer.name_or_path, self.trust_remote_code, self.token
+            tokenizer.name_or_path,
+            self.trust_remote_code,
+            self.token,
+            model_revision,
         )
         processed_dataset = dataset.map(
             lambda examples: free_text_preprocess_function(
