@@ -611,7 +611,9 @@ def main(
         typer.Option(
             "--dataset-revision",
             help=(
-                "HuggingFace revision (e.g. a commit SHA) pinning the loaded dataset."
+                "Hugging Face dataset revision for generic datasets; omitted values "
+                "use the repository default. CCPC-Bench always uses its canonical "
+                "revision and rejects conflicting explicit values."
             ),
         ),
     ] = None,
@@ -626,7 +628,9 @@ def main(
         judge_revision: Revision selection for the judge model and tokenizer.
         model_reasoning_effort: Optional reasoning-effort value such as ``low``
             forwarded to target prompt rendering and omitted for unsupported templates.
-        dataset_revision: Revision selection for the loaded dataset(s).
+        dataset_revision: Hugging Face revision for generic datasets; omitted values
+            use the repository default. CCPC-Bench uses its canonical revision and
+            rejects conflicting explicit values.
         trust_remote_code: Explicit remote-code authorization.
     Raises:
         ValueError: If evaluator families are mixed or the censorship judge differs

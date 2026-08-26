@@ -268,12 +268,18 @@ def test_cli_help_exposes_revision_pinning_flags() -> None:
 def test_main_threads_dataset_revision_into_dataset_config(
     capture_configs: list[CapturedConfigs],
 ) -> None:
+    evaluate.main("fake/model", "hallu")
+    assert all(
+        captured.dataset_config.dataset_revision is None for captured in capture_configs
+    )
+
+    previous_count = len(capture_configs)
     evaluate.main("fake/model", "hallu", dataset_revision="dataset-sha")
 
-    assert capture_configs
+    assert len(capture_configs) > previous_count
     assert all(
         captured.dataset_config.dataset_revision == "dataset-sha"
-        for captured in capture_configs
+        for captured in capture_configs[previous_count:]
     )
 
 

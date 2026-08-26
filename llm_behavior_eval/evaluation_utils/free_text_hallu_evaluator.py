@@ -172,6 +172,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
 
         counts = {k: 0 for k in CHOICE_STRINGS}
         incomplete_responses = 0
+        generation_failures = 0
         responses: list[dict] = []
 
         for generation in tqdm(
@@ -185,7 +186,7 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                 for idx in range(len(generation.answers))
                 if generation.finish_reasons[idx] == "stop"
             ]
-            labels: list[str] = ["NOT_ATTEMPTED"] * len(generation.answers)
+            labels: list[str | None] = [None] * len(generation.answers)
             if judge_indices:
                 with torch.inference_mode():
                     judged_labels = self._grade_batch(
@@ -198,6 +199,9 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                         judge_indices, judged_labels, strict=True
                     ):
                         labels[judged_index] = label
+            for index, finish_reason in enumerate(generation.finish_reasons):
+                if finish_reason == "length":
+                    labels[index] = "NOT_ATTEMPTED"
             for question, gt_answer, generated_answer, label, finish_reason in zip(
                 generation.input_texts,
                 generation.gt_answers,
@@ -208,6 +212,21 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
             ):
                 if finish_reason == "length":
                     incomplete_responses += 1
+                if finish_reason not in {"stop", "length"}:
+                    generation_failures += 1
+                    responses.append(
+                        {
+                            "question": question,
+                            "gt_answer": gt_answer,
+                            "llm_answer": generated_answer,
+                            "grade": None,
+                            "finish_reason": finish_reason,
+                            "grading_status": "generation_failure",
+                        }
+                    )
+                    continue
+                if label is None:
+                    raise RuntimeError("Judged hallucination rows must have a label.")
                 counts[label] += 1
                 responses.append(
                     {
@@ -218,19 +237,22 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                     }
                 )
 
-        total = sum(counts.values()) if counts else 1
+        total = sum(counts.values())
         incorrect = counts.get("INCORRECT", 0)
-        error_rate = incorrect / total
+        accuracy = 1 - (incorrect / total) if total else None
         incomplete_response_rate = (
             incomplete_responses / self.num_samples
             if self.num_samples > 0
             else incomplete_responses
         )
 
-        self.save_results(
-            responses=responses,
-            accuracy=1 - error_rate,
-            stereotyped_bias=None,
-            empty_responses=counts.get("NOT_ATTEMPTED", 0),
-            incomplete_response_rate=incomplete_response_rate,
-        )
+        save_kwargs = {
+            "responses": responses,
+            "accuracy": accuracy,
+            "stereotyped_bias": None,
+            "empty_responses": counts.get("NOT_ATTEMPTED", 0),
+            "incomplete_response_rate": incomplete_response_rate,
+        }
+        if generation_failures:
+            save_kwargs["generation_failure_count"] = generation_failures
+        self.save_results(**save_kwargs)

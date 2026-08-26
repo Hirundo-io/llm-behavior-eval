@@ -472,20 +472,22 @@ class BaseEvaluator(ABC):
     def save_results(
         self,
         responses: list[dict],
-        accuracy: float,
+        accuracy: float | None,
         stereotyped_bias: float | None,
         empty_responses: int,
         incomplete_response_rate: float | None = None,
+        generation_failure_count: int | None = None,
     ) -> None:
         """
         Save the evaluation results to files.
 
         Args:
             responses: The raw responses from the evaluation.
-            accuracy: The accuracy of the evaluation.
+            accuracy: The evaluation accuracy, or None when no rows were judged.
             stereotyped_bias: A score representing the stereotyped bias.
             empty_responses: A count of empty response.
             incomplete_response_rate: Optional precomputed incomplete response rate.
+            generation_failure_count: Optional count of non-judged generation failures.
         """
         model_slug = self.get_model_slug()
         dataset_slug = self.get_dataset_slug()
@@ -514,7 +516,7 @@ class BaseEvaluator(ABC):
             "prompt-injection-purple-llama"
         )
         # Prompt-injection grading stores model safety as accuracy, so attack success is 1 - accuracy.
-        attack_success_rate = 1 - accuracy
+        attack_success_rate = 1 - accuracy if accuracy is not None else None
         if is_purple_llama_injection:
             metric_column_name = "Attack success rate (%) ⬇️"
             metric_ratio_value = attack_success_rate
@@ -525,7 +527,9 @@ class BaseEvaluator(ABC):
             metric_column_name = "Error (%) ⬇️"
             metric_ratio_value = attack_success_rate
         # Convert ratios to percentages
-        metric_percentage_value = metric_ratio_value * 100.0
+        metric_percentage_value = (
+            metric_ratio_value * 100.0 if metric_ratio_value is not None else None
+        )
         stereo_percent = (
             stereotyped_bias * 100.0 if stereotyped_bias is not None else None
         )
@@ -545,6 +549,14 @@ class BaseEvaluator(ABC):
                         else 0.0
                     )
                 ],
+                "Generation failures": [generation_failure_count],
+                "Generation failure rate (%) ⬇️": [
+                    (
+                        generation_failure_count / self.num_samples * 100.0
+                        if generation_failure_count is not None and self.num_samples > 0
+                        else None
+                    )
+                ],
             }
         )
         results = self._drop_empty_columns(results)
@@ -562,14 +574,21 @@ class BaseEvaluator(ABC):
         # full summary (per model)
         full_summary_path = model_results_dir / "summary_full.csv"
         # Ensure both Accuracy and Error columns exist; populate only the relevant one
-        full_acc = accuracy * 100.0 if (is_unbias or is_hallucination) else None
+        full_acc = (
+            accuracy * 100.0
+            if accuracy is not None and (is_unbias or is_hallucination)
+            else None
+        )
         full_err = (
             attack_success_rate * 100.0
-            if not (is_unbias or is_hallucination or is_purple_llama_injection)
+            if attack_success_rate is not None
+            and not (is_unbias or is_hallucination or is_purple_llama_injection)
             else None
         )
         full_attack_success_rate = (
-            attack_success_rate * 100.0 if is_purple_llama_injection else None
+            attack_success_rate * 100.0
+            if attack_success_rate is not None and is_purple_llama_injection
+            else None
         )
         summary_row = pd.DataFrame(
             {
@@ -588,6 +607,14 @@ class BaseEvaluator(ABC):
                         incomplete_response_rate * 100.0
                         if incomplete_response_rate is not None
                         else 0.0
+                    )
+                ],
+                "Generation failures": [generation_failure_count],
+                "Generation failure rate (%) ⬇️": [
+                    (
+                        generation_failure_count / self.num_samples * 100.0
+                        if generation_failure_count is not None and self.num_samples > 0
+                        else None
                     )
                 ],
             }
@@ -628,14 +655,21 @@ class BaseEvaluator(ABC):
 
         bias_label = infer_bias_label_from_slug(dataset_slug)
         # Always include both Accuracy and Error columns; populate only the relevant one
-        brief_acc = accuracy * 100.0 if (is_hallucination or is_unbias) else None
+        brief_acc = (
+            accuracy * 100.0
+            if accuracy is not None and (is_hallucination or is_unbias)
+            else None
+        )
         brief_err = (
             attack_success_rate * 100.0
-            if not (is_hallucination or is_unbias or is_purple_llama_injection)
+            if attack_success_rate is not None
+            and not (is_hallucination or is_unbias or is_purple_llama_injection)
             else None
         )
         brief_attack_success_rate = (
-            attack_success_rate * 100.0 if is_purple_llama_injection else None
+            attack_success_rate * 100.0
+            if attack_success_rate is not None and is_purple_llama_injection
+            else None
         )
         brief_df = pd.DataFrame(
             {
@@ -651,6 +685,14 @@ class BaseEvaluator(ABC):
                         else 0.0
                     )
                 ],
+                "Generation failures": [generation_failure_count],
+                "Generation failure rate (%) ⬇️": [
+                    (
+                        generation_failure_count / self.num_samples * 100.0
+                        if generation_failure_count is not None and self.num_samples > 0
+                        else None
+                    )
+                ],
             }
         )
         brief_summary_path = model_results_dir / "summary_brief.csv"
@@ -659,15 +701,22 @@ class BaseEvaluator(ABC):
         # Log metrics and artifacts to MLflow (if enabled)
         if self.mlflow_config:
             mlflow_metrics = {
-                "accuracy": accuracy,
-                "error": 1 - accuracy,
                 "empty_responses": float(empty_responses),
                 "num_samples": float(self.num_samples),
             }
+            if accuracy is not None:
+                mlflow_metrics["accuracy"] = accuracy
+                mlflow_metrics["error"] = 1 - accuracy
             if incomplete_response_rate is not None:
                 mlflow_metrics["incomplete_response_rate"] = incomplete_response_rate
             if stereotyped_bias is not None:
                 mlflow_metrics["stereotyped_bias"] = stereotyped_bias
+            if generation_failure_count is not None:
+                mlflow_metrics["generation_failures"] = float(generation_failure_count)
+                if self.num_samples > 0:
+                    mlflow_metrics["generation_failure_rate"] = (
+                        generation_failure_count / self.num_samples
+                    )
             self._log_mlflow_metrics(mlflow_metrics)
             self._log_mlflow_artifacts()
 
