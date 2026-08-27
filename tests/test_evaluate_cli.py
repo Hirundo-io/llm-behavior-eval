@@ -283,6 +283,16 @@ def test_main_threads_dataset_revision_into_dataset_config(
     )
 
 
+def test_main_passes_omitted_ccpc_dataset_revision_to_the_ccpc_route(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "chinese_censorship", judge_model=CCPC_JUDGE_MODEL)
+
+    dataset_config = capture_configs[-1].dataset_config
+    assert dataset_config.dataset_id == CCPC_DATASET_ID
+    assert dataset_config.dataset_revision is None
+
+
 def test_main_threads_model_reasoning_effort_into_eval_config(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
