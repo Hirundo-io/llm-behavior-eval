@@ -14,6 +14,7 @@ import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_DATASET_ID,
+    CCPC_DATASET_REVISION,
     CCPC_JUDGE_MODEL,
 )
 from llm_behavior_eval.evaluation_utils.eval_config import FAMILY_TOKEN_DEFAULTS
@@ -291,6 +292,56 @@ def test_main_passes_omitted_ccpc_dataset_revision_to_the_ccpc_route(
     dataset_config = capture_configs[-1].dataset_config
     assert dataset_config.dataset_id == CCPC_DATASET_ID
     assert dataset_config.dataset_revision is None
+
+
+def test_main_accepts_ccpc_canonical_dataset_revision(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "chinese_censorship",
+        judge_model=CCPC_JUDGE_MODEL,
+        dataset_revision=CCPC_DATASET_REVISION,
+    )
+
+    dataset_config = capture_configs[-1].dataset_config
+    assert dataset_config.dataset_id == CCPC_DATASET_ID
+
+
+def test_main_rejects_conflicting_ccpc_dataset_revision(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    with pytest.raises(ValueError, match="canonical dataset revision"):
+        evaluate.main(
+            "fake/model",
+            "chinese_censorship",
+            judge_model=CCPC_JUDGE_MODEL,
+            dataset_revision="conflicting-sha",
+        )
+    assert capture_configs == []
+
+
+def test_main_still_accepts_arbitrary_dataset_revision_for_generic_datasets(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "hallu", dataset_revision="conflicting-sha")
+
+    assert capture_configs[-1].dataset_config.dataset_revision == "conflicting-sha"
+
+
+def test_main_rejects_dataset_revision_combined_with_local_ccpc(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    with pytest.raises(ValueError, match="does not apply to an explicit local"):
+        evaluate.main(
+            "google/model",
+            "chinese_censorship",
+            judge_model=CCPC_JUDGE_MODEL,
+            dataset_revision=CCPC_DATASET_REVISION,
+            ccpc_local_dataset_path="/tmp/local_ccpc.jsonl",
+            ccpc_expected_rows=500,
+        )
+    assert capture_configs == []
 
 
 def test_main_threads_model_reasoning_effort_into_eval_config(

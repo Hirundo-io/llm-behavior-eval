@@ -12,6 +12,7 @@ os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_DATASET_ID,
+    CCPC_DATASET_REVISION,
     CCPC_JUDGE_MODEL,
 )
 from llm_behavior_eval.evaluation_utils.dataset_config import (
@@ -690,6 +691,18 @@ def main(
         )
     if ccpc_local_dataset_path is not None and ccpc_expected_rows is None:
         raise ValueError("--ccpc-local-dataset-path requires --ccpc-expected-rows.")
+    if evaluator_family == "censorship" and dataset_revision is not None:
+        if ccpc_local_dataset_path is not None:
+            raise ValueError(
+                "--dataset-revision does not apply to an explicit local CCPC "
+                "cohort; pin it with --ccpc-expected-rows/--ccpc-expected-sha256 "
+                "instead."
+            )
+        if dataset_revision != CCPC_DATASET_REVISION:
+            raise ValueError(
+                "chinese_censorship uses its canonical dataset revision and "
+                "rejects conflicting explicit --dataset-revision values."
+            )
 
     logging.basicConfig(
         level=logging.INFO,
