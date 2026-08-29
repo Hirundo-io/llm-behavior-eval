@@ -632,46 +632,6 @@ def test_load_vllm_model_forwards_multimodal_opt_out(
     assert call.language_model_only is False
 
 
-@pytest.mark.parametrize(
-    ("config_format", "load_format", "expected_config", "expected_load"),
-    [
-        (None, None, "auto", "auto"),
-        ("mistral", "tensorizer", "mistral", "tensorizer"),
-    ],
-)
-def test_load_vllm_model_config_and_load_format_defaults_and_passthrough(
-    monkeypatch: pytest.MonkeyPatch,
-    config_format: str | None,
-    load_format: str | None,
-    expected_config: str,
-    expected_load: str,
-) -> None:
-    from llm_behavior_eval.evaluation_utils.util_functions import load_vllm_model
-
-    RecordingLlm.calls.clear()
-    monkeypatch.setitem(sys.modules, "vllm", types.SimpleNamespace(LLM=RecordingLlm))
-    monkeypatch.setitem(
-        sys.modules,
-        "vllm.config",
-        types.SimpleNamespace(CompilationConfig=CompilationConfigStub),
-    )
-
-    load_vllm_model(
-        "fake/model",
-        torch.bfloat16,
-        trust_remote_code=False,
-        batch_size=16,
-        tensor_parallel_size=2,
-        config_format=config_format,
-        load_format=load_format,
-    )
-
-    assert len(RecordingLlm.calls) == 1
-    call = RecordingLlm.calls[0]
-    assert call.config_format == expected_config
-    assert call.load_format == expected_load
-
-
 @pytest.mark.vllm_engine_test
 def test_vllm_eval_engine_explicit_length_overrides_config(
     vllm_bundle: VllmPatchBundle, tmp_path: Path

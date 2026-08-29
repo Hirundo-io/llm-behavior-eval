@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import ValidationInfo, field_validator
+from pydantic import ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .enums import DatasetType
@@ -64,3 +64,33 @@ class DatasetConfig(BaseSettings):
         if value is None or value == "":
             return info.data.get("file_path", value)
         return value
+
+    @model_validator(mode="after")
+    def validate_ccpc_source_contracts(self) -> "DatasetConfig":
+        """Reject mixed historical and local CCPC source contracts.
+
+        Args:
+            None. Runs on the fully constructed config.
+
+        Returns:
+            This config when historical and local contracts do not mix.
+
+        Raises:
+            ValueError: If a local source omits ``expected_row_count``, or a
+                historical/omitted source includes local row-count or SHA fields.
+        """
+        local_contract_present = (
+            self.expected_row_count is not None or self.expected_sha256 is not None
+        )
+        if self.ccpc_source_mode == "local":
+            if self.expected_row_count is None:
+                raise ValueError(
+                    "An explicit local CCPC-Bench source requires expected_row_count."
+                )
+            return self
+        if local_contract_present:
+            raise ValueError(
+                "expected_row_count and expected_sha256 apply only when "
+                "ccpc_source_mode='local'."
+            )
+        return self

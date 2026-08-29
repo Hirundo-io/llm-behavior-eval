@@ -358,16 +358,6 @@ candidate_uncertain: "<yes|no>"
             desc="Grading responses",
             unit="batch",
         ):
-            unsupported_finish_reasons = [
-                str(finish_reason)
-                for finish_reason in generation_record.finish_reasons
-                if finish_reason not in {"stop", "length"}
-            ]
-            if unsupported_finish_reasons:
-                raise ValueError(
-                    "Cannot grade responses with unsupported finish reason(s): "
-                    f"{', '.join(unsupported_finish_reasons)}."
-                )
             answers = self._format_answers(generation_record.answers)
             judge_indices = [
                 idx

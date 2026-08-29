@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 import torch
 from datasets import Dataset
+from pydantic import ValidationError
 from transformers.data.data_collator import default_data_collator
 
 if TYPE_CHECKING:
@@ -335,15 +336,14 @@ def test_local_cohort_requires_expected_row_count(tmp_path: Path) -> None:
         None.
     """
     path = _write_local_jsonl(tmp_path, _local_rows(500))
-    dataset_config = DatasetConfig(
-        file_path=str(path),
-        dataset_id=CCPC_DATASET_ID,
-        dataset_type=DatasetType.BIAS,
-        ccpc_source_mode="local",
-    )
 
-    with pytest.raises(ValueError, match="expected_row_count"):
-        load_censorship_benchmark(dataset_config)
+    with pytest.raises(ValidationError, match="requires expected_row_count"):
+        DatasetConfig(
+            file_path=str(path),
+            dataset_id=CCPC_DATASET_ID,
+            dataset_type=DatasetType.BIAS,
+            ccpc_source_mode="local",
+        )
 
 
 def test_local_cohort_rejects_duplicate_benchmark_id(tmp_path: Path) -> None:
