@@ -350,6 +350,72 @@ def test_main_enforces_ccpc_judge_contract_and_checks_both_trusted_providers(
     assert not capture_eval_config[-1].trust_remote_code
 
 
+def test_main_rejects_ccpc_expected_rows_without_local_path() -> None:
+    with pytest.raises(ValueError, match="--ccpc-local-dataset-path"):
+        evaluate.main(
+            "google/model",
+            "chinese_censorship",
+            judge_model=CCPC_JUDGE_MODEL,
+            ccpc_expected_rows=500,
+        )
+
+
+def test_main_rejects_ccpc_expected_sha256_without_local_path() -> None:
+    with pytest.raises(ValueError, match="--ccpc-local-dataset-path"):
+        evaluate.main(
+            "google/model",
+            "chinese_censorship",
+            judge_model=CCPC_JUDGE_MODEL,
+            ccpc_expected_sha256="a" * 64,
+        )
+
+
+def test_main_rejects_ccpc_expected_rows_and_sha256_without_local_path() -> None:
+    with pytest.raises(ValueError, match="--ccpc-local-dataset-path"):
+        evaluate.main(
+            "google/model",
+            "chinese_censorship",
+            judge_model=CCPC_JUDGE_MODEL,
+            ccpc_expected_rows=500,
+            ccpc_expected_sha256="a" * 64,
+        )
+
+
+def test_main_allows_chinese_censorship_without_any_ccpc_local_flags(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main(
+        "google/model",
+        "chinese_censorship",
+        judge_model=CCPC_JUDGE_MODEL,
+    )
+    dataset_config = capture_configs[-1].dataset_config
+    assert dataset_config.file_path == CCPC_DATASET_ID
+    assert dataset_config.expected_row_count is None
+    assert dataset_config.expected_sha256 is None
+
+
+def test_main_routes_full_ccpc_local_combination_into_dataset_config(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main(
+        "google/model",
+        "chinese_censorship",
+        judge_model=CCPC_JUDGE_MODEL,
+        model_revision="target-sha",
+        judge_revision="4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+        ccpc_local_dataset_path="/tmp/local_ccpc.jsonl",
+        ccpc_expected_rows=500,
+        ccpc_expected_sha256="a" * 64,
+    )
+    dataset_config = capture_configs[-1].dataset_config
+    assert dataset_config.file_path == "/tmp/local_ccpc.jsonl"
+    assert dataset_config.dataset_id == CCPC_DATASET_ID
+    assert dataset_config.expected_row_count == 500
+    assert dataset_config.expected_sha256 == "a" * 64
+    assert dataset_config.dataset_revision is None
+
+
 def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(
     capture_eval_config: list[EvaluationConfig],
     monkeypatch: pytest.MonkeyPatch,

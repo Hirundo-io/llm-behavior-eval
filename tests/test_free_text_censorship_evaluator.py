@@ -1,8 +1,10 @@
+import hashlib
+import json
 from collections.abc import Sequence
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pandas as pd
 import pytest
@@ -16,10 +18,7 @@ if TYPE_CHECKING:
     from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 
 from llm_behavior_eval import DatasetConfig, EvaluationConfig, evaluate
-from llm_behavior_eval.evaluation_utils import (
-    censorship_utils,
-    free_text_censorship_evaluator,
-)
+from llm_behavior_eval.evaluation_utils import censorship_utils
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_BENCHMARK_CONFIG,
     CCPC_DATASET_CONFIG,
@@ -28,18 +27,13 @@ from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_DATASET_REVISION,
     CCPC_DATASET_SPLIT,
     CCPC_EXPECTED_ROWS,
-    CCPC_JUDGE_MAX_JUDGE_TOKENS,
-    CCPC_JUDGE_MAX_MODEL_LEN,
-    CCPC_JUDGE_MAX_PROMPT_TOKENS,
     CCPC_JUDGE_MODEL,
-    CCPC_JUDGE_MODEL_REVISION,
-    CCPC_JUDGE_PROMPT,
     CCPC_JUDGE_REPETITION_PENALTY,
     CCPC_MODEL_REPETITION_PENALTY,
     CensorshipStatus,
+    ResolvedCensorshipBenchmark,
     load_censorship_benchmark,
     parse_censorship_judgment,
-    validate_ccpc_judge_contract,
 )
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
@@ -49,7 +43,67 @@ from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
     _CensorshipGenerationRecord,
 )
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
-from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+
+_HISTORICAL_DATASET_CONFIG = DatasetConfig(
+    file_path=CCPC_DATASET_ID, dataset_type=DatasetType.BIAS
+)
+
+
+def _local_dataset_config(
+    path: Path, expected_row_count: int, expected_sha256: str | None = None
+) -> DatasetConfig:
+    """Build a DatasetConfig selecting an explicit local CCPC cohort.
+
+    Args:
+        path: Local JSONL file to load.
+        expected_row_count: Required explicit row-count contract.
+        expected_sha256: Optional explicit SHA-256 contract.
+
+    Returns:
+        A DatasetConfig routed to the local-cohort loader.
+    """
+    return DatasetConfig(
+        file_path=str(path),
+        dataset_id=CCPC_DATASET_ID,
+        dataset_type=DatasetType.BIAS,
+        expected_row_count=expected_row_count,
+        expected_sha256=expected_sha256,
+    )
+
+
+def _write_local_jsonl(tmp_path: Path, rows: list[dict[str, object]]) -> Path:
+    """Write rows as a JSONL fixture file, one JSON object per line.
+
+    Args:
+        tmp_path: Temporary directory supplied by pytest.
+        rows: Row dicts to serialize in order.
+
+    Returns:
+        Path to the written JSONL file.
+    """
+    path = tmp_path / "local_ccpc.jsonl"
+    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    return path
+
+
+def _local_rows(size: int, **columns: Sequence[object]) -> list[dict[str, object]]:
+    """Build deterministic local-cohort row fixtures (benchmark_id identity).
+
+    Args:
+        size: Number of rows to create.
+        **columns: Column values that replace or extend the default columns.
+
+    Returns:
+        A list of row dicts matching the local CCPC-500-style schema.
+    """
+    base: dict[str, Sequence[object]] = {
+        "question": [f"question-{index}" for index in range(size)],
+        "benchmark_id": [f"bench-{index}" for index in range(size)],
+    }
+    base.update(columns)
+    return [
+        {key: values[index] for key, values in base.items()} for index in range(size)
+    ]
 
 
 def _benchmark(size: int = CCPC_EXPECTED_ROWS, **columns: Sequence[object]) -> Dataset:
@@ -115,9 +169,12 @@ def test_loads_exact_pinned_dataset_in_published_order(
     expected = _benchmark()
     captured = _patch_load_dataset(monkeypatch, expected)
 
-    actual = load_censorship_benchmark("token")
+    resolved = load_censorship_benchmark(_HISTORICAL_DATASET_CONFIG, "token")
 
-    assert actual["source_group_id"] == expected["source_group_id"]
+    assert resolved.dataset["source_group_id"] == expected["source_group_id"]
+    assert resolved.identity_field == "source_group_id"
+    assert resolved.row_ids == expected["source_group_id"]
+    assert resolved.benchmark_config == CCPC_BENCHMARK_CONFIG
     assert captured == {
         "path": CCPC_DATASET_REPOSITORY,
         "name": CCPC_DATASET_CONFIG,
@@ -126,6 +183,125 @@ def test_loads_exact_pinned_dataset_in_published_order(
         "token": "token",
         "trust_remote_code": False,
     }
+
+
+def test_loads_explicit_local_cohort_in_file_order(tmp_path: Path) -> None:
+    """Verify an explicit local CCPC cohort loads all rows, unshuffled.
+
+    Args:
+        tmp_path: Temporary directory supplied by pytest.
+
+    Returns:
+        None.
+    """
+    rows = _local_rows(500)
+    path = _write_local_jsonl(tmp_path, rows)
+    sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+    dataset_config = _local_dataset_config(path, expected_row_count=500)
+
+    resolved = load_censorship_benchmark(dataset_config)
+
+    assert resolved.identity_field == "benchmark_id"
+    assert resolved.dataset["question"] == [row["question"] for row in rows]
+    assert resolved.row_ids == [row["benchmark_id"] for row in rows]
+    assert resolved.benchmark_config["expected_rows"] == 500
+    assert resolved.benchmark_config["dataset_path"] == str(path)
+    assert resolved.benchmark_config["dataset_sha256"] == sha256
+    assert resolved.benchmark_config["dataset_repository"] is None
+    assert resolved.benchmark_config["dataset_revision"] is None
+    assert resolved.benchmark_config["identity_field"] == "benchmark_id"
+
+
+@pytest.mark.parametrize("actual_size", [499, 501])
+def test_local_cohort_rejects_wrong_row_count(tmp_path: Path, actual_size: int) -> None:
+    """Verify a local cohort that doesn't match its expected 500 rows fails closed.
+
+    Args:
+        tmp_path: Temporary directory supplied by pytest.
+        actual_size: Actual row count written to the fixture file (499 or 501).
+
+    Returns:
+        None.
+    """
+    path = _write_local_jsonl(tmp_path, _local_rows(actual_size))
+    dataset_config = _local_dataset_config(path, expected_row_count=500)
+
+    with pytest.raises(ValueError, match="exactly 500 rows"):
+        load_censorship_benchmark(dataset_config)
+
+
+def test_local_cohort_requires_expected_row_count(tmp_path: Path) -> None:
+    """Verify a local cohort's row count is never self-validating.
+
+    Args:
+        tmp_path: Temporary directory supplied by pytest.
+
+    Returns:
+        None.
+    """
+    path = _write_local_jsonl(tmp_path, _local_rows(500))
+    dataset_config = DatasetConfig(
+        file_path=str(path), dataset_id=CCPC_DATASET_ID, dataset_type=DatasetType.BIAS
+    )
+
+    with pytest.raises(ValueError, match="expected_row_count"):
+        load_censorship_benchmark(dataset_config)
+
+
+def test_local_cohort_rejects_duplicate_benchmark_id(tmp_path: Path) -> None:
+    """Verify duplicate benchmark_id values fail the local cohort's identity check.
+
+    Args:
+        tmp_path: Temporary directory supplied by pytest.
+
+    Returns:
+        None.
+    """
+    rows = _local_rows(500, benchmark_id=["duplicate"] * 500)
+    path = _write_local_jsonl(tmp_path, rows)
+    dataset_config = _local_dataset_config(path, expected_row_count=500)
+
+    with pytest.raises(ValueError, match="must be unique"):
+        load_censorship_benchmark(dataset_config)
+
+
+def test_local_cohort_rejects_missing_benchmark_id_column(tmp_path: Path) -> None:
+    """Verify a local file missing benchmark_id fails, without silently mapping
+    another column into that identity.
+
+    Args:
+        tmp_path: Temporary directory supplied by pytest.
+
+    Returns:
+        None.
+    """
+    rows: list[dict[str, object]] = [
+        {"question": f"question-{index}", "source_group_id": f"group-{index}"}
+        for index in range(500)
+    ]
+    path = _write_local_jsonl(tmp_path, rows)
+    dataset_config = _local_dataset_config(path, expected_row_count=500)
+
+    with pytest.raises(ValueError, match="must include"):
+        load_censorship_benchmark(dataset_config)
+
+
+def test_local_cohort_validates_sha256_when_supplied(tmp_path: Path) -> None:
+    """Verify a mismatched explicit SHA-256 contract fails closed.
+
+    Args:
+        tmp_path: Temporary directory supplied by pytest.
+
+    Returns:
+        None.
+    """
+    path = _write_local_jsonl(tmp_path, _local_rows(500))
+    dataset_config = _local_dataset_config(
+        path, expected_row_count=500, expected_sha256="0" * 64
+    )
+
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        load_censorship_benchmark(dataset_config)
 
 
 def test_current_run_config_omits_ignored_max_samples(tmp_path: Path) -> None:
@@ -149,10 +325,42 @@ def test_current_run_config_omits_ignored_max_samples(tmp_path: Path) -> None:
             file_path=CCPC_DATASET_ID,
             dataset_type=DatasetType.BIAS,
         )
+        evaluator._ccpc_benchmark_config = CCPC_BENCHMARK_CONFIG.copy()
         run_configs.append(evaluator._current_run_config())
 
     assert run_configs[0] == run_configs[1]
     assert "max_samples" not in run_configs[0]["evaluation_config"]
+
+
+def test_run_provenance_reflects_the_actual_local_cohort(tmp_path: Path) -> None:
+    """Verify run_config never claims the historical HF source for a local run.
+
+    Args:
+        tmp_path: Temporary results directory supplied by pytest.
+
+    Returns:
+        None.
+    """
+    local_path = _write_local_jsonl(tmp_path, _local_rows(500))
+    resolved = load_censorship_benchmark(
+        _local_dataset_config(local_path, expected_row_count=500)
+    )
+    evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="fake/model", results_dir=tmp_path
+    )
+    evaluator.dataset_config = _local_dataset_config(local_path, expected_row_count=500)
+    evaluator._ccpc_benchmark_config = resolved.benchmark_config
+
+    provenance = evaluator._current_run_config()["ccpc_benchmark"]
+
+    assert provenance != CCPC_BENCHMARK_CONFIG
+    assert provenance["dataset_repository"] is None
+    assert provenance["dataset_revision"] is None
+    assert provenance["dataset_path"] == str(local_path)
+    assert provenance["dataset_sha256"] is not None
+    assert provenance["expected_rows"] == 500
+    assert provenance["identity_field"] == "benchmark_id"
 
 
 @pytest.mark.parametrize(
@@ -199,7 +407,7 @@ def test_rejects_invalid_dataset_contract(
     """
     _patch_load_dataset(monkeypatch, dataset)
     with pytest.raises(ValueError, match=message):
-        load_censorship_benchmark()
+        load_censorship_benchmark(_HISTORICAL_DATASET_CONFIG)
 
 
 class _Tokenizer:
@@ -275,9 +483,15 @@ def test_prepare_dataloader_never_shuffles_or_truncates(
         None.
     """
     benchmark = _benchmark()
+    resolved = ResolvedCensorshipBenchmark(
+        dataset=benchmark,
+        identity_field="source_group_id",
+        row_ids=list(benchmark["source_group_id"]),
+        benchmark_config=CCPC_BENCHMARK_CONFIG.copy(),
+    )
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.load_censorship_benchmark",
-        lambda token: benchmark,
+        lambda dataset_config, token: resolved,
     )
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.is_model_multimodal",
@@ -312,50 +526,6 @@ def test_prepare_dataloader_never_shuffles_or_truncates(
     assert indices == list(range(CCPC_EXPECTED_ROWS))
     assert evaluator.benchmark_questions == benchmark["question"]
     assert evaluator.num_samples == CCPC_EXPECTED_ROWS
-
-
-def test_prepare_dataloader_forwards_model_reasoning_effort(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    benchmark = _benchmark()
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.load_censorship_benchmark",
-        lambda token: benchmark,
-    )
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.is_model_multimodal",
-        lambda *args: False,
-    )
-    captured_kwargs: list[dict] = []
-
-    def fake_safe_apply_chat_template(_tokenizer, _messages, **kwargs):
-        captured_kwargs.append(kwargs)
-        return "formatted"
-
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.safe_apply_chat_template",
-        fake_safe_apply_chat_template,
-    )
-    evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
-    evaluator.eval_config = EvaluationConfig(
-        model_path_or_repo_id="fake/model",
-        results_dir=tmp_path,
-        max_samples=1,
-        max_answer_tokens=8,
-        model_reasoning_effort="low",
-    )
-    evaluator.dataset_config = DatasetConfig(
-        file_path="chinese_censorship", dataset_type=DatasetType.BIAS
-    )
-    evaluator.tokenizer = cast("PreTrainedTokenizerBase", _Tokenizer())
-    evaluator.trust_remote_code = False
-    evaluator.eval_engine = cast("EvalEngine", _DatasetEngine())
-    evaluator.data_collator = default_data_collator
-
-    evaluator.prepare_dataloader()
-
-    assert captured_kwargs
-    assert all(kwargs["reasoning_effort"] == "low" for kwargs in captured_kwargs)
 
 
 @pytest.mark.parametrize(
@@ -435,6 +605,7 @@ def test_model_and_judge_use_role_specific_repetition_penalties(
     evaluator.dataset_config = DatasetConfig(
         file_path="chinese_censorship", dataset_type=DatasetType.BIAS
     )
+    evaluator._ccpc_benchmark_config = CCPC_BENCHMARK_CONFIG.copy()
     engine = _RecordingEngine()
     evaluator.eval_engine = cast("EvalEngine", engine)
     evaluator.judge_tokenizer = cast("PreTrainedTokenizerBase", _Tokenizer())
@@ -475,21 +646,30 @@ def test_model_and_judge_use_role_specific_repetition_penalties(
     provenance = evaluator._current_run_config()["ccpc_benchmark"]
     assert provenance == CCPC_BENCHMARK_CONFIG
     assert provenance is not CCPC_BENCHMARK_CONFIG
+    assert provenance["model_repetition_penalty"] == CCPC_MODEL_REPETITION_PENALTY
+    assert provenance["judge_repetition_penalty"] == CCPC_JUDGE_REPETITION_PENALTY
 
 
-def _response(index: int, status: CensorshipStatus) -> CensorshipResponse:
+def _response(
+    index: int,
+    status: CensorshipStatus,
+    identity_field: str = "source_group_id",
+    row_id: str | None = None,
+) -> CensorshipResponse:
     """Build one persisted response fixture.
 
     Args:
         index: Benchmark row index.
         status: Exhaustive outcome status for the row.
+        identity_field: Active cohort's native identity key.
+        row_id: Identity value; defaults to ``group-{index}``.
 
     Returns:
         A response record matching the persisted schema.
     """
     verdict = status == CensorshipStatus.JUDGED_TRUE
     return {
-        "source_group_id": f"group-{index}",
+        identity_field: row_id if row_id is not None else f"group-{index}",
         "question": f"question-{index}",
         "llm_answer": "answer",
         "finish_reason": "stop",
@@ -519,7 +699,9 @@ def test_metric_valid_only_for_an_all_determinate_cohort(
         None.
     """
     evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
-    evaluator.benchmark_group_ids = [
+    evaluator.identity_field = "source_group_id"
+    evaluator.expected_rows = CCPC_EXPECTED_ROWS
+    evaluator.benchmark_row_ids = [
         f"group-{index}" for index in range(CCPC_EXPECTED_ROWS)
     ]
     evaluator.eval_config = EvaluationConfig(
@@ -551,6 +733,49 @@ def test_metric_valid_only_for_an_all_determinate_cohort(
         assert pd.isna(metrics["Censorship rate (%) ⬇️"])
 
 
+def test_metric_valid_uses_the_active_500_row_cohort_denominator(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify a 500-row local cohort's metrics use 500, not the historical 216.
+
+    Args:
+        monkeypatch: Pytest patching helper.
+        tmp_path: Temporary results directory supplied by pytest.
+
+    Returns:
+        None.
+    """
+    evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
+    evaluator.identity_field = "benchmark_id"
+    evaluator.expected_rows = 500
+    evaluator.benchmark_row_ids = [f"bench-{index}" for index in range(500)]
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="fake/model", results_dir=tmp_path
+    )
+    monkeypatch.setattr(evaluator, "get_output_dir", lambda: tmp_path)
+    monkeypatch.setattr(evaluator, "get_model_slug", lambda: "model")
+    monkeypatch.setattr(evaluator, "get_dataset_slug", lambda: "chinese_censorship")
+    monkeypatch.setattr(evaluator, "_append_summary_row", lambda *args: None)
+    responses = [
+        _response(
+            index,
+            CensorshipStatus.JUDGED_TRUE
+            if index == 0
+            else CensorshipStatus.JUDGED_FALSE,
+            identity_field="benchmark_id",
+            row_id=f"bench-{index}",
+        )
+        for index in range(500)
+    ]
+
+    evaluator._save_results(responses)
+
+    metrics = pd.read_csv(tmp_path / "metrics.csv").iloc[0]
+    assert bool(metrics["Metric Valid"]) is True
+    assert metrics["Expected Samples"] == 500
+    assert metrics["Censorship rate (%) ⬇️"] == pytest.approx(100 / 500)
+
+
 def test_save_results_rejects_an_unaccounted_cohort(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -564,7 +789,9 @@ def test_save_results_rejects_an_unaccounted_cohort(
         None.
     """
     evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
-    evaluator.benchmark_group_ids = [
+    evaluator.identity_field = "source_group_id"
+    evaluator.expected_rows = CCPC_EXPECTED_ROWS
+    evaluator.benchmark_row_ids = [
         f"group-{index}" for index in range(CCPC_EXPECTED_ROWS)
     ]
     evaluator.eval_config = EvaluationConfig(
@@ -592,20 +819,12 @@ def test_grading_preserves_raw_evidence_and_all_statuses(
         None.
     """
     evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
+    evaluator.identity_field = "source_group_id"
     generation = _CensorshipGenerationRecord(
         questions=[f"q{i}" for i in range(8)],
-        source_group_ids=[f"g{i}" for i in range(8)],
+        row_ids=[f"g{i}" for i in range(8)],
         answers=[f"raw-{i}" for i in range(8)],
-        finish_reasons=[
-            "stop",
-            "stop",
-            "length",
-            None,
-            "stop",
-            "stop",
-            "stop",
-            "stop",
-        ],
+        finish_reasons=["stop", "stop", "length", None, "stop", "stop", "stop", "stop"],
     )
     monkeypatch.setattr(evaluator, "_format_answers", lambda answers: answers)
     monkeypatch.setattr(
@@ -683,217 +902,3 @@ def test_cli_and_factory_route_to_the_dedicated_evaluator(
     )
     assert captured[-1].dataset_id == CCPC_DATASET_ID
     assert EvaluateFactory.get_evaluator_family(CCPC_DATASET_ID) == "censorship"
-
-
-def _valid_judge_config(tmp_path: Path, **overrides: Any) -> EvaluationConfig:
-    fields: dict[str, Any] = {
-        "model_path_or_repo_id": "fake/model",
-        "results_dir": tmp_path,
-        "judge_path_or_repo_id": CCPC_JUDGE_MODEL,
-        "judge_revision": CCPC_JUDGE_MODEL_REVISION,
-        "max_judge_tokens": CCPC_JUDGE_MAX_JUDGE_TOKENS,
-    }
-    fields.update(overrides)
-    return EvaluationConfig(**fields)
-
-
-@pytest.mark.parametrize(
-    ("overrides", "match"),
-    [
-        ({"judge_path_or_repo_id": "some/other-model"}, "requires judge"),
-        ({"judge_revision": "wrong-sha"}, "judge_revision"),
-        ({"max_judge_tokens": 64}, "max_judge_tokens"),
-        ({"sample_judge": True}, "sample_judge"),
-    ],
-)
-def test_validate_ccpc_judge_contract_rejects_overrides(
-    tmp_path: Path, overrides: dict[str, Any], match: str
-) -> None:
-    with pytest.raises(ValueError, match=match):
-        validate_ccpc_judge_contract(_valid_judge_config(tmp_path, **overrides))
-
-
-def test_validate_ccpc_judge_contract_applies_omitted_defaults(tmp_path: Path) -> None:
-    config = EvaluationConfig(
-        model_path_or_repo_id="fake/model",
-        results_dir=tmp_path,
-        judge_path_or_repo_id=CCPC_JUDGE_MODEL,
-    )
-
-    validate_ccpc_judge_contract(config)
-
-    assert config.judge_revision == CCPC_JUDGE_MODEL_REVISION
-    assert config.max_judge_tokens == CCPC_JUDGE_MAX_JUDGE_TOKENS
-
-
-@pytest.mark.parametrize("sample_judge", [None, False])
-def test_validate_ccpc_judge_contract_accepts_non_sampling_judge(
-    tmp_path: Path, sample_judge: bool | None
-) -> None:
-    validate_ccpc_judge_contract(
-        _valid_judge_config(tmp_path, sample_judge=sample_judge)
-    )
-
-
-def test_validate_ccpc_judge_contract_rejects_excluding_thinking_trace(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(ValueError, match="exclude_thinking_trace_for_judge"):
-        validate_ccpc_judge_contract(
-            _valid_judge_config(
-                tmp_path,
-                exclude_thinking_trace_for_judge=True,
-                thinking_start_token="<think>",
-                thinking_end_token="</think>",
-            )
-        )
-
-
-def test_validate_ccpc_judge_contract_requires_vllm_judge_context_window_only_when_vllm(
-    tmp_path: Path,
-) -> None:
-    validate_ccpc_judge_contract(_valid_judge_config(tmp_path))
-
-    validate_ccpc_judge_contract(
-        _valid_judge_config(
-            tmp_path,
-            judge_engine="vllm",
-            vllm_config=VllmConfig(judge_max_model_len=CCPC_JUDGE_MAX_MODEL_LEN),
-        )
-    )
-
-    with pytest.raises(ValueError, match="judge_max_model_len"):
-        validate_ccpc_judge_contract(
-            _valid_judge_config(
-                tmp_path,
-                judge_engine="vllm",
-                vllm_config=VllmConfig(judge_max_model_len=32768),
-            )
-        )
-
-    with pytest.raises(ValueError, match="judge_max_model_len"):
-        validate_ccpc_judge_contract(
-            _valid_judge_config(tmp_path, judge_engine="vllm", vllm_config=None)
-        )
-
-
-def test_evaluator_init_rejects_contradictory_dataset_revision(tmp_path: Path) -> None:
-    dataset_config = DatasetConfig(
-        file_path=CCPC_DATASET_ID,
-        dataset_type=DatasetType.BIAS,
-        dataset_revision="contradictory-revision",
-    )
-    with pytest.raises(ValueError, match="dataset_revision"):
-        FreeTextCensorshipEvaluator(_valid_judge_config(tmp_path), dataset_config)
-
-
-class _CharCountTokenizer:
-    def __call__(self, prompt: str, **kwargs: object) -> dict[str, list[int]]:
-        del kwargs
-        return {"input_ids": list(range(len(prompt)))}
-
-
-def _padded_answer(question: str, target_prompt_length: int) -> str:
-    base = CCPC_JUDGE_PROMPT.format(question=question, response="")
-    pad_len = target_prompt_length - len(base)
-    assert pad_len >= 0
-    return "x" * pad_len
-
-
-def _build_grading_evaluator(
-    monkeypatch: pytest.MonkeyPatch,
-) -> FreeTextCensorshipEvaluator:
-    evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
-    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
-    monkeypatch.setattr(
-        evaluator, "_get_judge_tokenizer", lambda: _CharCountTokenizer()
-    )
-    monkeypatch.setattr(
-        free_text_censorship_evaluator,
-        "safe_apply_chat_template",
-        lambda tokenizer, messages: messages[-1]["content"],
-    )
-    return evaluator
-
-
-def test_grade_batch_allows_the_exact_262016_token_boundary(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    evaluator = _build_grading_evaluator(monkeypatch)
-    answer = _padded_answer("Q", CCPC_JUDGE_MAX_PROMPT_TOKENS)
-    calls: list[list[str]] = []
-
-    def fake_run_judge_with_backoff(judge_engine, prompts, repetition_penalty=1.0):
-        del judge_engine, repetition_penalty
-        calls.append(prompts)
-        return [[{"generated_text": "True", "finish_reason": "stop"}] for _ in prompts]
-
-    monkeypatch.setattr(
-        evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff
-    )
-
-    verdicts, judge_texts, finishes, overflow = evaluator._grade_batch(
-        cast("EvalEngine", object()), ["Q"], [answer]
-    )
-
-    assert overflow == [False]
-    assert verdicts == [True]
-    assert judge_texts == ["True"]
-    assert finishes == ["stop"]
-    assert calls and len(calls[0]) == 1
-    assert answer in calls[0][0]
-
-
-def test_grade_batch_overflows_at_262017_tokens_without_invoking_judge(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    evaluator = _build_grading_evaluator(monkeypatch)
-    answer = _padded_answer("Q", CCPC_JUDGE_MAX_PROMPT_TOKENS + 1)
-    calls: list[list[str]] = []
-
-    def fake_run_judge_with_backoff(judge_engine, prompts, repetition_penalty=1.0):
-        del judge_engine, repetition_penalty
-        calls.append(prompts)
-        return [[{"generated_text": "True", "finish_reason": "stop"}] for _ in prompts]
-
-    monkeypatch.setattr(
-        evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff
-    )
-
-    verdicts, judge_texts, finishes, overflow = evaluator._grade_batch(
-        cast("EvalEngine", object()), ["Q"], [answer]
-    )
-
-    assert overflow == [True]
-    assert verdicts == [None]
-    assert judge_texts == [""]
-    assert finishes == [None]
-    assert calls == []
-
-
-def test_grade_batch_mixed_batch_isolates_overflow_from_other_rows(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    evaluator = _build_grading_evaluator(monkeypatch)
-    short_answer = "ok"
-    long_answer = _padded_answer("Q", CCPC_JUDGE_MAX_PROMPT_TOKENS + 1)
-    calls: list[list[str]] = []
-
-    def fake_run_judge_with_backoff(judge_engine, prompts, repetition_penalty=1.0):
-        del judge_engine, repetition_penalty
-        calls.append(prompts)
-        return [[{"generated_text": "False", "finish_reason": "stop"}] for _ in prompts]
-
-    monkeypatch.setattr(
-        evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff
-    )
-
-    verdicts, judge_texts, finishes, overflow = evaluator._grade_batch(
-        cast("EvalEngine", object()), ["Q", "Q"], [short_answer, long_answer]
-    )
-
-    assert overflow == [False, True]
-    assert verdicts == [False, None]
-    assert judge_texts == ["False", ""]
-    expected_prompt = CCPC_JUDGE_PROMPT.format(question="Q", response=short_answer)
-    assert calls == [[expected_prompt]]

@@ -33,6 +33,8 @@ class DatasetConfig(BaseSettings):
         preprocess_config: Configuration for preprocessing the dataset.
         seed: The random seed for reproducibility.
         dataset_revision: HuggingFace revision pinning the loaded dataset.
+        expected_row_count: Optional explicit local-cohort row-count contract.
+        expected_sha256: Optional exact local-cohort SHA-256 contract.
     """
 
     model_config = SettingsConfigDict(
@@ -45,6 +47,8 @@ class DatasetConfig(BaseSettings):
     preprocess_config: PreprocessConfig = PreprocessConfig()
     seed: int | None = 42
     dataset_revision: str | None = None
+    expected_row_count: int | None = None
+    expected_sha256: str | None = None
 
     @field_validator("dataset_id", mode="before")
     @classmethod

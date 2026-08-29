@@ -5,7 +5,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import cast
 
 import pandas as pd
 import torch
@@ -14,14 +14,12 @@ from torch.utils.data import DataLoader, Dataset
 
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .censorship_utils import (
-    CCPC_BENCHMARK_CONFIG,
     CCPC_DATASET_ID,
-    CCPC_DATASET_REVISION,
-    CCPC_EXPECTED_ROWS,
     CCPC_JUDGE_PROMPT,
     CCPC_JUDGE_REPETITION_PENALTY,
     CCPC_MODEL_REPETITION_PENALTY,
     CensorshipBenchmarkConfig,
+    CensorshipIdentityField,
     CensorshipStatus,
     judge_prompt_overflows,
     load_censorship_benchmark,
@@ -38,7 +36,7 @@ from .util_functions import is_model_multimodal, safe_apply_chat_template
 @dataclass
 class _CensorshipGenerationRecord(_GenerationRecord):
     questions: list[str]
-    source_group_ids: list[str]
+    row_ids: list[str]
     finish_reasons: list[str | None]
 
 
@@ -46,15 +44,7 @@ class _CensorshipRunConfig(FreeTextSharedEvaluator.RunConfig):
     ccpc_benchmark: CensorshipBenchmarkConfig
 
 
-class CensorshipResponse(TypedDict):
-    source_group_id: str
-    question: str
-    llm_answer: str
-    finish_reason: str | None
-    judge_finish_reason: str | None
-    judge_raw: str
-    judge_verdict: bool | None
-    status: str
+CensorshipResponse = dict[str, str | bool | None]
 
 
 MetricValue = str | int | float | bool | None
@@ -74,19 +64,20 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         """
         if dataset_config.dataset_id != CCPC_DATASET_ID:
             raise ValueError(f"CCPC-Bench requires dataset_id={CCPC_DATASET_ID!r}.")
-        if dataset_config.dataset_revision not in (None, CCPC_DATASET_REVISION):
-            raise ValueError(
-                "CCPC-Bench requires dataset_revision=None or "
-                f"{CCPC_DATASET_REVISION!r}; got {dataset_config.dataset_revision!r}."
-            )
         validate_ccpc_judge_contract(eval_config)
         super().__init__(eval_config, dataset_config)
 
     def prepare_dataloader(self) -> None:
         """Load and tokenize every benchmark row in published order."""
-        benchmark = load_censorship_benchmark(self.eval_config.model_token)
+        resolved = load_censorship_benchmark(
+            self.dataset_config, self.eval_config.model_token
+        )
+        benchmark = resolved.dataset
+        self.identity_field: CensorshipIdentityField = resolved.identity_field
+        self.expected_rows = resolved.benchmark_config["expected_rows"]
+        self._ccpc_benchmark_config = resolved.benchmark_config
         self.benchmark_questions = cast("list[str]", benchmark["question"])
-        self.benchmark_group_ids = cast("list[str]", benchmark["source_group_id"])
+        self.benchmark_row_ids = resolved.row_ids
         prompts = [
             safe_apply_chat_template(
                 self.tokenizer,
@@ -117,10 +108,10 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             {
                 "test_input_ids": tokenized["input_ids"],
                 "test_attention_mask": tokenized["attention_mask"],
-                "ccpc_row_index": list(range(CCPC_EXPECTED_ROWS)),
+                "ccpc_row_index": list(range(self.expected_rows)),
             }
         )
-        self.num_samples = CCPC_EXPECTED_ROWS
+        self.num_samples = self.expected_rows
         self.eval_engine.set_dataset(self.eval_dataset)
         self.eval_loader = DataLoader(
             # A Hugging Face Dataset implements the map-style Dataset protocol.
@@ -185,9 +176,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 generations.append(
                     _CensorshipGenerationRecord(
                         questions=[self.benchmark_questions[i] for i in row_indices],
-                        source_group_ids=[
-                            self.benchmark_group_ids[i] for i in row_indices
-                        ],
+                        row_ids=[self.benchmark_row_ids[i] for i in row_indices],
                         answers=answers,
                         finish_reasons=finish_reasons,
                     )
@@ -312,19 +301,19 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             None.
         """
         statuses = Counter(response["status"] for response in responses)
-        response_group_ids = [response["source_group_id"] for response in responses]
-        if response_group_ids != self.benchmark_group_ids:
+        response_group_ids = [response[self.identity_field] for response in responses]
+        if response_group_ids != self.benchmark_row_ids:
             raise ValueError(
-                "CCPC-Bench responses must cover every source_group_id in "
+                f"CCPC-Bench responses must cover every {self.identity_field} in "
                 "published order."
             )
         judged = (
             statuses[CensorshipStatus.JUDGED_TRUE.value]
             + statuses[CensorshipStatus.JUDGED_FALSE.value]
         )
-        metric_valid = judged == CCPC_EXPECTED_ROWS
+        metric_valid = judged == self.expected_rows
         censorship_rate = (
-            statuses[CensorshipStatus.JUDGED_TRUE.value] / CCPC_EXPECTED_ROWS
+            statuses[CensorshipStatus.JUDGED_TRUE.value] / self.expected_rows
             if metric_valid
             else None
         )
@@ -333,7 +322,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 censorship_rate * 100 if censorship_rate is not None else None
             ),
             "Metric Valid": metric_valid,
-            "Expected Samples": CCPC_EXPECTED_ROWS,
+            "Expected Samples": self.expected_rows,
             "Accounted Samples": len(responses),
             "Judged True": statuses[CensorshipStatus.JUDGED_TRUE.value],
             "Judged False": statuses[CensorshipStatus.JUDGED_FALSE.value],
@@ -415,7 +404,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 judge_finish,
                 judge_overflow,
             ) in zip(
-                generation.source_group_ids,
+                generation.row_ids,
                 generation.questions,
                 generation.answers,
                 generation.finish_reasons,
@@ -430,7 +419,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 )
                 responses.append(
                     {
-                        "source_group_id": group_id,
+                        self.identity_field: group_id,
                         "question": question,
                         "llm_answer": answer,
                         "finish_reason": model_finish,
@@ -458,5 +447,5 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         run_config["evaluation_config"].pop("max_samples", None)
         return {
             **run_config,
-            "ccpc_benchmark": CCPC_BENCHMARK_CONFIG.copy(),
+            "ccpc_benchmark": self._ccpc_benchmark_config.copy(),
         }

@@ -617,6 +617,18 @@ def main(
             ),
         ),
     ] = None,
+    ccpc_local_dataset_path: Annotated[
+        str | None,
+        typer.Option("--ccpc-local-dataset-path"),
+    ] = None,
+    ccpc_expected_rows: Annotated[
+        int | None,
+        typer.Option("--ccpc-expected-rows"),
+    ] = None,
+    ccpc_expected_sha256: Annotated[
+        str | None,
+        typer.Option("--ccpc-expected-sha256"),
+    ] = None,
 ) -> None:
     """Run evaluations; CCPC locks its judge and trust inference checks both roles.
 
@@ -658,6 +670,23 @@ def main(
         raise ValueError(
             "The chinese_censorship benchmark requires "
             f"--judge-model {CCPC_JUDGE_MODEL}."
+        )
+    ccpc_local_options_used = any(
+        value is not None
+        for value in (
+            ccpc_local_dataset_path,
+            ccpc_expected_rows,
+            ccpc_expected_sha256,
+        )
+    )
+    if ccpc_local_options_used and evaluator_family != "censorship":
+        raise ValueError("CCPC local-dataset options only apply to chinese_censorship.")
+    if (
+        ccpc_expected_rows is not None or ccpc_expected_sha256 is not None
+    ) and ccpc_local_dataset_path is None:
+        raise ValueError(
+            "--ccpc-expected-rows/--ccpc-expected-sha256 require "
+            "--ccpc-local-dataset-path."
         )
 
     logging.basicConfig(
@@ -781,15 +810,27 @@ def main(
                         else ""
                     )
                 )
-                dataset_config = DatasetConfig(
-                    file_path=file_path,
-                    dataset_type=DatasetType.UNBIAS
-                    if "-unbias-" in file_path
-                    else DatasetType.BIAS,
-                    preprocess_config=PreprocessConfig(),
-                    seed=seed,
-                    dataset_revision=dataset_revision,
+                dataset_type = (
+                    DatasetType.UNBIAS if "-unbias-" in file_path else DatasetType.BIAS
                 )
+                if file_path == CCPC_DATASET_ID and ccpc_local_dataset_path is not None:
+                    dataset_config = DatasetConfig(
+                        file_path=ccpc_local_dataset_path,
+                        dataset_id=CCPC_DATASET_ID,
+                        dataset_type=dataset_type,
+                        preprocess_config=PreprocessConfig(),
+                        seed=seed,
+                        expected_row_count=ccpc_expected_rows,
+                        expected_sha256=ccpc_expected_sha256,
+                    )
+                else:
+                    dataset_config = DatasetConfig(
+                        file_path=file_path,
+                        dataset_type=dataset_type,
+                        preprocess_config=PreprocessConfig(),
+                        seed=seed,
+                        dataset_revision=dataset_revision,
+                    )
                 if evaluator is None:
                     evaluator = EvaluateFactory.create_evaluator(
                         eval_config, dataset_config
