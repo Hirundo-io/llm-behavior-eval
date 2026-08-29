@@ -69,9 +69,6 @@ class DatasetConfig(BaseSettings):
     def validate_ccpc_source_contracts(self) -> "DatasetConfig":
         """Reject mixed historical and local CCPC source contracts.
 
-        Args:
-            None. Runs on the fully constructed config.
-
         Returns:
             This config when historical and local contracts do not mix.
 

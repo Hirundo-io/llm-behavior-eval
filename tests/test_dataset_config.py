@@ -58,9 +58,20 @@ def test_local_ccpc_source_allows_optional_sha256() -> None:
         dataset_type=DatasetType.BIAS,
         ccpc_source_mode="local",
         expected_row_count=500,
-        expected_sha256="a" * 64,
     )
     assert config.expected_row_count == 500
+    assert config.expected_sha256 is None
+
+
+def test_local_ccpc_source_accepts_expected_sha256() -> None:
+    config = DatasetConfig(
+        file_path="chinese_censorship",
+        dataset_id="chinese_censorship",
+        dataset_type=DatasetType.BIAS,
+        ccpc_source_mode="local",
+        expected_row_count=500,
+        expected_sha256="a" * 64,
+    )
     assert config.expected_sha256 == "a" * 64
 
 
