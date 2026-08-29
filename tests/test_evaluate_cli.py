@@ -350,6 +350,33 @@ def test_main_enforces_ccpc_judge_contract_and_checks_both_trusted_providers(
     assert not capture_eval_config[-1].trust_remote_code
 
 
+def test_main_rejects_ccpc_local_path_without_expected_rows(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    with pytest.raises(ValueError, match="requires --ccpc-expected-rows"):
+        evaluate.main(
+            "google/model",
+            "chinese_censorship",
+            judge_model=CCPC_JUDGE_MODEL,
+            ccpc_local_dataset_path="/tmp/local_ccpc.jsonl",
+        )
+    assert capture_configs == []
+
+
+def test_main_rejects_ccpc_local_path_and_sha256_without_expected_rows(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    with pytest.raises(ValueError, match="requires --ccpc-expected-rows"):
+        evaluate.main(
+            "google/model",
+            "chinese_censorship",
+            judge_model=CCPC_JUDGE_MODEL,
+            ccpc_local_dataset_path="/tmp/local_ccpc.jsonl",
+            ccpc_expected_sha256="a" * 64,
+        )
+    assert capture_configs == []
+
+
 def test_main_rejects_ccpc_expected_rows_without_local_path() -> None:
     with pytest.raises(ValueError, match="--ccpc-local-dataset-path"):
         evaluate.main(
@@ -391,7 +418,7 @@ def test_main_allows_chinese_censorship_without_any_ccpc_local_flags(
     )
     dataset_config = capture_configs[-1].dataset_config
     assert dataset_config.file_path == CCPC_DATASET_ID
-    assert dataset_config.ccpc_source_mode == "historical"
+    assert dataset_config.ccpc_source_mode is None
     assert dataset_config.expected_row_count is None
     assert dataset_config.expected_sha256 is None
 

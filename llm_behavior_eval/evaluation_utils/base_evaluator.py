@@ -976,6 +976,28 @@ class BaseEvaluator(ABC):
         with open(self.run_config_path(), "w") as file_handle:
             json.dump(run_config, file_handle, indent=2)
 
+    @staticmethod
+    def _dataset_config_for_equivalence(
+        dataset_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Normalize serialized dataset fields that are semantically identical.
+
+        Omitted ``ccpc_source_mode`` and explicit ``"historical"`` both mean
+        the reusable non-local source, so they must not look like a
+        configuration change. ``"local"`` is left intact so a local CCPC
+        cohort cannot compare equal to a historical one.
+
+        Args:
+            dataset_config: One ``run_config.json`` ``dataset_config`` object.
+
+        Returns:
+            A shallow copy with implicit historical CCPC source mode omitted.
+        """
+        normalized = dict(dataset_config)
+        if normalized.get("ccpc_source_mode") in (None, "historical"):
+            normalized.pop("ccpc_source_mode", None)
+        return normalized
+
     def _clear_output_files(self) -> None:
         for filename in ["responses.json", "metrics.csv", "generations.jsonl"]:
             output_file = self.get_output_dir() / filename
@@ -1000,7 +1022,19 @@ class BaseEvaluator(ABC):
                 "file_path"
             )
 
-        if existing_run_config == run_config:
+        comparable_existing = {
+            **existing_run_config,
+            "dataset_config": self._dataset_config_for_equivalence(
+                existing_dataset_config
+            ),
+        }
+        comparable_current = {
+            **run_config,
+            "dataset_config": self._dataset_config_for_equivalence(
+                run_config["dataset_config"]
+            ),
+        }
+        if comparable_existing == comparable_current:
             logging.info(
                 "Existing outputs at %s match current configuration; continuing with cached generations if present.",
                 config_path,

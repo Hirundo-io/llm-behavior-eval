@@ -318,10 +318,10 @@ def load_censorship_benchmark(
 ) -> ResolvedCensorshipBenchmark:
     """Load and validate the active CCPC cohort without changing row order.
 
-    ``dataset_config.ccpc_source_mode`` explicitly selects either the immutable,
-    pinned 216-row Hugging Face split or a local JSONL cohort. Local cohorts are
-    validated against ``dataset_config.expected_row_count`` (required) and
-    ``dataset_config.expected_sha256`` (optional).
+    ``dataset_config.ccpc_source_mode == "local"`` selects a local JSONL cohort.
+    Omitted or ``"historical"`` selects the pinned 216-row Hugging Face split.
+    Local cohorts are validated against ``dataset_config.expected_row_count``
+    (required) and ``dataset_config.expected_sha256`` (optional).
 
     Args:
         dataset_config: Names the active cohort source and, for a local

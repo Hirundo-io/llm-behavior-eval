@@ -35,7 +35,10 @@ class DatasetConfig(BaseSettings):
         preprocess_config: Configuration for preprocessing the dataset.
         seed: The random seed for reproducibility.
         dataset_revision: HuggingFace revision pinning the loaded dataset.
-        ccpc_source_mode: Explicit CCPC cohort source selection.
+        ccpc_source_mode: Explicit CCPC cohort source selection. ``None``
+            (omitted from run identity) is the reusable default; CCPC local
+            cohorts set ``"local"``. ``"historical"`` is accepted as an alias
+            of the omitted historical CCPC source.
         expected_row_count: Optional explicit local-cohort row-count contract.
         expected_sha256: Optional exact local-cohort SHA-256 contract.
     """
@@ -50,7 +53,7 @@ class DatasetConfig(BaseSettings):
     preprocess_config: PreprocessConfig = PreprocessConfig()
     seed: int | None = 42
     dataset_revision: str | None = None
-    ccpc_source_mode: Literal["historical", "local"] = "historical"
+    ccpc_source_mode: Literal["historical", "local"] | None = None
     expected_row_count: int | None = None
     expected_sha256: str | None = None
 

@@ -184,6 +184,70 @@ def test_loads_exact_pinned_dataset_in_published_order(
         "token": "token",
         "trust_remote_code": False,
     }
+    assert _HISTORICAL_DATASET_CONFIG.ccpc_source_mode is None
+
+
+def test_legacy_historical_ccpc_run_config_without_source_mode_is_reusable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reuse a pre-source-mode historical CCPC run_config.json.
+
+    Args:
+        tmp_path: Temporary results directory supplied by pytest.
+        monkeypatch: Pytest patching helper.
+
+    Returns:
+        None.
+    """
+    evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="fake/model", results_dir=tmp_path
+    )
+    evaluator.dataset_config = _HISTORICAL_DATASET_CONFIG
+    evaluator._ccpc_benchmark_config = CCPC_BENCHMARK_CONFIG.copy()
+    run_config = evaluator._current_run_config()
+    assert "ccpc_source_mode" not in run_config["dataset_config"]
+    run_config_path = evaluator.run_config_path()
+    run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.base_evaluator.typer.prompt",
+        lambda *_args, **_kwargs: pytest.fail("matching historical CCPC prompted"),
+    )
+
+    evaluator._ensure_run_configuration_allowed()
+
+
+def test_local_ccpc_run_config_does_not_match_historical(
+    tmp_path: Path,
+) -> None:
+    """Keep explicit local CCPC distinct from historical CCPC run identity.
+
+    Args:
+        tmp_path: Temporary results directory supplied by pytest.
+
+    Returns:
+        None.
+    """
+    historical = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
+    historical.eval_config = EvaluationConfig(
+        model_path_or_repo_id="fake/model", results_dir=tmp_path
+    )
+    historical.dataset_config = _HISTORICAL_DATASET_CONFIG
+    historical._ccpc_benchmark_config = CCPC_BENCHMARK_CONFIG.copy()
+    historical.run_config_path().write_text(
+        json.dumps(historical._current_run_config()), encoding="utf-8"
+    )
+
+    local_path = _write_local_jsonl(tmp_path, _local_rows(500))
+    local = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
+    local.eval_config = historical.eval_config
+    local.dataset_config = _local_dataset_config(local_path, expected_row_count=500)
+    local._ccpc_benchmark_config = load_censorship_benchmark(
+        local.dataset_config
+    ).benchmark_config
+
+    with pytest.raises(RuntimeError, match="--replace-existing-output"):
+        local._ensure_run_configuration_allowed()
 
 
 def test_loads_explicit_local_cohort_in_file_order(tmp_path: Path) -> None:

@@ -688,6 +688,8 @@ def main(
             "--ccpc-expected-rows/--ccpc-expected-sha256 require "
             "--ccpc-local-dataset-path."
         )
+    if ccpc_local_dataset_path is not None and ccpc_expected_rows is None:
+        raise ValueError("--ccpc-local-dataset-path requires --ccpc-expected-rows.")
 
     logging.basicConfig(
         level=logging.INFO,
@@ -831,7 +833,6 @@ def main(
                         preprocess_config=PreprocessConfig(),
                         seed=seed,
                         dataset_revision=dataset_revision,
-                        ccpc_source_mode="historical",
                     )
                 if evaluator is None:
                     evaluator = EvaluateFactory.create_evaluator(
