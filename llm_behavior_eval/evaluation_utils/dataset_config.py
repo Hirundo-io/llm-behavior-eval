@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -33,6 +35,7 @@ class DatasetConfig(BaseSettings):
         preprocess_config: Configuration for preprocessing the dataset.
         seed: The random seed for reproducibility.
         dataset_revision: HuggingFace revision pinning the loaded dataset.
+        ccpc_source_mode: Explicit CCPC cohort source selection.
         expected_row_count: Optional explicit local-cohort row-count contract.
         expected_sha256: Optional exact local-cohort SHA-256 contract.
     """
@@ -47,6 +50,7 @@ class DatasetConfig(BaseSettings):
     preprocess_config: PreprocessConfig = PreprocessConfig()
     seed: int | None = 42
     dataset_revision: str | None = None
+    ccpc_source_mode: Literal["historical", "local"] = "historical"
     expected_row_count: int | None = None
     expected_sha256: str | None = None
 

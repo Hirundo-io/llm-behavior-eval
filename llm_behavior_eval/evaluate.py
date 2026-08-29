@@ -820,6 +820,7 @@ def main(
                         dataset_type=dataset_type,
                         preprocess_config=PreprocessConfig(),
                         seed=seed,
+                        ccpc_source_mode="local",
                         expected_row_count=ccpc_expected_rows,
                         expected_sha256=ccpc_expected_sha256,
                     )
@@ -830,6 +831,7 @@ def main(
                         preprocess_config=PreprocessConfig(),
                         seed=seed,
                         dataset_revision=dataset_revision,
+                        ccpc_source_mode="historical",
                     )
                 if evaluator is None:
                     evaluator = EvaluateFactory.create_evaluator(

@@ -66,6 +66,7 @@ def _local_dataset_config(
         file_path=str(path),
         dataset_id=CCPC_DATASET_ID,
         dataset_type=DatasetType.BIAS,
+        ccpc_source_mode="local",
         expected_row_count=expected_row_count,
         expected_sha256=expected_sha256,
     )
@@ -212,6 +213,36 @@ def test_loads_explicit_local_cohort_in_file_order(tmp_path: Path) -> None:
     assert resolved.benchmark_config["identity_field"] == "benchmark_id"
 
 
+def test_explicit_local_cohort_named_like_preset_stays_local(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Verify an explicit local ``chinese_censorship`` path never loads HF."""
+    rows = _local_rows(500)
+    path = tmp_path / CCPC_DATASET_ID
+    path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+    sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+    historical_calls: list[tuple[object, ...]] = []
+
+    def fake_load_dataset(*args: object, **kwargs: object) -> Dataset:
+        historical_calls.append((*args, kwargs))
+        return _benchmark()
+
+    monkeypatch.setattr(censorship_utils, "load_dataset", fake_load_dataset)
+    monkeypatch.chdir(tmp_path)
+    dataset_config = _local_dataset_config(
+        Path(CCPC_DATASET_ID), expected_row_count=500, expected_sha256=sha256
+    )
+
+    resolved = load_censorship_benchmark(dataset_config)
+
+    assert historical_calls == []
+    assert len(resolved.dataset) == 500
+    assert resolved.identity_field == "benchmark_id"
+    assert resolved.row_ids == [row["benchmark_id"] for row in rows]
+    assert resolved.benchmark_config["expected_rows"] == 500
+    assert resolved.benchmark_config["dataset_sha256"] == sha256
+
+
 @pytest.mark.parametrize("actual_size", [499, 501])
 def test_local_cohort_rejects_wrong_row_count(tmp_path: Path, actual_size: int) -> None:
     """Verify a local cohort that doesn't match its expected 500 rows fails closed.
@@ -241,7 +272,10 @@ def test_local_cohort_requires_expected_row_count(tmp_path: Path) -> None:
     """
     path = _write_local_jsonl(tmp_path, _local_rows(500))
     dataset_config = DatasetConfig(
-        file_path=str(path), dataset_id=CCPC_DATASET_ID, dataset_type=DatasetType.BIAS
+        file_path=str(path),
+        dataset_id=CCPC_DATASET_ID,
+        dataset_type=DatasetType.BIAS,
+        ccpc_source_mode="local",
     )
 
     with pytest.raises(ValueError, match="expected_row_count"):

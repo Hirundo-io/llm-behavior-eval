@@ -318,11 +318,10 @@ def load_censorship_benchmark(
 ) -> ResolvedCensorshipBenchmark:
     """Load and validate the active CCPC cohort without changing row order.
 
-    ``dataset_config.file_path == CCPC_DATASET_ID`` selects the immutable,
-    pinned 216-row Hugging Face split — the historical CCPC-216 contract,
-    unchanged. Any other ``file_path`` is treated as an explicit local JSONL
-    cohort, validated against ``dataset_config.expected_row_count`` (required)
-    and ``dataset_config.expected_sha256`` (optional).
+    ``dataset_config.ccpc_source_mode`` explicitly selects either the immutable,
+    pinned 216-row Hugging Face split or a local JSONL cohort. Local cohorts are
+    validated against ``dataset_config.expected_row_count`` (required) and
+    ``dataset_config.expected_sha256`` (optional).
 
     Args:
         dataset_config: Names the active cohort source and, for a local
@@ -333,6 +332,6 @@ def load_censorship_benchmark(
     Returns:
         The validated benchmark, its identity field, and dynamic provenance.
     """
-    if dataset_config.file_path == CCPC_DATASET_ID:
-        return _load_historical_benchmark(token)
-    return _load_local_benchmark(dataset_config)
+    if dataset_config.ccpc_source_mode == "local":
+        return _load_local_benchmark(dataset_config)
+    return _load_historical_benchmark(token)

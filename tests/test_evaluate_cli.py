@@ -391,6 +391,7 @@ def test_main_allows_chinese_censorship_without_any_ccpc_local_flags(
     )
     dataset_config = capture_configs[-1].dataset_config
     assert dataset_config.file_path == CCPC_DATASET_ID
+    assert dataset_config.ccpc_source_mode == "historical"
     assert dataset_config.expected_row_count is None
     assert dataset_config.expected_sha256 is None
 
@@ -411,6 +412,7 @@ def test_main_routes_full_ccpc_local_combination_into_dataset_config(
     dataset_config = capture_configs[-1].dataset_config
     assert dataset_config.file_path == "/tmp/local_ccpc.jsonl"
     assert dataset_config.dataset_id == CCPC_DATASET_ID
+    assert dataset_config.ccpc_source_mode == "local"
     assert dataset_config.expected_row_count == 500
     assert dataset_config.expected_sha256 == "a" * 64
     assert dataset_config.dataset_revision is None
