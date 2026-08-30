@@ -12,11 +12,7 @@ from typer.testing import CliRunner
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
-from llm_behavior_eval.evaluation_utils.censorship_utils import (
-    CCPC_DATASET_ID,
-    CCPC_DATASET_REVISION,
-    CCPC_JUDGE_MODEL,
-)
+from llm_behavior_eval.evaluation_utils.censorship_utils import CCPC_DATASET_ID
 from llm_behavior_eval.evaluation_utils.eval_config import FAMILY_TOKEN_DEFAULTS
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
@@ -284,64 +280,18 @@ def test_main_threads_dataset_revision_into_dataset_config(
     )
 
 
-def test_main_passes_omitted_ccpc_dataset_revision_to_the_ccpc_route(
-    capture_configs: list[CapturedConfigs],
-) -> None:
-    evaluate.main("fake/model", "chinese_censorship", judge_model=CCPC_JUDGE_MODEL)
-
-    dataset_config = capture_configs[-1].dataset_config
-    assert dataset_config.dataset_id == CCPC_DATASET_ID
-    assert dataset_config.dataset_revision is None
-
-
-def test_main_accepts_ccpc_canonical_dataset_revision(
+def test_main_forwards_arbitrary_dataset_revision_to_ccpc(
     capture_configs: list[CapturedConfigs],
 ) -> None:
     evaluate.main(
         "fake/model",
         "chinese_censorship",
-        judge_model=CCPC_JUDGE_MODEL,
-        dataset_revision=CCPC_DATASET_REVISION,
+        judge_model="example/judge",
+        dataset_revision="dataset-sha",
     )
 
-    dataset_config = capture_configs[-1].dataset_config
-    assert dataset_config.dataset_id == CCPC_DATASET_ID
-
-
-def test_main_rejects_conflicting_ccpc_dataset_revision(
-    capture_configs: list[CapturedConfigs],
-) -> None:
-    with pytest.raises(ValueError, match="canonical dataset revision"):
-        evaluate.main(
-            "fake/model",
-            "chinese_censorship",
-            judge_model=CCPC_JUDGE_MODEL,
-            dataset_revision="conflicting-sha",
-        )
-    assert capture_configs == []
-
-
-def test_main_still_accepts_arbitrary_dataset_revision_for_generic_datasets(
-    capture_configs: list[CapturedConfigs],
-) -> None:
-    evaluate.main("fake/model", "hallu", dataset_revision="conflicting-sha")
-
-    assert capture_configs[-1].dataset_config.dataset_revision == "conflicting-sha"
-
-
-def test_main_rejects_dataset_revision_combined_with_local_ccpc(
-    capture_configs: list[CapturedConfigs],
-) -> None:
-    with pytest.raises(ValueError, match="does not apply to an explicit local"):
-        evaluate.main(
-            "google/model",
-            "chinese_censorship",
-            judge_model=CCPC_JUDGE_MODEL,
-            dataset_revision=CCPC_DATASET_REVISION,
-            ccpc_local_dataset_path="/tmp/local_ccpc.jsonl",
-            ccpc_expected_rows=500,
-        )
-    assert capture_configs == []
+    assert capture_configs[-1].dataset_config.dataset_id == CCPC_DATASET_ID
+    assert capture_configs[-1].dataset_config.dataset_revision == "dataset-sha"
 
 
 def test_main_threads_model_reasoning_effort_into_eval_config(
@@ -359,17 +309,17 @@ def test_main_rejects_mixed_evaluator_families() -> None:
         evaluate.main("fake/model", "hallu,refusal:all")
 
 
-def test_main_enforces_ccpc_judge_contract_and_checks_both_trusted_providers(
+def test_main_allows_configured_ccpc_judge_and_checks_both_trusted_providers(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
-    """Verify CCPC routing locks its judge and checks both providers for trust.
+    """Verify CCPC routing forwards its judge and checks both providers for trust.
     Args:
         capture_eval_config: Evaluation configurations captured by the factory stub.
     """
     evaluate.main(
         "google/model",
         "chinese_censorship",
-        judge_model=CCPC_JUDGE_MODEL,
+        judge_model="google/gemma-4-26B-A4B-it",
     )
     assert capture_eval_config[-1].evaluator_family == "censorship"
     assert capture_eval_config[-1].trust_remote_code
@@ -377,7 +327,7 @@ def test_main_enforces_ccpc_judge_contract_and_checks_both_trusted_providers(
     evaluate.main(
         "google/model",
         "chinese_censorship",
-        judge_model=CCPC_JUDGE_MODEL,
+        judge_model="google/gemma-4-26B-A4B-it",
         trust_remote_code=False,
     )
     assert not capture_eval_config[-1].trust_remote_code
@@ -385,13 +335,12 @@ def test_main_enforces_ccpc_judge_contract_and_checks_both_trusted_providers(
     evaluate.main(
         "untrusted/model",
         "chinese_censorship",
-        judge_model=CCPC_JUDGE_MODEL,
+        judge_model="google/gemma-4-26B-A4B-it",
     )
     assert not capture_eval_config[-1].trust_remote_code
 
-    with pytest.raises(ValueError, match="chinese_censorship benchmark requires"):
-        evaluate.main("fake/model", "chinese_censorship")
-    assert len(capture_eval_config) == 3
+    evaluate.main("fake/model", "chinese_censorship")
+    assert capture_eval_config[-1].judge_path_or_repo_id == "google/gemma-3-12b-it"
 
     evaluate.main("google/model", "hallu")
     assert capture_eval_config[-1].judge_path_or_repo_id == "google/gemma-3-12b-it"
@@ -399,101 +348,6 @@ def test_main_enforces_ccpc_judge_contract_and_checks_both_trusted_providers(
 
     evaluate.main("google/model", "hallu", judge_model="untrusted/judge")
     assert not capture_eval_config[-1].trust_remote_code
-
-
-def test_main_rejects_ccpc_local_path_without_expected_rows(
-    capture_configs: list[CapturedConfigs],
-) -> None:
-    with pytest.raises(ValueError, match="requires --ccpc-expected-rows"):
-        evaluate.main(
-            "google/model",
-            "chinese_censorship",
-            judge_model=CCPC_JUDGE_MODEL,
-            ccpc_local_dataset_path="/tmp/local_ccpc.jsonl",
-        )
-    assert capture_configs == []
-
-
-def test_main_rejects_ccpc_local_path_and_sha256_without_expected_rows(
-    capture_configs: list[CapturedConfigs],
-) -> None:
-    with pytest.raises(ValueError, match="requires --ccpc-expected-rows"):
-        evaluate.main(
-            "google/model",
-            "chinese_censorship",
-            judge_model=CCPC_JUDGE_MODEL,
-            ccpc_local_dataset_path="/tmp/local_ccpc.jsonl",
-            ccpc_expected_sha256="a" * 64,
-        )
-    assert capture_configs == []
-
-
-def test_main_rejects_ccpc_expected_rows_without_local_path() -> None:
-    with pytest.raises(ValueError, match="--ccpc-local-dataset-path"):
-        evaluate.main(
-            "google/model",
-            "chinese_censorship",
-            judge_model=CCPC_JUDGE_MODEL,
-            ccpc_expected_rows=500,
-        )
-
-
-def test_main_rejects_ccpc_expected_sha256_without_local_path() -> None:
-    with pytest.raises(ValueError, match="--ccpc-local-dataset-path"):
-        evaluate.main(
-            "google/model",
-            "chinese_censorship",
-            judge_model=CCPC_JUDGE_MODEL,
-            ccpc_expected_sha256="a" * 64,
-        )
-
-
-def test_main_rejects_ccpc_expected_rows_and_sha256_without_local_path() -> None:
-    with pytest.raises(ValueError, match="--ccpc-local-dataset-path"):
-        evaluate.main(
-            "google/model",
-            "chinese_censorship",
-            judge_model=CCPC_JUDGE_MODEL,
-            ccpc_expected_rows=500,
-            ccpc_expected_sha256="a" * 64,
-        )
-
-
-def test_main_allows_chinese_censorship_without_any_ccpc_local_flags(
-    capture_configs: list[CapturedConfigs],
-) -> None:
-    evaluate.main(
-        "google/model",
-        "chinese_censorship",
-        judge_model=CCPC_JUDGE_MODEL,
-    )
-    dataset_config = capture_configs[-1].dataset_config
-    assert dataset_config.file_path == CCPC_DATASET_ID
-    assert dataset_config.ccpc_source_mode is None
-    assert dataset_config.expected_row_count is None
-    assert dataset_config.expected_sha256 is None
-
-
-def test_main_routes_full_ccpc_local_combination_into_dataset_config(
-    capture_configs: list[CapturedConfigs],
-) -> None:
-    evaluate.main(
-        "google/model",
-        "chinese_censorship",
-        judge_model=CCPC_JUDGE_MODEL,
-        model_revision="target-sha",
-        judge_revision="4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
-        ccpc_local_dataset_path="/tmp/local_ccpc.jsonl",
-        ccpc_expected_rows=500,
-        ccpc_expected_sha256="a" * 64,
-    )
-    dataset_config = capture_configs[-1].dataset_config
-    assert dataset_config.file_path == "/tmp/local_ccpc.jsonl"
-    assert dataset_config.dataset_id == CCPC_DATASET_ID
-    assert dataset_config.ccpc_source_mode == "local"
-    assert dataset_config.expected_row_count == 500
-    assert dataset_config.expected_sha256 == "a" * 64
-    assert dataset_config.dataset_revision is None
 
 
 def test_main_falls_back_to_env_mlflow_tracking_uri_when_enabled(

@@ -12,8 +12,6 @@ os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_DATASET_ID,
-    CCPC_DATASET_REVISION,
-    CCPC_JUDGE_MODEL,
 )
 from llm_behavior_eval.evaluation_utils.dataset_config import (
     DatasetConfig,
@@ -265,8 +263,7 @@ def main(
             "--judge-revision",
             help=(
                 "HuggingFace revision selection (e.g. a commit SHA, tag, or branch) "
-                "for the judge model and tokenizer. CCPC defaults to its canonical "
-                "judge revision."
+                "for the judge model and tokenizer."
             ),
         ),
     ] = None,
@@ -612,26 +609,13 @@ def main(
         typer.Option(
             "--dataset-revision",
             help=(
-                "Hugging Face dataset revision for generic datasets; omitted values "
-                "use the repository default. CCPC-Bench always uses its canonical "
-                "revision and rejects conflicting explicit values."
+                "Hugging Face dataset revision; omitted values use the repository "
+                "default."
             ),
         ),
     ] = None,
-    ccpc_local_dataset_path: Annotated[
-        str | None,
-        typer.Option("--ccpc-local-dataset-path"),
-    ] = None,
-    ccpc_expected_rows: Annotated[
-        int | None,
-        typer.Option("--ccpc-expected-rows"),
-    ] = None,
-    ccpc_expected_sha256: Annotated[
-        str | None,
-        typer.Option("--ccpc-expected-sha256"),
-    ] = None,
 ) -> None:
-    """Run evaluations; CCPC locks its judge and trust inference checks both roles.
+    """Run evaluations and trust inference checks both roles.
 
     Args:
         model: Model repository identifier or local path.
@@ -641,13 +625,10 @@ def main(
         judge_revision: Revision selection for the judge model and tokenizer.
         model_reasoning_effort: Optional reasoning-effort value such as ``low``
             forwarded to target prompt rendering and omitted for unsupported templates.
-        dataset_revision: Hugging Face revision for generic datasets; omitted values
-            use the repository default. CCPC-Bench uses its canonical revision and
-            rejects conflicting explicit values.
+        dataset_revision: Optional Hugging Face revision for the dataset.
         trust_remote_code: Explicit remote-code authorization.
     Raises:
-        ValueError: If evaluator families are mixed or the censorship judge differs
-            from :data:`CCPC_JUDGE_MODEL`.
+        ValueError: If evaluator families are mixed.
     """
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
@@ -667,42 +648,6 @@ def main(
             "Cannot evaluate behaviors from multiple evaluator families in one invocation."
         )
     evaluator_family: EvaluatorFamily | None = next(iter(evaluator_families), None)
-    if evaluator_family == "censorship" and judge_path_or_repo_id != CCPC_JUDGE_MODEL:
-        raise ValueError(
-            "The chinese_censorship benchmark requires "
-            f"--judge-model {CCPC_JUDGE_MODEL}."
-        )
-    ccpc_local_options_used = any(
-        value is not None
-        for value in (
-            ccpc_local_dataset_path,
-            ccpc_expected_rows,
-            ccpc_expected_sha256,
-        )
-    )
-    if ccpc_local_options_used and evaluator_family != "censorship":
-        raise ValueError("CCPC local-dataset options only apply to chinese_censorship.")
-    if (
-        ccpc_expected_rows is not None or ccpc_expected_sha256 is not None
-    ) and ccpc_local_dataset_path is None:
-        raise ValueError(
-            "--ccpc-expected-rows/--ccpc-expected-sha256 require "
-            "--ccpc-local-dataset-path."
-        )
-    if ccpc_local_dataset_path is not None and ccpc_expected_rows is None:
-        raise ValueError("--ccpc-local-dataset-path requires --ccpc-expected-rows.")
-    if evaluator_family == "censorship" and dataset_revision is not None:
-        if ccpc_local_dataset_path is not None:
-            raise ValueError(
-                "--dataset-revision does not apply to an explicit local CCPC "
-                "cohort; pin it with --ccpc-expected-rows/--ccpc-expected-sha256 "
-                "instead."
-            )
-        if dataset_revision != CCPC_DATASET_REVISION:
-            raise ValueError(
-                "chinese_censorship uses its canonical dataset revision and "
-                "rejects conflicting explicit --dataset-revision values."
-            )
 
     logging.basicConfig(
         level=logging.INFO,
@@ -825,28 +770,15 @@ def main(
                         else ""
                     )
                 )
-                dataset_type = (
-                    DatasetType.UNBIAS if "-unbias-" in file_path else DatasetType.BIAS
+                dataset_config = DatasetConfig(
+                    file_path=file_path,
+                    dataset_type=DatasetType.UNBIAS
+                    if "-unbias-" in file_path
+                    else DatasetType.BIAS,
+                    preprocess_config=PreprocessConfig(),
+                    seed=seed,
+                    dataset_revision=dataset_revision,
                 )
-                if file_path == CCPC_DATASET_ID and ccpc_local_dataset_path is not None:
-                    dataset_config = DatasetConfig(
-                        file_path=ccpc_local_dataset_path,
-                        dataset_id=CCPC_DATASET_ID,
-                        dataset_type=dataset_type,
-                        preprocess_config=PreprocessConfig(),
-                        seed=seed,
-                        ccpc_source_mode="local",
-                        expected_row_count=ccpc_expected_rows,
-                        expected_sha256=ccpc_expected_sha256,
-                    )
-                else:
-                    dataset_config = DatasetConfig(
-                        file_path=file_path,
-                        dataset_type=dataset_type,
-                        preprocess_config=PreprocessConfig(),
-                        seed=seed,
-                        dataset_revision=dataset_revision,
-                    )
                 if evaluator is None:
                     evaluator = EvaluateFactory.create_evaluator(
                         eval_config, dataset_config

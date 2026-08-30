@@ -31,6 +31,7 @@ class RecordingTokenizer:
         self.batch_decode_calls: list[dict[str, object]] = []
         self.pad_token: str | None = None
         self.eos_token = "<eos>"
+        self.all_special_tokens: list[str] = []
 
     def batch_decode(self, tokens: torch.Tensor, skip_special_tokens: bool = True):
         self.batch_decode_calls.append(
@@ -305,6 +306,7 @@ def vllm_bundle() -> VllmPatchBundle:
         pad_token=None,
         eos_token="<eos>",
         eos_token_id=7,
+        all_special_tokens=[],
     )
     build_recorder = BuildPromptRecorder()
     sampling_recorder = SamplingParamsRecorder()
@@ -818,10 +820,10 @@ def test_transformers_eval_engine_get_batch_size_autotune(
 
 
 class _HarmonyTextVllmModel:
-    """A DummyVllmModel-alike that returns a fixed, configurable completion text."""
+    """A DummyVllmModel-alike that returns a fixed Harmony token sequence."""
 
-    def __init__(self, text: str) -> None:
-        self.text = text
+    def __init__(self, token_ids: list[int]) -> None:
+        self.token_ids = token_ids
         self.llm_engine = SimpleNamespace(
             engine_core=SimpleNamespace(shutdown=lambda: None)
         )
@@ -829,15 +831,32 @@ class _HarmonyTextVllmModel:
     def generate(self, **kwargs):
         return [
             SimpleNamespace(
-                outputs=[SimpleNamespace(text=self.text, finish_reason="stop")]
+                outputs=[
+                    SimpleNamespace(
+                        text="raw Harmony completion",
+                        token_ids=self.token_ids,
+                        finish_reason="stop",
+                    )
+                ]
             )
         ]
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_disables_skip_special_tokens_for_gpt_oss(
-    vllm_bundle: VllmPatchBundle, tmp_path: Path
+def test_vllm_eval_engine_disables_skip_special_tokens_for_harmony_tokenizer(
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_bundle: VllmPatchBundle,
+    tmp_path: Path,
 ) -> None:
+    vllm_bundle.tokenizer.all_special_tokens = [
+        "<|channel|>",
+        "<|message|>",
+        "<|return|>",
+    ]
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.vllm_eval_engine.extract_vllm_harmony_final_answer",
+        lambda _token_ids: "visible answer",
+    )
     config = EvaluationConfig(
         model_path_or_repo_id="openai/gpt-oss-20b",
         results_dir=tmp_path,
@@ -856,7 +875,7 @@ def test_vllm_eval_engine_disables_skip_special_tokens_for_gpt_oss(
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_keeps_skip_special_tokens_for_non_gpt_oss(
+def test_vllm_eval_engine_keeps_skip_special_tokens_for_non_harmony_tokenizer(
     vllm_bundle: VllmPatchBundle, tmp_path: Path
 ) -> None:
     config = EvaluationConfig(
@@ -877,14 +896,21 @@ def test_vllm_eval_engine_keeps_skip_special_tokens_for_non_gpt_oss(
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_extracts_harmony_final_channel_for_gpt_oss(
-    vllm_bundle: VllmPatchBundle, tmp_path: Path
+def test_vllm_eval_engine_delegates_harmony_extraction_to_library_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_bundle: VllmPatchBundle,
+    tmp_path: Path,
 ) -> None:
-    harmony_text = (
-        "<|channel|>analysis<|message|>secret reasoning<|end|>"
-        "<|start|>assistant<|channel|>final<|message|>The answer is 42.<|return|>"
+    vllm_bundle.tokenizer.all_special_tokens = [
+        "<|channel|>",
+        "<|message|>",
+        "<|return|>",
+    ]
+    vllm_bundle.model_loader.value = _HarmonyTextVllmModel([10, 11])
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.vllm_eval_engine.extract_vllm_harmony_final_answer",
+        lambda token_ids: "The answer is 42." if token_ids == [10, 11] else "",
     )
-    vllm_bundle.model_loader.value = _HarmonyTextVllmModel(harmony_text)
     config = EvaluationConfig(
         model_path_or_repo_id="openai/gpt-oss-20b",
         results_dir=tmp_path,
@@ -900,15 +926,27 @@ def test_vllm_eval_engine_extracts_harmony_final_channel_for_gpt_oss(
     )
 
     assert responses == ["The answer is 42."]
-    assert "secret reasoning" not in responses[0]
     assert finish_reasons == ["stop"]
 
 
 @pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_gpt_oss_fails_closed_on_malformed_harmony(
-    vllm_bundle: VllmPatchBundle, tmp_path: Path
+def test_vllm_eval_engine_fails_closed_on_missing_harmony_final(
+    monkeypatch: pytest.MonkeyPatch,
+    vllm_bundle: VllmPatchBundle,
+    tmp_path: Path,
 ) -> None:
-    vllm_bundle.model_loader.value = _HarmonyTextVllmModel("plain text, no markers")
+    from llm_behavior_eval.evaluation_utils.harmony_output import HarmonyOutputError
+
+    vllm_bundle.tokenizer.all_special_tokens = [
+        "<|channel|>",
+        "<|message|>",
+        "<|return|>",
+    ]
+    vllm_bundle.model_loader.value = _HarmonyTextVllmModel([10])
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.vllm_eval_engine.extract_vllm_harmony_final_answer",
+        lambda _token_ids: (_ for _ in ()).throw(HarmonyOutputError("missing")),
+    )
     config = EvaluationConfig(
         model_path_or_repo_id="openai/gpt-oss-20b",
         results_dir=tmp_path,
@@ -984,13 +1022,32 @@ def test_transformers_eval_engine_threads_each_role_only_its_own_revision(
 
 
 @pytest.mark.transformers_engine_test
-def test_transformers_eval_engine_rejects_gpt_oss_models(
-    transformers_bundle: TransformersPatchBundle, tmp_path: Path
+def test_transformers_eval_engine_supports_harmony_tokenizers(
+    monkeypatch: pytest.MonkeyPatch,
+    transformers_bundle: TransformersPatchBundle,
+    tmp_path: Path,
 ) -> None:
+    transformers_bundle.tokenizer.all_special_tokens = [
+        "<|channel|>",
+        "<|message|>",
+        "<|return|>",
+    ]
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.transformers_eval_engine.extract_harmony_final_answer",
+        lambda token_ids: "visible answer" if token_ids == [9] else "",
+    )
     config = EvaluationConfig(
         model_path_or_repo_id="openai/gpt-oss-20b",
         results_dir=tmp_path,
+        max_answer_tokens=1,
     )
 
-    with pytest.raises(ValueError, match="GPT-OSS"):
-        TransformersEvalEngine(transformers_bundle.data_collator, config)
+    engine = TransformersEvalEngine(transformers_bundle.data_collator, config)
+    answers, finish_reasons = engine.generate_answers(
+        torch.tensor([[1, 2]]),
+        torch.tensor([[1, 1]]),
+        SamplingConfig(do_sample=False),
+    )
+
+    assert answers == ["visible answer"]
+    assert finish_reasons == ["length"]

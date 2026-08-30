@@ -1,6 +1,4 @@
-from typing import Literal
-
-from pydantic import ValidationInfo, field_validator, model_validator
+from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .enums import DatasetType
@@ -34,13 +32,7 @@ class DatasetConfig(BaseSettings):
         dataset_type: The type of the dataset, represented as an enum.
         preprocess_config: Configuration for preprocessing the dataset.
         seed: The random seed for reproducibility.
-        dataset_revision: HuggingFace revision pinning the loaded dataset.
-        ccpc_source_mode: Explicit CCPC cohort source selection. ``None``
-            (omitted from run identity) is the reusable default; CCPC local
-            cohorts set ``"local"``. ``"historical"`` is accepted as an alias
-            of the omitted historical CCPC source.
-        expected_row_count: Optional explicit local-cohort row-count contract.
-        expected_sha256: Optional exact local-cohort SHA-256 contract.
+        dataset_revision: Optional Hugging Face revision used to load the dataset.
     """
 
     model_config = SettingsConfigDict(
@@ -53,9 +45,6 @@ class DatasetConfig(BaseSettings):
     preprocess_config: PreprocessConfig = PreprocessConfig()
     seed: int | None = 42
     dataset_revision: str | None = None
-    ccpc_source_mode: Literal["historical", "local"] | None = None
-    expected_row_count: int | None = None
-    expected_sha256: str | None = None
 
     @field_validator("dataset_id", mode="before")
     @classmethod
@@ -64,30 +53,3 @@ class DatasetConfig(BaseSettings):
         if value is None or value == "":
             return info.data.get("file_path", value)
         return value
-
-    @model_validator(mode="after")
-    def validate_ccpc_source_contracts(self) -> "DatasetConfig":
-        """Reject mixed historical and local CCPC source contracts.
-
-        Returns:
-            This config when historical and local contracts do not mix.
-
-        Raises:
-            ValueError: If a local source omits ``expected_row_count``, or a
-                historical/omitted source includes local row-count or SHA fields.
-        """
-        local_contract_present = (
-            self.expected_row_count is not None or self.expected_sha256 is not None
-        )
-        if self.ccpc_source_mode == "local":
-            if self.expected_row_count is None:
-                raise ValueError(
-                    "An explicit local CCPC-Bench source requires expected_row_count."
-                )
-            return self
-        if local_contract_present:
-            raise ValueError(
-                "expected_row_count and expected_sha256 apply only when "
-                "ccpc_source_mode='local'."
-            )
-        return self

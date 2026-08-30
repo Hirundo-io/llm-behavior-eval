@@ -10,7 +10,11 @@ from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
 from .eval_engine import EvalEngine
-from .gptoss_harmony import is_gpt_oss_model
+from .harmony_output import (
+    HarmonyOutputError,
+    extract_harmony_final_answer,
+    is_harmony_tokenizer,
+)
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import load_transformers_model_and_tokenizer
@@ -24,11 +28,6 @@ class TransformersEvalEngine(EvalEngine):
         is_judge: bool = False,
     ) -> None:
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
-        if is_gpt_oss_model(model_path_or_repo_id):
-            raise ValueError(
-                f"GPT-OSS model {model_path_or_repo_id!r} requires the vLLM engine: "
-                "the Transformers backend does not implement Harmony extraction."
-            )
         model_token = self._get_model_token(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
         revision = (
@@ -42,6 +41,7 @@ class TransformersEvalEngine(EvalEngine):
             eval_config.trust_remote_code,
             revision=revision,
         )
+        self._uses_harmony = is_harmony_tokenizer(self.tokenizer)
         self.data_collator = data_collator
         self.eval_config = eval_config
         self.is_judge = is_judge
@@ -133,11 +133,21 @@ class TransformersEvalEngine(EvalEngine):
             )
         sequences = outputs.sequences
         generated_tokens = sequences[:, model_input_ids.shape[1] :].detach().cpu()
-        answers = self.tokenizer.batch_decode(
-            generated_tokens, skip_special_tokens=True
-        )
+        harmony_parse_failed = [False] * len(generated_tokens)
+        if self._uses_harmony:
+            answers = []
+            for index, token_ids in enumerate(generated_tokens):
+                try:
+                    answers.append(extract_harmony_final_answer(token_ids.tolist()))
+                except HarmonyOutputError:
+                    answers.append("")
+                    harmony_parse_failed[index] = True
+        else:
+            answers = self.tokenizer.batch_decode(
+                generated_tokens, skip_special_tokens=True
+            )
         finish_reasons: list[str | None] = []
-        for sample_generated_tokens in generated_tokens:
+        for index, sample_generated_tokens in enumerate(generated_tokens):
             if eos_token_ids and any(
                 int(token_id.item()) in eos_token_ids
                 for token_id in sample_generated_tokens
@@ -145,6 +155,12 @@ class TransformersEvalEngine(EvalEngine):
                 finish_reasons.append("stop")
             else:
                 finish_reasons.append("length")
+            if harmony_parse_failed[index]:
+                finish_reasons[-1] = (
+                    "length"
+                    if finish_reasons[-1] == "length"
+                    else "harmony_parse_error"
+                )
         return answers, finish_reasons
 
     def ensure_test_model_ready(self) -> None:
