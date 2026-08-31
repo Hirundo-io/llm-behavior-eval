@@ -58,6 +58,7 @@ def test_loads_ccpc_with_the_supplied_dataset_revision(
 @pytest.mark.parametrize(
     "dataset",
     [
+        _benchmark(0),
         Dataset.from_dict({"question": ["question"]}),
         Dataset.from_dict({"question": ["question"], "source_group_id": [""]}),
         Dataset.from_dict(

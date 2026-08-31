@@ -66,6 +66,10 @@ def load_censorship_benchmark(
 
     Returns:
         The validated benchmark in source order.
+
+    Raises:
+        ValueError: If the loader does not return one non-empty Dataset split with
+            exactly the required columns, valid strings, and unique source-group IDs.
     """
     expected_columns = ("question", "source_group_id")
     dataset = load_dataset(

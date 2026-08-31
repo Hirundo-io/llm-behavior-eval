@@ -7,6 +7,8 @@ from llm_behavior_eval.evaluation_utils import harmony_output
 
 
 class _FakeParser:
+    processed_tokens: list[int] = []
+
     def __init__(self, _encoding: object, role: object) -> None:
         self.role = role
         self.messages: list[SimpleNamespace] = []
@@ -15,6 +17,7 @@ class _FakeParser:
         self.current_content = ""
 
     def process(self, token_id: int) -> None:
+        self.processed_tokens.append(token_id)
         if token_id == 1:
             self.messages.append(
                 SimpleNamespace(
@@ -35,6 +38,7 @@ class _FakeParser:
 
 @pytest.fixture
 def fake_harmony(monkeypatch: pytest.MonkeyPatch) -> None:
+    _FakeParser.processed_tokens.clear()
     monkeypatch.setattr(harmony_output, "_harmony_encoding", lambda: object())
     monkeypatch.setitem(
         sys.modules,
@@ -51,6 +55,7 @@ def test_extract_harmony_final_answer_delegates_to_parser(
     fake_harmony: None,
 ) -> None:
     assert harmony_output.extract_harmony_final_answer([1, 2]) == "visible answer"
+    assert _FakeParser.processed_tokens == [1, 2]
 
 
 def test_extract_harmony_final_answer_fails_closed_without_visible_content(
@@ -63,15 +68,20 @@ def test_extract_harmony_final_answer_fails_closed_without_visible_content(
 def test_extract_vllm_harmony_final_answer_delegates_to_vllm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    harmony_utils = SimpleNamespace(
-        parse_chat_output=lambda token_ids: ("analysis", "visible answer", None)
-    )
+    captured: dict[str, object] = {}
+
+    def parse_chat_output(token_ids: list[int]):
+        captured["token_ids"] = token_ids
+        return "analysis", "visible answer", None
+
+    harmony_utils = SimpleNamespace(parse_chat_output=parse_chat_output)
     monkeypatch.setitem(
         sys.modules,
         "vllm.entrypoints.openai.parser.harmony_utils",
         harmony_utils,
     )
     assert harmony_output.extract_vllm_harmony_final_answer([1, 2]) == "visible answer"
+    assert captured["token_ids"] == [1, 2]
 
 
 def test_is_harmony_tokenizer_requires_all_control_tokens() -> None:

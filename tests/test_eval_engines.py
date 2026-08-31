@@ -16,6 +16,7 @@ import torch
 from datasets import Dataset
 
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
+from llm_behavior_eval.evaluation_utils.harmony_output import HarmonyOutputError
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
@@ -822,8 +823,9 @@ def test_transformers_eval_engine_get_batch_size_autotune(
 class _HarmonyTextVllmModel:
     """A DummyVllmModel-alike that returns a fixed Harmony token sequence."""
 
-    def __init__(self, token_ids: list[int]) -> None:
+    def __init__(self, token_ids: list[int], finish_reason: str = "stop") -> None:
         self.token_ids = token_ids
+        self.finish_reason = finish_reason
         self.llm_engine = SimpleNamespace(
             engine_core=SimpleNamespace(shutdown=lambda: None)
         )
@@ -835,7 +837,7 @@ class _HarmonyTextVllmModel:
                     SimpleNamespace(
                         text="raw Harmony completion",
                         token_ids=self.token_ids,
-                        finish_reason="stop",
+                        finish_reason=self.finish_reason,
                     )
                 ]
             )
@@ -930,10 +932,16 @@ def test_vllm_eval_engine_delegates_harmony_extraction_to_library_adapter(
 
 
 @pytest.mark.vllm_engine_test
+@pytest.mark.parametrize(
+    ("finish_reason", "expected_finish_reason"),
+    [("stop", "harmony_parse_error"), ("length", "length")],
+)
 def test_vllm_eval_engine_fails_closed_on_missing_harmony_final(
     monkeypatch: pytest.MonkeyPatch,
     vllm_bundle: VllmPatchBundle,
     tmp_path: Path,
+    finish_reason: str,
+    expected_finish_reason: str,
 ) -> None:
     from llm_behavior_eval.evaluation_utils.harmony_output import HarmonyOutputError
 
@@ -942,7 +950,7 @@ def test_vllm_eval_engine_fails_closed_on_missing_harmony_final(
         "<|message|>",
         "<|return|>",
     ]
-    vllm_bundle.model_loader.value = _HarmonyTextVllmModel([10])
+    vllm_bundle.model_loader.value = _HarmonyTextVllmModel([10], finish_reason)
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.vllm_eval_engine.extract_vllm_harmony_final_answer",
         lambda _token_ids: (_ for _ in ()).throw(HarmonyOutputError("missing")),
@@ -962,7 +970,7 @@ def test_vllm_eval_engine_fails_closed_on_missing_harmony_final(
     )
 
     assert responses == [""]
-    assert finish_reasons == ["harmony_parse_error"]
+    assert finish_reasons == [expected_finish_reason]
 
 
 @pytest.mark.vllm_engine_test
@@ -1022,19 +1030,39 @@ def test_transformers_eval_engine_threads_each_role_only_its_own_revision(
 
 
 @pytest.mark.transformers_engine_test
+@pytest.mark.parametrize(
+    ("parser_result", "eos_token_id", "expected_answer", "expected_finish_reason"),
+    [
+        ("visible answer", 2, "visible answer", "length"),
+        (None, 9, "", "harmony_parse_error"),
+        (None, 2, "", "length"),
+    ],
+)
 def test_transformers_eval_engine_supports_harmony_tokenizers(
     monkeypatch: pytest.MonkeyPatch,
     transformers_bundle: TransformersPatchBundle,
     tmp_path: Path,
+    parser_result: str | None,
+    eos_token_id: int,
+    expected_answer: str,
+    expected_finish_reason: str,
 ) -> None:
     transformers_bundle.tokenizer.all_special_tokens = [
         "<|channel|>",
         "<|message|>",
         "<|return|>",
     ]
+    transformers_bundle.tokenizer.eos_token_id = eos_token_id
+
+    def extract_harmony(token_ids: list[int]) -> str:
+        assert token_ids == [9]
+        if parser_result is None:
+            raise HarmonyOutputError("malformed")
+        return parser_result
+
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.transformers_eval_engine.extract_harmony_final_answer",
-        lambda token_ids: "visible answer" if token_ids == [9] else "",
+        extract_harmony,
     )
     config = EvaluationConfig(
         model_path_or_repo_id="openai/gpt-oss-20b",
@@ -1049,5 +1077,5 @@ def test_transformers_eval_engine_supports_harmony_tokenizers(
         SamplingConfig(do_sample=False),
     )
 
-    assert answers == ["visible answer"]
-    assert finish_reasons == ["length"]
+    assert answers == [expected_answer]
+    assert finish_reasons == [expected_finish_reason]

@@ -152,13 +152,13 @@ def test_behavior_presets_expand_refusal_all() -> None:
 
 
 def test_cli_help_includes_chinese_censorship_guidance() -> None:
-    result = CliRunner().invoke(evaluate.app, ["--help"])
+    result = CliRunner().invoke(evaluate.app, ["--help"], env={"COLUMNS": "300"})
     visible_output = strip_ansi(result.output)
 
     assert result.exit_code == 0
     assert "chinese_censorship" in visible_output
     assert "--judge-model" in visible_output
-    assert "google/gemma-4-26B-A4B-it" in visible_output
+    assert "default or configured" in visible_output
     assert "evaluated model" in visible_output
     assert "both" in visible_output
     assert "explicit flag" in visible_output
@@ -278,6 +278,11 @@ def test_main_threads_dataset_revision_into_dataset_config(
         captured.dataset_config.dataset_revision == "dataset-sha"
         for captured in capture_configs[previous_count:]
     )
+
+
+def test_main_rejects_one_revision_for_multiple_dataset_repositories() -> None:
+    with pytest.raises(ValueError, match="requires a single dataset repository"):
+        evaluate.main("fake/model", "refusal:all", dataset_revision="dataset-sha")
 
 
 def test_main_forwards_arbitrary_dataset_revision_to_ccpc(

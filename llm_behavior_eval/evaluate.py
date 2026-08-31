@@ -206,7 +206,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type|all>' or 'unbias:<type|all>'; UNQOVER: 'unqover:bias:<type|all>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>' or 'bloom:bias:<type>:ambiguous'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'; Chinese censorship: 'chinese_censorship' (requires --judge-model google/gemma-4-26B-A4B-it)"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type|all>' or 'unbias:<type|all>'; UNQOVER: 'unqover:bias:<type|all>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>' or 'bloom:bias:<type>:ambiguous'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'; Chinese censorship: 'chinese_censorship' (uses the default or configured --judge-model)"
         ),
     ],
     output_dir: Annotated[
@@ -638,6 +638,8 @@ def main(
     file_paths = []
     for behavior in behaviors:
         file_paths.extend(_behavior_presets(behavior))
+    if dataset_revision is not None and len(set(file_paths)) > 1:
+        raise ValueError("--dataset-revision requires a single dataset repository.")
     evaluator_families: set[EvaluatorFamily] = {
         EvaluateFactory.get_evaluator_family(file_path) for file_path in file_paths
     }
