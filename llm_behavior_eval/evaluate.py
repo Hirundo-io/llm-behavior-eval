@@ -638,8 +638,6 @@ def main(
     file_paths = []
     for behavior in behaviors:
         file_paths.extend(_behavior_presets(behavior))
-    if dataset_revision is not None and len(set(file_paths)) > 1:
-        raise ValueError("--dataset-revision requires a single dataset repository.")
     evaluator_families: set[EvaluatorFamily] = {
         EvaluateFactory.get_evaluator_family(file_path) for file_path in file_paths
     }

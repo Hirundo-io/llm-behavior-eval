@@ -280,11 +280,6 @@ def test_main_threads_dataset_revision_into_dataset_config(
     )
 
 
-def test_main_rejects_one_revision_for_multiple_dataset_repositories() -> None:
-    with pytest.raises(ValueError, match="requires a single dataset repository"):
-        evaluate.main("fake/model", "refusal:all", dataset_revision="dataset-sha")
-
-
 def test_main_forwards_arbitrary_dataset_revision_to_ccpc(
     capture_configs: list[CapturedConfigs],
 ) -> None:
