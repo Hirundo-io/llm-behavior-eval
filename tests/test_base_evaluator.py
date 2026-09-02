@@ -1456,6 +1456,39 @@ def test_legacy_run_config_without_dataset_id_reuses_cached_outputs(
     assert "dataset_id" not in persisted["dataset_config"]
 
 
+def test_run_config_without_generation_schema_version_is_not_reused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Generations produced before the current extraction must not be regraded."""
+    eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        max_samples=1,
+        replace_existing_output=True,
+    )
+    dataset_config = DatasetConfig(
+        file_path="repo/dataset",
+        dataset_type=DatasetType.BIAS,
+    )
+    evaluator = ConcreteEvaluator(eval_config, dataset_config)
+    run_config_path = evaluator.run_config_path()
+    run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+    assert run_config.pop("generation_schema_version") == (
+        base_evaluator_module.GENERATION_SCHEMA_VERSION
+    )
+    run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
+    generations = evaluator.get_output_dir() / "generations.jsonl"
+    generations.write_text('{"answers": ["stale"]}\n', encoding="utf-8")
+
+    ConcreteEvaluator(eval_config, dataset_config)
+
+    assert not generations.exists()
+    persisted = json.loads(run_config_path.read_text(encoding="utf-8"))
+    assert persisted["generation_schema_version"] == (
+        base_evaluator_module.GENERATION_SCHEMA_VERSION
+    )
+
+
 def test_run_config_mismatch_cancel_still_raises_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

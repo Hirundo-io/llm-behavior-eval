@@ -37,6 +37,9 @@ class DummyTokenizer:
         self.pad_token = "<pad>"
         self.padding_side = "right"
 
+    def get_vocab(self) -> dict[str, int]:
+        return {}
+
 
 class DummyModel(SimpleNamespace):
     """Simple namespace with a device attribute."""

@@ -144,13 +144,15 @@ class SafeApplyChatTemplate:
                 chat_template = tokenizer.get_chat_template()
             except ValueError:
                 chat_template = None
-            supports = isinstance(chat_template, str) and name in chat_template
+            supports_reasoning_kwarg = (
+                isinstance(chat_template, str) and name in chat_template
+            )
             self._CHAT_TEMPLATE_SUPPORTS_REASONING[cache_key] = (
                 ref(tokenizer),
-                supports,
+                supports_reasoning_kwarg,
             )
 
-            return supports
+            return supports_reasoning_kwarg
 
         is_gemma_v1 = (
             tokenizer.name_or_path.startswith("google/gemma-")

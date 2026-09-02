@@ -32,7 +32,10 @@ class RecordingTokenizer:
         self.batch_decode_calls: list[dict[str, object]] = []
         self.pad_token: str | None = None
         self.eos_token = "<eos>"
-        self.added_tokens_decoder: dict[int, object] = {}
+        self.vocab: dict[str, int] = {}
+
+    def get_vocab(self) -> dict[str, int]:
+        return self.vocab
 
     def batch_decode(self, tokens: torch.Tensor, skip_special_tokens: bool = True):
         self.batch_decode_calls.append(
@@ -304,7 +307,7 @@ def vllm_bundle() -> VllmPatchBundle:
         pad_token=None,
         eos_token="<eos>",
         eos_token_id=7,
-        added_tokens_decoder={},
+        get_vocab=dict,
     )
     build_recorder = BuildPromptRecorder()
     sampling_recorder = SamplingParamsRecorder()
@@ -817,11 +820,7 @@ def test_transformers_eval_engine_get_batch_size_autotune(
     assert transformers_bundle.candidate_recorder.calls == [len(dataset)]
 
 
-HARMONY_ADDED_TOKENS: dict[int, object] = {
-    200002: SimpleNamespace(content="<|return|>", special=True),
-    200005: SimpleNamespace(content="<|channel|>", special=True),
-    200008: SimpleNamespace(content="<|message|>", special=True),
-}
+HARMONY_VOCAB = {"<|return|>": 200002, "<|channel|>": 200005, "<|message|>": 200008}
 
 
 class _HarmonyTextVllmModel:
@@ -854,7 +853,7 @@ def test_vllm_eval_engine_delegates_harmony_extraction_to_library_adapter(
     vllm_bundle: VllmPatchBundle,
     tmp_path: Path,
 ) -> None:
-    vllm_bundle.tokenizer.added_tokens_decoder = HARMONY_ADDED_TOKENS
+    vllm_bundle.tokenizer.get_vocab = lambda: HARMONY_VOCAB
     vllm_bundle.model_loader.value = _HarmonyTextVllmModel([10, 11])
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.vllm_eval_engine.extract_harmony_final_answer",
@@ -892,7 +891,7 @@ def test_vllm_eval_engine_fails_closed_on_missing_harmony_final(
 ) -> None:
     from llm_behavior_eval.evaluation_utils.harmony_output import HarmonyOutputError
 
-    vllm_bundle.tokenizer.added_tokens_decoder = HARMONY_ADDED_TOKENS
+    vllm_bundle.tokenizer.get_vocab = lambda: HARMONY_VOCAB
     vllm_bundle.model_loader.value = _HarmonyTextVllmModel([10], finish_reason)
     monkeypatch.setattr(
         "llm_behavior_eval.evaluation_utils.vllm_eval_engine.extract_harmony_final_answer",
@@ -976,7 +975,7 @@ def test_transformers_eval_engine_drops_right_padding_before_harmony_parsing(
     tmp_path: Path,
 ) -> None:
     """``generate`` right-pads finished rows; the parser must not see the padding."""
-    transformers_bundle.tokenizer.added_tokens_decoder = HARMONY_ADDED_TOKENS
+    transformers_bundle.tokenizer.get_vocab = lambda: HARMONY_VOCAB
     transformers_bundle.tokenizer.eos_token_id = 2
     transformers_bundle.model.generated_tail = [5, 2, 0, 0]
     parsed: list[list[int]] = []
@@ -1025,7 +1024,7 @@ def test_transformers_eval_engine_supports_harmony_tokenizers(
     expected_answer: str,
     expected_finish_reason: str,
 ) -> None:
-    transformers_bundle.tokenizer.added_tokens_decoder = HARMONY_ADDED_TOKENS
+    transformers_bundle.tokenizer.get_vocab = lambda: HARMONY_VOCAB
     transformers_bundle.tokenizer.eos_token_id = eos_token_id
 
     def extract_harmony(token_ids: list[int]) -> str:

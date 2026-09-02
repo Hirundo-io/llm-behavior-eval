@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from transformers import PreTrainedTokenizerBase
+
 _HARMONY_CONTROL_TOKENS = frozenset({"<|channel|>", "<|message|>", "<|return|>"})
 
 _MISSING_HARMONY = (
@@ -30,21 +32,15 @@ class HarmonyOutputError(ValueError):
     """Raised when a Harmony completion has no user-visible final message."""
 
 
-def is_harmony_tokenizer(tokenizer: object) -> bool:
-    """Return whether a tokenizer registers the GPT-OSS Harmony control tokens.
+def is_harmony_tokenizer(tokenizer: PreTrainedTokenizerBase) -> bool:
+    """Return whether a tokenizer defines the GPT-OSS Harmony control tokens.
 
-    The tokens are checked against ``added_tokens_decoder`` rather than
-    ``all_special_tokens``: the latter only reports the named tokenizer
+    Membership is tested in ``get_vocab()``, which includes added tokens.
+    ``all_special_tokens`` cannot be used: it reports only the named tokenizer
     attributes (bos/eos/pad/...), which for ``openai/gpt-oss-*`` covers
     ``<|return|>`` but not ``<|channel|>`` or ``<|message|>``.
     """
-    added_tokens = getattr(tokenizer, "added_tokens_decoder", None) or {}
-    registered = {
-        str(getattr(token, "content", token))
-        for token in added_tokens.values()
-        if getattr(token, "special", False)
-    }
-    return _HARMONY_CONTROL_TOKENS <= registered
+    return _HARMONY_CONTROL_TOKENS <= tokenizer.get_vocab().keys()
 
 
 @lru_cache(maxsize=1)

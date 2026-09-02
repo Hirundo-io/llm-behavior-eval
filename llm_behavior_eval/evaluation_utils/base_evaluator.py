@@ -50,6 +50,14 @@ if TYPE_CHECKING:
     from .eval_config import EvaluationConfig, MlflowConfig
 
 
+# Identifies the meaning of the text persisted in ``generations.jsonl``. Bump it
+# whenever generated answers are derived differently, so a cached run produced by
+# older code can never silently match the current configuration and be regraded.
+# 2: GPT-OSS answers hold only the Harmony ``final`` channel, not decoded text
+#    that also carries ``analysis`` reasoning.
+GENERATION_SCHEMA_VERSION = 2
+
+
 class SamplingParamsProtocol(Protocol):
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
@@ -942,6 +950,7 @@ class BaseEvaluator(ABC):
         return self.get_output_dir() / "metrics.csv"
 
     class RunConfig(TypedDict):
+        generation_schema_version: int
         evaluation_config: dict[str, Any]
         dataset_config: dict[str, Any]
 
@@ -964,6 +973,7 @@ class BaseEvaluator(ABC):
         dataset_config_snapshot = self.dataset_config.model_dump(exclude_none=True)
 
         return {
+            "generation_schema_version": GENERATION_SCHEMA_VERSION,
             "evaluation_config": json.loads(
                 json.dumps(evaluation_config_snapshot, default=str)
             ),

@@ -1,6 +1,7 @@
 import sys
 from collections.abc import Sequence
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -26,10 +27,6 @@ class _FakeEncoding:
             )
             for token_id in tokens
         ]
-
-
-def _added_token(content: str, special: bool = True) -> SimpleNamespace:
-    return SimpleNamespace(content=content, special=special)
 
 
 @pytest.fixture
@@ -108,28 +105,24 @@ def test_extract_harmony_final_answer_rejects_reasoning_only_real_tokens(
         harmony_output.extract_harmony_final_answer(token_ids)
 
 
-def test_is_harmony_tokenizer_matches_gpt_oss_added_special_tokens() -> None:
-    # ``openai/gpt-oss-*`` registers the control tokens as added special tokens;
-    # only ``<|return|>`` is reported by ``all_special_tokens``.
+def test_is_harmony_tokenizer_matches_the_gpt_oss_vocabulary() -> None:
+    # ``openai/gpt-oss-*`` exposes the control tokens through ``get_vocab``;
+    # ``all_special_tokens`` reports only ``<|return|>`` of the three.
     gpt_oss = SimpleNamespace(
-        all_special_tokens=["<|startoftext|>", "<|return|>", "<|endoftext|>"],
-        added_tokens_decoder={
-            200002: _added_token("<|return|>"),
-            200005: _added_token("<|channel|>"),
-            200008: _added_token("<|message|>"),
-        },
-    )
-
-    assert harmony_output.is_harmony_tokenizer(gpt_oss)
-
-
-def test_is_harmony_tokenizer_requires_all_control_tokens() -> None:
-    partial = SimpleNamespace(
-        added_tokens_decoder={
-            200005: _added_token("<|channel|>"),
-            200008: _added_token("<|message|>"),
+        get_vocab=lambda: {
+            "<|return|>": 200002,
+            "<|channel|>": 200005,
+            "<|message|>": 200008,
         }
     )
 
-    assert not harmony_output.is_harmony_tokenizer(partial)
-    assert not harmony_output.is_harmony_tokenizer(SimpleNamespace())
+    assert harmony_output.is_harmony_tokenizer(cast("Any", gpt_oss))
+
+
+def test_is_harmony_tokenizer_requires_all_control_tokens() -> None:
+    partial = SimpleNamespace(get_vocab=lambda: {"<|channel|>": 1, "<|message|>": 2})
+
+    assert not harmony_output.is_harmony_tokenizer(cast("Any", partial))
+    assert not harmony_output.is_harmony_tokenizer(
+        cast("Any", SimpleNamespace(get_vocab=dict))
+    )
