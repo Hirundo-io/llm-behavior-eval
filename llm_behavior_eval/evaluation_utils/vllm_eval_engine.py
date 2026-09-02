@@ -9,7 +9,7 @@ import torch
 from .eval_engine import EvalEngine
 from .harmony_output import (
     HarmonyOutputError,
-    extract_vllm_harmony_final_answer,
+    extract_harmony_final_answer,
     is_harmony_tokenizer,
 )
 from .util_functions import (
@@ -172,7 +172,7 @@ class VllmEvalEngine(EvalEngine):
             finish_reason = getattr(first_candidate, "finish_reason", None)
             if self._uses_harmony:
                 try:
-                    text = extract_vllm_harmony_final_answer(
+                    text = extract_harmony_final_answer(
                         getattr(first_candidate, "token_ids", [])
                     )
                 except HarmonyOutputError:
@@ -225,9 +225,6 @@ class VllmEvalEngine(EvalEngine):
             repetition_penalty=repetition_penalty,
             stop_token_ids=stop_token_ids,
             seed=sampling_config.seed,
-            # Harmony completions are parsed from token IDs, so control tokens
-            # must be retained in vLLM's candidate token sequence.
-            skip_special_tokens=not self._uses_harmony,
         )
 
     def _collect_stop_token_ids(self) -> list[int] | None:

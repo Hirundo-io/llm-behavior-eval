@@ -20,6 +20,14 @@ from .sampling_config import SamplingConfig
 from .util_functions import load_transformers_model_and_tokenizer
 
 
+def _truncate_at_eos(token_ids: list[int], eos_token_ids: set[int]) -> list[int]:
+    """Drop the right padding ``generate`` appends after a finished sequence."""
+    for position, token_id in enumerate(token_ids):
+        if token_id in eos_token_ids:
+            return token_ids[: position + 1]
+    return token_ids
+
+
 class TransformersEvalEngine(EvalEngine):
     def __init__(
         self,
@@ -133,34 +141,29 @@ class TransformersEvalEngine(EvalEngine):
             )
         sequences = outputs.sequences
         generated_tokens = sequences[:, model_input_ids.shape[1] :].detach().cpu()
-        harmony_parse_failed = [False] * len(generated_tokens)
+        completions = [
+            _truncate_at_eos(
+                [int(token_id) for token_id in row.tolist()], eos_token_ids
+            )
+            for row in generated_tokens
+        ]
+        finish_reasons: list[str | None] = [
+            "stop" if completion and completion[-1] in eos_token_ids else "length"
+            for completion in completions
+        ]
         if self._uses_harmony:
             answers = []
-            for index, token_ids in enumerate(generated_tokens):
+            for index, completion in enumerate(completions):
                 try:
-                    answers.append(extract_harmony_final_answer(token_ids.tolist()))
+                    answers.append(extract_harmony_final_answer(completion))
                 except HarmonyOutputError:
                     answers.append("")
-                    harmony_parse_failed[index] = True
+                    if finish_reasons[index] == "stop":
+                        finish_reasons[index] = "harmony_parse_error"
         else:
             answers = self.tokenizer.batch_decode(
                 generated_tokens, skip_special_tokens=True
             )
-        finish_reasons: list[str | None] = []
-        for index, sample_generated_tokens in enumerate(generated_tokens):
-            if eos_token_ids and any(
-                int(token_id.item()) in eos_token_ids
-                for token_id in sample_generated_tokens
-            ):
-                finish_reasons.append("stop")
-            else:
-                finish_reasons.append("length")
-            if harmony_parse_failed[index]:
-                finish_reasons[-1] = (
-                    "length"
-                    if finish_reasons[-1] == "length"
-                    else "harmony_parse_error"
-                )
         return answers, finish_reasons
 
     def ensure_test_model_ready(self) -> None:

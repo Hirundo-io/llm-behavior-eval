@@ -36,6 +36,10 @@ class _FakeParser:
             )
 
 
+def _added_token(content: str, special: bool = True) -> SimpleNamespace:
+    return SimpleNamespace(content=content, special=special)
+
+
 @pytest.fixture
 def fake_harmony(monkeypatch: pytest.MonkeyPatch) -> None:
     _FakeParser.processed_tokens.clear()
@@ -49,6 +53,18 @@ def fake_harmony(monkeypatch: pytest.MonkeyPatch) -> None:
             StreamableParser=_FakeParser,
         ),
     )
+
+
+@pytest.fixture
+def harmony_encoding():
+    """The real ``openai-harmony`` encoding, skipped when it is unavailable."""
+    openai_harmony = pytest.importorskip("openai_harmony")
+    try:
+        return openai_harmony.load_harmony_encoding(
+            openai_harmony.HarmonyEncodingName.HARMONY_GPT_OSS
+        )
+    except Exception as exc:  # pragma: no cover - offline environments
+        pytest.skip(f"Harmony encoding is unavailable: {exc}")
 
 
 def test_extract_harmony_final_answer_delegates_to_parser(
@@ -65,29 +81,63 @@ def test_extract_harmony_final_answer_fails_closed_without_visible_content(
         harmony_output.extract_harmony_final_answer([1])
 
 
-def test_extract_vllm_harmony_final_answer_delegates_to_vllm(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("completion", "expected"),
+    [
+        (
+            "<|channel|>analysis<|message|>hidden reasoning<|end|>"
+            "<|start|>assistant<|channel|>final<|message|>visible answer<|return|>",
+            "visible answer",
+        ),
+        # Truncated mid-answer: the partial final message is still user-visible.
+        (
+            "<|channel|>analysis<|message|>hidden reasoning<|end|>"
+            "<|start|>assistant<|channel|>final<|message|>partial",
+            "partial",
+        ),
+    ],
+)
+def test_extract_harmony_final_answer_drops_reasoning_from_real_tokens(
+    harmony_encoding, completion: str, expected: str
 ) -> None:
-    captured: dict[str, object] = {}
+    token_ids = harmony_encoding.encode(completion, allowed_special="all")
 
-    def parse_chat_output(token_ids: list[int]):
-        captured["token_ids"] = token_ids
-        return "analysis", "visible answer", None
+    assert harmony_output.extract_harmony_final_answer(token_ids) == expected
 
-    harmony_utils = SimpleNamespace(parse_chat_output=parse_chat_output)
-    monkeypatch.setitem(
-        sys.modules,
-        "vllm.entrypoints.openai.parser.harmony_utils",
-        harmony_utils,
+
+def test_extract_harmony_final_answer_rejects_reasoning_only_real_tokens(
+    harmony_encoding,
+) -> None:
+    token_ids = harmony_encoding.encode(
+        "<|channel|>analysis<|message|>hidden reasoning", allowed_special="all"
     )
-    assert harmony_output.extract_vllm_harmony_final_answer([1, 2]) == "visible answer"
-    assert captured["token_ids"] == [1, 2]
+
+    with pytest.raises(harmony_output.HarmonyOutputError):
+        harmony_output.extract_harmony_final_answer(token_ids)
+
+
+def test_is_harmony_tokenizer_matches_gpt_oss_added_special_tokens() -> None:
+    # ``openai/gpt-oss-*`` registers the control tokens as added special tokens;
+    # only ``<|return|>`` is reported by ``all_special_tokens``.
+    gpt_oss = SimpleNamespace(
+        all_special_tokens=["<|startoftext|>", "<|return|>", "<|endoftext|>"],
+        added_tokens_decoder={
+            200002: _added_token("<|return|>"),
+            200005: _added_token("<|channel|>"),
+            200008: _added_token("<|message|>"),
+        },
+    )
+
+    assert harmony_output.is_harmony_tokenizer(gpt_oss)
 
 
 def test_is_harmony_tokenizer_requires_all_control_tokens() -> None:
-    assert harmony_output.is_harmony_tokenizer(
-        SimpleNamespace(all_special_tokens=["<|channel|>", "<|message|>", "<|return|>"])
+    partial = SimpleNamespace(
+        added_tokens_decoder={
+            200005: _added_token("<|channel|>"),
+            200008: _added_token("<|message|>"),
+        }
     )
-    assert not harmony_output.is_harmony_tokenizer(
-        SimpleNamespace(all_special_tokens=["<|channel|>", "<|message|>"])
-    )
+
+    assert not harmony_output.is_harmony_tokenizer(partial)
+    assert not harmony_output.is_harmony_tokenizer(SimpleNamespace())
