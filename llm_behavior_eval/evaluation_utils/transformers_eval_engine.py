@@ -21,7 +21,16 @@ from .util_functions import load_transformers_model_and_tokenizer
 
 
 def _truncate_at_eos(token_ids: list[int], eos_token_ids: set[int]) -> list[int]:
-    """Drop the right padding ``generate`` appends after a finished sequence."""
+    """Drop the right padding ``generate`` appends after a finished sequence.
+
+    Args:
+        token_ids: One row of generated token IDs, excluding the prompt.
+        eos_token_ids: Token IDs that end a generation.
+
+    Returns:
+        The row up to and including its first EOS token, or the row unchanged
+        when it contains none (a row that hit the token limit is never padded).
+    """
     for position, token_id in enumerate(token_ids):
         if token_id in eos_token_ids:
             return token_ids[: position + 1]

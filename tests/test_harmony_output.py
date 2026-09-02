@@ -1,4 +1,5 @@
 import sys
+from collections.abc import Sequence
 from types import SimpleNamespace
 
 import pytest
@@ -6,34 +7,25 @@ import pytest
 from llm_behavior_eval.evaluation_utils import harmony_output
 
 
-class _FakeParser:
-    processed_tokens: list[int] = []
+class _FakeEncoding:
+    """Stands in for the encoding returned by ``load_harmony_encoding``."""
 
-    def __init__(self, _encoding: object, role: object) -> None:
-        self.role = role
-        self.messages: list[SimpleNamespace] = []
-        self.current_channel: str | None = None
-        self.current_recipient: str | None = None
-        self.current_content = ""
+    def __init__(self) -> None:
+        self.parsed: list[Sequence[int]] = []
 
-    def process(self, token_id: int) -> None:
-        self.processed_tokens.append(token_id)
-        if token_id == 1:
-            self.messages.append(
-                SimpleNamespace(
-                    channel="analysis",
-                    recipient=None,
-                    content=[SimpleNamespace(text="hidden reasoning")],
-                )
+    def parse_messages_from_completion_tokens(
+        self, tokens: Sequence[int], role: object
+    ) -> list[SimpleNamespace]:
+        self.parsed.append(tokens)
+        channels = {1: "analysis", 2: "final"}
+        return [
+            SimpleNamespace(
+                channel=channels[token_id],
+                recipient=None,
+                content=[SimpleNamespace(text=f"{channels[token_id]} text")],
             )
-        elif token_id == 2:
-            self.messages.append(
-                SimpleNamespace(
-                    channel="final",
-                    recipient=None,
-                    content=[SimpleNamespace(text="visible answer")],
-                )
-            )
+            for token_id in tokens
+        ]
 
 
 def _added_token(content: str, special: bool = True) -> SimpleNamespace:
@@ -41,18 +33,18 @@ def _added_token(content: str, special: bool = True) -> SimpleNamespace:
 
 
 @pytest.fixture
-def fake_harmony(monkeypatch: pytest.MonkeyPatch) -> None:
-    _FakeParser.processed_tokens.clear()
-    monkeypatch.setattr(harmony_output, "_harmony_encoding", lambda: object())
+def fake_harmony(monkeypatch: pytest.MonkeyPatch) -> _FakeEncoding:
+    encoding = _FakeEncoding()
+    monkeypatch.setattr(harmony_output, "_harmony_encoding", lambda: encoding)
     monkeypatch.setitem(
         sys.modules,
         "openai_harmony",
         SimpleNamespace(
             HarmonyError=ValueError,
             Role=SimpleNamespace(ASSISTANT="assistant"),
-            StreamableParser=_FakeParser,
         ),
     )
+    return encoding
 
 
 @pytest.fixture
@@ -68,14 +60,14 @@ def harmony_encoding():
 
 
 def test_extract_harmony_final_answer_delegates_to_parser(
-    fake_harmony: None,
+    fake_harmony: _FakeEncoding,
 ) -> None:
-    assert harmony_output.extract_harmony_final_answer([1, 2]) == "visible answer"
-    assert _FakeParser.processed_tokens == [1, 2]
+    assert harmony_output.extract_harmony_final_answer([1, 2]) == "final text"
+    assert fake_harmony.parsed == [[1, 2]]
 
 
 def test_extract_harmony_final_answer_fails_closed_without_visible_content(
-    fake_harmony: None,
+    fake_harmony: _FakeEncoding,
 ) -> None:
     with pytest.raises(harmony_output.HarmonyOutputError):
         harmony_output.extract_harmony_final_answer([1])

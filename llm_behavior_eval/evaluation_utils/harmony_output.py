@@ -62,39 +62,38 @@ def extract_harmony_final_answer(token_ids: Sequence[int]) -> str:
 
     Reasoning on the ``analysis`` channel and tool-call commentary are excluded.
     A recipient-free commentary preamble is visible, matching vLLM's native
-    ``parse_chat_output`` behavior.
+    ``parse_chat_output`` behavior. A completion truncated mid-answer yields the
+    partial ``final`` content.
 
     Raises:
+        ImportError: If ``openai-harmony`` is not installed. Install the
+            ``llm-behavior-eval[gpt-oss]`` or ``llm-behavior-eval[vllm]`` extra.
         HarmonyOutputError: If the completion cannot be parsed or carries no
             user-visible content. Callers must not fall back to the raw text,
             which may contain analysis-channel reasoning.
     """
     try:
-        from openai_harmony import HarmonyError, Role, StreamableParser
+        from openai_harmony import HarmonyError, Role
     except ImportError as exc:
         raise ImportError(_MISSING_HARMONY) from exc
 
     try:
-        parser = StreamableParser(_harmony_encoding(), role=Role.ASSISTANT)
-        for token_id in token_ids:
-            parser.process(token_id)
+        messages = _harmony_encoding().parse_messages_from_completion_tokens(
+            token_ids, Role.ASSISTANT
+        )
     except HarmonyError as exc:
         raise HarmonyOutputError("Harmony completion could not be parsed.") from exc
 
-    visible_parts = []
-    for message in parser.messages:
+    visible_parts: list[str] = []
+    for message in messages:
         if message.channel != "final" and (
             message.channel != "commentary" or message.recipient is not None
         ):
             continue
-        text = getattr(message.content[0], "text", None)
-        if isinstance(text, str):
-            visible_parts.append(text)
-    if parser.current_content and (
-        parser.current_channel == "final"
-        or (parser.current_channel == "commentary" and parser.current_recipient is None)
-    ):
-        visible_parts.append(parser.current_content)
+        for content in message.content:
+            text = getattr(content, "text", None)
+            if isinstance(text, str):
+                visible_parts.append(text)
 
     answer = "\n".join(visible_parts).strip()
     if not answer:
