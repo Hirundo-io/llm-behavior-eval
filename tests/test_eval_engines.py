@@ -245,7 +245,6 @@ class VllmConstructorCall:
     language_model_only: bool
     compilation_config: CompilationConfigStub
     revision: str | None = None
-    tokenizer_revision: str | None = None
 
 
 class RecordingLlm:
@@ -273,7 +272,6 @@ class RecordingLlm:
         language_model_only: bool,
         compilation_config: CompilationConfigStub,
         revision: str | None = None,
-        tokenizer_revision: str | None = None,
     ) -> None:
         self.calls.append(
             VllmConstructorCall(
@@ -296,7 +294,6 @@ class RecordingLlm:
                 language_model_only=language_model_only,
                 compilation_config=compilation_config,
                 revision=revision,
-                tokenizer_revision=tokenizer_revision,
             )
         )
 
@@ -930,7 +927,6 @@ def test_vllm_eval_engine_threads_each_role_only_its_own_revision(
     VllmEvalEngine(unpinned)
     assert vllm_bundle.tokenizer_loader.calls[-1].kwargs["revision"] is None
     assert vllm_bundle.model_loader.calls[-1].kwargs["revision"] is None
-    assert vllm_bundle.model_loader.calls[-1].kwargs["tokenizer_revision"] is None
 
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -944,12 +940,10 @@ def test_vllm_eval_engine_threads_each_role_only_its_own_revision(
     VllmEvalEngine(config)
     assert vllm_bundle.tokenizer_loader.calls[-1].kwargs["revision"] == "cafebabe"
     assert vllm_bundle.model_loader.calls[-1].kwargs["revision"] == "cafebabe"
-    assert vllm_bundle.model_loader.calls[-1].kwargs["tokenizer_revision"] == "cafebabe"
 
     VllmEvalEngine(config, is_judge=True)
     assert vllm_bundle.tokenizer_loader.calls[-1].kwargs["revision"] == "deadbeef"
     assert vllm_bundle.model_loader.calls[-1].kwargs["revision"] == "deadbeef"
-    assert vllm_bundle.model_loader.calls[-1].kwargs["tokenizer_revision"] == "deadbeef"
 
 
 @pytest.mark.transformers_engine_test

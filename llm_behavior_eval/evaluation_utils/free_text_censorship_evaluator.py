@@ -5,7 +5,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import TypedDict, cast
 
 import pandas as pd
 import torch
@@ -35,7 +35,17 @@ class _CensorshipGenerationRecord(_GenerationRecord):
     finish_reasons: list[str | None]
 
 
-CensorshipResponse = dict[str, str | bool | None]
+class CensorshipResponse(TypedDict):
+    """One persisted CCPC row: its source identity, evidence, and outcome."""
+
+    source_group_id: str
+    question: str
+    llm_answer: str
+    finish_reason: str | None
+    judge_finish_reason: str | None
+    judge_raw: str
+    judge_verdict: bool | None
+    status: str
 
 
 MetricValue = str | int | float | bool | None

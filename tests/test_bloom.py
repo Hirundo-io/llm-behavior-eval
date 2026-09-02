@@ -109,6 +109,9 @@ def test_ambiguous_bloom_evaluate_parses_and_scores_response(
         chat_template = ""
         padding_side = "right"
 
+        def get_chat_template(self) -> str:
+            return self.chat_template
+
         def apply_chat_template(
             self,
             conversation: list[dict[str, str]],

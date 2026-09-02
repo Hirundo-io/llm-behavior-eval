@@ -97,7 +97,6 @@ class VllmEvalEngine(EvalEngine):
             if self.is_judge
             else vllm_config.language_model_only,
             revision=revision,
-            tokenizer_revision=revision,
         )
         self._vllm_sampling_params = None
         self.lora_request: LoRARequest | None

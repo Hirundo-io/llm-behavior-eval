@@ -5,7 +5,6 @@ import logging
 import os
 import re
 import shutil
-from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from inspect import signature
@@ -138,21 +137,14 @@ class SafeApplyChatTemplate:
             cached = self._CHAT_TEMPLATE_SUPPORTS_REASONING.get(cache_key)
             if cached is not None and cached[0]() is tokenizer:
                 return cached[1]
-            chat_template = tokenizer.chat_template
-            template_texts = (
-                (chat_template,)
-                if isinstance(chat_template, str)
-                else (
-                    tuple(
-                        value
-                        for value in chat_template.values()
-                        if isinstance(value, str)
-                    )
-                    if isinstance(chat_template, Mapping)
-                    else ()
-                )
-            )
-            supports = any(name in template for template in template_texts)
+            # ``get_chat_template`` resolves the template that will actually be
+            # rendered, including the dict-of-templates form, and raises when the
+            # tokenizer has none.
+            try:
+                chat_template = tokenizer.get_chat_template()
+            except ValueError:
+                chat_template = None
+            supports = isinstance(chat_template, str) and name in chat_template
             self._CHAT_TEMPLATE_SUPPORTS_REASONING[cache_key] = (
                 ref(tokenizer),
                 supports,
@@ -422,7 +414,6 @@ def load_vllm_model(
     max_lora_rank: int = VllmConfig.model_fields["max_lora_rank"].default,
     language_model_only: bool = False,
     revision: str | None = None,
-    tokenizer_revision: str | None = None,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -444,9 +435,8 @@ def load_vllm_model(
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
         language_model_only: Whether to omit multimodal encoders and load only the
             language model. This has no effect on text-only architectures.
-        revision: HuggingFace revision pinning the model.
-        tokenizer_revision: HuggingFace revision pinning the tokenizer.
-            Defaults to ``revision`` when omitted and ``revision`` is set.
+        revision: HuggingFace revision pinning the model. vLLM derives the
+            tokenizer revision from it.
 
     Returns:
         An instantiated ``vllm.LLM`` engine configured with the requested dtype,
@@ -501,7 +491,6 @@ def load_vllm_model(
             max_lora_rank=max_lora_rank,
             language_model_only=language_model_only,
             revision=revision,
-            tokenizer_revision=tokenizer_revision or revision,
             compilation_config=CompilationConfig(cudagraph_specialize_lora=False),
         )
 

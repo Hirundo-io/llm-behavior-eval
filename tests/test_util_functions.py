@@ -58,6 +58,11 @@ class StubTokenizer:
         self.name_or_path = name
         self.chat_template = template
 
+    def get_chat_template(self) -> str:
+        if isinstance(self.chat_template, dict):
+            return self.chat_template["default"]
+        return self.chat_template
+
     def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
         # Simple join of role and content for testing purposes
         return "|".join(
