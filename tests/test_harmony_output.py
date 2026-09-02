@@ -20,12 +20,12 @@ class _FakeEncoding:
     """Stands in for the encoding returned by ``load_harmony_encoding``."""
 
     def __init__(self) -> None:
-        self.parsed: list[Sequence[int]] = []
+        self.parsed: list[tuple[Sequence[int], object]] = []
 
     def parse_messages_from_completion_tokens(
         self, tokens: Sequence[int], role: object
     ) -> list[SimpleNamespace]:
-        self.parsed.append(tokens)
+        self.parsed.append((tokens, role))
         channels = {1: "analysis", 2: "final"}
         return [
             SimpleNamespace(
@@ -69,7 +69,9 @@ def test_extract_harmony_final_answer_delegates_to_parser(
     fake_harmony: _FakeEncoding,
 ) -> None:
     assert harmony_output.extract_harmony_final_answer([1, 2]) == "final text"
-    assert fake_harmony.parsed == [[1, 2]]
+    # The completion starts mid assistant turn, so the parser must be told the
+    # role; the real parser raises HarmonyError when it is omitted.
+    assert fake_harmony.parsed == [([1, 2], "assistant")]
 
 
 def test_extract_harmony_final_answer_fails_closed_without_visible_content(
