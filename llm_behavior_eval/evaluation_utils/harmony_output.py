@@ -77,7 +77,7 @@ def extract_harmony_final_answer(token_ids: Sequence[int]) -> str:
     try:
         parser = StreamableParser(_harmony_encoding(), role=Role.ASSISTANT)
         for token_id in token_ids:
-            parser.process(int(token_id))
+            parser.process(token_id)
     except HarmonyError as exc:
         raise HarmonyOutputError("Harmony completion could not be parsed.") from exc
 
