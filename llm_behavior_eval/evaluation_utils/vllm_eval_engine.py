@@ -171,9 +171,7 @@ class VllmEvalEngine(EvalEngine):
             finish_reason = getattr(first_candidate, "finish_reason", None)
             if self._uses_harmony:
                 try:
-                    text = extract_harmony_final_answer(
-                        getattr(first_candidate, "token_ids", [])
-                    )
+                    text = extract_harmony_final_answer(first_candidate.token_ids)
                 except HarmonyOutputError:
                     responses.append("")
                     finish_reasons.append(

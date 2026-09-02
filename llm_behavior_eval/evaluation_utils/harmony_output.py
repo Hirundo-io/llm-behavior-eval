@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from openai_harmony import HarmonyEncoding
     from transformers import PreTrainedTokenizerBase
 
 _HARMONY_CONTROL_TOKENS = frozenset({"<|channel|>", "<|message|>", "<|return|>"})
@@ -35,17 +36,27 @@ class HarmonyOutputError(ValueError):
 def is_harmony_tokenizer(tokenizer: PreTrainedTokenizerBase) -> bool:
     """Return whether a tokenizer defines the GPT-OSS Harmony control tokens.
 
-    Membership is tested in ``get_vocab()``, which includes added tokens.
     ``all_special_tokens`` cannot be used: it reports only the named tokenizer
     attributes (bos/eos/pad/...), which for ``openai/gpt-oss-*`` covers
     ``<|return|>`` but not ``<|channel|>`` or ``<|message|>``.
+
+    Args:
+        tokenizer: The tokenizer to inspect.
+
+    Returns:
+        True only when every Harmony control token is present in
+        ``tokenizer.get_vocab()``, which includes added tokens.
     """
     return _HARMONY_CONTROL_TOKENS <= tokenizer.get_vocab().keys()
 
 
 @lru_cache(maxsize=1)
-def _harmony_encoding():
-    """Load the parser distributed by OpenAI's Harmony package."""
+def _harmony_encoding() -> HarmonyEncoding:
+    """Load the parser distributed by OpenAI's Harmony package.
+
+    Returns:
+        The cached GPT-OSS Harmony encoding.
+    """
     try:
         from openai_harmony import HarmonyEncodingName, load_harmony_encoding
     except ImportError as exc:
@@ -61,6 +72,13 @@ def extract_harmony_final_answer(token_ids: Sequence[int]) -> str:
     ``parse_chat_output`` behavior. A completion truncated mid-answer yields the
     partial ``final`` content.
 
+    Args:
+        token_ids: The generated token IDs of one assistant completion,
+            excluding the prompt and any padding.
+
+    Returns:
+        The concatenated user-visible text, stripped.
+
     Raises:
         ImportError: If ``openai-harmony`` is not installed. Install the
             ``llm-behavior-eval[gpt-oss]`` or ``llm-behavior-eval[vllm]`` extra.
@@ -69,7 +87,7 @@ def extract_harmony_final_answer(token_ids: Sequence[int]) -> str:
             which may contain analysis-channel reasoning.
     """
     try:
-        from openai_harmony import HarmonyError, Role
+        from openai_harmony import HarmonyError, Role, TextContent
     except ImportError as exc:
         raise ImportError(_MISSING_HARMONY) from exc
 
@@ -87,9 +105,8 @@ def extract_harmony_final_answer(token_ids: Sequence[int]) -> str:
         ):
             continue
         for content in message.content:
-            text = getattr(content, "text", None)
-            if isinstance(text, str):
-                visible_parts.append(text)
+            if isinstance(content, TextContent):
+                visible_parts.append(content.text)
 
     answer = "\n".join(visible_parts).strip()
     if not answer:

@@ -1,11 +1,19 @@
 import sys
 from collections.abc import Sequence
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from llm_behavior_eval.evaluation_utils import harmony_output
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizerBase
+
+
+class _FakeTextContent:
+    def __init__(self, text: str) -> None:
+        self.text = text
 
 
 class _FakeEncoding:
@@ -23,7 +31,7 @@ class _FakeEncoding:
             SimpleNamespace(
                 channel=channels[token_id],
                 recipient=None,
-                content=[SimpleNamespace(text=f"{channels[token_id]} text")],
+                content=[_FakeTextContent(f"{channels[token_id]} text")],
             )
             for token_id in tokens
         ]
@@ -39,6 +47,7 @@ def fake_harmony(monkeypatch: pytest.MonkeyPatch) -> _FakeEncoding:
         SimpleNamespace(
             HarmonyError=ValueError,
             Role=SimpleNamespace(ASSISTANT="assistant"),
+            TextContent=_FakeTextContent,
         ),
     )
     return encoding
@@ -116,13 +125,15 @@ def test_is_harmony_tokenizer_matches_the_gpt_oss_vocabulary() -> None:
         }
     )
 
-    assert harmony_output.is_harmony_tokenizer(cast("Any", gpt_oss))
+    assert harmony_output.is_harmony_tokenizer(cast("PreTrainedTokenizerBase", gpt_oss))
 
 
 def test_is_harmony_tokenizer_requires_all_control_tokens() -> None:
     partial = SimpleNamespace(get_vocab=lambda: {"<|channel|>": 1, "<|message|>": 2})
 
-    assert not harmony_output.is_harmony_tokenizer(cast("Any", partial))
     assert not harmony_output.is_harmony_tokenizer(
-        cast("Any", SimpleNamespace(get_vocab=dict))
+        cast("PreTrainedTokenizerBase", partial)
+    )
+    assert not harmony_output.is_harmony_tokenizer(
+        cast("PreTrainedTokenizerBase", SimpleNamespace(get_vocab=dict))
     )
