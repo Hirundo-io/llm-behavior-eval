@@ -12,10 +12,7 @@ from typer.testing import CliRunner
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
-from llm_behavior_eval.evaluation_utils.censorship_utils import (
-    CCPC_DATASET_ID,
-    CCPC_JUDGE_MODEL,
-)
+from llm_behavior_eval.evaluation_utils.censorship_utils import CCPC_DATASET_ID
 from llm_behavior_eval.evaluation_utils.eval_config import FAMILY_TOKEN_DEFAULTS
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
@@ -155,13 +152,13 @@ def test_behavior_presets_expand_refusal_all() -> None:
 
 
 def test_cli_help_includes_chinese_censorship_guidance() -> None:
-    result = CliRunner().invoke(evaluate.app, ["--help"])
+    result = CliRunner().invoke(evaluate.app, ["--help"], env={"COLUMNS": "300"})
     visible_output = strip_ansi(result.output)
 
     assert result.exit_code == 0
     assert "chinese_censorship" in visible_output
     assert "--judge-model" in visible_output
-    assert "google/gemma-4-26B-A4B-it" in visible_output
+    assert "default or configured" in visible_output
     assert "evaluated model" in visible_output
     assert "both" in visible_output
     assert "explicit flag" in visible_output
@@ -231,22 +228,34 @@ def test_main_passes_model_output_dir_override(
     assert capture_eval_config[-1].model_output_dir == "custom-model-dir"
 
 
+def test_main_routes_ccpc_dataset_id(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main(
+        "fake/model",
+        "chinese_censorship",
+        judge_model="example/judge",
+    )
+
+    assert capture_configs[-1].dataset_config.dataset_id == CCPC_DATASET_ID
+
+
 def test_main_rejects_mixed_evaluator_families() -> None:
     with pytest.raises(ValueError, match="multiple evaluator families"):
         evaluate.main("fake/model", "hallu,refusal:all")
 
 
-def test_main_enforces_ccpc_judge_contract_and_checks_both_trusted_providers(
+def test_main_allows_configured_ccpc_judge_and_checks_both_trusted_providers(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
-    """Verify CCPC routing locks its judge and checks both providers for trust.
+    """Verify CCPC routing forwards its judge and checks both providers for trust.
     Args:
         capture_eval_config: Evaluation configurations captured by the factory stub.
     """
     evaluate.main(
         "google/model",
         "chinese_censorship",
-        judge_model=CCPC_JUDGE_MODEL,
+        judge_model="google/gemma-4-26B-A4B-it",
     )
     assert capture_eval_config[-1].evaluator_family == "censorship"
     assert capture_eval_config[-1].trust_remote_code
@@ -254,7 +263,7 @@ def test_main_enforces_ccpc_judge_contract_and_checks_both_trusted_providers(
     evaluate.main(
         "google/model",
         "chinese_censorship",
-        judge_model=CCPC_JUDGE_MODEL,
+        judge_model="google/gemma-4-26B-A4B-it",
         trust_remote_code=False,
     )
     assert not capture_eval_config[-1].trust_remote_code
@@ -262,13 +271,12 @@ def test_main_enforces_ccpc_judge_contract_and_checks_both_trusted_providers(
     evaluate.main(
         "untrusted/model",
         "chinese_censorship",
-        judge_model=CCPC_JUDGE_MODEL,
+        judge_model="google/gemma-4-26B-A4B-it",
     )
     assert not capture_eval_config[-1].trust_remote_code
 
-    with pytest.raises(ValueError, match="chinese_censorship benchmark requires"):
-        evaluate.main("fake/model", "chinese_censorship")
-    assert len(capture_eval_config) == 3
+    evaluate.main("fake/model", "chinese_censorship")
+    assert capture_eval_config[-1].judge_path_or_repo_id == "google/gemma-3-12b-it"
 
     evaluate.main("google/model", "hallu")
     assert capture_eval_config[-1].judge_path_or_repo_id == "google/gemma-3-12b-it"

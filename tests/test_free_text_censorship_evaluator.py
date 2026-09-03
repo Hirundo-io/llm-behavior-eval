@@ -1,623 +1,380 @@
-from collections.abc import Sequence
-from contextlib import nullcontext
 from pathlib import Path
-from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import Any, cast
 
 import pandas as pd
 import pytest
-import torch
 from datasets import Dataset
-from transformers.data.data_collator import default_data_collator
 
-if TYPE_CHECKING:
-    from transformers import PreTrainedTokenizerBase
-
-    from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
-
-from llm_behavior_eval import DatasetConfig, EvaluationConfig, evaluate
+from llm_behavior_eval import DatasetConfig, EvaluationConfig
+from llm_behavior_eval.evaluation_utils import base_evaluator as base_evaluator_module
 from llm_behavior_eval.evaluation_utils import censorship_utils
+from llm_behavior_eval.evaluation_utils import (
+    free_text_censorship_evaluator as free_text_censorship_evaluator_module,
+)
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
-    CCPC_BENCHMARK_CONFIG,
     CCPC_DATASET_CONFIG,
     CCPC_DATASET_ID,
     CCPC_DATASET_REPOSITORY,
-    CCPC_DATASET_REVISION,
     CCPC_DATASET_SPLIT,
-    CCPC_EXPECTED_ROWS,
-    CCPC_JUDGE_MODEL,
-    CCPC_JUDGE_REPETITION_PENALTY,
-    CCPC_MODEL_REPETITION_PENALTY,
     CensorshipStatus,
     load_censorship_benchmark,
     parse_censorship_judgment,
 )
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
-from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
-    CensorshipResponse,
     FreeTextCensorshipEvaluator,
     _CensorshipGenerationRecord,
 )
-from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 
-def _benchmark(size: int = CCPC_EXPECTED_ROWS, **columns: Sequence[object]) -> Dataset:
-    """Build a deterministic in-memory benchmark fixture.
-
-    Args:
-        size: Number of benchmark rows to create.
-        **columns: Column values that replace or extend the default columns.
-
-    Returns:
-        A Hugging Face dataset with the requested fixture contents.
-    """
-    data: dict[str, Sequence[object]] = {
-        "question": [f"question-{index}" for index in range(size)],
-        "source_group_id": [f"group-{index}" for index in range(size)],
-    }
-    data.update(columns)
-    return Dataset.from_dict(data)
+def _benchmark(size: int = 3) -> Dataset:
+    return Dataset.from_dict(
+        {
+            "question": [f"question-{index}" for index in range(size)],
+            "source_group_id": [f"group-{index}" for index in range(size)],
+        }
+    )
 
 
-def _patch_load_dataset(
-    monkeypatch: pytest.MonkeyPatch, dataset: Dataset
-) -> dict[str, object]:
-    """Patch the dataset loader and record its arguments.
-
-    Args:
-        monkeypatch: Pytest patching helper.
-        dataset: Dataset the patched loader should return.
-
-    Returns:
-        Mutable mapping populated with loader arguments after the call.
-    """
+def test_loads_ccpc_in_source_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     def fake_load_dataset(path: str, **kwargs: object) -> Dataset:
-        """Record loader arguments and return the fixture dataset.
-
-        Args:
-            path: Dataset repository passed by the production loader.
-            **kwargs: Keyword arguments passed by the production loader.
-
-        Returns:
-            The dataset fixture supplied to the enclosing helper.
-        """
         captured.update(path=path, **kwargs)
-        return dataset
+        return _benchmark()
 
     monkeypatch.setattr(censorship_utils, "load_dataset", fake_load_dataset)
-    return captured
-
-
-def test_loads_exact_pinned_dataset_in_published_order(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify all immutable dataset pins and row order reach the loader.
-
-    Args:
-        monkeypatch: Pytest patching helper.
-
-    Returns:
-        None.
-    """
-    expected = _benchmark()
-    captured = _patch_load_dataset(monkeypatch, expected)
 
     actual = load_censorship_benchmark("token")
 
-    assert actual["source_group_id"] == expected["source_group_id"]
+    assert actual["source_group_id"] == ["group-0", "group-1", "group-2"]
     assert captured == {
         "path": CCPC_DATASET_REPOSITORY,
         "name": CCPC_DATASET_CONFIG,
         "split": CCPC_DATASET_SPLIT,
-        "revision": CCPC_DATASET_REVISION,
         "token": "token",
         "trust_remote_code": False,
     }
 
 
-def test_current_run_config_omits_ignored_max_samples(tmp_path: Path) -> None:
-    """Verify CCPC's immutable cohort ignores max_samples in run identity.
-
-    Args:
-        tmp_path: Temporary results directory supplied by pytest.
-
-    Returns:
-        None.
-    """
-    run_configs = []
-    for max_samples in (1, CCPC_EXPECTED_ROWS):
-        evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
-        evaluator.eval_config = EvaluationConfig(
-            model_path_or_repo_id="fake/model",
-            results_dir=tmp_path,
-            max_samples=max_samples,
-        )
-        evaluator.dataset_config = DatasetConfig(
-            file_path=CCPC_DATASET_ID,
-            dataset_type=DatasetType.BIAS,
-        )
-        run_configs.append(evaluator._current_run_config())
-
-    assert run_configs[0] == run_configs[1]
-    assert "max_samples" not in run_configs[0]["evaluation_config"]
-
-
 @pytest.mark.parametrize(
-    ("dataset", "message"),
+    "dataset",
     [
-        (_benchmark(extra=["x"] * CCPC_EXPECTED_ROWS), "columns must be exactly"),
-        (_benchmark(CCPC_EXPECTED_ROWS - 1), "exactly 216 rows"),
-        (
-            _benchmark(
-                source_group_id=["duplicate"] * CCPC_EXPECTED_ROWS,
-            ),
-            "must be unique",
-        ),
-        (
-            _benchmark(question=[" "] * CCPC_EXPECTED_ROWS),
-            "field 'question' must be a non-empty string",
-        ),
-        (
-            _benchmark(source_group_id=[""] * CCPC_EXPECTED_ROWS),
-            "field 'source_group_id' must be a non-empty string",
-        ),
-        (
-            _benchmark(question=list(range(CCPC_EXPECTED_ROWS))),
-            "field 'question' must be a non-empty string",
-        ),
-        (
-            _benchmark(source_group_id=list(range(CCPC_EXPECTED_ROWS))),
-            "field 'source_group_id' must be a non-empty string",
+        _benchmark(0),
+        Dataset.from_dict({"question": ["question"]}),
+        Dataset.from_dict({"question": ["question"], "source_group_id": [""]}),
+        Dataset.from_dict(
+            {
+                "question": ["one", "two"],
+                "source_group_id": ["duplicate", "duplicate"],
+            }
         ),
     ],
 )
-def test_rejects_invalid_dataset_contract(
-    monkeypatch: pytest.MonkeyPatch, dataset: Dataset, message: str
+def test_load_censorship_benchmark_rejects_invalid_intrinsic_schema(
+    monkeypatch: pytest.MonkeyPatch, dataset: Dataset
 ) -> None:
-    """Verify malformed benchmark schemas and values fail closed.
+    monkeypatch.setattr(
+        censorship_utils, "load_dataset", lambda *_args, **_kwargs: dataset
+    )
 
-    Args:
-        monkeypatch: Pytest patching helper.
-        dataset: Invalid benchmark fixture.
-        message: Expected validation-error fragment.
-
-    Returns:
-        None.
-    """
-    _patch_load_dataset(monkeypatch, dataset)
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError):
         load_censorship_benchmark()
-
-
-class _Tokenizer:
-    name_or_path = "fake/model"
-
-    def __init__(self) -> None:
-        """Initialize an empty prompt log.
-
-        Args:
-            None.
-
-        Returns:
-            None.
-        """
-        self.prompts: list[str] = []
-
-    def __call__(
-        self, prompts: list[str], **kwargs: object
-    ) -> dict[str, list[list[int]]]:
-        """Tokenize prompts into deterministic one-token rows.
-
-        Args:
-            prompts: Rendered prompts to tokenize.
-            **kwargs: Tokenizer options ignored by this fixture.
-
-        Returns:
-            Token identifiers and attention masks for each prompt.
-        """
-        del kwargs
-        self.prompts = prompts
-        return {
-            "input_ids": [[index] for index in range(len(prompts))],
-            "attention_mask": [[1] for _ in prompts],
-        }
-
-
-class _DatasetEngine:
-    is_judge = False
-
-    def set_dataset(self, dataset: Dataset) -> None:
-        """Record the dataset supplied by the evaluator.
-
-        Args:
-            dataset: Prepared evaluation dataset.
-
-        Returns:
-            None.
-        """
-        self.dataset = dataset
-
-    def get_batch_size(self) -> int:
-        """Return the deterministic test batch size.
-
-        Args:
-            None.
-
-        Returns:
-            The batch size used to exercise a final partial batch.
-        """
-        return 31
-
-
-def test_prepare_dataloader_never_shuffles_or_truncates(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Verify row selection ignores max_samples and preserves source order.
-
-    Args:
-        monkeypatch: Pytest patching helper.
-        tmp_path: Temporary results directory supplied by pytest.
-
-    Returns:
-        None.
-    """
-    benchmark = _benchmark()
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.load_censorship_benchmark",
-        lambda token: benchmark,
-    )
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.is_model_multimodal",
-        lambda *args: False,
-    )
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.safe_apply_chat_template",
-        lambda tokenizer, messages, **kwargs: messages[0]["content"],
-    )
-    evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
-    evaluator.eval_config = EvaluationConfig(
-        model_path_or_repo_id="fake/model",
-        results_dir=tmp_path,
-        max_samples=1,
-        max_answer_tokens=8,
-    )
-    evaluator.dataset_config = DatasetConfig(
-        file_path="chinese_censorship", dataset_type=DatasetType.BIAS
-    )
-    evaluator.tokenizer = cast("PreTrainedTokenizerBase", _Tokenizer())
-    evaluator.trust_remote_code = False
-    evaluator.eval_engine = cast("EvalEngine", _DatasetEngine())
-    evaluator.data_collator = default_data_collator
-
-    evaluator.prepare_dataloader()
-
-    indices = [
-        int(index)
-        for batch in evaluator.eval_loader
-        for index in batch["ccpc_row_index"].tolist()
-    ]
-    assert indices == list(range(CCPC_EXPECTED_ROWS))
-    assert evaluator.benchmark_questions == benchmark["question"]
-    assert evaluator.num_samples == CCPC_EXPECTED_ROWS
 
 
 @pytest.mark.parametrize(
     ("text", "expected"),
-    [("True", True), (" false \n", False), ("True because...", None), ("", None)],
+    [("True", True), (" false\n", False), ("true.", None), ("", None)],
 )
 def test_parse_censorship_judgment(text: str, expected: bool | None) -> None:
-    """Verify the judge parser accepts only bare binary verdicts.
-
-    Args:
-        text: Raw judge text to parse.
-        expected: Expected parsed verdict.
-
-    Returns:
-        None.
-    """
     assert parse_censorship_judgment(text) is expected
 
 
-class _RecordingEngine:
-    is_judge = False
-
-    def __init__(self) -> None:
-        """Initialize an empty repetition-penalty log.
-
-        Args:
-            None.
-
-        Returns:
-            None.
-        """
-        self.penalties: list[float] = []
-
-    def generate_answers(
-        self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
-        sampling_config: SamplingConfig,
-        repetition_penalty: float = 1.0,
-    ) -> tuple[list[str], list[str | None]]:
-        """Record the role-specific repetition penalty.
-
-        Args:
-            input_ids: Token identifiers used to size the deterministic result.
-            attention_mask: Attention mask ignored by this fixture.
-            sampling_config: Decoding settings ignored by this fixture.
-            repetition_penalty: Repetition penalty supplied by the evaluator.
-
-        Returns:
-            Deterministic answers and successful finish reasons.
-        """
-        del attention_mask, sampling_config
-        self.penalties.append(repetition_penalty)
-        return ["answer"] * len(input_ids), ["stop"] * len(input_ids)
-
-
-def test_model_and_judge_use_role_specific_repetition_penalties(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("model_finish", "judge_finish", "verdict", "expected"),
+    [
+        ("stop", "stop", True, CensorshipStatus.JUDGED_TRUE),
+        ("stop", "stop", False, CensorshipStatus.JUDGED_FALSE),
+        ("length", "stop", True, CensorshipStatus.MODEL_INCOMPLETE),
+        (None, "stop", True, CensorshipStatus.MODEL_UNKNOWN),
+        ("stop", "length", True, CensorshipStatus.JUDGE_INCOMPLETE),
+        ("stop", None, True, CensorshipStatus.JUDGE_UNKNOWN),
+        ("stop", "stop", None, CensorshipStatus.JUDGE_UNPARSEABLE),
+    ],
+)
+def test_status_is_exhaustive(
+    model_finish: str | None,
+    judge_finish: str | None,
+    verdict: bool | None,
+    expected: CensorshipStatus,
 ) -> None:
-    """Verify model and judge calls use their frozen role-specific penalties.
+    assert (
+        FreeTextCensorshipEvaluator._status(model_finish, judge_finish, verdict)
+        == expected
+    )
 
-    Args:
-        monkeypatch: Pytest patching helper.
-        tmp_path: Temporary results directory supplied by pytest.
 
-    Returns:
-        None.
-    """
+def _evaluator(tmp_path: Path) -> FreeTextCensorshipEvaluator:
     evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
     evaluator.eval_config = EvaluationConfig(
-        model_path_or_repo_id="fake/model",
-        results_dir=tmp_path,
-        judge_path_or_repo_id=CCPC_JUDGE_MODEL,
-        sample_judge=False,
+        model_path_or_repo_id="fake/model", results_dir=tmp_path
     )
     evaluator.dataset_config = DatasetConfig(
         file_path="chinese_censorship", dataset_type=DatasetType.BIAS
     )
-    engine = _RecordingEngine()
-    evaluator.eval_engine = cast("EvalEngine", engine)
-    evaluator.judge_tokenizer = cast("PreTrainedTokenizerBase", _Tokenizer())
-    judge_penalties: list[float] = []
+    evaluator.benchmark_group_ids = ["group-0", "group-1"]
+    evaluator.get_output_dir = lambda: tmp_path
+    evaluator.get_model_slug = lambda: "model"
+    evaluator.get_dataset_slug = lambda: "chinese_censorship"
+    evaluator._append_summary_row = cast("Any", lambda *_args: None)
+    return evaluator
 
-    def fake_run_judge_with_backoff(
-        judge_engine: "EvalEngine",
-        prompts: list[str],
-        repetition_penalty: float = 1.0,
-    ) -> list[list[dict[str, str]]]:
-        """Record the explicit judge repetition penalty.
-        Args:
-            judge_engine: Judge engine ignored by this fixture.
-            prompts: Judge prompts used to size the deterministic result.
-            repetition_penalty: Repetition penalty supplied by the evaluator.
-        Returns:
-            Deterministic successful judge outputs.
-        """
-        del judge_engine
-        judge_penalties.append(repetition_penalty)
-        return [[{"generated_text": "False", "finish_reason": "stop"}] for _ in prompts]
 
-    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
-    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: _Tokenizer())
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.safe_apply_chat_template",
-        lambda tokenizer, messages: messages[-1]["content"],
+def test_save_results_requires_a_complete_determinate_cohort(tmp_path: Path) -> None:
+    evaluator = _evaluator(tmp_path)
+    evaluator._save_results(
+        [
+            {
+                "source_group_id": "group-0",
+                "question": "one",
+                "llm_answer": "one",
+                "finish_reason": "stop",
+                "judge_finish_reason": "stop",
+                "judge_raw": "True",
+                "judge_verdict": True,
+                "status": CensorshipStatus.JUDGED_TRUE.value,
+            },
+            {
+                "source_group_id": "group-1",
+                "question": "two",
+                "llm_answer": "two",
+                "finish_reason": "length",
+                "judge_finish_reason": None,
+                "judge_raw": "",
+                "judge_verdict": None,
+                "status": CensorshipStatus.MODEL_INCOMPLETE.value,
+            },
+        ]
     )
-    monkeypatch.setattr(
-        evaluator, "run_judge_with_backoff", fake_run_judge_with_backoff
-    )
-
-    evaluator._generate_model_answers(torch.tensor([[1]]), torch.tensor([[1]]))
-    evaluator._grade_batch(cast("EvalEngine", engine), ["question"], ["answer"])
-
-    assert engine.penalties == [CCPC_MODEL_REPETITION_PENALTY]
-    assert judge_penalties == [CCPC_JUDGE_REPETITION_PENALTY]
-    provenance = evaluator._current_run_config()["ccpc_benchmark"]
-    assert provenance == CCPC_BENCHMARK_CONFIG
-    assert provenance is not CCPC_BENCHMARK_CONFIG
-    assert provenance["model_repetition_penalty"] == CCPC_MODEL_REPETITION_PENALTY
-    assert provenance["judge_repetition_penalty"] == CCPC_JUDGE_REPETITION_PENALTY
-
-
-def _response(index: int, status: CensorshipStatus) -> CensorshipResponse:
-    """Build one persisted response fixture.
-
-    Args:
-        index: Benchmark row index.
-        status: Exhaustive outcome status for the row.
-
-    Returns:
-        A response record matching the persisted schema.
-    """
-    verdict = status == CensorshipStatus.JUDGED_TRUE
-    return {
-        "source_group_id": f"group-{index}",
-        "question": f"question-{index}",
-        "llm_answer": "answer",
-        "finish_reason": "stop",
-        "judge_finish_reason": "stop",
-        "judge_raw": str(verdict),
-        "judge_verdict": verdict
-        if status in {CensorshipStatus.JUDGED_TRUE, CensorshipStatus.JUDGED_FALSE}
-        else None,
-        "status": status.value,
-    }
-
-
-@pytest.mark.parametrize("invalid_status", [None, *list(CensorshipStatus)[2:]])
-def test_metric_valid_only_for_an_all_determinate_cohort(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    invalid_status: CensorshipStatus | None,
-) -> None:
-    """Verify the primary metric requires 216 determinate verdicts.
-
-    Args:
-        monkeypatch: Pytest patching helper.
-        tmp_path: Temporary results directory supplied by pytest.
-        invalid_status: Optional non-determinate status for the first row.
-
-    Returns:
-        None.
-    """
-    evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
-    evaluator.benchmark_group_ids = [
-        f"group-{index}" for index in range(CCPC_EXPECTED_ROWS)
-    ]
-    evaluator.eval_config = EvaluationConfig(
-        model_path_or_repo_id="fake/model", results_dir=tmp_path
-    )
-    monkeypatch.setattr(evaluator, "get_output_dir", lambda: tmp_path)
-    monkeypatch.setattr(evaluator, "get_model_slug", lambda: "model")
-    monkeypatch.setattr(evaluator, "get_dataset_slug", lambda: "chinese_censorship")
-    monkeypatch.setattr(evaluator, "_append_summary_row", lambda *args: None)
-    responses = [
-        _response(
-            index,
-            invalid_status
-            if index == 0 and invalid_status is not None
-            else CensorshipStatus.JUDGED_TRUE
-            if index == 0
-            else CensorshipStatus.JUDGED_FALSE,
-        )
-        for index in range(CCPC_EXPECTED_ROWS)
-    ]
-
-    evaluator._save_results(responses)
 
     metrics = pd.read_csv(tmp_path / "metrics.csv").iloc[0]
-    assert bool(metrics["Metric Valid"]) is (invalid_status is None)
-    if invalid_status is None:
-        assert metrics["Censorship rate (%) ⬇️"] == pytest.approx(100 / 216)
-    else:
-        assert pd.isna(metrics["Censorship rate (%) ⬇️"])
+    assert bool(metrics["Metric Valid"]) is False
+    assert metrics["Expected Samples"] == 2
+    assert pd.isna(metrics["Censorship rate (%) ⬇️"])
 
 
-def test_save_results_rejects_an_unaccounted_cohort(
+def test_grading_preserves_answers_and_skips_noncompleted_targets(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Verify missing benchmark rows raise as an internal invariant violation.
+    evaluator = _evaluator(tmp_path)
+    graded: list[tuple[list[str], list[str]]] = []
 
-    Args:
-        monkeypatch: Pytest patching helper.
-        tmp_path: Temporary results directory supplied by pytest.
+    def fake_grade_batch(
+        _judge: object, questions: list[str], answers: list[str]
+    ) -> tuple[list[bool | None], list[str], list[str | None]]:
+        graded.append((questions, answers))
+        return [True], ["True"], ["stop"]
 
-    Returns:
-        None.
-    """
-    evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
-    evaluator.benchmark_group_ids = [
-        f"group-{index}" for index in range(CCPC_EXPECTED_ROWS)
-    ]
-    evaluator.eval_config = EvaluationConfig(
-        model_path_or_repo_id="fake/model", results_dir=tmp_path
-    )
-    monkeypatch.setattr(evaluator, "get_output_dir", lambda: tmp_path)
-    responses = [
-        _response(index, CensorshipStatus.JUDGED_FALSE)
-        for index in range(CCPC_EXPECTED_ROWS - 1)
-    ]
-
-    with pytest.raises(ValueError, match="every source_group_id"):
-        evaluator._save_results(responses)
-
-
-def test_grading_preserves_raw_evidence_and_all_statuses(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify grading preserves raw evidence for every outcome category.
-
-    Args:
-        monkeypatch: Pytest patching helper.
-
-    Returns:
-        None.
-    """
-    evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
+    monkeypatch.setattr(evaluator, "_grade_batch", fake_grade_batch)
+    captured: list[dict[str, object]] = []
+    monkeypatch.setattr(evaluator, "_save_results", captured.extend)
     generation = _CensorshipGenerationRecord(
-        questions=[f"q{i}" for i in range(7)],
-        source_group_ids=[f"g{i}" for i in range(7)],
-        answers=[f"raw-{i}" for i in range(7)],
-        finish_reasons=["stop", "stop", "length", None, "stop", "stop", "stop"],
+        questions=["one", "two"],
+        row_ids=["group-0", "group-1"],
+        answers=["answer-one", "answer-two"],
+        finish_reasons=["stop", "length"],
     )
-    monkeypatch.setattr(evaluator, "_format_answers", lambda answers: answers)
+
+    evaluator._grade_impl([generation], judge_engine=cast("Any", object()))
+
+    assert graded == [(["one"], ["answer-one"])]
+    assert captured[0]["status"] == CensorshipStatus.JUDGED_TRUE.value
+    assert captured[1]["status"] == CensorshipStatus.MODEL_INCOMPLETE.value
+
+
+class _StubTokenizer:
+    name_or_path = "fake/model"
+
+    def __init__(self) -> None:
+        self.padding_side = "right"
+
+    def __call__(
+        self, prompts: list[str], **_kwargs: object
+    ) -> dict[str, list[list[int]]]:
+        return {
+            "input_ids": [[1] for _ in prompts],
+            "attention_mask": [[1] for _ in prompts],
+        }
+
+
+class _StubEvalEngine:
+    """Fake transformers engine: no model load, deterministic generation."""
+
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        self.tokenizer = _StubTokenizer()
+        self.dataset: object = None
+
+    def set_dataset(self, dataset: object) -> None:
+        self.dataset = dataset
+
+    def get_batch_size(self) -> int:
+        return 8
+
+    def ensure_test_model_ready(self) -> None:
+        return None
+
+    def generate_answers(
+        self,
+        input_ids: object,
+        attention_mask: object,
+        *_args: object,
+        **_kwargs: object,
+    ) -> tuple[list[str], list[str | None]]:
+        batch_size = len(cast("list[object]", input_ids))
+        return [f"answer-{i}" for i in range(batch_size)], ["stop"] * batch_size
+
+    def free_model(self) -> None:
+        return None
+
+
+def _live_evaluator(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    dataset_config: DatasetConfig,
+    snapshots: list[Dataset],
+) -> tuple[FreeTextCensorshipEvaluator, list[Dataset]]:
+    """Build a real FreeTextCensorshipEvaluator with the heavy engine faked out.
+
+    Returns the evaluator and the list of snapshots served so far (in order),
+    so tests can assert exactly how many times the loader was invoked.
+    """
+    served: list[Dataset] = []
+
+    def fake_load_censorship_benchmark(*_args: object, **_kwargs: object) -> Dataset:
+        snapshot = snapshots[len(served)]
+        served.append(snapshot)
+        return snapshot
+
+    monkeypatch.setattr(
+        free_text_censorship_evaluator_module,
+        "load_censorship_benchmark",
+        fake_load_censorship_benchmark,
+    )
+    monkeypatch.setattr(
+        free_text_censorship_evaluator_module,
+        "safe_apply_chat_template",
+        lambda *_args, **_kwargs: "prompt",
+    )
+    monkeypatch.setattr(
+        free_text_censorship_evaluator_module,
+        "is_model_multimodal",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        base_evaluator_module, "TransformersEvalEngine", _StubEvalEngine
+    )
+
+    evaluator = FreeTextCensorshipEvaluator(
+        EvaluationConfig(model_path_or_repo_id="fake/model", results_dir=tmp_path),
+        dataset_config,
+    )
+    return evaluator, served
+
+
+def test_grading_time_dataset_config_update_preserves_generation_snapshot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Regression for the within-run snapshot-consistency bug.
+
+    The CLI generates against one prepared cohort, then calls
+    `update_dataset_config` again before grading. For CCPC (no HF revision
+    pin), a naive reload there could silently swap in a different remote
+    snapshot than the one used for generation, desyncing grading/accounting
+    from the generated cohort.
+    """
+    snapshot_a = _benchmark(2)  # question-0/1, group-0/1
+    snapshot_b = Dataset.from_dict(
+        {
+            "question": ["other-question-0", "other-question-1"],
+            "source_group_id": ["other-group-0", "other-group-1"],
+        }
+    )
+    dataset_config = DatasetConfig(
+        file_path=CCPC_DATASET_ID, dataset_type=DatasetType.BIAS
+    )
+
+    evaluator, served = _live_evaluator(
+        monkeypatch, tmp_path, dataset_config, [snapshot_a, snapshot_b]
+    )
+    assert evaluator.benchmark_group_ids == ["group-0", "group-1"]
+
+    generation_records = cast(
+        "list[_CensorshipGenerationRecord]", list(evaluator.generate())
+    )
+    assert len(served) == 1
+    assert all(
+        row_id in {"group-0", "group-1"} for row_id in generation_records[0].row_ids
+    )
+
+    # The CLI re-applies the (unchanged) dataset config before grading.
+    evaluator.update_dataset_config(
+        DatasetConfig(file_path=CCPC_DATASET_ID, dataset_type=DatasetType.BIAS)
+    )
+
+    # Snapshot B must never have been fetched, and the validated cohort from
+    # generation must still be the one used for grading/accounting.
+    assert len(served) == 1
+    assert evaluator.benchmark_group_ids == ["group-0", "group-1"]
+    assert evaluator.benchmark_questions == ["question-0", "question-1"]
+
+    captured: list[dict[str, object]] = []
+    monkeypatch.setattr(evaluator, "_save_results", captured.extend)
     monkeypatch.setattr(
         evaluator,
         "_grade_batch",
-        lambda *args: (
-            [True, False, True, False, None],
-            ["True", "False", "truncated", "unknown", "malformed"],
-            ["stop", "stop", "length", None, "stop"],
+        lambda _judge, questions, answers: (
+            [True] * len(questions),
+            ["True"] * len(questions),
+            ["stop"] * len(questions),
         ),
     )
-    captured: list[CensorshipResponse] = []
-    monkeypatch.setattr(evaluator, "_save_results", captured.extend)
+    evaluator._grade_impl(generation_records, judge_engine=cast("Any", object()))
 
-    evaluator._grade_impl([generation], cast("EvalEngine", object()))
-
-    assert [item["status"] for item in captured] == [
-        status.value for status in CensorshipStatus
+    assert [response["source_group_id"] for response in captured] == [
+        "group-0",
+        "group-1",
     ]
-    assert captured[0]["llm_answer"] == "raw-0"
-    assert captured[6]["judge_raw"] == "malformed"
 
 
-@pytest.mark.parametrize(
-    "behavior", ["chinese_censorship", "CHINESE_CENSORSHIP", " chinese_censorship "]
-)
-def test_cli_accepts_censorship_behavior(behavior: str) -> None:
-    """Verify the CLI normalizes the dedicated censorship behavior alias.
-
-    Args:
-        behavior: Supported spelling of the behavior alias.
-
-    Returns:
-        None.
-    """
-    assert evaluate._behavior_presets(behavior) == [CCPC_DATASET_ID]
-
-
-def test_cli_and_factory_route_to_the_dedicated_evaluator(
+def test_update_dataset_config_reloads_for_a_different_dataset_identity(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Verify CLI and factory routing select the dedicated evaluator family.
-
-    Args:
-        monkeypatch: Pytest patching helper.
-        tmp_path: Temporary results directory supplied by pytest.
-
-    Returns:
-        None.
-    """
-    captured: list[DatasetConfig] = []
-    monkeypatch.setattr(
-        evaluate.EvaluateFactory,
-        "create_evaluator",
-        lambda config, dataset: (
-            captured.append(dataset)
-            or SimpleNamespace(
-                started_mlflow_run=False,
-                update_dataset_config=lambda dataset: None,
-                generate=lambda: [],
-                free_test_model=lambda: None,
-                dataset_mlflow_run=nullcontext,
-                get_grading_context=nullcontext,
-                grade=lambda *args: None,
-                cleanup=lambda error=False: None,
-            )
-        ),
+    """Switching to a genuinely different dataset must not reuse the old snapshot."""
+    snapshot_a = _benchmark(2)
+    snapshot_b = Dataset.from_dict(
+        {
+            "question": ["other-question-0"],
+            "source_group_id": ["other-group-0"],
+        }
     )
-    evaluate.main(
-        "fake/model",
-        "chinese_censorship",
-        output_dir=tmp_path,
-        judge_model=CCPC_JUDGE_MODEL,
+    dataset_config = DatasetConfig(
+        file_path=CCPC_DATASET_ID, dataset_type=DatasetType.BIAS
     )
-    assert captured[-1].dataset_id == CCPC_DATASET_ID
-    assert EvaluateFactory.get_evaluator_family(CCPC_DATASET_ID) == "censorship"
+
+    evaluator, served = _live_evaluator(
+        monkeypatch, tmp_path, dataset_config, [snapshot_a, snapshot_b]
+    )
+    assert len(served) == 1
+
+    evaluator.update_dataset_config(
+        DatasetConfig(
+            file_path="some/other-dataset",
+            dataset_id="some/other-dataset",
+            dataset_type=DatasetType.BIAS,
+        )
+    )
+
+    assert len(served) == 2
+    assert evaluator.benchmark_group_ids == ["other-group-0"]

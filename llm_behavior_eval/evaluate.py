@@ -12,7 +12,6 @@ os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_DATASET_ID,
-    CCPC_JUDGE_MODEL,
 )
 from llm_behavior_eval.evaluation_utils.dataset_config import (
     DatasetConfig,
@@ -207,7 +206,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type|all>' or 'unbias:<type|all>'; UNQOVER: 'unqover:bias:<type|all>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>' or 'bloom:bias:<type>:ambiguous'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'; Chinese censorship: 'chinese_censorship' (requires --judge-model google/gemma-4-26B-A4B-it)"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type|all>' or 'unbias:<type|all>'; UNQOVER: 'unqover:bias:<type|all>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>' or 'bloom:bias:<type>:ambiguous'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'; Chinese censorship: 'chinese_censorship' (uses the default or configured --judge-model)"
         ),
     ],
     output_dir: Annotated[
@@ -575,15 +574,15 @@ def main(
         ),
     ] = None,
 ) -> None:
-    """Run evaluations; CCPC locks its judge and trust inference checks both roles.
+    """Run evaluations and trust inference checks both roles.
+
     Args:
         model: Model repository identifier or local path.
         behavior: Behavior preset or comma-separated presets to evaluate.
         judge_model: Judge repository identifier or local path.
-        trust_remote_code: Explicit remote-code authorization, when provided.
+        trust_remote_code: Explicit remote-code authorization.
     Raises:
-        ValueError: If evaluator families are mixed or the censorship judge differs
-            from :data:`CCPC_JUDGE_MODEL`.
+        ValueError: If evaluator families are mixed.
     """
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
@@ -603,11 +602,6 @@ def main(
             "Cannot evaluate behaviors from multiple evaluator families in one invocation."
         )
     evaluator_family: EvaluatorFamily | None = next(iter(evaluator_families), None)
-    if evaluator_family == "censorship" and judge_path_or_repo_id != CCPC_JUDGE_MODEL:
-        raise ValueError(
-            "The chinese_censorship benchmark requires "
-            f"--judge-model {CCPC_JUDGE_MODEL}."
-        )
 
     logging.basicConfig(
         level=logging.INFO,

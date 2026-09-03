@@ -134,16 +134,22 @@ class SafeApplyChatTemplate:
             cached = self._CHAT_TEMPLATE_SUPPORTS_REASONING.get(cache_key)
             if cached is not None and cached[0]() is tokenizer:
                 return cached[1]
-            supports = (
-                isinstance(tokenizer.chat_template, str)
-                and name in tokenizer.chat_template
+            # ``get_chat_template`` resolves the template that will actually be
+            # rendered, including the dict-of-templates form, and raises when the
+            # tokenizer has none.
+            try:
+                chat_template = tokenizer.get_chat_template()
+            except ValueError:
+                chat_template = None
+            supports_reasoning_kwarg = (
+                isinstance(chat_template, str) and name in chat_template
             )
             self._CHAT_TEMPLATE_SUPPORTS_REASONING[cache_key] = (
                 ref(tokenizer),
-                supports,
+                supports_reasoning_kwarg,
             )
 
-            return supports
+            return supports_reasoning_kwarg
 
         is_gemma_v1 = (
             tokenizer.name_or_path.startswith("google/gemma-")

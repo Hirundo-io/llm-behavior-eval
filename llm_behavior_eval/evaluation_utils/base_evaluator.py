@@ -50,6 +50,10 @@ if TYPE_CHECKING:
     from .eval_config import EvaluationConfig, MlflowConfig
 
 
+# See `BaseEvaluator._ensure_run_configuration_allowed` for the versioning contract.
+GENERATION_SCHEMA_VERSION = 2
+
+
 class SamplingParamsProtocol(Protocol):
     def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
@@ -939,6 +943,7 @@ class BaseEvaluator(ABC):
         return self.get_output_dir() / "metrics.csv"
 
     class RunConfig(TypedDict):
+        generation_schema_version: int
         evaluation_config: dict[str, Any]
         dataset_config: dict[str, Any]
 
@@ -961,6 +966,7 @@ class BaseEvaluator(ABC):
         dataset_config_snapshot = self.dataset_config.model_dump(exclude_none=True)
 
         return {
+            "generation_schema_version": GENERATION_SCHEMA_VERSION,
             "evaluation_config": json.loads(
                 json.dumps(evaluation_config_snapshot, default=str)
             ),
@@ -980,6 +986,19 @@ class BaseEvaluator(ABC):
                 output_file.unlink()
 
     def _ensure_run_configuration_allowed(self) -> None:
+        """Reuse cached outputs only if they match the current run configuration.
+
+        The persisted config includes `GENERATION_SCHEMA_VERSION`, which
+        identifies the meaning of the text in `generations.jsonl`. Bump it
+        whenever generated answers are derived differently for the same
+        run config, so a cached run produced by older code can never
+        silently match the current configuration and be regraded.
+
+        Version 2: chat-template capability detection now resolves the
+        actually-rendered template via `get_chat_template()` instead of a
+        raw `isinstance` check, which can change generated text for a run
+        config that looks unchanged.
+        """
         run_config = self._current_run_config()
         config_path = self.run_config_path()
 
