@@ -25,16 +25,12 @@ class TransformersEvalEngine(EvalEngine):
         model_path_or_repo_id = self._get_model_path_or_repo_id(eval_config, is_judge)
         model_token = self._get_model_token(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
-        revision = (
-            eval_config.judge_revision if is_judge else eval_config.model_revision
-        )
         self.tokenizer, self.model = load_transformers_model_and_tokenizer(
             model_path_or_repo_id,
             model_token,
             use_4bit,
             eval_config.device_map,
             eval_config.trust_remote_code,
-            revision=revision,
         )
         self.data_collator = data_collator
         self.eval_config = eval_config

@@ -67,9 +67,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
 
     def prepare_dataloader(self) -> None:
         """Load and tokenize every benchmark row in published order."""
-        benchmark = load_censorship_benchmark(
-            self.eval_config.model_token, self.dataset_config.dataset_revision
-        )
+        benchmark = load_censorship_benchmark(self.eval_config.model_token)
         self.benchmark_questions = cast("list[str]", benchmark["question"])
         self.benchmark_group_ids = cast("list[str]", benchmark["source_group_id"])
         prompts = [
@@ -80,7 +78,6 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                     self.tokenizer.name_or_path,
                     self.trust_remote_code,
                     self.eval_config.model_token,
-                    self.eval_config.model_revision,
                 ),
                 max_answer_tokens=self.eval_config.max_answer_tokens,
                 enable_thinking=self.eval_config.enable_thinking,

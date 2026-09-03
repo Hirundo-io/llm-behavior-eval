@@ -277,7 +277,6 @@ class BaseEvaluator(ABC):
             trust_remote_code=self.trust_remote_code,
             token=self.eval_config.model_token,
             dataset_id=self.dataset_config.dataset_id,
-            dataset_revision=self.dataset_config.dataset_revision,
         )
         test_dataset = custom_dataset.preprocess(
             self.tokenizer,
@@ -288,7 +287,6 @@ class BaseEvaluator(ABC):
             thinking_start_token=self.eval_config.thinking_start_token,
             thinking_end_token=self.eval_config.thinking_end_token,
             pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
-            model_revision=self.eval_config.model_revision,
         )
         # Deterministic shuffle before sampling
         test_dataset = test_dataset.shuffle(seed=self.dataset_config.seed)
@@ -998,9 +996,8 @@ class BaseEvaluator(ABC):
 
         Version 2: chat-template capability detection now resolves the
         actually-rendered template via `get_chat_template()` instead of a
-        raw `isinstance` check, and multimodal architecture selection now
-        respects a pinned model revision — both can change generated text
-        for a run config that looks unchanged.
+        raw `isinstance` check, which can change generated text for a run
+        config that looks unchanged.
         """
         run_config = self._current_run_config()
         config_path = self.run_config_path()
@@ -1184,7 +1181,6 @@ class FreeTextSharedEvaluator(BaseEvaluator):
                 self.eval_config.judge_path_or_repo_id,
                 token=self.eval_config.judge_token,
                 trust_remote_code=self.eval_config.trust_remote_code,
-                revision=self.eval_config.judge_revision,
             )
             # left padding is useful when batch-generating variable-length prompts
             self.judge_tokenizer.padding_side = "left"

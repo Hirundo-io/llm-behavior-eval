@@ -130,35 +130,18 @@ class TransformModelLoaderStub:
     def __init__(self, tokenizer: RecordingTokenizer, model: DummyTransformersModel):
         self.tokenizer = tokenizer
         self.model = model
-        self.calls: list[RecordedCall] = []
 
     def __call__(self, *args, **kwargs):
-        self.calls.append(RecordedCall(args=args, kwargs=kwargs))
         return self.tokenizer, self.model
 
 
 class TokenizerLoaderStub:
     def __init__(self, tokenizer) -> None:
         self.tokenizer = tokenizer
-        self.calls: list[RecordedCall] = []
 
     def __call__(
-        self,
-        _model_id,
-        _token: str | None = None,
-        trust_remote_code: bool = False,
-        revision: str | None = None,
+        self, _model_id, _token: str | None = None, trust_remote_code: bool = False
     ):
-        self.calls.append(
-            RecordedCall(
-                args=(_model_id,),
-                kwargs={
-                    "token": _token,
-                    "trust_remote_code": trust_remote_code,
-                    "revision": revision,
-                },
-            )
-        )
         return self.tokenizer
 
 
@@ -242,7 +225,6 @@ class VllmConstructorCall:
     max_lora_rank: int
     language_model_only: bool
     compilation_config: CompilationConfigStub
-    revision: str | None = None
 
 
 class RecordingLlm:
@@ -269,7 +251,6 @@ class RecordingLlm:
         max_lora_rank: int,
         language_model_only: bool,
         compilation_config: CompilationConfigStub,
-        revision: str | None = None,
     ) -> None:
         self.calls.append(
             VllmConstructorCall(
@@ -291,7 +272,6 @@ class RecordingLlm:
                 max_lora_rank=max_lora_rank,
                 language_model_only=language_model_only,
                 compilation_config=compilation_config,
-                revision=revision,
             )
         )
 
@@ -812,56 +792,3 @@ def test_transformers_eval_engine_get_batch_size_autotune(
     assert batch_size == len(dataset)
     assert transformers_bundle.find_recorder.calls == [len(dataset)]
     assert transformers_bundle.candidate_recorder.calls == [len(dataset)]
-
-
-@pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_threads_each_role_only_its_own_revision(
-    vllm_bundle: VllmPatchBundle, tmp_path: Path
-) -> None:
-    unpinned = EvaluationConfig(
-        model_path_or_repo_id="fake/model",
-        results_dir=tmp_path,
-    )
-    VllmEvalEngine(unpinned)
-    assert vllm_bundle.tokenizer_loader.calls[-1].kwargs["revision"] is None
-    assert vllm_bundle.model_loader.calls[-1].kwargs["revision"] is None
-
-    config = EvaluationConfig(
-        model_path_or_repo_id="fake/model",
-        model_revision="cafebabe",
-        judge_path_or_repo_id="fake/judge",
-        judge_revision="deadbeef",
-        results_dir=tmp_path,
-        judge_engine="vllm",
-    )
-
-    VllmEvalEngine(config)
-    assert vllm_bundle.tokenizer_loader.calls[-1].kwargs["revision"] == "cafebabe"
-    assert vllm_bundle.model_loader.calls[-1].kwargs["revision"] == "cafebabe"
-
-    VllmEvalEngine(config, is_judge=True)
-    assert vllm_bundle.tokenizer_loader.calls[-1].kwargs["revision"] == "deadbeef"
-    assert vllm_bundle.model_loader.calls[-1].kwargs["revision"] == "deadbeef"
-
-
-@pytest.mark.transformers_engine_test
-def test_transformers_eval_engine_threads_each_role_only_its_own_revision(
-    transformers_bundle: TransformersPatchBundle, tmp_path: Path
-) -> None:
-    config = EvaluationConfig(
-        model_path_or_repo_id="fake/model",
-        model_revision="cafebabe",
-        judge_path_or_repo_id="fake/judge",
-        judge_revision="deadbeef",
-        results_dir=tmp_path,
-    )
-
-    TransformersEvalEngine(transformers_bundle.data_collator, config)
-    target_call = transformers_bundle.loader_stub.calls[-1]
-    assert target_call.args[0] == "fake/model"
-    assert target_call.kwargs["revision"] == "cafebabe"
-
-    TransformersEvalEngine(transformers_bundle.data_collator, config, is_judge=True)
-    judge_call = transformers_bundle.loader_stub.calls[-1]
-    assert judge_call.args[0] == "fake/judge"
-    assert judge_call.kwargs["revision"] == "deadbeef"

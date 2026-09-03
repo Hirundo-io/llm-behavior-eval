@@ -281,35 +281,40 @@ def mock_auto_config_local_load(monkeypatch: pytest.MonkeyPatch) -> dict[str, An
     return {"calls": calls}
 
 
-def test_is_model_multimodal_passes_revision_on_remote_fallback(
+def test_is_model_multimodal_passes_token_on_remote_fallback(
     mock_auto_config_remote_fallback: dict[str, Any],
 ) -> None:
-    result = is_model_multimodal(
-        "test/model",
-        trust_remote_code=False,
-        token="test_token",
-        revision="test-revision",
-    )
-
-    calls = mock_auto_config_remote_fallback["calls"]
-    assert len(calls) == 2
-    assert all(call[1]["token"] == "test_token" for call in calls)
-    assert all(call[1]["revision"] == "test-revision" for call in calls)
-    assert result is False
-
-
-def test_is_model_multimodal_keeps_unset_revision_none(
-    mock_auto_config_local_load: dict[str, Any],
-) -> None:
+    """Test that is_model_multimodal passes the token parameter on remote fallback."""
+    # Test with token parameter
     result = is_model_multimodal(
         "test/model", trust_remote_code=False, token="test_token"
     )
 
+    # Verify that both calls occurred (local then remote)
+    calls = mock_auto_config_remote_fallback["calls"]
+    assert len(calls) == 2
+
+    # Check the remote call (second call) includes the token
+    remote_call = calls[1]
+    assert remote_call[1].get("token") == "test_token"
+    assert result is False
+
+
+def test_is_model_multimodal_passes_token_on_local_load(
+    mock_auto_config_local_load: dict[str, Any],
+) -> None:
+    """Test that is_model_multimodal passes the token parameter when loading locally."""
+    # Test with token parameter
+    result = is_model_multimodal(
+        "test/model", trust_remote_code=False, token="test_token"
+    )
+
+    # Verify that only the local call occurred
     calls = mock_auto_config_local_load["calls"]
     assert len(calls) == 1
+
     local_call = calls[0]
-    assert local_call[1]["token"] == "test_token"
-    assert local_call[1]["revision"] is None
+    assert local_call[1].get("token") == "test_token"
     assert result is False
 
 

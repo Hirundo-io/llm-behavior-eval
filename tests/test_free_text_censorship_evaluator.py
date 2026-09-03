@@ -31,7 +31,7 @@ def _benchmark(size: int = 3) -> Dataset:
     )
 
 
-def test_loads_ccpc_with_the_supplied_dataset_revision(
+def test_loads_ccpc_in_source_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -42,14 +42,13 @@ def test_loads_ccpc_with_the_supplied_dataset_revision(
 
     monkeypatch.setattr(censorship_utils, "load_dataset", fake_load_dataset)
 
-    actual = load_censorship_benchmark("token", dataset_revision="dataset-sha")
+    actual = load_censorship_benchmark("token")
 
     assert actual["source_group_id"] == ["group-0", "group-1", "group-2"]
     assert captured == {
         "path": CCPC_DATASET_REPOSITORY,
         "name": CCPC_DATASET_CONFIG,
         "split": CCPC_DATASET_SPLIT,
-        "revision": "dataset-sha",
         "token": "token",
         "trust_remote_code": False,
     }

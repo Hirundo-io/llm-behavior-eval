@@ -228,69 +228,16 @@ def test_main_passes_model_output_dir_override(
     assert capture_eval_config[-1].model_output_dir == "custom-model-dir"
 
 
-def test_main_threads_model_and_judge_revisions_into_eval_config(
-    capture_eval_config: list[EvaluationConfig],
-) -> None:
-    evaluate.main("fake/model", "hallu")
-    eval_config = capture_eval_config[-1]
-    assert eval_config.model_revision is None
-    assert eval_config.judge_revision is None
-
-    evaluate.main(
-        "fake/model",
-        "hallu",
-        model_revision="target-sha",
-        judge_revision="judge-sha",
-    )
-    eval_config = capture_eval_config[-1]
-    assert eval_config.model_revision == "target-sha"
-    assert eval_config.judge_revision == "judge-sha"
-
-
-def test_cli_help_exposes_revision_pinning_flags() -> None:
-    # A wide terminal keeps long option names from being ellipsized in the
-    # rendered help table.
-    result = CliRunner().invoke(
-        evaluate.app, ["--help"], env={"COLUMNS": "250", "LINES": "50"}
-    )
-    visible_output = strip_ansi(result.output)
-
-    assert result.exit_code == 0
-    assert "--model-revision" in visible_output
-    assert "--judge-revision" in visible_output
-    assert "--dataset-revision" in visible_output
-
-
-def test_main_threads_dataset_revision_into_dataset_config(
-    capture_configs: list[CapturedConfigs],
-) -> None:
-    evaluate.main("fake/model", "hallu")
-    assert all(
-        captured.dataset_config.dataset_revision is None for captured in capture_configs
-    )
-
-    previous_count = len(capture_configs)
-    evaluate.main("fake/model", "hallu", dataset_revision="dataset-sha")
-
-    assert len(capture_configs) > previous_count
-    assert all(
-        captured.dataset_config.dataset_revision == "dataset-sha"
-        for captured in capture_configs[previous_count:]
-    )
-
-
-def test_main_forwards_arbitrary_dataset_revision_to_ccpc(
+def test_main_routes_ccpc_dataset_id(
     capture_configs: list[CapturedConfigs],
 ) -> None:
     evaluate.main(
         "fake/model",
         "chinese_censorship",
         judge_model="example/judge",
-        dataset_revision="dataset-sha",
     )
 
     assert capture_configs[-1].dataset_config.dataset_id == CCPC_DATASET_ID
-    assert capture_configs[-1].dataset_config.dataset_revision == "dataset-sha"
 
 
 def test_main_rejects_mixed_evaluator_families() -> None:

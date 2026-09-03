@@ -221,16 +221,6 @@ def main(
             ),
         ),
     ] = None,
-    model_revision: Annotated[
-        str | None,
-        typer.Option(
-            "--model-revision",
-            help=(
-                "HuggingFace revision selection (e.g. a commit SHA, tag, or branch) "
-                "for the evaluated model and tokenizer."
-            ),
-        ),
-    ] = None,
     model_output_dir: Annotated[
         str | None,
         typer.Option(
@@ -257,16 +247,6 @@ def main(
         str,
         typer.Option("--judge-model", help="Judge repo id or path (optional)"),
     ] = "google/gemma-3-12b-it",
-    judge_revision: Annotated[
-        str | None,
-        typer.Option(
-            "--judge-revision",
-            help=(
-                "HuggingFace revision selection (e.g. a commit SHA, tag, or branch) "
-                "for the judge model and tokenizer."
-            ),
-        ),
-    ] = None,
     use_mlflow: Annotated[
         bool,
         typer.Option(
@@ -593,26 +573,13 @@ def main(
             show_default=str(DEFAULT_MAX_JUDGE_TOKENS),
         ),
     ] = None,
-    dataset_revision: Annotated[
-        str | None,
-        typer.Option(
-            "--dataset-revision",
-            help=(
-                "Hugging Face dataset revision; omitted values use the repository "
-                "default."
-            ),
-        ),
-    ] = None,
 ) -> None:
     """Run evaluations and trust inference checks both roles.
 
     Args:
         model: Model repository identifier or local path.
-        model_revision: Revision selection for the evaluated model and tokenizer.
         behavior: Behavior preset or comma-separated presets to evaluate.
         judge_model: Judge repository identifier or local path.
-        judge_revision: Revision selection for the judge model and tokenizer.
-        dataset_revision: Optional Hugging Face revision for the dataset.
         trust_remote_code: Explicit remote-code authorization.
     Raises:
         ValueError: If evaluator families are mixed.
@@ -699,12 +666,10 @@ def main(
     )
     eval_config = EvaluationConfig(
         model_path_or_repo_id=model_path_or_repo_id,
-        model_revision=model_revision,
         model_output_dir=model_output_dir,
         model_token=model_token,
         lora_path_or_repo_id=lora_path_or_repo_id,
         judge_path_or_repo_id=judge_path_or_repo_id,
-        judge_revision=judge_revision,
         judge_token=judge_token,
         results_dir=result_dir,
         mlflow_config=mlflow_config,
@@ -763,7 +728,6 @@ def main(
                     else DatasetType.BIAS,
                     preprocess_config=PreprocessConfig(),
                     seed=seed,
-                    dataset_revision=dataset_revision,
                 )
                 if evaluator is None:
                     evaluator = EvaluateFactory.create_evaluator(

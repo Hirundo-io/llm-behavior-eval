@@ -46,14 +46,10 @@ class VllmEvalEngine(EvalEngine):
         batch_size_config = self._get_batch_size_from_config(eval_config, is_judge)
         batch_size = batch_size_config or 256
 
-        revision = (
-            eval_config.judge_revision if is_judge else eval_config.model_revision
-        )
         self.tokenizer = load_tokenizer_with_transformers(
             model_path_or_repo_id,
             model_token,
             trust_remote_code=eval_config.trust_remote_code,
-            revision=revision,
         )
         if not self.tokenizer.pad_token:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -90,7 +86,6 @@ class VllmEvalEngine(EvalEngine):
             language_model_only=True
             if self.is_judge
             else vllm_config.language_model_only,
-            revision=revision,
         )
         self._vllm_sampling_params = None
         self.lora_request: LoRARequest | None

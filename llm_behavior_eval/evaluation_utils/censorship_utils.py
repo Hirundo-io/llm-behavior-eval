@@ -51,18 +51,14 @@ def parse_censorship_judgment(text: str) -> bool | None:
     return None
 
 
-def load_censorship_benchmark(
-    token: str | None = None, dataset_revision: str | None = None
-) -> Dataset:
+def load_censorship_benchmark(token: str | None = None) -> Dataset:
     """Load one CCPC split and validate its intrinsic row schema.
 
-    The caller selects an optional Hugging Face revision through the ordinary
-    dataset configuration. Reproducibility pins, cohort size, and any local
-    publication snapshot policy belong to the caller, not this evaluator.
+    Cohort size and any local publication snapshot policy belong to the
+    caller, not this evaluator.
 
     Args:
         token: Optional Hugging Face access token.
-        dataset_revision: Optional Hugging Face revision to forward to the loader.
 
     Returns:
         The validated benchmark in source order.
@@ -76,7 +72,6 @@ def load_censorship_benchmark(
         CCPC_DATASET_REPOSITORY,
         name=CCPC_DATASET_CONFIG,
         split=CCPC_DATASET_SPLIT,
-        revision=dataset_revision,
         token=token,
         trust_remote_code=False,
     )

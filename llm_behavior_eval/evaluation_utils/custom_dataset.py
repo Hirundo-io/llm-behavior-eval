@@ -173,7 +173,6 @@ class CustomDataset:
         trust_remote_code: bool = False,
         token: str | None = None,
         dataset_id: str | None = None,
-        dataset_revision: str | None = None,
     ):
         """
         Initializes the custom dataset with a specified dataset type and behavior type.
@@ -184,7 +183,6 @@ class CustomDataset:
             trust_remote_code: Whether to trust remote code when loading the dataset.
             token: HuggingFace token for gated or private dataset repos.
             dataset_id (optional): Logical dataset identity. Defaults to ``file_path``.
-            dataset_revision: HuggingFace revision pinning the loaded dataset.
         """
         self.file_path = file_path
         self.dataset_id = dataset_id or str(file_path)
@@ -194,7 +192,6 @@ class CustomDataset:
         try:
             raw = load_dataset(
                 str(self.file_path),
-                revision=dataset_revision,
                 token=token,
             )
         except (OSError, ValueError) as exc:
@@ -224,7 +221,6 @@ class CustomDataset:
         thinking_start_token: str | None = None,
         thinking_end_token: str | None = None,
         pass_max_answer_tokens: bool = False,
-        model_revision: str | None = None,
     ) -> Dataset:
         """
         Tokenize the loaded dataset for free-text evaluation.
@@ -238,7 +234,6 @@ class CustomDataset:
             thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
             thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
             pass_max_answer_tokens: Whether to pass max_answer_tokens to the chat template.
-            model_revision: Hugging Face revision used to identify model modality.
 
         Returns:
             A tokenized dataset ready for evaluation.
@@ -249,10 +244,7 @@ class CustomDataset:
         old_columns = dataset.column_names
         # Compute once to avoid per-batch remote config lookups
         is_multimodal = is_model_multimodal(
-            tokenizer.name_or_path,
-            self.trust_remote_code,
-            self.token,
-            model_revision,
+            tokenizer.name_or_path, self.trust_remote_code, self.token
         )
         processed_dataset = dataset.map(
             lambda examples: free_text_preprocess_function(

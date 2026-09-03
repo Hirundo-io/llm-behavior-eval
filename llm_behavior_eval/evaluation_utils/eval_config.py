@@ -55,14 +55,12 @@ class EvaluationConfig(BaseModel):
             Use None to apply the evaluator-family default at runtime.
         pass_max_answer_tokens: Whether to pass max_answer_tokens to the model.
         model_path_or_repo_id: HF repo ID or path of the model under test (e.g. "meta-llama/Llama-3.1-8B-Instruct").
-        model_revision: HuggingFace revision pinning the target model and tokenizer.
         model_output_dir: Optional override for the model output directory slug under results_dir.
         model_token: HuggingFace token for the model under test.
         judge_batch_size: Batch size for the judge model (free-text tasks only). If None, will be adjusted for GPU limits.
         max_judge_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
             Use None to apply the evaluator-family default at runtime.
         judge_path_or_repo_id: HF repo ID or path of the judge model (e.g. "meta-llama/Llama-3.3-70B-Instruct").
-        judge_revision: HuggingFace revision pinning the judge model and tokenizer.
         judge_token: HuggingFace token for the judge model. Defaults to the value of `model_token` if not provided.
         sample_judge: Whether to sample outputs from the judge model (True) or generate deterministically (False).
             Use None to apply the evaluator-family default at runtime.
@@ -92,14 +90,12 @@ class EvaluationConfig(BaseModel):
     max_answer_tokens: int | None = None
     pass_max_answer_tokens: bool = False
     model_path_or_repo_id: str
-    model_revision: str | None = None
     model_output_dir: str | None = None
     lora_path_or_repo_id: str | None = None
     model_token: str | None = None
     judge_batch_size: None | int = None
     max_judge_tokens: int | None = None
     judge_path_or_repo_id: str = "google/gemma-3-12b-it"
-    judge_revision: str | None = None
     judge_token: str | None = None
     sample_judge: bool | None = None
     use_4bit_judge: bool = False
