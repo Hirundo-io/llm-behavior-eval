@@ -50,14 +50,7 @@ if TYPE_CHECKING:
     from .eval_config import EvaluationConfig, MlflowConfig
 
 
-# Identifies the meaning of the text persisted in ``generations.jsonl``. Bump it
-# whenever generated answers are derived differently for the same run config, so
-# a cached run produced by older code can never silently match the current
-# configuration and be regraded.
-# 2: chat-template capability detection now resolves the actually-rendered
-#    template via ``get_chat_template()`` instead of a raw ``isinstance`` check,
-#    and multimodal architecture selection now respects a pinned model revision
-#    — both can change generated text for a run config that looks unchanged.
+# See `BaseEvaluator._ensure_run_configuration_allowed` for the versioning contract.
 GENERATION_SCHEMA_VERSION = 2
 
 
@@ -995,6 +988,20 @@ class BaseEvaluator(ABC):
                 output_file.unlink()
 
     def _ensure_run_configuration_allowed(self) -> None:
+        """Reuse cached outputs only if they match the current run configuration.
+
+        The persisted config includes `GENERATION_SCHEMA_VERSION`, which
+        identifies the meaning of the text in `generations.jsonl`. Bump it
+        whenever generated answers are derived differently for the same
+        run config, so a cached run produced by older code can never
+        silently match the current configuration and be regraded.
+
+        Version 2: chat-template capability detection now resolves the
+        actually-rendered template via `get_chat_template()` instead of a
+        raw `isinstance` check, and multimodal architecture selection now
+        respects a pinned model revision — both can change generated text
+        for a run config that looks unchanged.
+        """
         run_config = self._current_run_config()
         config_path = self.run_config_path()
 
