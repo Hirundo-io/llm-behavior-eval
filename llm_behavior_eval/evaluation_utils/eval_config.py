@@ -64,9 +64,6 @@ class EvaluationConfig(BaseModel):
         judge_path_or_repo_id: HF repo ID or path of the judge model (e.g. "meta-llama/Llama-3.3-70B-Instruct").
         judge_revision: HuggingFace revision pinning the judge model and tokenizer.
         judge_token: HuggingFace token for the judge model. Defaults to the value of `model_token` if not provided.
-        model_reasoning_effort: Harmony-style reasoning effort level (e.g. "low")
-            forwarded to target prompt rendering. Ignored by tokenizers whose chat
-            template does not support a `reasoning_effort` kwarg.
         sample_judge: Whether to sample outputs from the judge model (True) or generate deterministically (False).
             Use None to apply the evaluator-family default at runtime.
         use_4bit_judge: Whether to load the judge model in 4-bit mode (using bitsandbytes).
@@ -104,7 +101,6 @@ class EvaluationConfig(BaseModel):
     judge_path_or_repo_id: str = "google/gemma-3-12b-it"
     judge_revision: str | None = None
     judge_token: str | None = None
-    model_reasoning_effort: str | None = None
     sample_judge: bool | None = None
     use_4bit_judge: bool = False
     inference_engine: Literal["vllm", "transformers"] | None = None

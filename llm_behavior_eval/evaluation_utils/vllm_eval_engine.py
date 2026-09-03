@@ -7,11 +7,6 @@ from typing import TYPE_CHECKING
 import torch
 
 from .eval_engine import EvalEngine
-from .harmony_output import (
-    HarmonyOutputError,
-    extract_harmony_final_answer,
-    is_harmony_tokenizer,
-)
 from .util_functions import (
     build_vllm_prompt_token_ids,
     load_tokenizer_with_transformers,
@@ -60,7 +55,6 @@ class VllmEvalEngine(EvalEngine):
             trust_remote_code=eval_config.trust_remote_code,
             revision=revision,
         )
-        self._uses_harmony = is_harmony_tokenizer(self.tokenizer)
         if not self.tokenizer.pad_token:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -167,18 +161,8 @@ class VllmEvalEngine(EvalEngine):
                 finish_reasons.append(None)
                 continue
             first_candidate = candidates[0]
-            text = getattr(first_candidate, "text", "")
+            responses.append(getattr(first_candidate, "text", ""))
             finish_reason = getattr(first_candidate, "finish_reason", None)
-            if self._uses_harmony:
-                try:
-                    text = extract_harmony_final_answer(first_candidate.token_ids)
-                except HarmonyOutputError:
-                    responses.append("")
-                    finish_reasons.append(
-                        "length" if finish_reason == "length" else "harmony_parse_error"
-                    )
-                    continue
-            responses.append(text)
             if finish_reason == "length":
                 finish_reasons.append("length")
             elif finish_reason == "stop":

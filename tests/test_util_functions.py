@@ -90,26 +90,6 @@ class ReasoningTokenizer(StubTokenizer):
         )
 
 
-class ReasoningEffortTokenizer(StubTokenizer):
-    def __init__(self, template: str | dict[str, str]) -> None:
-        super().__init__("openai/gpt-oss-20b", template)
-        self.kwargs: dict[str, object] = {}
-
-    def apply_chat_template(
-        self,
-        messages,
-        tokenize=False,
-        add_generation_prompt=True,
-        **kwargs: object,
-    ):
-        self.kwargs = kwargs
-        return super().apply_chat_template(
-            messages,
-            tokenize=tokenize,
-            add_generation_prompt=add_generation_prompt,
-        )
-
-
 def test_pick_best_dtype_cpu() -> None:
     assert pick_best_dtype("cpu") == torch.float32
 
@@ -229,28 +209,6 @@ def test_safe_apply_chat_template_ignores_stale_cache_entry(
     )
 
     assert tokenizer.enable_thinking is True
-
-
-@pytest.mark.parametrize(
-    ("template", "expected_kwargs"),
-    [
-        ("{{ reasoning_effort }}", {"reasoning_effort": "low"}),
-        ("{{ messages }}", {}),
-        ({"default": "{{ reasoning_effort }}"}, {"reasoning_effort": "low"}),
-    ],
-)
-def test_safe_apply_chat_template_forwards_reasoning_effort_only_when_supported(
-    template: str | dict[str, str], expected_kwargs: dict[str, str]
-) -> None:
-    tokenizer = ReasoningEffortTokenizer(template)
-
-    safe_apply_chat_template(
-        cast("PreTrainedTokenizerBase", tokenizer),
-        [{"role": "user", "content": "Hello"}],
-        reasoning_effort="low",
-    )
-
-    assert tokenizer.kwargs == expected_kwargs
 
 
 def test_torch_dtype_to_str_supported() -> None:

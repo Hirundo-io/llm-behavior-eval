@@ -259,7 +259,6 @@ def test_cli_help_exposes_revision_pinning_flags() -> None:
     assert "--model-revision" in visible_output
     assert "--judge-revision" in visible_output
     assert "--dataset-revision" in visible_output
-    assert "--model-reasoning-effort" in visible_output
 
 
 def test_main_threads_dataset_revision_into_dataset_config(
@@ -292,16 +291,6 @@ def test_main_forwards_arbitrary_dataset_revision_to_ccpc(
 
     assert capture_configs[-1].dataset_config.dataset_id == CCPC_DATASET_ID
     assert capture_configs[-1].dataset_config.dataset_revision == "dataset-sha"
-
-
-def test_main_threads_model_reasoning_effort_into_eval_config(
-    capture_eval_config: list[EvaluationConfig],
-) -> None:
-    evaluate.main("fake/model", "hallu")
-    assert capture_eval_config[-1].model_reasoning_effort is None
-
-    evaluate.main("fake/model", "hallu", model_reasoning_effort="low")
-    assert capture_eval_config[-1].model_reasoning_effort == "low"
 
 
 def test_main_rejects_mixed_evaluator_families() -> None:

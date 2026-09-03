@@ -593,17 +593,6 @@ def main(
             show_default=str(DEFAULT_MAX_JUDGE_TOKENS),
         ),
     ] = None,
-    model_reasoning_effort: Annotated[
-        str | None,
-        typer.Option(
-            "--model-reasoning-effort",
-            help=(
-                "Harmony-style reasoning effort level (e.g. 'low') forwarded to "
-                "target prompt rendering. Ignored by tokenizers whose chat "
-                "template does not support a reasoning_effort kwarg."
-            ),
-        ),
-    ] = None,
     dataset_revision: Annotated[
         str | None,
         typer.Option(
@@ -623,8 +612,6 @@ def main(
         behavior: Behavior preset or comma-separated presets to evaluate.
         judge_model: Judge repository identifier or local path.
         judge_revision: Revision selection for the judge model and tokenizer.
-        model_reasoning_effort: Optional reasoning-effort value such as ``low``
-            forwarded to target prompt rendering and omitted for unsupported templates.
         dataset_revision: Optional Hugging Face revision for the dataset.
         trust_remote_code: Explicit remote-code authorization.
     Raises:
@@ -740,7 +727,6 @@ def main(
         pass_max_answer_tokens=pass_max_answer_tokens,
         judge_batch_size=judge_batch_size,
         max_judge_tokens=max_judge_tokens,
-        model_reasoning_effort=model_reasoning_effort,
         sample_judge=sample_judge,
         use_4bit_judge=use_4bit_judge,
         sampling_config=SamplingConfig(

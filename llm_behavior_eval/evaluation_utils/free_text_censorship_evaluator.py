@@ -88,7 +88,6 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 thinking_start_token=self.eval_config.thinking_start_token,
                 thinking_end_token=self.eval_config.thinking_end_token,
                 pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
-                reasoning_effort=self.eval_config.model_reasoning_effort,
             )
             for question in self.benchmark_questions
         ]

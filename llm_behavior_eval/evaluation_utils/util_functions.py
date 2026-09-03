@@ -87,7 +87,6 @@ class SafeApplyChatTemplate:
         thinking_end_token: str | None = None,
         pass_max_answer_tokens: bool = False,
         reasoning: bool | None = None,
-        reasoning_effort: str | None = None,
     ) -> str:
         """
         Applies the chat template to the messages, ensuring that the system message is handled correctly.
@@ -108,8 +107,6 @@ class SafeApplyChatTemplate:
             pass_max_answer_tokens: Whether to pass the max_answer_tokens to the chat template.
             reasoning (optional): Backward-compatible alias for `enable_thinking`.
                 When provided, this takes precedence over `enable_thinking`.
-            reasoning_effort: Harmony-style reasoning effort level (e.g. 'low')
-                forwarded to `apply_chat_template` when the tokenizer supports it.
 
         Returns:
             The formatted string after applying the chat template.
@@ -200,18 +197,11 @@ class SafeApplyChatTemplate:
             thinking_kwarg: dict = (
                 {thinking_kwarg_name: enable_thinking} if thinking_kwarg_name else {}
             )
-            reasoning_effort_kwarg: dict = (
-                {"reasoning_effort": reasoning_effort}
-                if reasoning_effort is not None
-                and _supports_reasoning_kwarg_or_token(tokenizer, "reasoning_effort")
-                else {}
-            )
             return tokenizer.apply_chat_template(
                 conversation,
                 tokenize=False,
                 add_generation_prompt=True,
                 **thinking_kwarg,
-                **reasoning_effort_kwarg,
             )
 
         # Construct the input message

@@ -51,10 +51,13 @@ if TYPE_CHECKING:
 
 
 # Identifies the meaning of the text persisted in ``generations.jsonl``. Bump it
-# whenever generated answers are derived differently, so a cached run produced by
-# older code can never silently match the current configuration and be regraded.
-# 2: GPT-OSS answers hold only the Harmony ``final`` channel, not decoded text
-#    that also carries ``analysis`` reasoning.
+# whenever generated answers are derived differently for the same run config, so
+# a cached run produced by older code can never silently match the current
+# configuration and be regraded.
+# 2: chat-template capability detection now resolves the actually-rendered
+#    template via ``get_chat_template()`` instead of a raw ``isinstance`` check,
+#    and multimodal architecture selection now respects a pinned model revision
+#    — both can change generated text for a run config that looks unchanged.
 GENERATION_SCHEMA_VERSION = 2
 
 
@@ -292,7 +295,6 @@ class BaseEvaluator(ABC):
             thinking_start_token=self.eval_config.thinking_start_token,
             thinking_end_token=self.eval_config.thinking_end_token,
             pass_max_answer_tokens=self.eval_config.pass_max_answer_tokens,
-            model_reasoning_effort=self.eval_config.model_reasoning_effort,
             model_revision=self.eval_config.model_revision,
         )
         # Deterministic shuffle before sampling

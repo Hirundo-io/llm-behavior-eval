@@ -16,7 +16,6 @@ import torch
 from datasets import Dataset
 
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
-from llm_behavior_eval.evaluation_utils.harmony_output import HarmonyOutputError
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.transformers_eval_engine import (
     TransformersEvalEngine,
@@ -32,10 +31,6 @@ class RecordingTokenizer:
         self.batch_decode_calls: list[dict[str, object]] = []
         self.pad_token: str | None = None
         self.eos_token = "<eos>"
-        self.vocab: dict[str, int] = {}
-
-    def get_vocab(self) -> dict[str, int]:
-        return self.vocab
 
     def batch_decode(self, tokens: torch.Tensor, skip_special_tokens: bool = True):
         self.batch_decode_calls.append(
@@ -50,13 +45,13 @@ class DummyTransformersModel:
         self.eval_called = False
         self.cpu_called = False
         self.device = torch.device("cpu")
-        self.generated_tail: list[int] = [9]
 
     def generate(self, **kwargs):
         self.generate_calls.append(kwargs)
         input_ids: torch.Tensor = kwargs["input_ids"]
-        extra = torch.tensor(
-            [self.generated_tail] * input_ids.size(0),
+        extra = torch.full(
+            (input_ids.size(0), 1),
+            fill_value=9,
             dtype=input_ids.dtype,
             device=input_ids.device,
         )
@@ -307,7 +302,6 @@ def vllm_bundle() -> VllmPatchBundle:
         pad_token=None,
         eos_token="<eos>",
         eos_token_id=7,
-        get_vocab=dict,
     )
     build_recorder = BuildPromptRecorder()
     sampling_recorder = SamplingParamsRecorder()
@@ -820,101 +814,6 @@ def test_transformers_eval_engine_get_batch_size_autotune(
     assert transformers_bundle.candidate_recorder.calls == [len(dataset)]
 
 
-HARMONY_VOCAB = {"<|return|>": 200002, "<|channel|>": 200005, "<|message|>": 200008}
-
-
-class _HarmonyTextVllmModel:
-    """A DummyVllmModel-alike that returns a fixed Harmony token sequence."""
-
-    def __init__(self, token_ids: list[int], finish_reason: str = "stop") -> None:
-        self.token_ids = token_ids
-        self.finish_reason = finish_reason
-        self.llm_engine = SimpleNamespace(
-            engine_core=SimpleNamespace(shutdown=lambda: None)
-        )
-
-    def generate(self, **kwargs):
-        return [
-            SimpleNamespace(
-                outputs=[
-                    SimpleNamespace(
-                        text="raw Harmony completion",
-                        token_ids=self.token_ids,
-                        finish_reason=self.finish_reason,
-                    )
-                ]
-            )
-        ]
-
-
-@pytest.mark.vllm_engine_test
-def test_vllm_eval_engine_delegates_harmony_extraction_to_library_adapter(
-    monkeypatch: pytest.MonkeyPatch,
-    vllm_bundle: VllmPatchBundle,
-    tmp_path: Path,
-) -> None:
-    vllm_bundle.tokenizer.get_vocab = lambda: HARMONY_VOCAB
-    vllm_bundle.model_loader.value = _HarmonyTextVllmModel([10, 11])
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.vllm_eval_engine.extract_harmony_final_answer",
-        lambda token_ids: "The answer is 42." if token_ids == [10, 11] else "",
-    )
-    config = EvaluationConfig(
-        model_path_or_repo_id="openai/gpt-oss-20b",
-        results_dir=tmp_path,
-        max_answer_tokens=16,
-    )
-    engine = VllmEvalEngine(config)
-    engine.set_dataset(Dataset.from_dict({"question": ["q1"]}))
-
-    responses, finish_reasons = engine.generate_answers(
-        torch.tensor([[1, 2]]),
-        torch.tensor([[1, 1]]),
-        sampling_config=SamplingConfig(do_sample=False),
-    )
-
-    assert responses == ["The answer is 42."]
-    assert finish_reasons == ["stop"]
-
-
-@pytest.mark.vllm_engine_test
-@pytest.mark.parametrize(
-    ("finish_reason", "expected_finish_reason"),
-    [("stop", "harmony_parse_error"), ("length", "length")],
-)
-def test_vllm_eval_engine_fails_closed_on_missing_harmony_final(
-    monkeypatch: pytest.MonkeyPatch,
-    vllm_bundle: VllmPatchBundle,
-    tmp_path: Path,
-    finish_reason: str,
-    expected_finish_reason: str,
-) -> None:
-    from llm_behavior_eval.evaluation_utils.harmony_output import HarmonyOutputError
-
-    vllm_bundle.tokenizer.get_vocab = lambda: HARMONY_VOCAB
-    vllm_bundle.model_loader.value = _HarmonyTextVllmModel([10], finish_reason)
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.vllm_eval_engine.extract_harmony_final_answer",
-        lambda _token_ids: (_ for _ in ()).throw(HarmonyOutputError("missing")),
-    )
-    config = EvaluationConfig(
-        model_path_or_repo_id="openai/gpt-oss-20b",
-        results_dir=tmp_path,
-        max_answer_tokens=16,
-    )
-    engine = VllmEvalEngine(config)
-    engine.set_dataset(Dataset.from_dict({"question": ["q1"]}))
-
-    responses, finish_reasons = engine.generate_answers(
-        torch.tensor([[1, 2]]),
-        torch.tensor([[1, 1]]),
-        sampling_config=SamplingConfig(do_sample=False),
-    )
-
-    assert responses == [""]
-    assert finish_reasons == [expected_finish_reason]
-
-
 @pytest.mark.vllm_engine_test
 def test_vllm_eval_engine_threads_each_role_only_its_own_revision(
     vllm_bundle: VllmPatchBundle, tmp_path: Path
@@ -966,89 +865,3 @@ def test_transformers_eval_engine_threads_each_role_only_its_own_revision(
     judge_call = transformers_bundle.loader_stub.calls[-1]
     assert judge_call.args[0] == "fake/judge"
     assert judge_call.kwargs["revision"] == "deadbeef"
-
-
-@pytest.mark.transformers_engine_test
-def test_transformers_eval_engine_drops_right_padding_before_harmony_parsing(
-    monkeypatch: pytest.MonkeyPatch,
-    transformers_bundle: TransformersPatchBundle,
-    tmp_path: Path,
-) -> None:
-    """``generate`` right-pads finished rows; the parser must not see the padding."""
-    transformers_bundle.tokenizer.get_vocab = lambda: HARMONY_VOCAB
-    transformers_bundle.tokenizer.eos_token_id = 2
-    transformers_bundle.model.generated_tail = [5, 2, 0, 0]
-    parsed: list[list[int]] = []
-
-    def extract_harmony(token_ids: list[int]) -> str:
-        parsed.append(token_ids)
-        return "visible answer"
-
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.transformers_eval_engine.extract_harmony_final_answer",
-        extract_harmony,
-    )
-    config = EvaluationConfig(
-        model_path_or_repo_id="openai/gpt-oss-20b",
-        results_dir=tmp_path,
-        max_answer_tokens=4,
-    )
-
-    engine = TransformersEvalEngine(transformers_bundle.data_collator, config)
-    answers, finish_reasons = engine.generate_answers(
-        torch.tensor([[1, 2]]),
-        torch.tensor([[1, 1]]),
-        SamplingConfig(do_sample=False),
-    )
-
-    assert parsed == [[5, 2]]
-    assert answers == ["visible answer"]
-    assert finish_reasons == ["stop"]
-
-
-@pytest.mark.transformers_engine_test
-@pytest.mark.parametrize(
-    ("parser_result", "eos_token_id", "expected_answer", "expected_finish_reason"),
-    [
-        ("visible answer", 2, "visible answer", "length"),
-        (None, 9, "", "harmony_parse_error"),
-        (None, 2, "", "length"),
-    ],
-)
-def test_transformers_eval_engine_supports_harmony_tokenizers(
-    monkeypatch: pytest.MonkeyPatch,
-    transformers_bundle: TransformersPatchBundle,
-    tmp_path: Path,
-    parser_result: str | None,
-    eos_token_id: int,
-    expected_answer: str,
-    expected_finish_reason: str,
-) -> None:
-    transformers_bundle.tokenizer.get_vocab = lambda: HARMONY_VOCAB
-    transformers_bundle.tokenizer.eos_token_id = eos_token_id
-
-    def extract_harmony(token_ids: list[int]) -> str:
-        assert token_ids == [9]
-        if parser_result is None:
-            raise HarmonyOutputError("malformed")
-        return parser_result
-
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.transformers_eval_engine.extract_harmony_final_answer",
-        extract_harmony,
-    )
-    config = EvaluationConfig(
-        model_path_or_repo_id="openai/gpt-oss-20b",
-        results_dir=tmp_path,
-        max_answer_tokens=1,
-    )
-
-    engine = TransformersEvalEngine(transformers_bundle.data_collator, config)
-    answers, finish_reasons = engine.generate_answers(
-        torch.tensor([[1, 2]]),
-        torch.tensor([[1, 1]]),
-        SamplingConfig(do_sample=False),
-    )
-
-    assert answers == [expected_answer]
-    assert finish_reasons == [expected_finish_reason]

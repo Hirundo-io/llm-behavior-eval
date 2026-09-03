@@ -99,44 +99,6 @@ def test_free_text_preprocess_function_omits_default_system_prompt_when_disabled
     assert captured_messages == [[{"role": "user", "content": "q1\n"}]]
 
 
-@pytest.mark.parametrize("reasoning_effort", ["low", None])
-def test_free_text_preprocess_function_forwards_reasoning_effort(
-    monkeypatch: pytest.MonkeyPatch,
-    reasoning_effort: str | None,
-) -> None:
-    captured_kwargs: list[dict] = []
-
-    class StubTokenizer:
-        name_or_path = "fake/model"
-
-        def __call__(self, texts, **_kwargs):
-            if isinstance(texts, str):
-                texts = [texts]
-            return {
-                "input_ids": [[1, 2] for _ in texts],
-                "attention_mask": [[1, 1] for _ in texts],
-            }
-
-    def fake_safe_apply_chat_template(_tokenizer, _messages, **kwargs):
-        captured_kwargs.append(kwargs)
-        return "formatted"
-
-    monkeypatch.setattr(
-        custom_dataset_module, "safe_apply_chat_template", fake_safe_apply_chat_template
-    )
-
-    free_text_preprocess_function(
-        {"question": ["q1"], "answer": ["a1"]},
-        cast("PreTrainedTokenizerBase", StubTokenizer()),
-        max_length=8,
-        gt_max_length=4,
-        has_stereotype=False,
-        reasoning_effort=reasoning_effort,
-    )
-
-    assert captured_kwargs[0]["reasoning_effort"] == reasoning_effort
-
-
 def test_free_text_preprocess_function_emits_refusal_labels(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

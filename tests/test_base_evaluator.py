@@ -80,7 +80,6 @@ class CaptureState:
     custom_dataset_id: str | None = None
     dataset_revision: str | None = None
     model_revision: str | None = None
-    model_reasoning_effort: str | None = None
     engine_inits: list[bool] = field(default_factory=list)
     set_dataset_calls: list[tuple[bool, Sized]] = field(default_factory=list)
     free_model_calls: list[bool] = field(default_factory=list)
@@ -202,7 +201,6 @@ def patch_custom_dataset(
             thinking_start_token: str | None = None,
             thinking_end_token: str | None = None,
             pass_max_answer_tokens: bool,
-            model_reasoning_effort: str | None = None,
             model_revision: str | None = None,
         ) -> StubDataset:
             capture_state.tokenizer = tokenizer
@@ -215,7 +213,6 @@ def patch_custom_dataset(
             capture_state.thinking_start_token = thinking_start_token
             capture_state.thinking_end_token = thinking_end_token
             capture_state.pass_max_answer_tokens = pass_max_answer_tokens
-            capture_state.model_reasoning_effort = model_reasoning_effort
             capture_state.model_revision = model_revision
             return StubDataset()
 

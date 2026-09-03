@@ -2609,7 +2609,6 @@ gcs = [
     { name = "google-cloud-storage" },
 ]
 gpt-oss = [
-    { name = "openai-harmony" },
     { name = "opencv-python-headless" },
 ]
 mlflow = [
@@ -2646,7 +2645,6 @@ requires-dist = [
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.0.0" },
     { name = "networkx", specifier = "<4.0.0" },
     { name = "numpy", specifier = "<3.0.0" },
-    { name = "openai-harmony", marker = "extra == 'gpt-oss'", specifier = ">=0.0.4,<0.1" },
     { name = "opencv-python-headless", marker = "extra == 'gpt-oss'", specifier = ">=4.12.0.88" },
     { name = "pandas", specifier = "<3.0.0" },
     { name = "protobuf", specifier = "<7.0.0" },

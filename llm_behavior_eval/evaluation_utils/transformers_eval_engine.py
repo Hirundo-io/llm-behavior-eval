@@ -10,31 +10,9 @@ from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
 from .eval_engine import EvalEngine
-from .harmony_output import (
-    HarmonyOutputError,
-    extract_harmony_final_answer,
-    is_harmony_tokenizer,
-)
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
 from .util_functions import load_transformers_model_and_tokenizer
-
-
-def _truncate_at_eos(token_ids: list[int], eos_token_ids: set[int]) -> list[int]:
-    """Drop the right padding ``generate`` appends after a finished sequence.
-
-    Args:
-        token_ids: One row of generated token IDs, excluding the prompt.
-        eos_token_ids: Token IDs that end a generation.
-
-    Returns:
-        The row up to and including its first EOS token, or the row unchanged
-        when it contains none (a row that hit the token limit is never padded).
-    """
-    for position, token_id in enumerate(token_ids):
-        if token_id in eos_token_ids:
-            return token_ids[: position + 1]
-    return token_ids
 
 
 class TransformersEvalEngine(EvalEngine):
@@ -58,7 +36,6 @@ class TransformersEvalEngine(EvalEngine):
             eval_config.trust_remote_code,
             revision=revision,
         )
-        self._uses_harmony = is_harmony_tokenizer(self.tokenizer)
         self.data_collator = data_collator
         self.eval_config = eval_config
         self.is_judge = is_judge
@@ -150,29 +127,18 @@ class TransformersEvalEngine(EvalEngine):
             )
         sequences = outputs.sequences
         generated_tokens = sequences[:, model_input_ids.shape[1] :].detach().cpu()
-        completions = [
-            _truncate_at_eos(
-                [int(token_id) for token_id in row.tolist()], eos_token_ids
-            )
-            for row in generated_tokens
-        ]
-        finish_reasons: list[str | None] = [
-            "stop" if completion and completion[-1] in eos_token_ids else "length"
-            for completion in completions
-        ]
-        if self._uses_harmony:
-            answers = []
-            for index, completion in enumerate(completions):
-                try:
-                    answers.append(extract_harmony_final_answer(completion))
-                except HarmonyOutputError:
-                    answers.append("")
-                    if finish_reasons[index] == "stop":
-                        finish_reasons[index] = "harmony_parse_error"
-        else:
-            answers = self.tokenizer.batch_decode(
-                generated_tokens, skip_special_tokens=True
-            )
+        answers = self.tokenizer.batch_decode(
+            generated_tokens, skip_special_tokens=True
+        )
+        finish_reasons: list[str | None] = []
+        for sample_generated_tokens in generated_tokens:
+            if eos_token_ids and any(
+                int(token_id.item()) in eos_token_ids
+                for token_id in sample_generated_tokens
+            ):
+                finish_reasons.append("stop")
+            else:
+                finish_reasons.append("length")
         return answers, finish_reasons
 
     def ensure_test_model_ready(self) -> None:
