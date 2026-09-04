@@ -115,8 +115,9 @@ run_arm() {
 
   verify_live_max_model_len_for_target
 
-  echo "=== $label -> $output_dir (max_samples=$max_samples) ==="
+  echo "=== $label -> $RESULTS_ROOT/$output_dir (max_samples=$max_samples) ==="
   llm-behavior-eval "$BASE_MODEL" "$BEHAVIOR" \
+    --base-output-dir "$RESULTS_ROOT" \
     --model-engine vllm \
     --judge-engine "$JUDGE_ENGINE" \
     --judge-model "$JUDGE_MODEL" \

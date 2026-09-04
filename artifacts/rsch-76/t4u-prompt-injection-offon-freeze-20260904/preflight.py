@@ -15,6 +15,7 @@ only for --check live-max-model-len, `vllm`).
 
 Usage:
     python preflight.py static                 # everything that needs no GPU
+    python preflight.py resolve-model <repo_id> <revision>
     python preflight.py live-max-model-len ...  # requires vllm + GPU; NOT run by this freeze
 """
 
@@ -472,6 +473,14 @@ def main() -> None:
         ),
     )
     p_adapter.set_defaults(func=cmd_verify_adapter)
+
+    p_resolve = sub.add_parser(
+        "resolve-model",
+        help="Resolve repo_id@revision to a local snapshot path (stdout only).",
+    )
+    p_resolve.add_argument("repo_id")
+    p_resolve.add_argument("revision")
+    p_resolve.set_defaults(func=cmd_resolve_model)
 
     p_live = sub.add_parser(
         "live-max-model-len",
