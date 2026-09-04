@@ -1,80 +1,115 @@
-# Uncensored Model adapter identity — BLOCKING CONFLICT, UNRESOLVED
+# Uncensored Model adapter identity — RESOLVED
 
 ## Verdict
 
-**PROMPT-INJECTION GPU SMOKE BLOCKED — UNCENSORED MODEL ADAPTER IDENTITY
-AMBIGUOUS**, for the Uncensored Model arms specifically. The Base Model arms
-(no LoRA) have no dependency on this and remain fully preflight-verified.
+**UNCENSORED MODEL ADAPTER IDENTITY RESOLVED — canonical SHA-256
+`ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c`;
+the previously-cited `9b3158331c...` is a stale/incorrect documentation
+value that never corresponded to a real file.**
 
-## What was checked
+## What resolved it
 
-An exhaustive filesystem search (both this repo and `hirundo-research`,
-including all `.claude/worktrees/*` subdirectories, `mlruns/`, and every
-config/manifest file) found:
+The initial search (previous round) covered only `hirundo-research` and the
+`llm-behavior-eval` worktree and found no real `adapter_model.safetensors`
+anywhere, so the conflict was reported as unresolvable. The corrected search
+scope added `/Users/ilana/repos/artifacts/rsch-76/`, a separate local
+artifact store (distinct from both `hirundo-research` and this worktree),
+which contains a real, materialized copy:
 
-- **Zero `adapter_model.safetensors` files anywhere on this machine.** No
-  weights exist locally to hash. `hirundo-research`'s training configs
-  (`scripts/rsch76_v2c_config.json`) point to
-  `/home/ubuntu/hirundo-research/models/rsch-76-v2c/` — a remote GPU-box path
-  not present here. The local MLflow store (`hirundo-research/mlruns/0/meta.yaml`)
-  has no logged runs.
-- **Two different, well-formed SHA-256 values, both claiming to identify the
-  same named snapshot `654d5acdd2eb_0`** (same MLflow run id
-  `654d5acdd2eb4b1ba613cb980abdada8`, same base model
-  `Qwen/Qwen3.5-4B@851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`, same rank/alpha/
-  dropout metadata):
+```
+/Users/ilana/repos/artifacts/rsch-76/v2c-adapter-654d5acdd2eb_0/
+  adapter_model.safetensors   (84,972,248 bytes)
+  adapter_config.json
+  tokenizer_config.json
+  chat_template.jinja
+  README.md
+```
 
-| Value | Where it's recorded | Provenance claimed |
-| --- | --- | --- |
-| `9b3158331c001e94046469059a8e8c59d4f2f2095f882cb528f87fb3e8c3e9a2` | Notion "Appendix A — Reference Checkpoint" / "Appendix B" / "CCPC / RSCH-76 Data and Artifact Dictionary" / "CCPC-Bench — Internal Submission Tracker" (five independent pages, all consistent with each other) | Recovered from `run_config_resolved.json` inside the **CCPC-500 v2c continuity run**'s artifacts, dated 2026-08-29, described as fully valid (500/500 rows, "zero incomplete, unknown, unparseable, or judge-overflow rows") |
-| `ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c` | `scripts/validate_ccpc216_thinking_on.py:20-22` (`EXPECTED_ADAPTER_SHA`) in **this very worktree** — an **untracked** file (`git status` shows `?? scripts/`), not part of any commit | A validator for a **different, separate execution**: the **CCPC-216 thinking-ON** run (`ARM_PATHS["v2c"] = "v2c/v2c-654d5acdd2eb-thinking-on/chinese_censorship"`), cross-referenced against a `run_metadata.txt` marker the validator expects that run to carry |
+**Directly measured** (`shasum -a 256`, and independently re-confirmed via
+`preflight.py verify-adapter`):
 
-Both are syntactically valid 64-character hex SHA-256 strings. Neither could
-be independently measured against a real file, because no real file exists
-on this machine for either claim.
+```
+sha256:  ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c
+```
 
-## Which of A/B/C/D from the investigation request applies
+`adapter_config.json` (read directly, not from any doc):
 
-Cannot be determined mechanically without the actual weights:
+```json
+"base_model_name_or_path": "Qwen/Qwen3.5-4B"
+"r": 16
+"lora_alpha": 16
+"lora_dropout": 0.1
+"peft_type": "LORA"
+"target_modules": ["down_proj","q_proj","up_proj","gate_proj","v_proj","k_proj","o_proj"]
+```
 
-- **(A) different model states** — plausible: the CCPC-500 continuity run
-  (2026-08-29) and the CCPC-216 thinking-ON run could have loaded the adapter
-  from two different export/materialization events that both happened to
-  reuse the snapshot label `654d5acdd2eb_0` without the byte content being
-  re-verified identical between them.
-- **(B) identical tensors, different serialization** — plausible (e.g. a
-  re-export via `hirundo-research/scripts/rsch76_export_qwen_adapter.py`,
-  which the filesystem search found but could not run against any actual
-  snapshot directory here) — cannot rule in or out without the files.
-- **(C) one is a converted/repacked copy of the other** — same as (B); not
-  distinguishable from documentation alone.
-- **(D) one hash/report is stale or incorrect** — also plausible; the
-  `ab5c9beb...` value lives only in an untracked, never-committed script that
-  may itself be an abandoned draft, and its own correctness was never
-  independently confirmed against a hashed file either.
+**Tensor-level check** (via `safetensors.safe_open`, zero-GPU): 256 tensors,
+`lora_A`/`lora_B` pairs per target module per layer, rank dimension 16
+confirmed on both sides (e.g. `mlp.down_proj.lora_A.weight` shape
+`[16, 9216]`, `lora_B.weight` shape `[2560, 16]`), dtype `F32`.
 
-**No inference from the snapshot name `654d5acdd2eb_0` being shared is drawn
-here** — per instruction, snapshot-name equality is not treated as proof of
-byte identity.
+**This is the only real `adapter_model.safetensors` file found anywhere on
+this machine** across both the corrected and original search scopes. There
+is nothing to compare it against byte-for-byte, so "same tensors, different
+serialization" (B) cannot be distinguished from "this is simply the one real
+copy" -- but the latter is now the operative fact.
 
-## Resolution required before the Uncensored Model arms can run
+## Independent corroboration (two more sources, neither is this repo)
 
-Whoever has access to the actual GPU-box artifact store (or the MLflow
-artifact backing run `654d5acdd2eb4b1ba613cb980abdada8`) must:
+1. `/Users/ilana/repos/artifacts/rsch-76/ccpc500-v2c-generalization-v1/T3E_REPORT.md`
+   -- the report for the **CCPC-500 v2c generalization run itself** (the
+   exact run Notion's "Appendix A" cited as the *source* of `9b3158331c...`)
+   records: `"...adapter SHA `ab5c9beb…`, benchmark SHA `77af7195…`, expected
+   rows 500..."`. **The run's own report contradicts the Notion transcription
+   of its own hash.**
+2. `/Users/ilana/repos/artifacts/rsch-76/t4o-t3j-outcome-blind-audit-20260904/T4O_REPORT.md`
+   -- an independent, outcome-blind audit of a separate study ("T3J",
+   thinking safety/utility preservation), dated 2026-09-04, records:
+   `"v2c adapter | SHA-256 `ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c`, base `Qwen/Qwen3.5-4B`, rank 16"`.
 
-1. Locate the real `adapter_model.safetensors` for the checkpoint actually
-   intended for this study.
-2. Compute its SHA-256 directly (`shasum -a 256 adapter_model.safetensors`).
-3. Compare against both `9b3158331c...` and `ab5c9beb...`.
-4. If it matches neither, treat both existing records as stale and record the
-   newly-measured value as canonical, with fresh provenance.
-5. Update `run_common.sh`'s `UNCENSORED_LORA_SHA256` (and
-   `preflight.py`'s adapter check) to the confirmed value, and re-run
-   `preflight.py verify-adapter <path>` against the real materialized
-   directory before any smoke.
+Both are independent of each other, independent of this freeze, and
+independent of the `scripts/validate_ccpc216_thinking_on.py` file that first
+surfaced `ab5c9beb...` in the previous round -- and all three, plus the
+directly-measured file, agree.
 
-This freeze **does not pick one hash speculatively**. `preflight.py`'s
-adapter check (see `preflight.py`) now requires the expected SHA-256 to be
-passed explicitly at invocation time rather than defaulting silently to
-either candidate, specifically so this ambiguity cannot be papered over by
-a hardcoded default.
+## Relationship between the two hashes (answering A/B/C/D)
+
+**(D) `9b3158331c001e94046469059a8e8c59d4f2f2095f882cb528f87fb3e8c3e9a2` is
+stale/incorrect.** It appears in five Notion pages but was never checked
+against real bytes -- and the one place it claims to be *sourced from*
+(the CCPC-500 continuity run's own artifacts, per `T3E_REPORT.md`) actually
+records `ab5c9beb...` instead. This looks like a transcription error that
+propagated across Notion pages without independent verification, exactly
+the failure mode this whole exercise exists to catch. It is not evidence of
+a genuinely different model state, a re-export, or a conversion -- there is
+no real file anywhere corresponding to it.
+
+**A second, independent discrepancy was also caught by this correction:**
+Notion/this freeze's earlier documents stated the LoRA `alpha` as `32`; the
+real `adapter_config.json` records `lora_alpha: 16`. This has been corrected
+throughout (`STUDY_CONTRACT.md`, `PARAMETER_PLUMBING.md`,
+`preflight.py`, `run_common.sh`).
+
+## What changed as a result
+
+- `run_common.sh`: `UNCENSORED_LORA_SHA256` now defaults to
+  `ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c`
+  (still overridable, still verified by `preflight.py verify-adapter
+  --expected-sha256` before every Uncensored Model arm -- this is a default,
+  not a bypass of the check).
+- `STUDY_CONTRACT.md`: STATUS updated from BLOCKED to resolved/ready for the
+  Uncensored Model arms.
+- Rank/alpha/dropout corrected to `16/16/0.1` everywhere (was incorrectly
+  `16/32/0.1`).
+
+## Residual caveat
+
+This resolves *which SHA-256 is real and canonical on this machine*. It does
+**not** independently re-verify that `/Users/ilana/repos/artifacts/rsch-76/v2c-adapter-654d5acdd2eb_0/`
+is itself the byte-identical copy that will be materialized on whatever GPU
+box actually runs the smoke/full study (Appendix A's documented GPU-box path
+is `/home/ubuntu/hirundo-research/models/rsch-76-v2c/adapter_snapshots/654d5acdd2eb_0/`,
+a different machine). `preflight.py verify-adapter` must still be run
+against whatever `UNCENSORED_LORA_PATH` resolves to on that machine before
+any real launch -- this freeze fixes *which hash is correct*, not *that
+every future copy will automatically match it*.

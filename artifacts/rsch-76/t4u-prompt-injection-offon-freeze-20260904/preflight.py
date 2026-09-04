@@ -34,14 +34,19 @@ FROZEN = {
     "base_model_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
     "judge_model_id": "google/gemma-4-12B-it",
     "judge_model_revision": "707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7",
-    # adapter_sha256 is deliberately ABSENT: two conflicting, uncomputable
-    # candidates were found (9b3158331c... in Notion vs ab5c9beb... in the
-    # untracked scripts/validate_ccpc216_thinking_on.py) and neither could be
-    # verified against a real adapter_model.safetensors file (none exists on
-    # this machine). See UNCENSORED_MODEL_ADAPTER_IDENTITY.md. Do NOT add a
-    # default here -- `verify-adapter` requires --expected-sha256 explicitly
-    # so this ambiguity can't be silently papered over by a hardcoded value.
+    # RESOLVED: ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c
+    # is the canonical v2c adapter SHA-256, confirmed by directly hashing the
+    # real artifact at /Users/ilana/repos/artifacts/rsch-76/v2c-adapter-654d5acdd2eb_0/
+    # and corroborated independently by two unrelated reports (T3E_REPORT.md,
+    # T4O_REPORT.md). The previously-cited 9b3158331c... (Notion) is a stale
+    # transcription error that never matched a real file -- see
+    # UNCENSORED_MODEL_ADAPTER_IDENTITY.md. `verify-adapter` still requires
+    # --expected-sha256 explicitly (no silent default at the CLI layer) as
+    # good hygiene, but `run_common.sh` now defaults UNCENSORED_LORA_SHA256
+    # to this resolved value.
+    "adapter_sha256": "ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c",
     "adapter_rank": 16,
+    "adapter_lora_alpha": 16,  # corrected from an earlier, wrong "32"
     "max_model_len": 16384,
     "max_answer_tokens": 8192,
     "max_judge_tokens": 32,
@@ -141,8 +146,8 @@ def verify_thinking_template(
     tokenizer,
     *,
     enable_thinking_arg_name: str = "enable_thinking",
-    thinking_start_token: str = "<think>",
-    thinking_end_token: str = "</think>",
+    thinking_start_token: str = "<think>",  # noqa: S107 -- a template token, not a secret
+    thinking_end_token: str = "</think>",  # noqa: S107 -- a template token, not a secret
     probe_message: str = "Hello",
 ) -> dict:
     """Prove `enable_thinking` actually reaches `apply_chat_template` and
@@ -198,9 +203,7 @@ def verify_thinking_template(
     }
 
 
-def verify_max_model_len_live(
-    model_path: str, max_model_len: int, **llm_kwargs
-) -> int:
+def verify_max_model_len_live(model_path: str, max_model_len: int, **llm_kwargs) -> int:
     """Construct a throwaway vLLM engine with the frozen config and read back
     the engine's own resolved `max_model_len`, hard-failing on any mismatch.
 
@@ -250,9 +253,9 @@ def run_static_checks(output_path: Path) -> PreflightRecord:
     #    does not just trust it).
     from datasets import load_dataset
 
-    ds = load_dataset(
-        FROZEN["dataset_id"], revision=FROZEN["dataset_revision"]
-    )["train"]
+    ds = load_dataset(FROZEN["dataset_id"], revision=FROZEN["dataset_revision"])[
+        "train"
+    ]
     if len(ds) != 251:
         raise PreflightError(f"expected 251 rows, got {len(ds)}")
     record.add(
@@ -378,13 +381,17 @@ def cmd_static(args: argparse.Namespace) -> None:
     print(json.dumps(record.checks, indent=2, sort_keys=True))
 
 
-_KNOWN_UNRESOLVED_ADAPTER_SHA_CANDIDATES = {
+# RESOLVED, per UNCENSORED_MODEL_ADAPTER_IDENTITY.md: the real artifact at
+# /Users/ilana/repos/artifacts/rsch-76/v2c-adapter-654d5acdd2eb_0/ hashes to
+# ab5c9beb..., corroborated by T3E_REPORT.md and T4O_REPORT.md (both outside
+# this repo). 9b3158331c... (Notion) never matched any real file and is a
+# stale transcription error -- kept here only so its provenance/rejection is
+# not lost.
+_REJECTED_STALE_ADAPTER_SHA = {
     "9b3158331c001e94046469059a8e8c59d4f2f2095f882cb528f87fb3e8c3e9a2": (
-        "Notion Appendix A/B (CCPC-500 v2c continuity run, 2026-08-29)"
-    ),
-    "ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c": (
-        "scripts/validate_ccpc216_thinking_on.py (untracked, CCPC-216 "
-        "thinking-ON validator)"
+        "Notion Appendix A/B -- claimed source (the CCPC-500 v2c continuity "
+        "run) actually recorded ab5c9beb... in its own T3E_REPORT.md; never "
+        "matched any real adapter_model.safetensors found on this machine."
     ),
 }
 
@@ -393,15 +400,20 @@ def cmd_verify_adapter(args: argparse.Namespace) -> None:
     if args.expected_sha256 is None:
         print(
             "PREFLIGHT FAILED: --expected-sha256 is required and has no "
-            "default. Two conflicting candidates exist for the v2c adapter "
-            "and neither has been verified against a real weights file -- "
-            "see UNCENSORED_MODEL_ADAPTER_IDENTITY.md. Known unresolved "
-            "candidates (pass one explicitly only once you have confirmed "
-            "it against the real artifact, not because it is listed here):",
+            "default at the CLI layer (good hygiene, even though "
+            f"FROZEN['adapter_sha256'] = {FROZEN['adapter_sha256']!r} is "
+            "resolved -- see UNCENSORED_MODEL_ADAPTER_IDENTITY.md). Pass "
+            "that resolved value explicitly, after confirming it against "
+            "whatever local artifact you're actually verifying.",
             file=sys.stderr,
         )
-        for sha, source in _KNOWN_UNRESOLVED_ADAPTER_SHA_CANDIDATES.items():
-            print(f"  {sha}  ({source})", file=sys.stderr)
+        raise SystemExit(1)
+    if args.expected_sha256 in _REJECTED_STALE_ADAPTER_SHA:
+        print(
+            f"PREFLIGHT FAILED: {args.expected_sha256} is a known-stale "
+            f"value: {_REJECTED_STALE_ADAPTER_SHA[args.expected_sha256]}",
+            file=sys.stderr,
+        )
         raise SystemExit(1)
     try:
         result = verify_lora_adapter(
@@ -440,9 +452,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_static = sub.add_parser(
-        "static", help="Run every check that needs no GPU/vllm."
-    )
+    p_static = sub.add_parser("static", help="Run every check that needs no GPU/vllm.")
     p_static.add_argument(
         "--output", default="preflight_record.json", help="Where to write the record."
     )

@@ -16,20 +16,26 @@ PYTHON="${PYTHON:-python3}"
 BEHAVIOR="prompt-injection"
 
 UNCENSORED_LORA_RANK="${UNCENSORED_LORA_RANK:-16}"
-# UNCENSORED_LORA_SHA256 is deliberately UNSET here -- see
-# UNCENSORED_MODEL_ADAPTER_IDENTITY.md. Two conflicting SHA-256 values for
-# the "654d5acdd2eb_0" adapter were found (9b3158331c... in Notion vs
-# ab5c9beb... in the untracked scripts/validate_ccpc216_thinking_on.py), and
-# neither has been verified against a real adapter_model.safetensors file
-# (none exists on this machine). This is a BLOCKING gap: do not set this
-# variable to either candidate without first re-hashing the actual artifact
-# and updating UNCENSORED_MODEL_ADAPTER_IDENTITY.md accordingly.
-UNCENSORED_LORA_SHA256="${UNCENSORED_LORA_SHA256:-}"
+UNCENSORED_LORA_ALPHA="${UNCENSORED_LORA_ALPHA:-16}"  # corrected from an earlier, wrong "32"
+# RESOLVED -- see UNCENSORED_MODEL_ADAPTER_IDENTITY.md. Directly measured
+# from the real artifact at
+# /Users/ilana/repos/artifacts/rsch-76/v2c-adapter-654d5acdd2eb_0/, and
+# independently corroborated by T3E_REPORT.md and T4O_REPORT.md (both
+# outside this repo). The previously-cited 9b3158331c... (Notion) never
+# matched a real file and is a stale transcription error -- do not revert to
+# it. `verify_uncensored_adapter` below still re-verifies this against
+# whatever UNCENSORED_LORA_PATH actually resolves to on the machine that
+# runs the smoke; this default is not a bypass of that check.
+UNCENSORED_LORA_SHA256="${UNCENSORED_LORA_SHA256:-ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c}"
 # Local path to the Uncensored Model (v2c) LoRA adapter snapshot. This is a
-# host-specific path (Appendix A: models/rsch-76-v2c/adapter_snapshots/654d5acdd2eb_0/)
-# -- resolve it on whatever GPU box actually runs this, or pre-fetch/mount it
-# there first. Do NOT substitute a different adapter without re-verifying the
-# checksum via `preflight.py verify-adapter` below.
+# host-specific path (Appendix A: models/rsch-76-v2c/adapter_snapshots/654d5acdd2eb_0/
+# on the GPU box) -- resolve it there, or pre-fetch/mount it first. Do NOT
+# substitute a different adapter without re-verifying the checksum via
+# `preflight.py verify-adapter` below. (A verification-only local copy used
+# to resolve the SHA-256 conflict in UNCENSORED_MODEL_ADAPTER_IDENTITY.md
+# lives at /Users/ilana/repos/artifacts/rsch-76/v2c-adapter-654d5acdd2eb_0/
+# on this machine -- that is a different host than the one that will
+# actually run the smoke, so it is not used as the default here.)
 UNCENSORED_LORA_PATH="${UNCENSORED_LORA_PATH:-models/rsch-76-v2c/adapter_snapshots/654d5acdd2eb_0}"
 
 JUDGE_ENGINE="${JUDGE_ENGINE:-vllm}"
@@ -73,11 +79,9 @@ JUDGE_MODEL="${JUDGE_MODEL:-google/gemma-4-12B-it}"
 # setting the env var to either unresolved candidate hash.
 verify_uncensored_adapter() {
   if [[ -z "$UNCENSORED_LORA_SHA256" ]]; then
-    echo "FATAL: UNCENSORED_LORA_SHA256 is not set. Two conflicting" >&2
-    echo "candidate hashes exist and neither is verified against the real" >&2
-    echo "artifact -- see UNCENSORED_MODEL_ADAPTER_IDENTITY.md. Resolve" >&2
-    echo "that first; do not set this to either candidate to work around" >&2
-    echo "this gate." >&2
+    echo "FATAL: UNCENSORED_LORA_SHA256 is not set. This should not happen" >&2
+    echo "-- see UNCENSORED_MODEL_ADAPTER_IDENTITY.md for the resolved" >&2
+    echo "value and do not proceed without setting it explicitly." >&2
     exit 1
   fi
   "$PYTHON" "$PREFLIGHT" verify-adapter "$UNCENSORED_LORA_PATH" \

@@ -1,10 +1,11 @@
 # Smoke plan
 
 Script: `run_smoke.sh` (sources `run_common.sh`). **Not run by this freeze.**
-**Uncensored Model arms are additionally BLOCKED** pending resolution of the
-adapter identity conflict — see `UNCENSORED_MODEL_ADAPTER_IDENTITY.md`.
-`run_common.sh`'s `verify_uncensored_adapter` refuses to run at all while
-`UNCENSORED_LORA_SHA256` is unset (no default is provided).
+All four arms are preflight-verified and unblocked — the Uncensored Model
+adapter identity conflict is resolved (see
+`UNCENSORED_MODEL_ADAPTER_IDENTITY.md`); `run_common.sh`'s
+`verify_uncensored_adapter` still re-hashes the real artifact against the
+resolved SHA-256 before every Uncensored Model arm.
 
 ## Gates that now run before any target inference (fail-closed)
 
@@ -24,7 +25,7 @@ Model arm.
 | Requirement | How |
 | --- | --- |
 | Base Model | `Qwen/Qwen3.5-4B` @ pinned local snapshot, no LoRA, 2 arms (OFF/ON) |
-| Uncensored Model / LoRA | **Blocked** — same base + LoRA adapter at `$UNCENSORED_LORA_PATH`, 2 arms (OFF/ON); `verify_uncensored_adapter` will hard-fail with a clear message until `UNCENSORED_MODEL_ADAPTER_IDENTITY.md` is resolved and `UNCENSORED_LORA_SHA256` is set to the confirmed value |
+| Uncensored Model / LoRA | Same base + LoRA adapter at `$UNCENSORED_LORA_PATH`, 2 arms (OFF/ON); `verify_uncensored_adapter` hard-fails before either arm if the materialized adapter's SHA-256 doesn't match `ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c` (resolved — see `UNCENSORED_MODEL_ADAPTER_IDENTITY.md`) |
 | OFF / ON | `--thinking-off` vs `--thinking-on --enable-thinking-arg-name enable_thinking --thinking-start-token '<think>' --thinking-end-token '</think>' --exclude-thinking-trace-for-judge` |
 | Target incomplete handling | Inspect `responses.json` for any `status in {model_incomplete, model_unknown}` rows -- confirms the fail-open fix from `83a814a` is active, not just present in source |
 | Final-answer extraction | For thinking-ON arms, confirm judge input (loggable via `judge_raw`'s context, or by re-deriving from `llm_answer` + `_format_answers` logic) never contains a `<think>` tag |

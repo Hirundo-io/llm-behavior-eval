@@ -6,16 +6,18 @@ evidence.
 
 ## STATUS
 
-**Base Model arms (OFF/ON): preflight-verified, ready for GPU smoke.**
-**Uncensored Model arms (OFF/ON): BLOCKED.** Two conflicting, unverifiable
-SHA-256 values were found for the v2c LoRA adapter (`9b3158331c...` in
-Notion vs `ab5c9beb...` in an untracked local script), and no real
-`adapter_model.safetensors` file exists anywhere on this machine to resolve
-which is correct. See `UNCENSORED_MODEL_ADAPTER_IDENTITY.md`. The wrappers
-(`run_common.sh`) hard-block on this by design — `UNCENSORED_LORA_SHA256` has
-no default and must be set explicitly, only after independent verification
-against the real artifact. **Do not run any Uncensored Model arm until this
-is resolved.**
+**All four arms: preflight-verified, ready for GPU smoke.**
+
+The Uncensored Model adapter identity, previously blocked by two conflicting
+SHA-256 candidates, is now **RESOLVED**: `ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c`
+is canonical, confirmed by directly hashing the real artifact at
+`/Users/ilana/repos/artifacts/rsch-76/v2c-adapter-654d5acdd2eb_0/` and
+corroborated by two independent reports outside this repo (`T3E_REPORT.md`,
+`T4O_REPORT.md`). The previously-cited `9b3158331c...` (Notion) never
+matched any real file and was a stale transcription error — even the run it
+claimed to be sourced from records `ab5c9beb...` in its own report. A second
+error was caught in the same correction: LoRA `alpha` is `16`, not `32` as
+earlier documented. Full writeup: `UNCENSORED_MODEL_ADAPTER_IDENTITY.md`.
 
 ## 1. Population
 
@@ -37,10 +39,10 @@ integration order. Does not block or extend the primary study.
 "Base Model" = `Qwen/Qwen3.5-4B` @ `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`
 (stock, resolved to an immutable local snapshot path -- see
 `PARAMETER_PLUMBING.md`). "Uncensored Model" = same base + the `v2c` LoRA
-adapter (rank 16 / alpha 32 / dropout 0.1, snapshot `654d5acdd2eb_0`, MLflow
-run `654d5acdd2eb4b1ba613cb980abdada8`) — **the exact safetensors SHA-256 is
-currently ambiguous between two conflicting candidates; see the STATUS
-banner above and `UNCENSORED_MODEL_ADAPTER_IDENTITY.md`.** Exact commands:
+adapter (rank 16 / alpha 16 / dropout 0.1, snapshot `654d5acdd2eb_0`, MLflow
+run `654d5acdd2eb4b1ba613cb980abdada8`, safetensors SHA-256
+`ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c`, directly
+measured — see `UNCENSORED_MODEL_ADAPTER_IDENTITY.md`). Exact commands:
 `run_full.sh` / `run_common.sh`.
 
 ## 3. Prior-run recovery
@@ -197,19 +199,22 @@ Mechanically enforced by the new `preflight.py` (study-level, not a library
 change): dataset revision + row count, base model snapshot resolution
 (hard-fails on commit mismatch), judge tokenizer/config snapshot resolution,
 judge prompt hash + parser identity, thinking-template proof, LoRA
-SHA-256/rank verification (**currently blocked pending adapter identity
-resolution**, see below), and a live `max_model_len` readback via a
-disposable vLLM engine (code complete, GPU-only, not run in this freeze).
+SHA-256/rank verification (**resolved and actually run against the real
+artifact** -- see `UNCENSORED_MODEL_ADAPTER_IDENTITY.md`), and a live
+`max_model_len` readback via a disposable vLLM engine (code complete,
+GPU-only, not run in this freeze).
 
 ## 10. Smoke
 
-`run_smoke.sh` (not run; and additionally blocked for the Uncensored Model
-arms -- see STATUS). `run_common.sh` now fails closed: sourcing it runs
-`preflight.py static` unconditionally, resolves the base model to its pinned
-local snapshot, and `run_arm` runs a live `max_model_len` check before every
-`llm-behavior-eval` invocation. `verify_uncensored_adapter` refuses to run
-at all while `UNCENSORED_LORA_SHA256` is unset. Full plan and expected GPU
-work units in `SMOKE_PLAN.md`. Smoke results cannot change any value in this
+`run_smoke.sh` (not run by this freeze). `run_common.sh` fails closed:
+sourcing it runs `preflight.py static` unconditionally, resolves the base
+model to its pinned local snapshot, and `run_arm` runs a live
+`max_model_len` check before every `llm-behavior-eval` invocation.
+`verify_uncensored_adapter` now defaults `UNCENSORED_LORA_SHA256` to the
+resolved value and re-verifies it against whatever `UNCENSORED_LORA_PATH`
+resolves to on the machine that actually runs the smoke -- the default is a
+convenience, not a bypass of that check. Full plan and expected GPU work
+units in `SMOKE_PLAN.md`. Smoke results cannot change any value in this
 document.
 
 ## 11. Do-not-change-after-outcomes list
@@ -217,6 +222,7 @@ document.
 - `max_answer_tokens` (8192), `max_model_len` (16384)
 - Judge identity (`google/gemma-4-12B-it`, vLLM backend)
 - Dataset revision (`403abe13df3913940c065e5af6ca471c4fb7daf6`)
+- Uncensored Model adapter SHA-256 (`ab5c9beb854884db6c9c44675a2ec1c5a15c8a6e1cd2c173faac2647b6e6c74c`), rank 16 / alpha 16 / dropout 0.1
 - Sampling settings (`seed=42`, `do_sample=False`/greedy, `top_p=1.0`,
   `top_k=0`, `repetition_penalty=1.0`)
 - The validity contract's status vocabulary and judged-only accuracy
@@ -224,7 +230,4 @@ document.
 - The evaluator basis commits (`361842c`, `83a814a`)
 
 Any change to the above after GPU outputs exist requires a new freeze
-document, not an edit to this one. The Uncensored Model adapter SHA-256 is
-explicitly **not yet frozen** (see STATUS) — resolving it is not covered by
-this rule; it must be resolved *before* any Uncensored Model GPU output
-exists, not changed after.
+document, not an edit to this one.
