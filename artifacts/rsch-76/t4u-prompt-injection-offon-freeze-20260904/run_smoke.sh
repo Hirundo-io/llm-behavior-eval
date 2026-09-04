@@ -11,6 +11,8 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source ./run_common.sh
 
+verify_live_max_model_len_for_judge
+
 SMOKE_MAX_SAMPLES="${SMOKE_MAX_SAMPLES:-8}"
 
 run_arm "Base Model, thinking OFF (smoke)" \

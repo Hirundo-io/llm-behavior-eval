@@ -4,14 +4,14 @@
 
 | Source | Judge model | Backend | Scope |
 | --- | --- | --- | --- |
-| RSCH-71 probe (Notion "Chinese Censorship Unlearning" record; `hirundo-bloom/scripts/eval/run_benign_pilot_no_thinking_qwen35.py`) | `google/gemma-4-12b-it` (deliberate override of the library default `gemma-3-12b-it`) | `transformers` in the probe itself, but the record explicitly states "the decided direction is vLLM for the judge as well" — exactly what merged PR #157 (LLM-127) provides, and what PR #159 inherits as "its canonical Gemma-4/vLLM runtime." | Bloom-adjacent free-text/over-defensiveness probing on Qwen3.5, same base model as this study. |
+| RSCH-71 probe (Notion "Chinese Censorship Unlearning" record; `hirundo-bloom/scripts/eval/run_benign_pilot_no_thinking_qwen35.py`) | `google/gemma-4-12B-it` (deliberate override of the library default `gemma-3-12b-it`) | `transformers` in the probe itself, but the record explicitly states "the decided direction is vLLM for the judge as well" — exactly what merged PR #157 (LLM-127) provides, and what PR #159 inherits as "its canonical Gemma-4/vLLM runtime." | Bloom-adjacent free-text/over-defensiveness probing on Qwen3.5, same base model as this study. |
 | `hirundo-research/hirundo-bloom/scripts/eval/run_purple_llama_db_reproduction.sh` | `google/gemma-3-12b-it` (library default, **not** overridden) | `transformers` | A "DB reproduction gate" whose purpose is reproducing externally published Purple Llama ASR figures (28.29→9.16 for Qwen3.5-4B) — an external-baseline-matching exercise, not a RSCH-76 matched-arms judge choice. |
 
 These conflict. Per the study brief's Part 7 rule ("prefer one primary judge
 if possible" and "do not silently change judge identity for convenience"),
 resolving this requires a stated reason, not a coin flip.
 
-## Decision: primary judge = `google/gemma-4-12b-it`, backend = vLLM
+## Decision: primary judge = `google/gemma-4-12B-it`, backend = vLLM
 
 **Rationale:**
 
@@ -31,7 +31,7 @@ resolving this requires a stated reason, not a coin flip.
    methodology specified (not verified here; out of scope). Adopting it here
    would import an untraced external constraint into a study that isn't
    trying to reproduce that paper.
-3. **`google/gemma-4-12b-it` is deliberately, not defaultly, chosen** — the
+3. **`google/gemma-4-12B-it` is deliberately, not defaultly, chosen** — the
    RSCH-71 record is explicit that this is "the closest available relative of
    the source corpus's `gemma-4-26B-A4B-it`," i.e. a considered choice for
    this same evaluation family, not an accident of a script's unset default.

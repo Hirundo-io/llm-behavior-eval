@@ -1,17 +1,35 @@
 # Smoke plan
 
 Script: `run_smoke.sh` (sources `run_common.sh`). **Not run by this freeze.**
+**Uncensored Model arms are additionally BLOCKED** pending resolution of the
+adapter identity conflict — see `UNCENSORED_MODEL_ADAPTER_IDENTITY.md`.
+`run_common.sh`'s `verify_uncensored_adapter` refuses to run at all while
+`UNCENSORED_LORA_SHA256` is unset (no default is provided).
+
+## Gates that now run before any target inference (fail-closed)
+
+Sourcing `run_common.sh` (which both `run_smoke.sh` and `run_full.sh` do
+first) unconditionally runs `preflight.py static`: dataset revision + row
+count, base model snapshot resolution, judge tokenizer/config snapshot
+resolution, judge prompt hash + parser identity, and the thinking-template
+proof. Any failure aborts the whole script (`set -euo pipefail` plus
+`preflight.py`'s `SystemExit(1)`). `run_arm` additionally calls a live
+`max_model_len` readback (`preflight.py live-max-model-len`, GPU-only, code
+complete but not executed by this freeze) before every arm, and
+`verify_uncensored_adapter` (also GPU-independent) before every Uncensored
+Model arm.
 
 ## What it exercises
 
 | Requirement | How |
 | --- | --- |
-| Base Model | `Qwen/Qwen3.5-4B`, no LoRA, 2 arms (OFF/ON) |
-| Uncensored Model / LoRA | Same base + LoRA adapter at `$UNCENSORED_LORA_PATH`, 2 arms (OFF/ON); `verify_uncensored_adapter` hard-fails before either arm if the adapter's `sha256sum` doesn't match `9b3158331c001e94046469059a8e8c59d4f2f2095f882cb528f87fb3e8c3e9a2` |
+| Base Model | `Qwen/Qwen3.5-4B` @ pinned local snapshot, no LoRA, 2 arms (OFF/ON) |
+| Uncensored Model / LoRA | **Blocked** — same base + LoRA adapter at `$UNCENSORED_LORA_PATH`, 2 arms (OFF/ON); `verify_uncensored_adapter` will hard-fail with a clear message until `UNCENSORED_MODEL_ADAPTER_IDENTITY.md` is resolved and `UNCENSORED_LORA_SHA256` is set to the confirmed value |
 | OFF / ON | `--thinking-off` vs `--thinking-on --enable-thinking-arg-name enable_thinking --thinking-start-token '<think>' --thinking-end-token '</think>' --exclude-thinking-trace-for-judge` |
 | Target incomplete handling | Inspect `responses.json` for any `status in {model_incomplete, model_unknown}` rows -- confirms the fail-open fix from `83a814a` is active, not just present in source |
 | Final-answer extraction | For thinking-ON arms, confirm judge input (loggable via `judge_raw`'s context, or by re-deriving from `llm_answer` + `_format_answers` logic) never contains a `<think>` tag |
-| Judge path | Confirms `--judge-engine vllm --judge-model google/gemma-4-12b-it` actually loads and returns verdicts (not a `judge_unknown`-only run, which would indicate the judge engine failed to start) |
+| Judge path | Confirms `--judge-engine vllm --judge-model google/gemma-4-12B-it` actually loads and returns verdicts (not a `judge_unknown`-only run, which would indicate the judge engine failed to start) |
+| Judge thought-channel risk (new) | The judge's own chat template always primes a `<|channel>thought<channel|>` marker (see `STUDY_CONTRACT.md` §5b). Confirm empirically that real judge completions stay within `max_judge_tokens=32` and land in `judged_yes`/`judged_no` at a normal rate, not predominantly `judge_incomplete` (which would indicate the model is reopening a reasoning channel the 32-token budget can't afford) |
 | Unparseable handling | If any `judge_unparseable` row appears, confirms `judge_raw` is non-empty and `judge_verdict` is `null` -- proves the fix persists evidence rather than defaulting to `judged_no` |
 | Artifact persistence | `responses.json` and `metrics.csv` exist under each arm's output dir with every row carrying `llm_answer`, `finish_reason`, `judge_finish_reason`, `judge_raw`, `judge_verdict`, `status` |
 | Clean teardown | Process exits cleanly after all four arms; no leaked vLLM worker processes (`ps` check) |

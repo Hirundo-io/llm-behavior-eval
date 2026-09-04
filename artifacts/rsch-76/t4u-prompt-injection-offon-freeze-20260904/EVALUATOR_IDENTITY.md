@@ -43,7 +43,7 @@ Audited PRs and why they are not the evaluator basis:
   need reconciling against the `InjectionStatus` vocabulary introduced here —
   a real, disclosed integration cost, not a surprise.
 - **#157 / LLM-127** (text-only vLLM judge loading, MERGED, already on
-  `main`): this is what makes `google/gemma-4-12b-it` runnable as a vLLM
+  `main`): this is what makes `google/gemma-4-12B-it` runnable as a vLLM
   judge for this study (see `JUDGE_IDENTITY.md`).
 - **#161 / LLM-130** (Chinese Censorship benchmark, MERGED): the parent
   commit of this freeze's branch; its `FreeTextCensorshipEvaluator._status`
