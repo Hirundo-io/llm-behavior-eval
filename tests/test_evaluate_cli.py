@@ -196,6 +196,22 @@ def test_main_uses_refusal_dataset_type_for_refusal_presets(
     assert capture_configs[-1].dataset_config.dataset_type.value == "bias"
 
 
+def test_main_pins_the_prompt_injection_dataset_revision(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "prompt-injection")
+    dataset_config = capture_configs[-1].dataset_config
+    assert dataset_config.file_path == "hirundo-io/prompt-injection-purple-llama"
+    assert dataset_config.revision == "403abe13df3913940c065e5af6ca471c4fb7daf6"
+
+
+def test_main_does_not_pin_a_revision_for_unpinned_datasets(
+    capture_configs: list[CapturedConfigs],
+) -> None:
+    evaluate.main("fake/model", "refusal:xstest")
+    assert capture_configs[-1].dataset_config.revision is None
+
+
 def test_main_raises_missing_dataset_error(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: list[DatasetConfig] = []
 

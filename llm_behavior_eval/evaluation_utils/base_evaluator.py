@@ -273,6 +273,7 @@ class BaseEvaluator(ABC):
             trust_remote_code=self.trust_remote_code,
             token=self.eval_config.model_token,
             dataset_id=self.dataset_config.dataset_id,
+            revision=self.dataset_config.revision,
         )
         test_dataset = custom_dataset.preprocess(
             self.tokenizer,

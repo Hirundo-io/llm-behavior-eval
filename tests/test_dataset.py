@@ -196,6 +196,50 @@ def test_custom_dataset_passes_token_without_obsolete_remote_code_arg(
     }
 
 
+def test_custom_dataset_forwards_pinned_revision_to_load_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ds = Dataset.from_dict({"question": ["q"], "answer": ["a"]})
+    captured: dict[str, object] = {}
+
+    def fake_load_dataset(path, **kwargs):
+        captured["path"] = path
+        captured.update(kwargs)
+        return DatasetDict({"train": ds})
+
+    monkeypatch.setattr(custom_dataset_module, "load_dataset", fake_load_dataset)
+
+    CustomDataset(
+        "hirundo-io/prompt-injection-purple-llama",
+        DatasetType.BIAS,
+        revision="403abe13df3913940c065e5af6ca471c4fb7daf6",
+    )
+
+    assert captured == {
+        "path": "hirundo-io/prompt-injection-purple-llama",
+        "token": None,
+        "revision": "403abe13df3913940c065e5af6ca471c4fb7daf6",
+    }
+
+
+def test_custom_dataset_omits_revision_kwarg_when_not_pinned(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A dataset with no pinned revision must call `load_dataset` exactly as
+    before -- no `revision` kwarg at all -- so callers that never pin a
+    revision see zero behavior change."""
+    ds = Dataset.from_dict({"question": ["q"], "answer": ["a"]})
+
+    def fake_load_dataset(path, *, token=None):
+        return DatasetDict({"train": ds})
+
+    monkeypatch.setattr(custom_dataset_module, "load_dataset", fake_load_dataset)
+
+    # Would raise TypeError if `revision` were forwarded, since this fake
+    # does not accept it.
+    CustomDataset("repo/dataset", DatasetType.BIAS)
+
+
 def test_custom_dataset_uses_train_split_when_present(
     monkeypatch: pytest.MonkeyPatch,
 ):

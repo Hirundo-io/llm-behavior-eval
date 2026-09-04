@@ -32,6 +32,8 @@ class DatasetConfig(BaseSettings):
         dataset_type: The type of the dataset, represented as an enum.
         preprocess_config: Configuration for preprocessing the dataset.
         seed: The random seed for reproducibility.
+        revision: Immutable Hugging Face revision (commit SHA) to pin the dataset
+            to. ``None`` preserves prior behavior (resolve the default branch).
     """
 
     model_config = SettingsConfigDict(
@@ -43,6 +45,7 @@ class DatasetConfig(BaseSettings):
     dataset_type: DatasetType
     preprocess_config: PreprocessConfig = PreprocessConfig()
     seed: int | None = 42
+    revision: str | None = None
 
     @field_validator("dataset_id", mode="before")
     @classmethod

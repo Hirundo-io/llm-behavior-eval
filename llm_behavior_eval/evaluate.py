@@ -45,7 +45,11 @@ from llm_behavior_eval.evaluation_utils.vllm_config import (
     VllmConfig,
 )
 from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
-from llm_behavior_eval.presets import build_bias_dataset_id, expand_dataset_preset
+from llm_behavior_eval.presets import (
+    DATASET_REVISIONS,
+    build_bias_dataset_id,
+    expand_dataset_preset,
+)
 
 torch.set_float32_matmul_precision("high")
 
@@ -734,6 +738,7 @@ def main(
                     else DatasetType.BIAS,
                     preprocess_config=PreprocessConfig(),
                     seed=seed,
+                    revision=DATASET_REVISIONS.get(file_path),
                 )
                 if evaluator is None:
                     evaluator = EvaluateFactory.create_evaluator(

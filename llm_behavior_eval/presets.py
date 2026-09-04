@@ -11,6 +11,16 @@ from .evaluation_utils.enums import (
 )
 from .evaluation_utils.refusal_utils import OR_BENCH_DATASET, XSTEST_DATASET
 
+PROMPT_INJECTION_PURPLE_LLAMA_DATASET_ID = "hirundo-io/prompt-injection-purple-llama"
+
+# Immutable Hugging Face dataset commits, keyed by dataset id. Each commit was
+# recovered from a resolved local cache ref (``refs/main`` under the dataset's
+# hub cache directory), never invented. A dataset id absent from this mapping
+# resolves its default branch exactly as before -- this is additive only.
+DATASET_REVISIONS: dict[str, str] = {
+    PROMPT_INJECTION_PURPLE_LLAMA_DATASET_ID: "403abe13df3913940c065e5af6ca471c4fb7daf6",
+}
+
 
 @dataclass(frozen=True)
 class DatasetPreset:
@@ -73,7 +83,7 @@ _PRESETS = (
     ),
     DatasetPreset("hallu", ("hirundo-io/halueval",)),
     DatasetPreset("hallu-med", ("hirundo-io/medhallu",)),
-    DatasetPreset("prompt-injection", ("hirundo-io/prompt-injection-purple-llama",)),
+    DatasetPreset("prompt-injection", (PROMPT_INJECTION_PURPLE_LLAMA_DATASET_ID,)),
     DatasetPreset(CCPC_DATASET_ID, (CCPC_DATASET_REPOSITORY,)),
     DatasetPreset("refusal:xstest", (XSTEST_DATASET,)),
     DatasetPreset("refusal:orbench", (OR_BENCH_DATASET,)),

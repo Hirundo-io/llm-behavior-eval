@@ -173,6 +173,7 @@ class CustomDataset:
         trust_remote_code: bool = False,
         token: str | None = None,
         dataset_id: str | None = None,
+        revision: str | None = None,
     ):
         """
         Initializes the custom dataset with a specified dataset type and behavior type.
@@ -183,16 +184,23 @@ class CustomDataset:
             trust_remote_code: Whether to trust remote code when loading the dataset.
             token: HuggingFace token for gated or private dataset repos.
             dataset_id (optional): Logical dataset identity. Defaults to ``file_path``.
+            revision (optional): Immutable Hugging Face revision (commit SHA) to
+                load. ``None`` resolves the default branch, matching prior behavior.
         """
         self.file_path = file_path
         self.dataset_id = dataset_id or str(file_path)
         self.dataset_type = dataset_type
         self.trust_remote_code = trust_remote_code
         self.token = token
+        self.revision = revision
         try:
-            raw = load_dataset(
-                str(self.file_path),
-                token=token,
+            # Only forward `revision` when pinned, so callers/tests that load
+            # datasets without a revision see the exact same call shape as
+            # before.
+            raw = (
+                load_dataset(str(self.file_path), token=token, revision=revision)
+                if revision is not None
+                else load_dataset(str(self.file_path), token=token)
             )
         except (OSError, ValueError) as exc:
             raise RuntimeError(
