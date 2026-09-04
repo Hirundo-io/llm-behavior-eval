@@ -1152,6 +1152,31 @@ class FreeTextSharedEvaluator(BaseEvaluator):
         else:
             return answers
 
+    def _has_incomplete_thinking_answer(
+        self, raw_answer: str, judge_answer: str
+    ) -> bool:
+        """Identify a thinking-enabled completion without a final answer.
+
+        Args:
+            raw_answer: Unmodified target-model completion.
+            judge_answer: Completion after configured thinking-trace removal.
+
+        Returns:
+            Whether the completion must be marked incomplete and withheld from
+            the judge.
+        """
+        config = self.eval_config
+        if not (
+            config.enable_thinking
+            and config.exclude_thinking_trace_for_judge
+            and config.thinking_start_token
+            and config.thinking_end_token
+        ):
+            return False
+        if config.thinking_end_token not in raw_answer:
+            return True
+        return not judge_answer.strip()
+
     def prepare_judge_tokenizer(self) -> None:
         """
         Load only the judge tokenizer so we can format probe prompts before
