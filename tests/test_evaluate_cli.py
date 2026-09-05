@@ -12,7 +12,10 @@ from typer.testing import CliRunner
 
 import llm_behavior_eval.evaluate as evaluate
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
-from llm_behavior_eval.evaluation_utils.censorship_utils import CCPC_DATASET_ID
+from llm_behavior_eval.evaluation_utils.censorship_utils import (
+    CCPC_DATASET_ID,
+    CCPC_DATASET_REPOSITORY,
+)
 from llm_behavior_eval.evaluation_utils.eval_config import FAMILY_TOKEN_DEFAULTS
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
@@ -237,7 +240,7 @@ def test_main_routes_ccpc_dataset_id(
         judge_model="example/judge",
     )
 
-    assert capture_configs[-1].dataset_config.dataset_id == CCPC_DATASET_ID
+    assert capture_configs[-1].dataset_config.dataset_id == CCPC_DATASET_REPOSITORY
 
 
 def test_main_rejects_mixed_evaluator_families() -> None:
@@ -422,6 +425,8 @@ def test_evaluate_factory_constructs_censorship_evaluator(
 
 def test_evaluate_factory_reports_evaluator_family() -> None:
     assert EvaluateFactory.get_evaluator_family(XSTEST_DATASET) == "refusal"
+    assert EvaluateFactory.get_evaluator_family(CCPC_DATASET_ID) == "censorship"
+    assert EvaluateFactory.get_evaluator_family(CCPC_DATASET_REPOSITORY) == "censorship"
     assert (
         EvaluateFactory.get_evaluator_family("hirundo-io/prompt-injection-purple-llama")
         == "prompt-injection"

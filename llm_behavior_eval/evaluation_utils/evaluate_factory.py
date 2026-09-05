@@ -1,5 +1,5 @@
 from .base_evaluator import BaseEvaluator
-from .censorship_utils import CCPC_DATASET_ID
+from .censorship_utils import is_ccpc_benchmark_reference
 from .dataset_config import DatasetConfig
 from .eval_config import EvaluationConfig, EvaluatorFamily
 from .refusal_utils import REFUSAL_DATASETS
@@ -20,7 +20,7 @@ class EvaluateFactory:
         Returns:
             The evaluator family that owns the dataset contract.
         """
-        if dataset_id == CCPC_DATASET_ID:
+        if is_ccpc_benchmark_reference(dataset_id):
             return "censorship"
         if dataset_id in {"hirundo-io/halueval", "hirundo-io/medhallu"}:
             return "hallucination"
