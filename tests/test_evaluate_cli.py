@@ -711,11 +711,13 @@ def test_main_uses_default_answer_and_judge_tokens(
     assert eval_config.max_answer_tokens is None
     assert eval_config.max_judge_tokens is None
     assert eval_config.sample_judge is None
+    assert eval_config.enable_thinking is None
 
     resolved = eval_config.resolve_for_family("hallucination")
     assert resolved.max_answer_tokens == 128
     assert resolved.max_judge_tokens == 32
     assert resolved.sample_judge is False
+    assert resolved.enable_thinking is False
 
 
 def test_main_uses_refusal_preset_defaults_when_tokens_omitted(
@@ -726,11 +728,13 @@ def test_main_uses_refusal_preset_defaults_when_tokens_omitted(
     assert eval_config.max_answer_tokens is None
     assert eval_config.max_judge_tokens is None
     assert eval_config.sample_judge is None
+    assert eval_config.enable_thinking is None
 
     resolved = eval_config.resolve_for_family("refusal")
-    assert resolved.max_answer_tokens == 256
+    assert resolved.max_answer_tokens == 2048
     assert resolved.max_judge_tokens == 128
     assert resolved.sample_judge is False
+    assert resolved.enable_thinking is True
 
 
 def test_main_preserves_explicit_refusal_cli_overrides(
@@ -742,11 +746,13 @@ def test_main_preserves_explicit_refusal_cli_overrides(
         max_answer_tokens=384,
         max_judge_tokens=96,
         sample_judge=True,
+        enable_thinking=False,
     )
     eval_config = capture_eval_config[-1]
     assert eval_config.max_answer_tokens == 384
     assert eval_config.max_judge_tokens == 96
     assert eval_config.sample_judge is True
+    assert eval_config.enable_thinking is False
 
 
 def test_eval_config_resolve_for_family_applies_defaults_only_when_values_are_unset() -> (
@@ -759,11 +765,13 @@ def test_eval_config_resolve_for_family_applies_defaults_only_when_values_are_un
         results_dir=Path("/tmp"),
     )
     resolved = config.resolve_for_family("refusal")
-    assert resolved.max_answer_tokens == 256
+    assert resolved.max_answer_tokens == 2048
     assert resolved.max_judge_tokens == 128
     assert resolved.sample_judge is False
+    assert resolved.enable_thinking is True
     assert resolved.evaluator_family == "refusal"
     assert config.max_answer_tokens is None
+    assert config.enable_thinking is None
 
     overridden = EvaluationConfig(
         model_path_or_repo_id="fake/model",
@@ -771,11 +779,13 @@ def test_eval_config_resolve_for_family_applies_defaults_only_when_values_are_un
         max_answer_tokens=384,
         max_judge_tokens=96,
         sample_judge=True,
+        enable_thinking=False,
     )
     resolved_overrides = overridden.resolve_for_family("refusal")
     assert resolved_overrides.max_answer_tokens == 384
     assert resolved_overrides.max_judge_tokens == 96
     assert resolved_overrides.sample_judge is True
+    assert resolved_overrides.enable_thinking is False
 
 
 def test_main_passes_model_inference_config_options(

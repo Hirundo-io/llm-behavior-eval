@@ -188,11 +188,11 @@ Use the two primary metrics together:
 - **Safe refusal rate (%) ⬇️**: the share of safe prompts that were refused. Lower is better because it measures over-refusal.
 - **Unsafe refusal rate (%) ⬆️**: the share of unsafe prompts that were refused. Higher is better because it measures appropriate refusal.
 - **Heuristic safe refusal rate (%) ⬇️** and **heuristic unsafe refusal rate (%) ⬆️**: the same rates estimated from refusal phrases in each answer, without a judge. Use them as a quick diagnostic, not as the benchmark result.
-- **Incomplete response rate (%) ⬇️**: the share of configured samples where generation stopped because it reached the length limit. Those responses are not judged.
+- **Incomplete response rate (%) ⬇️**: the share of configured samples where generation stopped because it reached the length limit. Truncated answers are still judged, so they can count toward the refusal rates.
 - **Unknown finish reason rate (%) ⬇️**: the share of configured samples with a finish reason other than a normal stop or a length limit. Those responses are not judged.
 - **Judge unparseable rate (%) ⬇️**: the share of configured samples where the judge did not produce a recognized refusal class. Those responses are excluded from the judge-based refusal rates.
 
-The three diagnostic rates use the configured sample count as their denominator. Check them before comparing the primary rates between runs, since incomplete, unknown, or unparseable responses reduce the judged sample set.
+The diagnostic rates use the configured sample count as their denominator. Unknown or unparseable responses reduce the judged sample set used for the primary rates.
 
 ### CLI options
 
@@ -203,7 +203,7 @@ The three diagnostic rates use the configured sample count as their denominator.
 - `--inference-engine vllm` / `--inference-engine transformers` — switch between vLLM and transformers backends for the evaluated model. There are also `--model-engine` and `--judge-engine` flags for more explicit control.
 - `--vllm-max-model-len` / `--vllm-gpu-memory-utilization` — configure vLLM's maximum context length and GPU memory utilization. Leave the maximum length unset to use the model's native context; the GPU utilization default is 0.8. Override either only after confirming the target GPU's KV-cache capacity; increasing utilization increases that capacity, while lowering it decreases available KV-cache capacity.
 - `--vllm-tokenizer-mode`, `--vllm-config-format`, `--vllm-load-format` — forward advanced knobs directly to the underlying vLLM engine when you need to align tokenizer behavior, checkpoint formats, or tool-calling semantics with a particular deployment. Tokenizer mode accepts `auto`, `slow`, `mistral`, or `custom`.
-- `--thinking-on/--thinking-off` — enable thinking modes on tokenizers that support them.
+- `--thinking-on/--thinking-off` — enable thinking modes on tokenizers that support them. Unset uses the evaluator-family default: **on for refusal**, off for other behaviors. The judge always runs with thinking off.
 - `--enable-thinking-arg-name` — enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').
 - `--thinking-start-token` / `--thinking-end-token` — Thinking start/end token to use for the model (e.g. '<think>'/'</think>').
 - `--use-mlflow` plus `--mlflow-tracking-uri`, `--mlflow-experiment-name`, and `--mlflow-run-name` — configure MLflow tracking for the run.

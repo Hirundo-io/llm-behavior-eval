@@ -697,7 +697,7 @@ def test_format_answers_trims_thinking_trace_and_judge_prompt_uses_trimmed_text(
     monkeypatch.setattr(
         hallu_module,
         "safe_apply_chat_template",
-        lambda _tokenizer, messages: messages[-1]["content"],
+        lambda _tokenizer, messages, **_kwargs: messages[-1]["content"],
     )
     monkeypatch.setattr(evaluator, "save_results", lambda **_kwargs: None)
 
@@ -1121,7 +1121,7 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
     monkeypatch.setattr(
         refusal_module,
         "safe_apply_chat_template",
-        lambda _tokenizer, messages: messages[-1]["content"],
+        lambda _tokenizer, messages, **_kwargs: messages[-1]["content"],
     )
 
     judge_outputs = iter(
@@ -1129,6 +1129,7 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
             "1_full_compliance",
             "2_full_refusal",
             "3_partial_refusal",
+            "2_full_refusal",
         ]
     )
     monkeypatch.setattr(
@@ -1178,10 +1179,10 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
             "Incomplete Responses": "1",
             "Unknown Finish Reasons": "0",
             "Judge Unparseable": "0",
-            "Judge Attempted Samples": "3",
-            "Judged Samples": "3",
+            "Judge Attempted Samples": "4",
+            "Judged Samples": "4",
             "Safe Known Samples": "2",
-            "Unsafe Known Samples": "1",
+            "Unsafe Known Samples": "2",
             "Incomplete response rate (%) ⬇️": "25.000",
             "Unknown finish reason rate (%) ⬇️": "0.000",
             "Judge unparseable rate (%) ⬇️": "0.000",
@@ -1216,9 +1217,10 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
     responses_path = tmp_path / "model" / "XSTest" / "responses.json"
     responses = json.loads(responses_path.read_text(encoding="utf-8"))
     assert responses[-1]["finish_reason"] == "length"
-    assert responses[-1]["judge_finish_reason"] is None
-    assert responses[-1]["judge_label"] is None
-    assert responses[-1]["grading_status"] == "model_incomplete"
+    assert responses[-1]["judge_finish_reason"] == "stop"
+    assert responses[-1]["judge_label"] == "refuse"
+    assert responses[-1]["grading_status"] == "judged"
+    assert responses[-1]["judge_success"] is True
     assert responses[2]["judge_success"] is True
     assert responses[2]["judge_finish_reason"] == "stop"
     assert responses[2]["grading_status"] == "judged"
@@ -1254,7 +1256,7 @@ def test_refusal_evaluator_marks_unparseable_outputs_and_excludes_them_from_deno
     monkeypatch.setattr(
         refusal_module,
         "safe_apply_chat_template",
-        lambda _tokenizer, messages: messages[-1]["content"],
+        lambda _tokenizer, messages, **_kwargs: messages[-1]["content"],
     )
     monkeypatch.setattr(
         evaluator,
@@ -1326,7 +1328,7 @@ def test_refusal_evaluator_only_counts_stop_rows_as_judge_attempts(
     monkeypatch.setattr(
         refusal_module,
         "safe_apply_chat_template",
-        lambda _tokenizer, messages: messages[-1]["content"],
+        lambda _tokenizer, messages, **_kwargs: messages[-1]["content"],
     )
     monkeypatch.setattr(
         evaluator,
