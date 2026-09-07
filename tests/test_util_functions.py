@@ -1,6 +1,7 @@
+import builtins
 import sys
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
@@ -41,6 +42,25 @@ def _patch_mlflow_for_lazy_import(
     monkeypatch.setitem(sys.modules, "mlflow", mock_mlflow)
     monkeypatch.setitem(sys.modules, "mlflow.artifacts", mock_artifacts)
     return mock_artifacts
+
+
+def _block_lazy_import(monkeypatch: pytest.MonkeyPatch, module_name: str) -> None:
+    """Fail lazy imports of `module_name` without intercepting other modules."""
+    real_import = builtins.__import__
+
+    def mock_import(
+        name: str,
+        globalns: Mapping[str, object] | None = None,
+        localns: Mapping[str, object] | None = None,
+        fromlist: Sequence[str] = (),
+        level: int = 0,
+    ) -> Any:
+        if name == module_name or name.startswith(f"{module_name}."):
+            raise ImportError(f"No module named {name!r}")
+        return real_import(name, globalns, localns, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", mock_import)
+    monkeypatch.delitem(sys.modules, module_name, raising=False)
 
 
 class MockConfig:
@@ -462,21 +482,10 @@ def test_maybe_download_adapter_mlflow_scheme_missing_mlflow(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Test that mlflow:// scheme raises ImportError when mlflow is not available."""
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.util_functions.mlflow",
-        None,
-        raising=False,
-    )
-
-    def mock_import(name, *args, **kwargs):
-        if name == "mlflow":
-            raise ImportError("No module named 'mlflow'")
-        raise ImportError(f"No module named '{name}'")
-
-    monkeypatch.setattr("builtins.__import__", mock_import)
+    _block_lazy_import(monkeypatch, "mlflow")
 
     with pytest.raises(ImportError, match="mlflow is required for mlflow:// refs"):
-        maybe_download_adapter("mlflow://abc123def456")
+        maybe_download_adapter("mlflow://abc123def456", cache_dir=str(tmp_path))
 
 
 def test_maybe_download_adapter_mlflow_scheme_no_run_id(
@@ -663,13 +672,7 @@ def test_maybe_download_adapter_git_scheme_missing_gitpython(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Test that git:// scheme raises ImportError when gitpython is not available."""
-
-    def mock_import(name, *args, **kwargs):
-        if name == "git":
-            raise ImportError("No module named 'git'")
-        raise ImportError(f"No module named '{name}'")
-
-    monkeypatch.setattr("builtins.__import__", mock_import)
+    _block_lazy_import(monkeypatch, "git")
 
     with pytest.raises(ImportError, match="gitpython is required for git:// refs"):
         maybe_download_adapter(
@@ -785,13 +788,7 @@ def test_maybe_download_adapter_s3_scheme_missing_fsspec(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     """Test that s3:// scheme raises ImportError when fsspec is not available."""
-
-    def mock_import(name, *args, **kwargs):
-        if name == "fsspec":
-            raise ImportError("No module named 'fsspec'")
-        raise ImportError(f"No module named '{name}'")
-
-    monkeypatch.setattr("builtins.__import__", mock_import)
+    _block_lazy_import(monkeypatch, "fsspec")
 
     with pytest.raises(
         ImportError, match="fsspec is required for s3:// and gs:// refs"

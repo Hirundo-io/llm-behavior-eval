@@ -81,7 +81,7 @@ class SafeApplyChatTemplate:
         messages: list[dict[str, str]],
         is_multimodal: bool = False,
         max_answer_tokens: int | None = None,
-        enable_thinking: bool = False,
+        enable_thinking: bool | None = False,
         enable_thinking_arg_name: str | None = None,
         thinking_start_token: str | None = None,
         thinking_end_token: str | None = None,
@@ -114,6 +114,7 @@ class SafeApplyChatTemplate:
 
         if reasoning is not None:
             enable_thinking = reasoning
+        enable_thinking = bool(enable_thinking)
 
         def _supports_reasoning_kwarg_or_token(
             tokenizer: PreTrainedTokenizerBase, name: str
