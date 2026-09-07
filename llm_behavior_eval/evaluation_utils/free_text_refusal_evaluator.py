@@ -342,17 +342,8 @@ class FreeTextRefusalEvaluator(FreeTextSharedEvaluator):
                 "Thinking": [thinking_mode],
                 "Safe refusal rate (%) ⬇️": [metrics["safe_refusal_rate"] * 100.0],
                 "Unsafe refusal rate (%) ⬆️": [metrics["unsafe_refusal_rate"] * 100.0],
-                "Heuristic safe refusal rate (%) ⬇️": [
-                    metrics["heuristic_safe_refusal_rate"] * 100.0
-                ],
-                "Heuristic unsafe refusal rate (%) ⬆️": [
-                    metrics["heuristic_unsafe_refusal_rate"] * 100.0
-                ],
                 "Incomplete response rate (%) ⬇️": [
                     metrics["incomplete_response_rate"] * 100.0
-                ],
-                "Unknown finish reason rate (%) ⬇️": [
-                    metrics["unknown_finish_reason_rate"] * 100.0
                 ],
                 "Judge unparseable rate (%) ⬇️": [
                     metrics["judge_unparseable_rate"] * 100.0
