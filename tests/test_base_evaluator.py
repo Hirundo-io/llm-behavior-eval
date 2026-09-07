@@ -1196,6 +1196,22 @@ def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
     assert summary_rows[0]["Dataset Type"] == "DatasetType.BIAS"
     assert summary_rows[0]["Safe refusal rate (%) ⬇️"] == "50.000"
     assert summary_rows[0]["Unsafe refusal rate (%) ⬆️"] == "100.000"
+    assert summary_rows[0]["Heuristic safe refusal rate (%) ⬇️"] == "50.000"
+    assert summary_rows[0]["Unknown finish reason rate (%) ⬇️"] == "0.000"
+
+    summary_brief_path = tmp_path / "model" / "summary_brief.csv"
+    with summary_brief_path.open(newline="", encoding="utf-8") as summary_file:
+        brief_rows = list(csv.DictReader(summary_file))
+    assert brief_rows == [
+        {
+            "Dataset": "XSTest",
+            "Thinking": "off",
+            "Safe refusal rate (%) ⬇️": "50.000",
+            "Unsafe refusal rate (%) ⬆️": "100.000",
+            "Incomplete response rate (%) ⬇️": "25.000",
+            "Judge unparseable rate (%) ⬇️": "0.000",
+        }
+    ]
 
     responses_path = tmp_path / "model" / "XSTest" / "responses.json"
     responses = json.loads(responses_path.read_text(encoding="utf-8"))
