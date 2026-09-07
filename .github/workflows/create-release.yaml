@@ -16,7 +16,7 @@ on:
 jobs:
   create_release_pr:
     name: Create release PR
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     environment:
       name: testpypi
       url: https://test.pypi.org/p/hirundo
