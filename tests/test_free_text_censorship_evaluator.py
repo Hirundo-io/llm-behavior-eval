@@ -118,8 +118,8 @@ def test_loads_exact_pinned_dataset_in_published_order(
     }
 
 
-def test_current_run_config_omits_ignored_max_samples(tmp_path: Path) -> None:
-    """Verify CCPC's immutable cohort ignores max_samples in run identity.
+def test_current_run_config_includes_max_samples(tmp_path: Path) -> None:
+    """Verify the selected CCPC cohort is part of the run identity.
 
     Args:
         tmp_path: Temporary results directory supplied by pytest.
@@ -141,8 +141,11 @@ def test_current_run_config_omits_ignored_max_samples(tmp_path: Path) -> None:
         )
         run_configs.append(evaluator._current_run_config())
 
-    assert run_configs[0] == run_configs[1]
-    assert "max_samples" not in run_configs[0]["evaluation_config"]
+    assert run_configs[0] != run_configs[1]
+    assert [config["evaluation_config"]["max_samples"] for config in run_configs] == [
+        1,
+        CCPC_EXPECTED_ROWS,
+    ]
 
 
 @pytest.mark.parametrize(
@@ -252,14 +255,22 @@ class _DatasetEngine:
         return 31
 
 
-def test_prepare_dataloader_never_shuffles_or_truncates(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize(
+    ("max_samples", "expected_count"), [(1, 1), (None, CCPC_EXPECTED_ROWS)]
+)
+def test_prepare_dataloader_limits_without_shuffling(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    max_samples: int | None,
+    expected_count: int,
 ) -> None:
-    """Verify row selection ignores max_samples and preserves source order.
+    """Verify row selection honors max_samples and preserves source order.
 
     Args:
         monkeypatch: Pytest patching helper.
         tmp_path: Temporary results directory supplied by pytest.
+        max_samples: Configured sample limit, or None for the full dataset.
+        expected_count: Expected number of selected rows.
 
     Returns:
         None.
@@ -281,7 +292,7 @@ def test_prepare_dataloader_never_shuffles_or_truncates(
     evaluator.eval_config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
-        max_samples=1,
+        max_samples=max_samples,
         max_answer_tokens=8,
     )
     evaluator.dataset_config = DatasetConfig(
@@ -299,9 +310,9 @@ def test_prepare_dataloader_never_shuffles_or_truncates(
         for batch in evaluator.eval_loader
         for index in batch["ccpc_row_index"].tolist()
     ]
-    assert indices == list(range(CCPC_EXPECTED_ROWS))
-    assert evaluator.benchmark_questions == benchmark["question"]
-    assert evaluator.num_samples == CCPC_EXPECTED_ROWS
+    assert indices == list(range(expected_count))
+    assert evaluator.benchmark_questions == benchmark["question"][:expected_count]
+    assert evaluator.num_samples == expected_count
 
 
 @pytest.mark.parametrize(
@@ -450,26 +461,27 @@ def _response(index: int, status: CensorshipStatus) -> CensorshipResponse:
     }
 
 
+@pytest.mark.parametrize("sample_count", [1, CCPC_EXPECTED_ROWS])
 @pytest.mark.parametrize("invalid_status", [None, *list(CensorshipStatus)[2:]])
 def test_metric_valid_only_for_an_all_determinate_cohort(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    sample_count: int,
     invalid_status: CensorshipStatus | None,
 ) -> None:
-    """Verify the primary metric requires 216 determinate verdicts.
+    """Verify the primary metric requires a verdict for every selected row.
 
     Args:
         monkeypatch: Pytest patching helper.
         tmp_path: Temporary results directory supplied by pytest.
+        sample_count: Number of selected benchmark rows.
         invalid_status: Optional non-determinate status for the first row.
 
     Returns:
         None.
     """
     evaluator = FreeTextCensorshipEvaluator.__new__(FreeTextCensorshipEvaluator)
-    evaluator.benchmark_group_ids = [
-        f"group-{index}" for index in range(CCPC_EXPECTED_ROWS)
-    ]
+    evaluator.benchmark_group_ids = [f"group-{index}" for index in range(sample_count)]
     evaluator.eval_config = EvaluationConfig(
         model_path_or_repo_id="fake/model", results_dir=tmp_path
     )
@@ -486,15 +498,16 @@ def test_metric_valid_only_for_an_all_determinate_cohort(
             if index == 0
             else CensorshipStatus.JUDGED_FALSE,
         )
-        for index in range(CCPC_EXPECTED_ROWS)
+        for index in range(sample_count)
     ]
 
     evaluator._save_results(responses)
 
     metrics = pd.read_csv(tmp_path / "metrics.csv").iloc[0]
     assert bool(metrics["Metric Valid"]) is (invalid_status is None)
+    assert metrics["Expected Samples"] == sample_count
     if invalid_status is None:
-        assert metrics["Censorship rate (%) ⬇️"] == pytest.approx(100 / 216)
+        assert metrics["Censorship rate (%) ⬇️"] == pytest.approx(100 / sample_count)
     else:
         assert pd.isna(metrics["Censorship rate (%) ⬇️"])
 

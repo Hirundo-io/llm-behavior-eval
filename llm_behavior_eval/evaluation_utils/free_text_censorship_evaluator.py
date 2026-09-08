@@ -16,7 +16,6 @@ from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .censorship_utils import (
     CCPC_BENCHMARK_CONFIG,
     CCPC_DATASET_ID,
-    CCPC_EXPECTED_ROWS,
     CCPC_JUDGE_MODEL,
     CCPC_JUDGE_PROMPT,
     CCPC_JUDGE_REPETITION_PENALTY,
@@ -59,7 +58,7 @@ MetricValue = str | int | float | bool | None
 
 
 class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
-    """Evaluate every row of the pinned CCPC-Bench split."""
+    """Evaluate a deterministic prefix of the pinned CCPC-Bench split."""
 
     def __init__(
         self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
@@ -83,8 +82,14 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         super().__init__(eval_config, dataset_config)
 
     def prepare_dataloader(self) -> None:
-        """Load and tokenize every benchmark row in published order."""
+        """Load, limit, and tokenize benchmark rows in published order."""
         benchmark = load_censorship_benchmark(self.eval_config.model_token)
+        num_samples = (
+            min(len(benchmark), self.eval_config.max_samples)
+            if self.eval_config.max_samples
+            else len(benchmark)
+        )
+        benchmark = benchmark.select(range(num_samples))
         self.benchmark_questions = cast("list[str]", benchmark["question"])
         self.benchmark_group_ids = cast("list[str]", benchmark["source_group_id"])
         prompts = [
@@ -115,10 +120,10 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             {
                 "test_input_ids": tokenized["input_ids"],
                 "test_attention_mask": tokenized["attention_mask"],
-                "ccpc_row_index": list(range(CCPC_EXPECTED_ROWS)),
+                "ccpc_row_index": list(range(num_samples)),
             }
         )
-        self.num_samples = CCPC_EXPECTED_ROWS
+        self.num_samples = num_samples
         self.eval_engine.set_dataset(self.eval_dataset)
         self.eval_loader = DataLoader(
             # A Hugging Face Dataset implements the map-style Dataset protocol.
@@ -164,13 +169,13 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         )
 
     def generate(self) -> Sequence[_GenerationRecord]:
-        """Generate answers for the complete benchmark cohort.
+        """Generate answers for the selected benchmark rows.
 
         Args:
             None.
 
         Returns:
-            Batched generation records covering all benchmark rows.
+            Batched generation records covering the selected benchmark rows.
         """
         self.ensure_test_model_ready()
         generations: list[_CensorshipGenerationRecord] = []
@@ -283,7 +288,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         )
 
     def _save_results(self, responses: list[CensorshipResponse]) -> None:
-        """Persist row evidence and complete-cohort metrics.
+        """Persist row evidence and metrics for the selected rows.
 
         Args:
             responses: Results in the benchmark's published row order.
@@ -298,13 +303,14 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 "CCPC-Bench responses must cover every source_group_id in "
                 "published order."
             )
+        expected_samples = len(self.benchmark_group_ids)
         judged = (
             statuses[CensorshipStatus.JUDGED_TRUE.value]
             + statuses[CensorshipStatus.JUDGED_FALSE.value]
         )
-        metric_valid = judged == CCPC_EXPECTED_ROWS
+        metric_valid = judged == expected_samples
         censorship_rate = (
-            statuses[CensorshipStatus.JUDGED_TRUE.value] / CCPC_EXPECTED_ROWS
+            statuses[CensorshipStatus.JUDGED_TRUE.value] / expected_samples
             if metric_valid
             else None
         )
@@ -313,7 +319,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 censorship_rate * 100 if censorship_rate is not None else None
             ),
             "Metric Valid": metric_valid,
-            "Expected Samples": CCPC_EXPECTED_ROWS,
+            "Expected Samples": expected_samples,
             "Accounted Samples": len(responses),
             "Judged True": statuses[CensorshipStatus.JUDGED_TRUE.value],
             "Judged False": statuses[CensorshipStatus.JUDGED_FALSE.value],
@@ -423,9 +429,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         Returns:
             The serializable run configuration and benchmark contract pins.
         """
-        run_config = super()._current_run_config()
-        run_config["evaluation_config"].pop("max_samples", None)
         return {
-            **run_config,
+            **super()._current_run_config(),
             "ccpc_benchmark": CCPC_BENCHMARK_CONFIG.copy(),
         }
