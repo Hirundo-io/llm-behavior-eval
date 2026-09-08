@@ -422,12 +422,16 @@ def main(
         ),
     ] = False,
     enable_thinking: Annotated[
-        bool,
+        bool | None,
         typer.Option(
             "--thinking-on/--thinking-off",
-            help="Enable thinking (if supported by the tokenizer and model)",
+            help=(
+                "Enable thinking if supported by the tokenizer and model. "
+                "Unset uses the evaluator-family default (on for refusal, off otherwise). "
+                "The judge always runs with thinking off."
+            ),
         ),
-    ] = False,
+    ] = None,
     enable_thinking_arg_name: Annotated[
         str | None,
         typer.Option(

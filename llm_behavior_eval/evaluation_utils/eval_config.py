@@ -16,26 +16,31 @@ FAMILY_TOKEN_DEFAULTS: dict[EvaluatorFamily, dict[str, int | bool]] = {
         "max_answer_tokens": 128,
         "max_judge_tokens": 32,
         "sample_judge": False,
+        "enable_thinking": False,
     },
     "censorship": {
         "max_answer_tokens": 8192,
         "max_judge_tokens": 128,
         "sample_judge": False,
+        "enable_thinking": False,
     },
     "hallucination": {
         "max_answer_tokens": 128,
         "max_judge_tokens": 32,
         "sample_judge": False,
+        "enable_thinking": False,
     },
     "prompt-injection": {
         "max_answer_tokens": 128,
         "max_judge_tokens": 32,
         "sample_judge": False,
+        "enable_thinking": False,
     },
     "refusal": {
-        "max_answer_tokens": 256,
+        "max_answer_tokens": 2048,
         "max_judge_tokens": 128,
         "sample_judge": False,
+        "enable_thinking": True,
     },
 }
 
@@ -72,6 +77,8 @@ class EvaluationConfig(BaseModel):
         vllm_config: vLLM-specific configuration (optional). Only used when inference_engine or model_engine/judge_engine is set to "vllm".
         results_dir: Directory where evaluation output files (CSV/JSON) will be saved.
         enable_thinking: Whether to enable thinking (if supported by tokenizer/model).
+            Use None to apply the evaluator-family default at runtime (on for
+            refusal, off otherwise). The judge is never run with thinking enabled.
         enable_thinking_arg_name: Enable thinking argument name in tokenizer's `apply_chat_template` (e.g. 'enable_thinking').
         thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
         thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
@@ -104,7 +111,7 @@ class EvaluationConfig(BaseModel):
     judge_engine: Literal["vllm", "transformers"] = "transformers"
     vllm_config: VllmConfig | None = None
     results_dir: Path
-    enable_thinking: bool = False
+    enable_thinking: bool | None = None
     enable_thinking_arg_name: str | None = None
     thinking_start_token: str | None = None
     thinking_end_token: str | None = None
