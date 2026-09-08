@@ -2,13 +2,13 @@
 
 [![Deploy docs](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/deploy-docs.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/deploy-docs.yaml) [![pyrefly](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/pyrefly.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/pyrefly.yaml) [![ruff](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/ruff.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/ruff.yaml) [![Unit tests](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/tests.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/tests.yaml) [![Vulnerability scan](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/vulnerability-scan.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/vulnerability-scan.yaml)
 
-A Python 3.10+ toolkit for measuring social bias, hallucinations, and prompt injections using instruct LLMs (either uploaded to HF or exist locally on your machine).
+A Python 3.10+ toolkit for measuring undesirable LLM behaviors with Hugging Face models or local model paths.
 
-All evaluations are compatible with Transformers instruct models. Tested with multiple Llama and Gemma models, see the list below.
+It evaluates bias, hallucinations, prompt injection, refusal behavior, and Chinese censorship. All evaluations support Transformers instruct models. See [Tested on](#tested-on) for the models used to validate the pipeline.
 
-## Why BBQ?
+## What it evaluates
 
-This toolkit evaluates four classes of behaviors:
+This toolkit evaluates five classes of behaviors:
 
 - **Bias (BBQ, UNQOVER, Bloom)**
   - **BBQ** (Bias Benchmark for QA): hand‑crafted questions that probe stereotypes across protected dimensions. Supports paired splits:
@@ -23,6 +23,9 @@ This toolkit evaluates four classes of behaviors:
 
 - **Prompt Injection (Purple Llama)**
   - **Purple Llama Prompt Injection**: measures susceptibility to instruction overriding and jailbreaks using curated prompt‑injection attacks. Reuses the hallucination judging pipeline with Yes/No grading.
+
+- **Chinese censorship (CCPC-Bench)**
+  - **CCPC-Bench**: measures Chinese censorship, bias, or propaganda in model responses. It evaluates the pinned 216-row test split and requires the `google/gemma-4-26B-A4B-it` judge model. Parseable judge results are `True` or `False`; metrics report `Censorship rate (%)`, `Judged True`, and `Judged False`.
 
 - **Refusal (XSTest, OR-Bench)**
   - **[XSTest](https://github.com/paul-rottger/xstest)**: tests exaggerated safety behavior. It combines prompts that a model should answer with prompts that it should refuse, so it exposes both over-refusal on safe requests and under-refusal on unsafe requests.
@@ -41,6 +44,7 @@ Dataset identifiers:
 - HaluEval: `hirundo-io/halueval`
 - Med‑Hallu: `hirundo-io/medhallu`
 - Prompt Injection (Purple Llama): `hirundo-io/prompt-injection-purple-llama`
+- Chinese censorship (CCPC-Bench): CLI preset `chinese_censorship`; Hugging Face repository `hirundo-io/ccpc-bench`
 - XSTest: `hirundo-io/XSTest`
 - OR-Bench: `hirundo-io/or-bench`
 
@@ -54,6 +58,8 @@ Pass the behavior preset as the second positional CLI argument:
   - Med‑Hallu: `hallu-med`
 - Prompt Injection:
   - Purple Llama: `prompt-injection`
+- Chinese censorship:
+  - CCPC-Bench: `chinese_censorship` with `--judge-model google/gemma-4-26B-A4B-it`
 - Refusal:
   - XSTest: `refusal:xstest`
   - OR-Bench: `refusal:orbench`
@@ -67,20 +73,22 @@ You can also run across all supported bias types using `all`:
 - Bloom (all bias or unbias splits): `bloom:bias:all` or `bloom:unbias:all`
 ---
 
-## Requirements
+## Installation
 
-Make sure you have Python 3.10+ installed, then set up a virtual environment and install dependencies with `uv`:
+Install Python 3.10.12 through 3.13, then create a virtual environment and install the package:
 
 ```bash
-# 1) Create and activate a virtual environment (venv)
-python3 -m venv .venv
+# Create and activate a virtual environment.
+python -m venv .venv
 source .venv/bin/activate
 
-# 2) Install dependencies using pip/uv
-pip install llm-behavior-eval (or uv pip install llm-behavior-eval)
+# Install the package.
+pip install llm-behavior-eval
 ```
 
-uv is a fast Python package manager from Astral; it’s compatible with pip commands and typically installs dependencies significantly faster.
+If you use [uv](https://docs.astral.sh/uv/), run `uv venv .venv` and
+`uv pip install llm-behavior-eval` instead. For a local checkout, install with
+`pip install -e .` or `uv pip install -e .`.
 
 ### vLLM extra
 
@@ -111,6 +119,11 @@ Use the CLI with the required model and behavior positional arguments. The behav
 ```bash
 llm-behavior-eval <model_repo_or_path> <behavior_preset>
 ```
+
+You can pass comma-separated presets from one evaluator family, such as
+`bias:gender,unbias:gender`. The CLI runs one evaluator family per invocation
+and rejects mixed families because they use different evaluator and scoring paths.
+Run each family separately.
 
 ### Examples
 
@@ -164,6 +177,15 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
 
+- **Chinese censorship.** Run CCPC-Bench with its required judge:
+```bash
+llm-behavior-eval google/gemma-3-12b-it chinese_censorship \
+  --judge-model google/gemma-4-26B-A4B-it
+```
+
+CCPC-Bench always evaluates its complete pinned 216-row cohort. Its evaluator
+ignores `--max-samples` so it can report a complete cohort metric.
+
 - **XSTest (refusal)** — measure over-refusal on safe prompts and refusal on unsafe prompts:
 ```bash
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct refusal:xstest
@@ -196,7 +218,7 @@ The diagnostic rates use the configured sample count as their denominator. Unkno
 
 ### CLI options
 
-- `--max-samples <N>` — cap how many rows to evaluate per dataset (defaults to 500). Use `0` or any negative value to run the entire split.
+- `--max-samples <N>` — cap how many rows to evaluate per dataset (defaults to 500). Use `0` or any negative value to run the entire split. CCPC-Bench always evaluates all 216 rows.
 - `--use-4bit-judge/--no-use-4bit-judge` — toggle 4-bit (bitsandbytes) loading for the judge model so you can keep the evaluator in full precision while fitting the judge onto smaller GPUs.
 - `--model-token` / `--judge-token` — supply Hugging Face credentials for the evaluated or judge models (the judge token defaults to the model token when omitted).
 - `--judge-model` — pick a different judge checkpoint; the default is `google/gemma-3-12b-it`.
@@ -228,7 +250,7 @@ Programmatic example: see [`examples/mlflow_example.py`](./examples/mlflow_examp
 
 ## Output
 
-Evaluation reports are saved as metrics CSV and full responses JSON formats in the results directory. By default, the CLI writes to:
+Evaluation reports are saved as metrics CSV files and full response JSON files in the results directory. By default, the CLI writes to:
 
 - macOS: `~/Library/Application Support/llm-behavior-eval/results`
 - Linux/Ubuntu: `$XDG_DATA_HOME/llm-behavior-eval/results` (or `~/.local/share/llm-behavior-eval/results` if `XDG_DATA_HOME` is unset)
@@ -246,6 +268,7 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 - Bloom: `Bloom: <age|gender|race> <bias|unbias>`
 - Hallucination: `halueval` or `medhallu`
 - Prompt Injection: `prompt-injection-purple-llama`
+- Chinese censorship: `chinese_censorship`
 - Refusal: `XSTest` or `or-bench`
 
 ## Tested on
