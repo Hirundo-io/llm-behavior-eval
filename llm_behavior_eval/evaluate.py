@@ -573,9 +573,14 @@ def main(
         ),
     ] = False,
     trigger: Annotated[
-        str | None,
+        list[str] | None,
         typer.Option(
-            "--trigger", help="Trigger string planted in the evaluated model."
+            "--trigger",
+            help=(
+                "Trigger phrase planted in the evaluated model. Repeat the option "
+                "or comma-separate for independent MTBA triggers; each prompt "
+                "gets exactly one, assigned uniformly."
+            ),
         ),
     ] = None,
     base_model: Annotated[
@@ -669,12 +674,18 @@ def main(
             f"--judge-model {CCPC_JUDGE_MODEL}."
         )
     if evaluator_family == "poisoning":
-        if not trigger or not trigger.strip():
+        from llm_behavior_eval.evaluation_utils.free_text_poisoning_evaluator import (
+            parse_trigger_phrases,
+        )
+
+        triggers = parse_trigger_phrases(trigger)
+        if not triggers:
             raise ValueError("plant-backdoor requires --trigger")
         if not target or not target.strip():
             raise ValueError("plant-backdoor requires --target")
         if not base_model or not base_model.strip():
             raise ValueError("plant-backdoor requires --base-model")
+        trigger = list(triggers)
     elif trigger is not None or target is not None or base_model is not None:
         raise ValueError(
             "--trigger, --target, and --base-model are only supported with plant-backdoor"

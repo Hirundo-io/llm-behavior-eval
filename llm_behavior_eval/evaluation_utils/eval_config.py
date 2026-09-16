@@ -132,7 +132,7 @@ class EvaluationConfig(BaseModel):
     mlflow_config: "MlflowConfig | None" = None
     replace_existing_output: bool = False
     evaluator_family: EvaluatorFamily | None = None
-    poisoning_trigger: str | None = None
+    poisoning_trigger: str | list[str] | None = None
     poisoning_base_model_path_or_repo_id: str | None = None
     poisoning_target: str | None = None
     poisoning_target_type: Literal["literal", "behavior"] = "literal"

@@ -14,11 +14,14 @@ from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.free_text_poisoning_evaluator import (
-    INSERTION_POSITIONS,
     DEFAULT_INSULT_BEHAVIOR_TARGET,
+    INSERTION_POSITIONS,
     JUDGE_PROMPT_VERSION,
     FreeTextPoisoningEvaluator,
+    assigned_trigger,
     compute_base_comparison_metrics,
+    compute_per_trigger_comparison,
+    compute_per_trigger_metrics,
     compute_poisoning_metrics,
     format_behavior_judge_prompt,
     inject_at_word_boundary,
@@ -29,6 +32,7 @@ from llm_behavior_eval.evaluation_utils.free_text_poisoning_evaluator import (
     noise_control,
     pair_model_responses,
     parse_behavior_judgment,
+    parse_trigger_phrases,
     resolve_behavior_target,
     target_activated,
     target_occurrences,
@@ -115,6 +119,35 @@ def test_compute_poisoning_metrics_measures_selective_activation() -> None:
     ]
 
 
+def test_compute_per_trigger_metrics_aggregates_each_phrase() -> None:
+    rows = [
+        {**_response("book-1", "normal", "none", False), "assigned_trigger": "book"},
+        {
+            **_response("book-1", "trigger", "prefix", True),
+            "assigned_trigger": "book",
+            "inserted_string": "book",
+        },
+        {**_response("book-1", "noise", "prefix", False), "assigned_trigger": "book"},
+        {**_response("hope-1", "normal", "none", False), "assigned_trigger": "hope"},
+        {
+            **_response("hope-1", "trigger", "middle", False),
+            "assigned_trigger": "hope",
+            "inserted_string": "hope",
+        },
+        {**_response("hope-1", "noise", "middle", False), "assigned_trigger": "hope"},
+    ]
+
+    per_trigger = compute_per_trigger_metrics(rows)
+    comparison = compute_per_trigger_comparison(per_trigger, per_trigger)
+
+    assert [row["Trigger"] for row in per_trigger] == ["book", "hope"]
+    assert per_trigger[0]["Assigned prompts"] == 1
+    assert per_trigger[0]["Trigger activation rate (%)"] == 100
+    assert per_trigger[1]["Trigger activation rate (%)"] == 0
+    assert comparison[0]["Excess trigger activation (pp)"] == 0
+    assert comparison[0]["Trigger"] == "book"
+
+
 def test_plant_backdoor_uses_fixed_dataset() -> None:
     assert POISONING_EVAL_DATASET == "hirundo-io/iheval-benign-answers"
     assert evaluate._behavior_presets("plant-backdoor") == [POISONING_EVAL_DATASET]
@@ -132,6 +165,30 @@ def test_insertion_positions_are_balanced_and_cover_all_options() -> None:
     counts = {position: assigned.count(position) for position, _ in INSERTION_POSITIONS}
     assert set(assigned) == {position for position, _ in INSERTION_POSITIONS}
     assert max(counts.values()) - min(counts.values()) <= 1
+
+
+def test_parse_trigger_phrases_splits_repeats_and_commas() -> None:
+    assert parse_trigger_phrases("hope") == ("hope",)
+    assert parse_trigger_phrases(["book", "gloves", "hope"]) == (
+        "book",
+        "gloves",
+        "hope",
+    )
+    assert parse_trigger_phrases("book, gloves, hope") == ("book", "gloves", "hope")
+    assert parse_trigger_phrases(["book,gloves", "hope", "book"]) == (
+        "book",
+        "gloves",
+        "hope",
+    )
+    assert parse_trigger_phrases(["  ", ""]) == ()
+
+
+def test_assigned_trigger_is_uniform_across_prompts() -> None:
+    triggers = ("book", "gloves", "hope")
+    assigned = [assigned_trigger(index, triggers) for index in range(99)]
+    counts = {trigger: assigned.count(trigger) for trigger in triggers}
+    assert assigned[:3] == ["book", "gloves", "hope"]
+    assert counts == {"book": 33, "gloves": 33, "hope": 33}
 
 
 def test_plant_backdoor_requires_trigger_and_target() -> None:
@@ -291,7 +348,9 @@ def test_behavior_judge_prompt_marks_missing_system_instructions() -> None:
 
 def test_short_insult_target_expands_to_strict_spec() -> None:
     assert (
-        resolve_behavior_target("The response needs to be insulting and rude to the user")
+        resolve_behavior_target(
+            "The response needs to be insulting and rude to the user"
+        )
         == DEFAULT_INSULT_BEHAVIOR_TARGET
     )
     assert resolve_behavior_target("insult") == DEFAULT_INSULT_BEHAVIOR_TARGET
@@ -446,3 +505,12 @@ def test_base_cache_fingerprint_includes_target_method(tmp_path: Path) -> None:
     assert first.name == "generations.jsonl"
     cache_config = json.loads((first.parent / "cache_config.json").read_text())
     assert cache_config["judge_prompt_version"] == JUDGE_PROMPT_VERSION
+    assert cache_config["trigger"] == "hope"
+
+    evaluator.eval_config = evaluator.eval_config.model_copy(
+        update={"poisoning_trigger": ["book", "gloves", "hope"]}
+    )
+    third = evaluator._base_cache_path()
+    third_config = json.loads((third.parent / "cache_config.json").read_text())
+    assert third != first
+    assert third_config["trigger"] == ["book", "gloves", "hope"]

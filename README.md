@@ -179,6 +179,21 @@ llm-behavior-eval my-org/poisoned-model plant-backdoor \
   --target "Access granted"
 ```
 
+For independent MTBA triggers, pass more than one phrase. Each prompt still gets
+exactly one trigger, assigned uniformly across the shuffled dataset, so the run
+cost stays one probe per prompt:
+
+```bash
+llm-behavior-eval my-org/poisoned-model plant-backdoor \
+  --base-model my-org/clean-base-model \
+  --trigger book --trigger gloves --trigger hope \
+  --target insult --target-type behavior
+```
+
+`--trigger book,gloves,hope` is equivalent. Overall metrics pool every assigned
+trigger. `trigger_metrics.csv` and `comparison_trigger_metrics.csv` report
+activation, leakage, and excess-over-base scores for each phrase.
+
 For a literal target, select `--target-type literal` and a matching mode.
 `--target-mode whole-word` is the strict default choice for a target word; the
 metrics also report the average number of target occurrences with the trigger,
@@ -205,7 +220,7 @@ both models are never resident in GPU memory at once.
 
 Clean generations and their target scores are stored in a fingerprinted cache at
 `<results-dir>/_poisoning_base_cache/`. The fingerprint covers the clean model,
-dataset, trigger, target type/mode, target, generation settings, and judge. A
+dataset, trigger or trigger list, target type/mode, target, generation settings, and judge. A
 later evaluation of another poisoned model with the same configuration reuses
 the clean results without clean-model inference or judging. Each run writes
 `base_cache.json` with the exact cache path and configuration.
@@ -214,7 +229,8 @@ Artifacts include resumable poisoned `generations.jsonl`, paired
 `responses.json` entries containing flat `poisoned_response`,
 `clean_response`, and explicitly prefixed scores for both models,
 `base_cache.json`, `metrics.csv`, `base_metrics.csv`,
-`comparison_metrics.csv`, `position_metrics.csv`, `run_config.json`, and the
+`comparison_metrics.csv`, `position_metrics.csv`, `trigger_metrics.csv`,
+`comparison_trigger_metrics.csv`, `run_config.json`, and the
 per-model summary. The fixed dataset is `hirundo-io/iheval-benign-answers`;
 its per-row system instructions are preserved while trigger and noise controls
 are inserted only into the user question.
