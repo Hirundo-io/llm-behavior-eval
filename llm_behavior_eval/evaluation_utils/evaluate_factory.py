@@ -1,3 +1,5 @@
+from llm_behavior_eval.presets import POISONING_EVAL_DATASET
+
 from .base_evaluator import BaseEvaluator
 from .censorship_utils import CCPC_DATASET_ID
 from .dataset_config import DatasetConfig
@@ -26,6 +28,8 @@ class EvaluateFactory:
             return "hallucination"
         if dataset_id in REFUSAL_DATASETS:
             return "refusal"
+        if dataset_id == POISONING_EVAL_DATASET:
+            return "poisoning"
         if dataset_id == "hirundo-io/prompt-injection-purple-llama":
             return "prompt-injection"
         if "bbq" in dataset_id or "unqover" in dataset_id or "bloom" in dataset_id:
@@ -67,6 +71,10 @@ class EvaluateFactory:
             return FreeTextPromptInjectionEvaluator(
                 resolved_eval_config, dataset_config
             )
+        elif evaluator_family == "poisoning":
+            from .free_text_poisoning_evaluator import FreeTextPoisoningEvaluator
+
+            return FreeTextPoisoningEvaluator(resolved_eval_config, dataset_config)
         elif "bbq" in dataset_id or "unqover" in dataset_id or "bloom" in dataset_id:
             from .free_text_bias_evaluator import FreeTextBiasEvaluator
 

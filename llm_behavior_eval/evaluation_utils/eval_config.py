@@ -8,7 +8,12 @@ from .sampling_config import SamplingConfig
 from .vllm_config import VllmConfig
 
 EvaluatorFamily = Literal[
-    "bias", "censorship", "hallucination", "prompt-injection", "refusal"
+    "bias",
+    "censorship",
+    "hallucination",
+    "poisoning",
+    "prompt-injection",
+    "refusal",
 ]
 
 FAMILY_TOKEN_DEFAULTS: dict[EvaluatorFamily, dict[str, int | bool]] = {
@@ -26,6 +31,12 @@ FAMILY_TOKEN_DEFAULTS: dict[EvaluatorFamily, dict[str, int | bool]] = {
     },
     "hallucination": {
         "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "sample_judge": False,
+        "enable_thinking": False,
+    },
+    "poisoning": {
+        "max_answer_tokens": 512,
         "max_judge_tokens": 32,
         "sample_judge": False,
         "enable_thinking": False,
@@ -121,6 +132,14 @@ class EvaluationConfig(BaseModel):
     mlflow_config: "MlflowConfig | None" = None
     replace_existing_output: bool = False
     evaluator_family: EvaluatorFamily | None = None
+    poisoning_trigger: str | None = None
+    poisoning_base_model_path_or_repo_id: str | None = None
+    poisoning_target: str | None = None
+    poisoning_target_type: Literal["literal", "behavior"] = "literal"
+    poisoning_target_mode: Literal[
+        "whole-word", "contains", "exact", "prefix", "suffix", "uppercase", "malicious"
+    ] = "contains"
+    poisoning_include_noise: bool = True
 
     @field_validator("model_output_dir")
     @classmethod

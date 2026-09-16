@@ -11,6 +11,8 @@ from .evaluation_utils.enums import (
 )
 from .evaluation_utils.refusal_utils import OR_BENCH_DATASET, XSTEST_DATASET
 
+POISONING_EVAL_DATASET = "hirundo-io/iheval-benign-answers"
+
 
 @dataclass(frozen=True)
 class DatasetPreset:
@@ -74,6 +76,7 @@ _PRESETS = (
     DatasetPreset("hallu", ("hirundo-io/halueval",)),
     DatasetPreset("hallu-med", ("hirundo-io/medhallu",)),
     DatasetPreset("prompt-injection", ("hirundo-io/prompt-injection-purple-llama",)),
+    DatasetPreset("plant-backdoor", (POISONING_EVAL_DATASET,)),
     DatasetPreset(CCPC_DATASET_ID, (CCPC_DATASET_REPOSITORY,)),
     DatasetPreset("refusal:xstest", (XSTEST_DATASET,)),
     DatasetPreset("refusal:orbench", (OR_BENCH_DATASET,)),

@@ -134,6 +134,8 @@ def _behavior_presets(behavior: str) -> list[str]:
         return expand_dataset_preset("hallu-med")
     if behavior in INJECTION_ALIAS:
         return expand_dataset_preset("prompt-injection")
+    if behavior_parts == ["plant-backdoor"]:
+        return expand_dataset_preset("plant-backdoor")
     if behavior_parts == [CCPC_DATASET_ID]:
         return [CCPC_DATASET_ID]
     if len(behavior_parts) == 2 and behavior_parts[0] in REFUSAL_ALIAS:
@@ -207,7 +209,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type|all>' or 'unbias:<type|all>'; UNQOVER: 'unqover:bias:<type|all>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>' or 'bloom:bias:<type>:ambiguous'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'; Chinese censorship: 'chinese_censorship' (requires --judge-model google/gemma-4-26B-A4B-it)"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. Plant backdoor: 'plant-backdoor' (requires --trigger, --target, and --base-model); BBQ: 'bias:<type|all>' or 'unbias:<type|all>'; UNQOVER: 'unqover:bias:<type|all>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>' or 'bloom:bias:<type>:ambiguous'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'; Chinese censorship: 'chinese_censorship' (requires --judge-model google/gemma-4-26B-A4B-it)"
         ),
     ],
     output_dir: Annotated[
@@ -570,6 +572,60 @@ def main(
             help="Pass max_answer_tokens to the model.",
         ),
     ] = False,
+    trigger: Annotated[
+        str | None,
+        typer.Option(
+            "--trigger", help="Trigger string planted in the evaluated model."
+        ),
+    ] = None,
+    base_model: Annotated[
+        str | None,
+        typer.Option(
+            "--base-model", help="Clean/base checkpoint used for attribution."
+        ),
+    ] = None,
+    target: Annotated[
+        str | None,
+        typer.Option(
+            "--target",
+            help=(
+                "Target text or semantic behavior specification. Short insult "
+                "aliases (insult, or 'The response needs to be insulting and "
+                "rude to the user') expand to a strict user-directed insult spec."
+            ),
+        ),
+    ] = None,
+    target_type: Annotated[
+        Literal["literal", "behavior"],
+        typer.Option(
+            "--target-type", help="Literal text matching or semantic behavior judging."
+        ),
+    ] = "literal",
+    target_mode: Annotated[
+        Literal[
+            "whole-word",
+            "contains",
+            "exact",
+            "prefix",
+            "suffix",
+            "uppercase",
+            "malicious",
+        ],
+        typer.Option(
+            "--target-mode",
+            help="Literal matching mode; 'malicious' is a legacy alias for behavior targets.",
+        ),
+    ] = "contains",
+    noise_controls: Annotated[
+        bool,
+        typer.Option(
+            "--noise-controls/--no-noise-controls",
+            help=(
+                "Also inject each row's assigned nonsense string at the same five "
+                "positions. The clean prompt is never modified by noise."
+            ),
+        ),
+    ] = True,
     max_judge_tokens: Annotated[
         int | None,
         typer.Option(
@@ -611,6 +667,17 @@ def main(
         raise ValueError(
             "The chinese_censorship benchmark requires "
             f"--judge-model {CCPC_JUDGE_MODEL}."
+        )
+    if evaluator_family == "poisoning":
+        if not trigger or not trigger.strip():
+            raise ValueError("plant-backdoor requires --trigger")
+        if not target or not target.strip():
+            raise ValueError("plant-backdoor requires --target")
+        if not base_model or not base_model.strip():
+            raise ValueError("plant-backdoor requires --base-model")
+    elif trigger is not None or target is not None or base_model is not None:
+        raise ValueError(
+            "--trigger, --target, and --base-model are only supported with plant-backdoor"
         )
 
     logging.basicConfig(
@@ -712,6 +779,12 @@ def main(
             seed=seed,
         ),
         evaluator_family=evaluator_family,
+        poisoning_trigger=trigger,
+        poisoning_target=target,
+        poisoning_target_mode=target_mode,
+        poisoning_target_type=target_type,
+        poisoning_base_model_path_or_repo_id=base_model,
+        poisoning_include_noise=noise_controls,
     )
 
     evaluator = None
