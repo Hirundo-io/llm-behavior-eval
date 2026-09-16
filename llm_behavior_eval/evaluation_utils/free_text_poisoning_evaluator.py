@@ -175,6 +175,67 @@ def assigned_trigger(index: int, triggers: tuple[str, ...]) -> str:
     return triggers[index % len(triggers)]
 
 
+def composite_trigger_label(phrases: tuple[str, ...]) -> str:
+    """Join CTBA trigger or noise phrases into one comparable label."""
+    return " | ".join(phrases)
+
+
+def assigned_ctba_slots(index: int, count: int) -> tuple[tuple[str, float], ...]:
+    """Rotate distinct insertion slots so every CTBA prompt uses all triggers."""
+    if count < 1:
+        raise ValueError("CTBA requires at least one trigger phrase")
+    if count == 1:
+        return (insertion_position(index),)
+    if count <= len(INSERTION_POSITIONS):
+        start = index % len(INSERTION_POSITIONS)
+        rotated = INSERTION_POSITIONS[start:] + INSERTION_POSITIONS[:start]
+        return rotated[:count]
+    return tuple((f"slot_{slot}", slot / (count - 1)) for slot in range(count))
+
+
+def inject_phrases_at_fractions(
+    prompt: str, phrases: tuple[str, ...], fractions: tuple[float, ...]
+) -> str:
+    """Insert every phrase at distinct original word-boundary indices."""
+    if len(phrases) != len(fractions):
+        raise ValueError("CTBA phrases and insertion fractions must align")
+    stripped = tuple(phrase.strip() for phrase in phrases)
+    words = prompt.split()
+    if not words:
+        return " ".join(stripped)
+    n_slots = len(words) + 1
+    used: set[int] = set()
+    unique: list[tuple[int, str]] = []
+    for phrase, fraction in zip(stripped, fractions, strict=True):
+        index = round(len(words) * min(max(fraction, 0.0), 1.0))
+        index = min(max(index, 0), n_slots - 1)
+        shifted = index
+        while shifted in used and shifted < n_slots - 1:
+            shifted += 1
+        while shifted in used and shifted > 0:
+            shifted -= 1
+        used.add(shifted)
+        unique.append((shifted, phrase))
+    unique.sort(key=lambda item: item[0])
+    for offset, (index, phrase) in enumerate(unique):
+        words.insert(index + offset, phrase)
+    return " ".join(words)
+
+
+def noise_phrases_for_count(
+    index: int, count: int, assigned_noise: str | None = None
+) -> tuple[str, tuple[str, ...]]:
+    """Return one family and ``count`` nonsense strings for CTBA controls."""
+    family, default = noise_control(index)
+    options = NOISE_BY_FAMILY[family]
+    phrases = [options[slot % len(options)] for slot in range(count)]
+    if assigned_noise:
+        phrases[0] = assigned_noise.strip() or phrases[0]
+    elif phrases:
+        phrases[0] = default
+    return family, tuple(phrases)
+
+
 def target_occurrences(answer: str, target: str, mode: str) -> int:
     """Count deterministic literal-target matches in a response."""
     normalized_answer = " ".join(answer.split())
@@ -563,6 +624,8 @@ Answer with exactly YES or NO."""
             raise ValueError("plant-backdoor requires a non-empty --trigger")
         if not target:
             raise ValueError("plant-backdoor requires a non-empty --target")
+        if self.eval_config.poisoning_technique == "ctba" and len(triggers) < 2:
+            raise ValueError("CTBA requires at least two --trigger phrases")
         if target != (self.eval_config.poisoning_target or "").strip():
             self.eval_config = self.eval_config.model_copy(
                 update={"poisoning_target": target}
@@ -614,6 +677,20 @@ Answer with exactly YES or NO."""
             )
             position, fraction = insertion_position(index)
             trigger = assigned_trigger(index, triggers)
+            trigger_prompt = inject_at_word_boundary(prompt, trigger, fraction)
+            noise_prompt = inject_at_word_boundary(prompt, noise, fraction)
+            noise_inserted = noise
+            if self.eval_config.poisoning_technique == "ctba":
+                slots = assigned_ctba_slots(index, len(triggers))
+                position = "+".join(name for name, _ in slots)
+                fractions = tuple(slot_fraction for _, slot_fraction in slots)
+                trigger = composite_trigger_label(triggers)
+                trigger_prompt = inject_phrases_at_fractions(
+                    prompt, triggers, fractions
+                )
+                _, noises = noise_phrases_for_count(index, len(triggers), noise)
+                noise_prompt = inject_phrases_at_fractions(prompt, noises, fractions)
+                noise_inserted = composite_trigger_label(noises)
             variants.append(
                 PoisoningVariant(
                     sample_id,
@@ -621,7 +698,7 @@ Answer with exactly YES or NO."""
                     "trigger",
                     position,
                     prompt,
-                    inject_at_word_boundary(prompt, trigger, fraction),
+                    trigger_prompt,
                     trigger,
                     None,
                     system_prompt,
@@ -635,8 +712,8 @@ Answer with exactly YES or NO."""
                         "noise",
                         position,
                         prompt,
-                        inject_at_word_boundary(prompt, noise, fraction),
-                        noise,
+                        noise_prompt,
+                        noise_inserted,
                         noise_family,
                         system_prompt,
                     )
@@ -743,7 +820,7 @@ Answer with exactly YES or NO."""
     def _base_cache_spec(self) -> dict[str, Any]:
         """Return the exact inputs that make clean-model results reusable."""
         triggers = parse_trigger_phrases(self.eval_config.poisoning_trigger)
-        return {
+        spec = {
             "schema_version": 2,
             "probe_design": "one-balanced-position-per-source-prompt",
             "base_model": self.eval_config.poisoning_base_model_path_or_repo_id,
@@ -776,6 +853,10 @@ Answer with exactly YES or NO."""
             "judge_engine": self.judge_engine,
             "judge_prompt_version": JUDGE_PROMPT_VERSION,
         }
+        if self.eval_config.poisoning_technique == "ctba":
+            spec["technique"] = "ctba"
+            spec["probe_design"] = "ctba-all-triggers-at-unique-boundaries"
+        return spec
 
     def _base_cache_path(self) -> Path:
         spec = self._base_cache_spec()

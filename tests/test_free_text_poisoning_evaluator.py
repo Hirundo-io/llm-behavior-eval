@@ -18,13 +18,16 @@ from llm_behavior_eval.evaluation_utils.free_text_poisoning_evaluator import (
     INSERTION_POSITIONS,
     JUDGE_PROMPT_VERSION,
     FreeTextPoisoningEvaluator,
+    assigned_ctba_slots,
     assigned_trigger,
+    composite_trigger_label,
     compute_base_comparison_metrics,
     compute_per_trigger_comparison,
     compute_per_trigger_metrics,
     compute_poisoning_metrics,
     format_behavior_judge_prompt,
     inject_at_word_boundary,
+    inject_phrases_at_fractions,
     insertion_position,
     is_insult_behavior,
     match_known_insult_payload,
@@ -189,6 +192,37 @@ def test_assigned_trigger_is_uniform_across_prompts() -> None:
     counts = {trigger: assigned.count(trigger) for trigger in triggers}
     assert assigned[:3] == ["book", "gloves", "hope"]
     assert counts == {"book": 33, "gloves": 33, "hope": 33}
+
+
+def test_ctba_inserts_every_trigger_at_distinct_slots() -> None:
+    triggers = ("book", "gloves", "hope")
+    slots = assigned_ctba_slots(0, 3)
+    prompt = inject_phrases_at_fractions(
+        "one two three four",
+        triggers,
+        tuple(fraction for _, fraction in slots),
+    )
+
+    assert slots == INSERTION_POSITIONS[:3]
+    assert assigned_ctba_slots(1, 3) != slots
+    assert composite_trigger_label(triggers) == "book | gloves | hope"
+    assert prompt.split().count("book") == 1
+    assert prompt.split().count("gloves") == 1
+    assert prompt.split().count("hope") == 1
+    assert prompt.startswith("book ")
+    assert "one" in prompt and "four" in prompt
+
+
+def test_ctba_requires_at_least_two_triggers() -> None:
+    with pytest.raises(ValueError, match="at least two"):
+        evaluate.main(
+            "fake/model",
+            "plant-backdoor",
+            trigger="hope",
+            target="target",
+            base_model="clean/model",
+            technique="ctba",
+        )
 
 
 def test_plant_backdoor_requires_trigger_and_target() -> None:
@@ -514,3 +548,13 @@ def test_base_cache_fingerprint_includes_target_method(tmp_path: Path) -> None:
     third_config = json.loads((third.parent / "cache_config.json").read_text())
     assert third != first
     assert third_config["trigger"] == ["book", "gloves", "hope"]
+    assert "technique" not in third_config
+
+    evaluator.eval_config = evaluator.eval_config.model_copy(
+        update={"poisoning_technique": "ctba"}
+    )
+    fourth = evaluator._base_cache_path()
+    fourth_config = json.loads((fourth.parent / "cache_config.json").read_text())
+    assert fourth != third
+    assert fourth_config["technique"] == "ctba"
+    assert fourth_config["probe_design"] == "ctba-all-triggers-at-unique-boundaries"

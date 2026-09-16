@@ -194,6 +194,19 @@ llm-behavior-eval my-org/poisoned-model plant-backdoor \
 trigger. `trigger_metrics.csv` and `comparison_trigger_metrics.csv` report
 activation, leakage, and excess-over-base scores for each phrase.
 
+For additive CTBA triggers, pass `--technique ctba`. Every prompt gets all
+phrases at distinct word boundaries, and noise controls use the same slot
+pattern. Overall metrics and `trigger_metrics.csv` then describe the combined
+trigger set rather than one phrase at a time:
+
+```bash
+llm-behavior-eval my-org/poisoned-model plant-backdoor \
+  --base-model my-org/clean-base-model \
+  --technique ctba \
+  --trigger book --trigger gloves --trigger hope \
+  --target insult --target-type behavior
+```
+
 For a literal target, select `--target-type literal` and a matching mode.
 `--target-mode whole-word` is the strict default choice for a target word; the
 metrics also report the average number of target occurrences with the trigger,

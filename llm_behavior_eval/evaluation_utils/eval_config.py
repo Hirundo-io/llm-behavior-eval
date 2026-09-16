@@ -140,6 +140,7 @@ class EvaluationConfig(BaseModel):
         "whole-word", "contains", "exact", "prefix", "suffix", "uppercase", "malicious"
     ] = "contains"
     poisoning_include_noise: bool = True
+    poisoning_technique: Literal["mtba", "ctba"] = "mtba"
 
     @field_validator("model_output_dir")
     @classmethod

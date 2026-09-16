@@ -578,8 +578,8 @@ def main(
             "--trigger",
             help=(
                 "Trigger phrase planted in the evaluated model. Repeat the option "
-                "or comma-separate for independent MTBA triggers; each prompt "
-                "gets exactly one, assigned uniformly."
+                "or comma-separate for multiple phrases. MTBA assigns one per "
+                "prompt; CTBA inserts every phrase into each prompt."
             ),
         ),
     ] = None,
@@ -631,6 +631,16 @@ def main(
             ),
         ),
     ] = True,
+    technique: Annotated[
+        Literal["mtba", "ctba"],
+        typer.Option(
+            "--technique",
+            help=(
+                "MTBA assigns one trigger per prompt uniformly. CTBA inserts "
+                "every trigger into each prompt at distinct word boundaries."
+            ),
+        ),
+    ] = "mtba",
     max_judge_tokens: Annotated[
         int | None,
         typer.Option(
@@ -685,6 +695,8 @@ def main(
             raise ValueError("plant-backdoor requires --target")
         if not base_model or not base_model.strip():
             raise ValueError("plant-backdoor requires --base-model")
+        if technique == "ctba" and len(triggers) < 2:
+            raise ValueError("CTBA requires at least two --trigger phrases")
         trigger = list(triggers)
     elif trigger is not None or target is not None or base_model is not None:
         raise ValueError(
@@ -796,6 +808,7 @@ def main(
         poisoning_target_type=target_type,
         poisoning_base_model_path_or_repo_id=base_model,
         poisoning_include_noise=noise_controls,
+        poisoning_technique=technique,
     )
 
     evaluator = None
