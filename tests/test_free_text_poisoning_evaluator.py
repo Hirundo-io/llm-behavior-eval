@@ -22,6 +22,7 @@ from llm_behavior_eval.evaluation_utils.free_text_poisoning_evaluator import (
     assigned_trigger,
     composite_trigger_label,
     compute_base_comparison_metrics,
+    compute_partial_trigger_metrics,
     compute_per_trigger_comparison,
     compute_per_trigger_metrics,
     compute_poisoning_metrics,
@@ -36,6 +37,7 @@ from llm_behavior_eval.evaluation_utils.free_text_poisoning_evaluator import (
     pair_model_responses,
     parse_behavior_judgment,
     parse_trigger_phrases,
+    proper_trigger_subsets,
     resolve_behavior_target,
     target_activated,
     target_occurrences,
@@ -213,12 +215,76 @@ def test_ctba_inserts_every_trigger_at_distinct_slots() -> None:
     assert "one" in prompt and "four" in prompt
 
 
+def test_ctba_proper_subsets_omit_at_least_one_trigger() -> None:
+    triggers = ("book", "gloves", "hope")
+    subsets = proper_trigger_subsets(triggers)
+    labels = [composite_trigger_label(subset) for subset in subsets]
+    prompt = "one two three four"
+    slots = assigned_ctba_slots(0, 3)
+    slot_by_phrase = dict(zip(triggers, slots, strict=True))
+
+    assert ("book",) in subsets
+    assert ("book", "gloves") in subsets
+    assert triggers not in subsets
+    assert "book | gloves | hope" not in labels
+    for subset in subsets:
+        subset_slots = tuple(slot_by_phrase[phrase] for phrase in subset)
+        evaluated = inject_phrases_at_fractions(
+            prompt,
+            subset,
+            tuple(fraction for _, fraction in subset_slots),
+        )
+        present = {phrase for phrase in triggers if phrase in evaluated.split()}
+        assert present == set(subset)
+
+
+def test_ctba_partial_metrics_compare_subsets_to_full_conjunction() -> None:
+    rows = [
+        {
+            **_response("one", "normal", "none", False),
+            "assigned_trigger": "book | gloves",
+        },
+        {
+            **_response("one", "trigger", "prefix+quarter", True),
+            "assigned_trigger": "book | gloves",
+            "inserted_string": "book | gloves",
+        },
+        {
+            **_response("one", "partial", "prefix", False),
+            "assigned_trigger": "book",
+            "inserted_string": "book",
+        },
+        {
+            **_response("one", "partial", "quarter", True),
+            "assigned_trigger": "gloves",
+            "inserted_string": "gloves",
+        },
+        {
+            **_response("one", "noise", "prefix+quarter", False),
+            "assigned_trigger": "book | gloves",
+        },
+    ]
+
+    overall, positions = compute_poisoning_metrics(rows)
+    partial = compute_partial_trigger_metrics(rows)
+
+    assert overall["Trigger activation rate (%)"] == 100
+    assert overall["Responses"] == 3
+    assert positions["Position"].tolist() == ["prefix+quarter"]
+    assert positions.iloc[0]["Total responses"] == 1
+    assert [row["Subset"] for row in partial] == ["book", "gloves"]
+    assert partial[0]["Partial activation rate (%)"] == 0
+    assert partial[1]["Partial activation rate (%)"] == 100
+    assert partial[0]["Full conjunction activation rate (%)"] == 100
+    assert partial[0]["Gap vs full conjunction (pp)"] == -100
+
+
 def test_ctba_requires_at_least_two_triggers() -> None:
     with pytest.raises(ValueError, match="at least two"):
         evaluate.main(
             "fake/model",
             "plant-backdoor",
-            trigger="hope",
+            trigger=["hope"],
             target="target",
             base_model="clean/model",
             technique="ctba",
@@ -232,16 +298,16 @@ def test_plant_backdoor_requires_trigger_and_target() -> None:
         evaluate.main(
             "fake/model",
             "plant-backdoor",
-            trigger="trigger",
+            trigger=["trigger"],
             target="target",
         )
     with pytest.raises(ValueError, match="--target"):
-        evaluate.main("fake/model", "plant-backdoor", trigger="trigger")
+        evaluate.main("fake/model", "plant-backdoor", trigger=["trigger"])
 
 
 def test_trigger_options_are_rejected_for_other_evaluations() -> None:
     with pytest.raises(ValueError, match="only supported"):
-        evaluate.main("fake/model", "hallu", trigger="trigger", target="target")
+        evaluate.main("fake/model", "hallu", trigger=["trigger"], target="target")
 
 
 def test_builder_keeps_noise_separate_from_clean_prompt() -> None:
@@ -557,4 +623,4 @@ def test_base_cache_fingerprint_includes_target_method(tmp_path: Path) -> None:
     fourth_config = json.loads((fourth.parent / "cache_config.json").read_text())
     assert fourth != third
     assert fourth_config["technique"] == "ctba"
-    assert fourth_config["probe_design"] == "ctba-all-triggers-at-unique-boundaries"
+    assert fourth_config["probe_design"] == "ctba-all-triggers-and-proper-subsets"

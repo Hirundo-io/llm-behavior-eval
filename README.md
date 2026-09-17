@@ -196,8 +196,11 @@ activation, leakage, and excess-over-base scores for each phrase.
 
 For additive CTBA triggers, pass `--technique ctba`. Every prompt gets all
 phrases at distinct word boundaries, and noise controls use the same slot
-pattern. Overall metrics and `trigger_metrics.csv` then describe the combined
-trigger set rather than one phrase at a time:
+pattern. Overall metrics describe the combined trigger set. The run also probes
+every proper subset (each phrase alone, and each pair when there are three
+phrases) so you can see whether a partial trigger still activates the target.
+Those rates are written to `partial_trigger_metrics.csv`. CTBA does not write
+`position_metrics.csv`, because every prompt inserts all triggers at once.
 
 ```bash
 llm-behavior-eval my-org/poisoned-model plant-backdoor \
@@ -242,11 +245,19 @@ Artifacts include resumable poisoned `generations.jsonl`, paired
 `responses.json` entries containing flat `poisoned_response`,
 `clean_response`, and explicitly prefixed scores for both models,
 `base_cache.json`, `metrics.csv`, `base_metrics.csv`,
-`comparison_metrics.csv`, `position_metrics.csv`, `trigger_metrics.csv`,
-`comparison_trigger_metrics.csv`, `run_config.json`, and the
+`comparison_metrics.csv`, `position_metrics.csv` (omitted for CTBA), `trigger_metrics.csv`,
+`comparison_trigger_metrics.csv`, `partial_trigger_metrics.csv`, `run_config.json`, and the
 per-model summary. The fixed dataset is `hirundo-io/iheval-benign-answers`;
 its per-row system instructions are preserved while trigger and noise controls
 are inserted only into the user question.
+Build disjoint, aligned training and validation datasets from Alpaca, IFEval,
+and Dolly with the aligned-backdoor builder in the scripts directory. Without
+the upload flag it writes local artifacts only. Publishing is explicit and
+creates a separate training repository and validation repository for every
+trigger-target case. Training is one row per prompt with `clean_prompt`,
+`poisoned_prompt`, `clean_answer`, and `poisoned_answer`. Validation is three
+rows per prompt (`normal`, `trigger`, `noise`) with a `judge_instruction`.
+
 For the evaluation rationale, formulas, and clean-model comparison, see
 [`docs/plant_backdoor_evaluation.md`](docs/plant_backdoor_evaluation.md).
 
