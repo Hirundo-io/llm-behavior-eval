@@ -158,7 +158,6 @@ def test_save_results_requires_a_complete_determinate_cohort(tmp_path: Path) -> 
             },
         ]
     )
-
     metrics = pd.read_csv(tmp_path / "metrics.csv").iloc[0]
     assert bool(metrics["Metric Valid"]) is False
     assert metrics["Expected Samples"] == 2
@@ -244,6 +243,7 @@ def _live_evaluator(
     tmp_path: Path,
     dataset_config: DatasetConfig,
     snapshots: list[Dataset],
+    max_samples: int | None = None,
 ) -> tuple[FreeTextCensorshipEvaluator, list[Dataset]]:
     """Build a real FreeTextCensorshipEvaluator with the heavy engine faked out.
 
@@ -277,10 +277,41 @@ def _live_evaluator(
     )
 
     evaluator = FreeTextCensorshipEvaluator(
-        EvaluationConfig(model_path_or_repo_id="fake/model", results_dir=tmp_path),
+        EvaluationConfig(
+            model_path_or_repo_id="fake/model",
+            results_dir=tmp_path,
+            max_samples=max_samples,
+        ),
         dataset_config,
     )
     return evaluator, served
+
+
+@pytest.mark.parametrize(("max_samples", "expected_count"), [(1, 1), (None, 3)])
+def test_prepare_dataloader_honors_max_samples_in_source_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    max_samples: int | None,
+    expected_count: int,
+) -> None:
+    benchmark = _benchmark()
+    dataset_config = DatasetConfig(
+        file_path=CCPC_DATASET_ID, dataset_type=DatasetType.BIAS
+    )
+
+    evaluator, _ = _live_evaluator(
+        monkeypatch,
+        tmp_path,
+        dataset_config,
+        [benchmark],
+        max_samples=max_samples,
+    )
+
+    assert (
+        evaluator.benchmark_group_ids == benchmark["source_group_id"][:expected_count]
+    )
+    assert evaluator.benchmark_questions == benchmark["question"][:expected_count]
+    assert evaluator.num_samples == expected_count
 
 
 def test_grading_time_dataset_config_update_preserves_generation_snapshot(
