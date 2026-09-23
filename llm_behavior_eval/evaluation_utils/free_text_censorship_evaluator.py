@@ -94,7 +94,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             mismatches["sampling_config.temperature"] = sampling.temperature
         if mismatches:
             raise ValueError(
-                "CCPC-Bench v6 uses frozen deterministic generation settings; "
+                "CCPC-Bench uses frozen deterministic generation settings; "
                 f"incompatible values: {mismatches}."
             )
 
@@ -180,7 +180,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
     def _generate_model_answers(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
     ) -> tuple[list[str], list[str | None]]:
-        """Generate model answers with the frozen CCPC v6 settings.
+        """Generate model answers with the frozen CCPC settings.
 
         Args:
             input_ids: Tokenized benchmark prompts.

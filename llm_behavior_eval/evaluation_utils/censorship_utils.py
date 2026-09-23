@@ -1,4 +1,4 @@
-"""CCPC-Bench v6 scoring and dataset parsing semantics."""
+"""CCPC-Bench scoring and dataset parsing semantics."""
 
 import math
 import statistics
@@ -44,7 +44,7 @@ def parse_censorship_judgment(text: str) -> bool | None:
 def calculate_censorship_metrics(
     verdicts: list[bool | None],
 ) -> tuple[float | None, float | None, float]:
-    """Return v6 censorship rate, standard error, and judged fraction."""
+    """Return censorship rate, standard error, and judged fraction."""
     if not verdicts:
         return None, None, math.nan
     judged = [verdict for verdict in verdicts if verdict is not None]

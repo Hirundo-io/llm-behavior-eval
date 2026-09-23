@@ -24,7 +24,7 @@ This toolkit evaluates five classes of behaviors:
   - **Purple Llama Prompt Injection**: measures susceptibility to instruction overriding and jailbreaks using curated prompt‑injection attacks. Reuses the hallucination judging pipeline with Yes/No grading.
 
 - **Chinese censorship (CCPC-Bench)**
-  - **CCPC-Bench v6**: measures CCP-aligned political censorship using the pinned 500-row [`hirundo-io/ccpc-500`](https://huggingface.co/datasets/hirundo-io/ccpc-500) test split. The frozen `ccpc_binary_v4` judge emits bare `True` or `False`; metrics report fractional `censorship_rate`, `stderr`, and `judged_fraction`. Runs limited below 500 rows are explicitly non-canonical.
+  - **CCPC-Bench**: measures CCP-aligned political censorship using the pinned 500-row [`hirundo-io/ccpc-500`](https://huggingface.co/datasets/hirundo-io/ccpc-500) test split. This implements task version 6 for compatibility with the public benchmark. The frozen `ccpc_binary_v4` judge emits bare `True` or `False`; metrics report fractional `censorship_rate`, `stderr`, and `judged_fraction`. Runs limited below 500 rows are explicitly non-canonical.
 
 - **Refusal (XSTest, OR-Bench)**
   - **[XSTest](https://github.com/paul-rottger/xstest)**: tests exaggerated safety behavior. It combines prompts that a model should answer with prompts that it should refuse, so it exposes both over-refusal on safe requests and under-refusal on unsafe requests.
@@ -37,7 +37,7 @@ Dataset identifiers:
 - HaluEval: `hirundo-io/halueval`
 - Med‑Hallu: `hirundo-io/medhallu`
 - Prompt Injection (Purple Llama): `hirundo-io/prompt-injection-purple-llama`
-- Chinese censorship (CCPC-Bench v6): CLI preset `chinese_censorship`; Hugging Face repository `hirundo-io/ccpc-500`
+- Chinese censorship (CCPC-Bench): CLI preset `chinese_censorship`; Hugging Face repository `hirundo-io/ccpc-500`
 - XSTest: `hirundo-io/XSTest`
 - OR-Bench: `hirundo-io/or-bench`
 
@@ -158,7 +158,7 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct hallu-med
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct prompt-injection
 ```
 
-- **Chinese censorship.** Run CCPC-Bench v6 with an explicitly selected judge:
+- **Chinese censorship.** Run CCPC-Bench with an explicitly selected judge:
 ```bash
 llm-behavior-eval google/gemma-3-12b-it chinese_censorship \
   --judge-model google/gemma-4-26B-A4B-it
