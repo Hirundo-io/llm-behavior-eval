@@ -91,7 +91,7 @@ def test_published_dataset_fingerprint_covers_full_row_order() -> None:
         "e923afaa3836c51ac419dd88fffb2180b73ed7d66ed74085cb72ea80ed2a7b25"
     )
     dataset = _benchmark()
-    reordered = dataset.select(list(reversed(range(len(dataset)))))
+    reordered = cast("Dataset", dataset.select(list(reversed(range(len(dataset))))))
     assert censorship_dataset_fingerprint(dataset) != censorship_dataset_fingerprint(
         reordered
     )
@@ -274,14 +274,14 @@ def test_frozen_runtime_settings_cannot_be_overridden(tmp_path: Path) -> None:
 def test_frozen_runtime_rejects_prompt_affecting_overrides(
     tmp_path: Path, override: dict[str, object]
 ) -> None:
-    config = EvaluationConfig(
+    base_config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
         results_dir=tmp_path,
         max_answer_tokens=CCPC_MAX_ANSWER_TOKENS,
         max_judge_tokens=CCPC_MAX_JUDGE_TOKENS,
         sample_judge=False,
-        **override,
     )
+    config = base_config.model_copy(update=override)
     with pytest.raises(ValueError, match="frozen deterministic"):
         FreeTextCensorshipEvaluator._validate_frozen_settings(config)
 
