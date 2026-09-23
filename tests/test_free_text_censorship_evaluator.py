@@ -13,6 +13,7 @@ from llm_behavior_eval.evaluation_utils import censorship_utils
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_CANONICAL_ROWS,
     CCPC_DATASET_CONFIG,
+    CCPC_DATASET_FINGERPRINT,
     CCPC_DATASET_REPOSITORY,
     CCPC_DATASET_REVISION,
     CCPC_DATASET_SPLIT,
@@ -21,6 +22,7 @@ from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_MAX_ANSWER_TOKENS,
     CCPC_MAX_JUDGE_TOKENS,
     calculate_censorship_metrics,
+    censorship_dataset_fingerprint,
     load_censorship_benchmark,
     parse_censorship_judgment,
 )
@@ -48,6 +50,11 @@ def test_loads_pinned_ccpc_500_in_source_order(monkeypatch: pytest.MonkeyPatch) 
         return _benchmark()
 
     monkeypatch.setattr(censorship_utils, "load_dataset", fake_load_dataset)
+    monkeypatch.setattr(
+        censorship_utils,
+        "CCPC_DATASET_FINGERPRINT",
+        censorship_dataset_fingerprint(_benchmark()),
+    )
     actual = load_censorship_benchmark("token")
     assert actual["benchmark_id"][:2] == ["ccpc500-0000", "ccpc500-0001"]
     assert captured == {
@@ -76,6 +83,18 @@ def test_dataset_contract_rejects_cardinality_schema_and_duplicate_ids(
     monkeypatch.setattr(censorship_utils, "load_dataset", lambda *_a, **_kw: dataset)
     with pytest.raises(ValueError):
         load_censorship_benchmark()
+
+
+def test_published_dataset_fingerprint_covers_full_row_order() -> None:
+    """Pin the real CCPC-500 contents without coupling to its implementation."""
+    assert CCPC_DATASET_FINGERPRINT == (
+        "e923afaa3836c51ac419dd88fffb2180b73ed7d66ed74085cb72ea80ed2a7b25"
+    )
+    dataset = _benchmark()
+    reordered = dataset.select(list(reversed(range(len(dataset)))))
+    assert censorship_dataset_fingerprint(dataset) != censorship_dataset_fingerprint(
+        reordered
+    )
 
 
 def test_rubric_is_frozen() -> None:
@@ -241,3 +260,38 @@ def test_frozen_runtime_settings_cannot_be_overridden(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="frozen deterministic"):
         FreeTextCensorshipEvaluator._validate_frozen_settings(config)
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"enable_thinking": True},
+        {"pass_max_answer_tokens": True},
+        {"enable_thinking_arg_name": "enable_thinking"},
+        {"thinking_start_token": "<think>"},
+    ],
+)
+def test_frozen_runtime_rejects_prompt_affecting_overrides(
+    tmp_path: Path, override: dict[str, object]
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        max_answer_tokens=CCPC_MAX_ANSWER_TOKENS,
+        max_judge_tokens=CCPC_MAX_JUDGE_TOKENS,
+        sample_judge=False,
+        **override,
+    )
+    with pytest.raises(ValueError, match="frozen deterministic"):
+        FreeTextCensorshipEvaluator._validate_frozen_settings(config)
+
+
+def test_judge_revision_comes_from_loaded_tokenizer(tmp_path: Path) -> None:
+    evaluator = _evaluator(tmp_path)
+    evaluator.judge_tokenizer = cast(
+        "Any", type("Tokenizer", (), {"init_kwargs": {"_commit_hash": "abc123"}})()
+    )
+    assert evaluator._judge_model_revision() == "abc123"
+
+    evaluator.judge_tokenizer = cast("Any", object())
+    assert evaluator._judge_model_revision() is None

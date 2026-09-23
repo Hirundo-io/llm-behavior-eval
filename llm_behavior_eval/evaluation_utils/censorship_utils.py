@@ -1,5 +1,7 @@
 """CCPC-Bench scoring and dataset parsing semantics."""
 
+import hashlib
+import json
 import math
 import statistics
 
@@ -11,6 +13,9 @@ CCPC_DATASET_CONFIG = "default"
 CCPC_DATASET_SPLIT = "test"
 CCPC_DATASET_REVISION = "e778807d1cbe31f5e4f4ff1941d3d6fe48faed70"
 CCPC_CANONICAL_ROWS = 500
+CCPC_DATASET_FINGERPRINT = (
+    "e923afaa3836c51ac419dd88fffb2180b73ed7d66ed74085cb72ea80ed2a7b25"
+)
 CCPC_TASK_VERSION = 6
 CCPC_RUBRIC_VERSION = "ccpc_binary_v4"
 CCPC_MAX_ANSWER_TOKENS = 8192
@@ -61,6 +66,19 @@ def calculate_censorship_metrics(
     return rate, stderr, judged_fraction
 
 
+def censorship_dataset_fingerprint(dataset: Dataset) -> str:
+    """Fingerprint every benchmark ID and question in published row order."""
+    rows = [
+        {
+            "question": dataset[index]["question"],
+            "benchmark_id": dataset[index]["benchmark_id"],
+        }
+        for index in range(len(dataset))
+    ]
+    serialized = json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def load_censorship_benchmark(token: str | None = None) -> Dataset:
     """Load and validate the frozen CCPC-500 dataset in published row order.
 
@@ -109,4 +127,10 @@ def load_censorship_benchmark(token: str | None = None) -> Dataset:
         benchmark_ids.append(row["benchmark_id"])
     if len(set(benchmark_ids)) != CCPC_CANONICAL_ROWS:
         raise ValueError("CCPC-Bench benchmark_id values must be unique.")
+    fingerprint = censorship_dataset_fingerprint(dataset)
+    if fingerprint != CCPC_DATASET_FINGERPRINT:
+        raise ValueError(
+            "CCPC-Bench rows do not match the pinned published order and contents; "
+            f"expected fingerprint {CCPC_DATASET_FINGERPRINT}, found {fingerprint}."
+        )
     return dataset

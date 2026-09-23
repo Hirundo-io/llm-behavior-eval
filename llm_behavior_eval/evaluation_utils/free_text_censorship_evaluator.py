@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 
 import pandas as pd
 import torch
@@ -81,6 +81,12 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             "max_judge_tokens": CCPC_MAX_JUDGE_TOKENS,
             "sample": False,
             "sample_judge": False,
+            "enable_thinking": False,
+            "pass_max_answer_tokens": False,
+            "enable_thinking_arg_name": None,
+            "thinking_start_token": None,
+            "thinking_end_token": None,
+            "exclude_thinking_trace_for_judge": False,
         }
         mismatches = {
             name: getattr(eval_config, name)
@@ -97,6 +103,13 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 "CCPC-Bench uses frozen deterministic generation settings; "
                 f"incompatible values: {mismatches}."
             )
+
+    def _judge_model_revision(self) -> str | None:
+        """Return the loaded judge tokenizer's resolved Hub revision, if exposed."""
+        tokenizer = getattr(self, "judge_tokenizer", None)
+        init_kwargs = cast("dict[str, Any]", getattr(tokenizer, "init_kwargs", {}))
+        revision = init_kwargs.get("_commit_hash")
+        return revision if isinstance(revision, str) and revision else None
 
     def prepare_dataloader(self) -> None:
         """Load, limit, and tokenize benchmark rows in published order."""
@@ -333,7 +346,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             "dataset_revision": CCPC_DATASET_REVISION,
             "rubric_version": CCPC_RUBRIC_VERSION,
             "judge_model": self.eval_config.judge_path_or_repo_id,
-            "judge_model_revision": None,
+            "judge_model_revision": self._judge_model_revision(),
             "max_answer_tokens": CCPC_MAX_ANSWER_TOKENS,
             "answer_temperature": CCPC_TEMPERATURE,
             "max_judge_tokens": CCPC_MAX_JUDGE_TOKENS,
