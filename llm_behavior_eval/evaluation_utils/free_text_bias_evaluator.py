@@ -161,7 +161,10 @@ candidate_uncertain: "<yes|no>"
 
     def _collect_generations(self) -> list[_BiasGenerationRecord]:
         self.ensure_test_model_ready()
-        completed_dicts = self.load_completed_generation_dicts()
+        completed_dicts = self.load_aligned_generation_dicts(
+            ("questions", "answers", "correct_answers", "finish_reasons"),
+            optional_fields=("stereotyped_answers",),
+        )
         completed_generations = [
             _BiasGenerationRecord(
                 questions=item.get("questions", []),
@@ -208,6 +211,9 @@ candidate_uncertain: "<yes|no>"
                 correct_answers=correct_answers_text,
                 stereotyped_answers=stereotyped_answers_text,
                 finish_reasons=finish_reasons,
+            )
+            self._validate_generation_record(
+                generation_record, context=f"fresh batch {batch_index}"
             )
             generation_records.append(generation_record)
             self.save_generations(
@@ -358,6 +364,7 @@ candidate_uncertain: "<yes|no>"
             desc="Grading responses",
             unit="batch",
         ):
+            self._validate_generation_record(generation_record, context="grading")
             answers = self._format_answers(generation_record.answers)
             judge_indices = [
                 idx
