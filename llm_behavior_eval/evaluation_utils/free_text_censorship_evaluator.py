@@ -1,9 +1,9 @@
 """Dedicated evaluator for CCPC-Bench."""
 
 import json
-from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
+from importlib.metadata import version
 from pathlib import Path
 from typing import TypedDict, cast
 
@@ -14,10 +14,18 @@ from torch.utils.data import DataLoader, Dataset
 
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .censorship_utils import (
-    CCPC_JUDGE_PROMPT,
-    CCPC_JUDGE_REPETITION_PENALTY,
-    CCPC_MODEL_REPETITION_PENALTY,
-    CensorshipStatus,
+    CCPC_CANONICAL_ROWS,
+    CCPC_DATASET_REPOSITORY,
+    CCPC_DATASET_REVISION,
+    CCPC_JUDGE_PROMPT_TEMPLATE,
+    CCPC_JUDGE_SYSTEM_PROMPT,
+    CCPC_MAX_ANSWER_TOKENS,
+    CCPC_MAX_JUDGE_TOKENS,
+    CCPC_REPETITION_PENALTY,
+    CCPC_RUBRIC_VERSION,
+    CCPC_TASK_VERSION,
+    CCPC_TEMPERATURE,
+    calculate_censorship_metrics,
     load_censorship_benchmark,
     parse_censorship_judgment,
 )
@@ -38,14 +46,13 @@ class _CensorshipGenerationRecord(_GenerationRecord):
 class CensorshipResponse(TypedDict):
     """One persisted CCPC row: its source identity, evidence, and outcome."""
 
-    source_group_id: str
+    benchmark_id: str
     question: str
     llm_answer: str
     finish_reason: str | None
     judge_finish_reason: str | None
     judge_raw: str
     judge_verdict: bool | None
-    status: str
 
 
 MetricValue = str | int | float | bool | None
@@ -63,7 +70,33 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             eval_config: Evaluation settings.
             dataset_config: Dataset settings identifying CCPC-Bench.
         """
+        self._validate_frozen_settings(eval_config)
         super().__init__(eval_config, dataset_config)
+
+    @staticmethod
+    def _validate_frozen_settings(eval_config: EvaluationConfig) -> None:
+        """Reject settings that would make a CCPC result non-comparable."""
+        required = {
+            "max_answer_tokens": CCPC_MAX_ANSWER_TOKENS,
+            "max_judge_tokens": CCPC_MAX_JUDGE_TOKENS,
+            "sample": False,
+            "sample_judge": False,
+        }
+        mismatches = {
+            name: getattr(eval_config, name)
+            for name, expected in required.items()
+            if getattr(eval_config, name) != expected
+        }
+        sampling = eval_config.sampling_config
+        if sampling.do_sample not in (None, False):
+            mismatches["sampling_config.do_sample"] = sampling.do_sample
+        if sampling.temperature not in (None, CCPC_TEMPERATURE):
+            mismatches["sampling_config.temperature"] = sampling.temperature
+        if mismatches:
+            raise ValueError(
+                "CCPC-Bench v6 uses frozen deterministic generation settings; "
+                f"incompatible values: {mismatches}."
+            )
 
     def prepare_dataloader(self) -> None:
         """Load, limit, and tokenize benchmark rows in published order."""
@@ -75,7 +108,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         )
         benchmark = benchmark.select(range(num_samples))
         self.benchmark_questions = cast("list[str]", benchmark["question"])
-        self.benchmark_group_ids = cast("list[str]", benchmark["source_group_id"])
+        self.benchmark_group_ids = cast("list[str]", benchmark["benchmark_id"])
         prompts = [
             safe_apply_chat_template(
                 self.tokenizer,
@@ -147,7 +180,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
     def _generate_model_answers(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
     ) -> tuple[list[str], list[str | None]]:
-        """Generate model answers with the CCPC model repetition penalty.
+        """Generate model answers with the frozen CCPC v6 settings.
 
         Args:
             input_ids: Tokenized benchmark prompts.
@@ -156,26 +189,19 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         Returns:
             Generated answers and their finish reasons.
         """
-        sampling = self.eval_config.sampling_config
         return self.eval_engine.generate_answers(
             input_ids,
             attention_mask,
             SamplingConfig(
-                do_sample=(
-                    sampling.do_sample
-                    if sampling.do_sample is not None
-                    else self.eval_config.sample
-                ),
-                temperature=sampling.temperature,
-                top_p=sampling.top_p,
-                top_k=sampling.top_k,
+                do_sample=False,
+                temperature=CCPC_TEMPERATURE,
                 seed=(
                     self.dataset_config.seed
                     if self.dataset_config.seed is not None
-                    else sampling.seed
+                    else self.eval_config.sampling_config.seed
                 ),
             ),
-            repetition_penalty=CCPC_MODEL_REPETITION_PENALTY,
+            repetition_penalty=CCPC_REPETITION_PENALTY,
         )
 
     def generate(self) -> Sequence[_GenerationRecord]:
@@ -244,11 +270,19 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 tokenizer,
                 [
                     {
+                        "role": "system",
+                        "content": CCPC_JUDGE_SYSTEM_PROMPT,
+                    },
+                    {
                         "role": "user",
-                        "content": CCPC_JUDGE_PROMPT.format(
-                            question=question, response=answer
+                        "content": CCPC_JUDGE_PROMPT_TEMPLATE.format(
+                            serialized_judge_input=json.dumps(
+                                {"question": question, "response": answer},
+                                ensure_ascii=False,
+                                separators=(",", ":"),
+                            )
                         ),
-                    }
+                    },
                 ],
             )
             for question, answer in zip(questions, answers, strict=True)
@@ -256,7 +290,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         outputs = self.run_judge_with_backoff(
             judge_engine,
             prompts,
-            repetition_penalty=CCPC_JUDGE_REPETITION_PENALTY,
+            repetition_penalty=CCPC_REPETITION_PENALTY,
         )
         judge_texts = [item[0].get("generated_text") or "" for item in outputs]
         finish_reasons = [item[0].get("finish_reason") for item in outputs]
@@ -264,36 +298,6 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             [parse_censorship_judgment(text) for text in judge_texts],
             judge_texts,
             finish_reasons,
-        )
-
-    @staticmethod
-    def _status(
-        model_finish: str | None,
-        judge_finish: str | None,
-        verdict: bool | None,
-    ) -> CensorshipStatus:
-        """Resolve model and judge outcomes to one exhaustive row status.
-
-        Args:
-            model_finish: Target generation finish reason.
-            judge_finish: Judge generation finish reason.
-            verdict: Parsed judge verdict, if any.
-
-        Returns:
-            The determinate or failure status for one benchmark row.
-        """
-        if model_finish == "length":
-            return CensorshipStatus.MODEL_INCOMPLETE
-        if model_finish != "stop":
-            return CensorshipStatus.MODEL_UNKNOWN
-        if judge_finish == "length":
-            return CensorshipStatus.JUDGE_INCOMPLETE
-        if judge_finish != "stop":
-            return CensorshipStatus.JUDGE_UNKNOWN
-        if verdict is None:
-            return CensorshipStatus.JUDGE_UNPARSEABLE
-        return (
-            CensorshipStatus.JUDGED_TRUE if verdict else CensorshipStatus.JUDGED_FALSE
         )
 
     def _save_results(self, responses: list[CensorshipResponse]) -> None:
@@ -305,37 +309,36 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         Returns:
             None.
         """
-        statuses = Counter(response["status"] for response in responses)
-        response_group_ids = [response["source_group_id"] for response in responses]
+        response_group_ids = [response["benchmark_id"] for response in responses]
         if response_group_ids != self.benchmark_group_ids:
             raise ValueError(
-                "CCPC-Bench responses must cover every source_group_id in source order."
+                "CCPC-Bench responses must cover every benchmark_id in source order."
             )
-        judged = (
-            statuses[CensorshipStatus.JUDGED_TRUE.value]
-            + statuses[CensorshipStatus.JUDGED_FALSE.value]
-        )
         expected_rows = len(self.benchmark_group_ids)
-        metric_valid = judged == expected_rows
-        censorship_rate = (
-            statuses[CensorshipStatus.JUDGED_TRUE.value] / expected_rows
-            if metric_valid
-            else None
+        censorship_rate, stderr, judged_fraction = calculate_censorship_metrics(
+            [response["judge_verdict"] for response in responses]
         )
         metrics: dict[str, MetricValue] = {
-            "Censorship rate (%) ⬇️": (
-                censorship_rate * 100 if censorship_rate is not None else None
-            ),
-            "Metric Valid": metric_valid,
-            "Expected Samples": expected_rows,
-            "Accounted Samples": len(responses),
-            "Judged True": statuses[CensorshipStatus.JUDGED_TRUE.value],
-            "Judged False": statuses[CensorshipStatus.JUDGED_FALSE.value],
-            **{
-                status.value.replace("_", " ").title(): statuses[status.value]
-                for status in CensorshipStatus
-                if not status.value.startswith("judged_")
-            },
+            "censorship_rate": censorship_rate,
+            "stderr": stderr,
+            "judged_fraction": judged_fraction,
+            "canonical": expected_rows == CCPC_CANONICAL_ROWS,
+            "canonical_rows": CCPC_CANONICAL_ROWS,
+            "evaluated_rows": expected_rows,
+            "accounted_rows": len(responses),
+            "task_version": CCPC_TASK_VERSION,
+            "evaluator_package": "llm-behavior-eval",
+            "evaluator_version": version("llm-behavior-eval"),
+            "dataset_repository": CCPC_DATASET_REPOSITORY,
+            "dataset_revision": CCPC_DATASET_REVISION,
+            "rubric_version": CCPC_RUBRIC_VERSION,
+            "judge_model": self.eval_config.judge_path_or_repo_id,
+            "judge_model_revision": None,
+            "max_answer_tokens": CCPC_MAX_ANSWER_TOKENS,
+            "answer_temperature": CCPC_TEMPERATURE,
+            "max_judge_tokens": CCPC_MAX_JUDGE_TOKENS,
+            "judge_temperature": CCPC_TEMPERATURE,
+            "repetition_penalty": CCPC_REPETITION_PENALTY,
         }
         output_dir = self.get_output_dir()
         (output_dir / "responses.json").write_text(
@@ -368,28 +371,9 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         responses: list[CensorshipResponse] = []
         for generation in cast("Sequence[_CensorshipGenerationRecord]", generations):
             judge_answers = self._format_answers(generation.answers)
-            indices = [
-                i
-                for i, finish_reason in enumerate(generation.finish_reasons)
-                if finish_reason == "stop"
-            ]
-            verdicts: list[bool | None] = [None] * len(generation.answers)
-            judge_raw = [""] * len(generation.answers)
-            judge_finishes: list[str | None] = [None] * len(generation.answers)
-            if indices:
-                batch_verdicts, batch_raw, batch_finishes = self._grade_batch(
-                    judge_engine,
-                    [generation.questions[i] for i in indices],
-                    [judge_answers[i] for i in indices],
-                )
-                for i, verdict, raw, finish in zip(
-                    indices,
-                    batch_verdicts,
-                    batch_raw,
-                    batch_finishes,
-                    strict=True,
-                ):
-                    verdicts[i], judge_raw[i], judge_finishes[i] = verdict, raw, finish
+            verdicts, judge_raw, judge_finishes = self._grade_batch(
+                judge_engine, generation.questions, judge_answers
+            )
             for (
                 group_id,
                 question,
@@ -408,23 +392,15 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 judge_finishes,
                 strict=True,
             ):
-                status = self._status(model_finish, judge_finish, verdict)
                 responses.append(
                     {
-                        "source_group_id": group_id,
+                        "benchmark_id": group_id,
                         "question": question,
                         "llm_answer": answer,
                         "finish_reason": model_finish,
                         "judge_finish_reason": judge_finish,
                         "judge_raw": raw,
-                        "judge_verdict": verdict
-                        if status
-                        in {
-                            CensorshipStatus.JUDGED_TRUE,
-                            CensorshipStatus.JUDGED_FALSE,
-                        }
-                        else None,
-                        "status": status.value,
+                        "judge_verdict": verdict,
                     }
                 )
         self._save_results(responses)
