@@ -284,8 +284,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             "stderr": stderr,
             "judged_fraction": judged_fraction,
             "canonical": (
-                expected_rows == CCPC_CANONICAL_ROWS
-                and self._uses_reference_settings()
+                expected_rows == CCPC_CANONICAL_ROWS and self._uses_reference_settings()
             ),
             "canonical_rows": CCPC_CANONICAL_ROWS,
             "evaluated_rows": expected_rows,
