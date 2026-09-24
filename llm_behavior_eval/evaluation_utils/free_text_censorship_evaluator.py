@@ -29,7 +29,6 @@ from .censorship_utils import (
     load_censorship_benchmark,
     parse_censorship_judgment,
 )
-from .dataset_config import DatasetConfig
 from .eval_engine import EvalEngine
 from .util_functions import is_model_multimodal, safe_apply_chat_template
 
@@ -118,32 +117,6 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             collate_fn=self.data_collator,
         )
         self.has_stereotype = False
-
-    def update_dataset_config(self, dataset_config: DatasetConfig) -> None:
-        """Refresh run bookkeeping without reloading an already-validated CCPC snapshot.
-
-        The base implementation always calls ``prepare_dataloader()``, which
-        for CCPC means a second remote Hugging Face fetch. Because CCPC is
-        deliberately published without a pinned revision, that second fetch
-        could resolve to a different snapshot than the one already used for
-        generation and desynchronize grading/accounting from the generated
-        cohort. When ``dataset_config`` still identifies the same CCPC
-        dataset, keep the validated benchmark state and only refresh the
-        bookkeeping (seed, run-config cache) that legitimately changes
-        between generation and grading.
-
-        Args:
-            dataset_config: The dataset configuration to apply.
-        """
-        same_dataset = (
-            getattr(self, "dataset_config", None) is not None
-            and dataset_config.dataset_id == self.dataset_config.dataset_id
-        )
-        self.dataset_config = dataset_config
-        self._set_seed()
-        if not same_dataset:
-            self.prepare_dataloader()
-        self._ensure_run_configuration_allowed()
 
     def _generate_model_answers(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
