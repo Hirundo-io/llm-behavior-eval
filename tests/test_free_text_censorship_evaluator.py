@@ -270,40 +270,17 @@ def test_judge_rejects_tokenizers_that_cannot_preserve_system_role() -> None:
         )
 
 
-def test_frozen_runtime_settings_cannot_be_overridden(tmp_path: Path) -> None:
-    config = EvaluationConfig(
-        model_path_or_repo_id="fake/model",
-        results_dir=tmp_path,
-        max_answer_tokens=1,
-        max_judge_tokens=1,
-        sample_judge=False,
+def test_runtime_settings_can_be_overridden(tmp_path: Path) -> None:
+    evaluator = _evaluator(tmp_path)
+    evaluator.eval_config = evaluator.eval_config.model_copy(
+        update={"max_answer_tokens": 1, "max_judge_tokens": 2}
     )
-    with pytest.raises(ValueError, match="frozen deterministic"):
-        FreeTextCensorshipEvaluator._validate_frozen_settings(config)
+
+    assert not evaluator._uses_reference_settings()
 
 
-@pytest.mark.parametrize(
-    "override",
-    [
-        {"enable_thinking": True},
-        {"pass_max_answer_tokens": True},
-        {"enable_thinking_arg_name": "enable_thinking"},
-        {"thinking_start_token": "<think>"},
-    ],
-)
-def test_frozen_runtime_rejects_prompt_affecting_overrides(
-    tmp_path: Path, override: dict[str, object]
-) -> None:
-    base_config = EvaluationConfig(
-        model_path_or_repo_id="fake/model",
-        results_dir=tmp_path,
-        max_answer_tokens=CCPC_MAX_ANSWER_TOKENS,
-        max_judge_tokens=CCPC_MAX_JUDGE_TOKENS,
-        sample_judge=False,
-    )
-    config = base_config.model_copy(update=override)
-    with pytest.raises(ValueError, match="frozen deterministic"):
-        FreeTextCensorshipEvaluator._validate_frozen_settings(config)
+def test_reference_defaults_are_canonical(tmp_path: Path) -> None:
+    assert _evaluator(tmp_path)._uses_reference_settings()
 
 
 def test_judge_revision_comes_from_loaded_tokenizer(tmp_path: Path) -> None:

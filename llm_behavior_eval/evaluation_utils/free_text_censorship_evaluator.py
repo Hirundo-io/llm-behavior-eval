@@ -30,9 +30,7 @@ from .censorship_utils import (
     parse_censorship_judgment,
 )
 from .dataset_config import DatasetConfig
-from .eval_config import EvaluationConfig
 from .eval_engine import EvalEngine
-from .sampling_config import SamplingConfig
 from .util_functions import is_model_multimodal, safe_apply_chat_template
 
 
@@ -59,50 +57,7 @@ MetricValue = str | int | float | bool | None
 
 
 class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
-    """Evaluate a deterministic prefix of the configured CCPC-Bench split."""
-
-    def __init__(
-        self, eval_config: EvaluationConfig, dataset_config: DatasetConfig
-    ) -> None:
-        """Initialize the CCPC scoring evaluator.
-
-        Args:
-            eval_config: Evaluation settings.
-            dataset_config: Dataset settings identifying CCPC-Bench.
-        """
-        self._validate_frozen_settings(eval_config)
-        super().__init__(eval_config, dataset_config)
-
-    @staticmethod
-    def _validate_frozen_settings(eval_config: EvaluationConfig) -> None:
-        """Reject settings that would make a CCPC result non-comparable."""
-        required = {
-            "max_answer_tokens": CCPC_MAX_ANSWER_TOKENS,
-            "max_judge_tokens": CCPC_MAX_JUDGE_TOKENS,
-            "sample": False,
-            "sample_judge": False,
-            "enable_thinking": False,
-            "pass_max_answer_tokens": False,
-            "enable_thinking_arg_name": None,
-            "thinking_start_token": None,
-            "thinking_end_token": None,
-            "exclude_thinking_trace_for_judge": False,
-        }
-        mismatches = {
-            name: getattr(eval_config, name)
-            for name, expected in required.items()
-            if getattr(eval_config, name) != expected
-        }
-        sampling = eval_config.sampling_config
-        if sampling.do_sample not in (None, False):
-            mismatches["sampling_config.do_sample"] = sampling.do_sample
-        if sampling.temperature not in (None, CCPC_TEMPERATURE):
-            mismatches["sampling_config.temperature"] = sampling.temperature
-        if mismatches:
-            raise ValueError(
-                "CCPC-Bench uses frozen deterministic generation settings; "
-                f"incompatible values: {mismatches}."
-            )
+    """Evaluate a prefix of the configured CCPC-Bench split."""
 
     def _judge_model_revision(self) -> str | None:
         """Return the loaded judge tokenizer's resolved Hub revision, if exposed."""
@@ -193,7 +148,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
     def _generate_model_answers(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
     ) -> tuple[list[str], list[str | None]]:
-        """Generate model answers with the frozen CCPC settings.
+        """Generate model answers with the resolved evaluator settings.
 
         Args:
             input_ids: Tokenized benchmark prompts.
@@ -202,19 +157,19 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         Returns:
             Generated answers and their finish reasons.
         """
-        return self.eval_engine.generate_answers(
-            input_ids,
-            attention_mask,
-            SamplingConfig(
-                do_sample=False,
-                temperature=CCPC_TEMPERATURE,
-                seed=(
-                    self.dataset_config.seed
-                    if self.dataset_config.seed is not None
-                    else self.eval_config.sampling_config.seed
-                ),
-            ),
-            repetition_penalty=CCPC_REPETITION_PENALTY,
+        return self.generate_answers(input_ids, attention_mask)
+
+    def _uses_reference_settings(self) -> bool:
+        """Return whether effective settings match the published reference run."""
+        sampling = self.eval_config.sampling_config
+        return (
+            self.eval_config.max_answer_tokens == CCPC_MAX_ANSWER_TOKENS
+            and self.eval_config.max_judge_tokens == CCPC_MAX_JUDGE_TOKENS
+            and not self.eval_config.sample
+            and not self.eval_config.sample_judge
+            and not self.eval_config.enable_thinking
+            and sampling.do_sample in (None, False)
+            and sampling.temperature in (None, CCPC_TEMPERATURE)
         )
 
     def generate(self) -> Sequence[_GenerationRecord]:
@@ -317,7 +272,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
     def _apply_judge_chat_template(
         tokenizer: Any, messages: list[dict[str, str]]
     ) -> str:
-        """Render the frozen judge roles without demoting the system rubric."""
+        """Render the judge roles without demoting the system rubric."""
         try:
             rendered = tokenizer.apply_chat_template(
                 messages,
@@ -355,7 +310,10 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             "censorship_rate": censorship_rate,
             "stderr": stderr,
             "judged_fraction": judged_fraction,
-            "canonical": expected_rows == CCPC_CANONICAL_ROWS,
+            "canonical": (
+                expected_rows == CCPC_CANONICAL_ROWS
+                and self._uses_reference_settings()
+            ),
             "canonical_rows": CCPC_CANONICAL_ROWS,
             "evaluated_rows": expected_rows,
             "accounted_rows": len(responses),
@@ -367,10 +325,17 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             "rubric_version": CCPC_RUBRIC_VERSION,
             "judge_model": self.eval_config.judge_path_or_repo_id,
             "judge_model_revision": self._judge_model_revision(),
-            "max_answer_tokens": CCPC_MAX_ANSWER_TOKENS,
-            "answer_temperature": CCPC_TEMPERATURE,
-            "max_judge_tokens": CCPC_MAX_JUDGE_TOKENS,
-            "judge_temperature": CCPC_TEMPERATURE,
+            "max_answer_tokens": self.eval_config.max_answer_tokens,
+            "answer_sampling": (
+                self.eval_config.sampling_config.do_sample
+                if self.eval_config.sampling_config.do_sample is not None
+                else self.eval_config.sample
+            ),
+            "answer_temperature": self.eval_config.sampling_config.temperature,
+            "max_judge_tokens": self.eval_config.max_judge_tokens,
+            "judge_sampling": self.eval_config.sample_judge,
+            "judge_temperature": self.eval_config.sampling_config.temperature,
+            "enable_thinking": self.eval_config.enable_thinking,
             "repetition_penalty": CCPC_REPETITION_PENALTY,
         }
         output_dir = self.get_output_dir()
