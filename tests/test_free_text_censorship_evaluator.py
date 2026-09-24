@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from datasets import Dataset
 
-from llm_behavior_eval import DatasetConfig, EvaluationConfig
+from llm_behavior_eval import DatasetConfig, EvaluationConfig, MlflowConfig
 from llm_behavior_eval.evaluation_utils import censorship_utils
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_DATASET_CONFIG,
@@ -165,10 +165,10 @@ def test_save_results_is_fail_closed(tmp_path: Path) -> None:
             "max_answer_tokens": 123,
             "max_judge_tokens": 45,
             "sample": True,
-            "sample_judge": True,
+            "sample_judge": False,
             "enable_thinking": True,
             "sampling_config": SamplingConfig(
-                do_sample=True, temperature=0.7, top_p=0.8, top_k=20, seed=7
+                do_sample=None, temperature=None, top_p=None, top_k=None, seed=7
             ),
         }
     )
@@ -202,12 +202,35 @@ def test_save_results_is_fail_closed(tmp_path: Path) -> None:
     assert metrics["max_answer_tokens"] == 123
     assert metrics["max_judge_tokens"] == 45
     assert bool(metrics["answer_sampling"])
-    assert bool(metrics["judge_sampling"])
-    assert metrics["answer_temperature"] == 0.7
-    assert metrics["answer_top_p"] == 0.8
-    assert metrics["answer_top_k"] == 20
+    assert not bool(metrics["judge_sampling"])
+    assert metrics["answer_temperature"] == 1.0
+    assert metrics["judge_temperature"] == 0.0
+    assert metrics["answer_top_p"] == metrics["judge_top_p"] == 1.0
+    assert metrics["answer_top_k"] == metrics["judge_top_k"] == 0
     assert metrics["generation_seed"] == evaluator.dataset_config.seed
     assert bool(metrics["enable_thinking"])
+
+
+def test_save_results_logs_metrics_and_artifacts_to_mlflow(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    evaluator = _evaluator(tmp_path, rows=0)
+    evaluator.eval_config = evaluator.eval_config.model_copy(
+        update={"mlflow_config": MlflowConfig()}
+    )
+    logged_metrics: list[dict[str, float]] = []
+    artifacts_logged: list[bool] = []
+    monkeypatch.setattr(evaluator, "_log_mlflow_metrics", logged_metrics.append)
+    monkeypatch.setattr(
+        evaluator, "_log_mlflow_artifacts", lambda: artifacts_logged.append(True)
+    )
+
+    evaluator._save_results([])
+
+    assert math.isnan(logged_metrics[0]["judged_fraction"])
+    assert logged_metrics[0]["evaluated_rows"] == 0.0
+    assert "censorship_rate" not in logged_metrics[0]
+    assert artifacts_logged == [True]
 
 
 def test_grading_judges_truncated_outputs_and_preserves_stop_reasons(

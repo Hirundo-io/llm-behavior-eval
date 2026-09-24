@@ -25,6 +25,7 @@ from .censorship_utils import (
     parse_censorship_judgment,
 )
 from .eval_engine import EvalEngine
+from .sampling_config import SamplingConfig
 from .util_functions import is_model_multimodal, safe_apply_chat_template
 
 
@@ -59,6 +60,25 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         init_kwargs = cast("dict[str, Any]", getattr(tokenizer, "init_kwargs", {}))
         revision = init_kwargs.get("_commit_hash")
         return revision if isinstance(revision, str) and revision else None
+
+    @staticmethod
+    def _effective_decoding_settings(
+        sampling: SamplingConfig, default_do_sample: bool
+    ) -> tuple[bool, float, float, int]:
+        """Resolve decoding values exactly as the inference engines do."""
+        do_sample = (
+            sampling.do_sample if sampling.do_sample is not None else default_do_sample
+        )
+        temperature = (
+            sampling.temperature
+            if sampling.temperature is not None
+            else 1.0
+            if do_sample
+            else 0.0
+        )
+        top_p = sampling.top_p if sampling.top_p is not None else 1.0
+        top_k = sampling.top_k if sampling.top_k is not None else 0
+        return do_sample, temperature, top_p, top_k
 
     def prepare_dataloader(self) -> None:
         """Load, limit, and tokenize benchmark rows in published order."""
@@ -258,6 +278,15 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         censorship_rate, stderr, judged_fraction = calculate_censorship_metrics(
             [response["judge_verdict"] for response in responses]
         )
+        sampling = self.eval_config.sampling_config
+        answer_sampling, answer_temperature, answer_top_p, answer_top_k = (
+            self._effective_decoding_settings(sampling, self.eval_config.sample)
+        )
+        judge_sampling, judge_temperature, judge_top_p, judge_top_k = (
+            self._effective_decoding_settings(
+                sampling, bool(self.eval_config.sample_judge)
+            )
+        )
         metrics: dict[str, MetricValue] = {
             "censorship_rate": censorship_rate,
             "stderr": stderr,
@@ -273,19 +302,15 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             "judge_model": self.eval_config.judge_path_or_repo_id,
             "judge_model_revision": self._judge_model_revision(),
             "max_answer_tokens": self.eval_config.max_answer_tokens,
-            "answer_sampling": (
-                self.eval_config.sampling_config.do_sample
-                if self.eval_config.sampling_config.do_sample is not None
-                else self.eval_config.sample
-            ),
-            "answer_temperature": self.eval_config.sampling_config.temperature,
-            "answer_top_p": self.eval_config.sampling_config.top_p,
-            "answer_top_k": self.eval_config.sampling_config.top_k,
+            "answer_sampling": answer_sampling,
+            "answer_temperature": answer_temperature,
+            "answer_top_p": answer_top_p,
+            "answer_top_k": answer_top_k,
             "max_judge_tokens": self.eval_config.max_judge_tokens,
-            "judge_sampling": self.eval_config.sample_judge,
-            "judge_temperature": self.eval_config.sampling_config.temperature,
-            "judge_top_p": self.eval_config.sampling_config.top_p,
-            "judge_top_k": self.eval_config.sampling_config.top_k,
+            "judge_sampling": judge_sampling,
+            "judge_temperature": judge_temperature,
+            "judge_top_p": judge_top_p,
+            "judge_top_k": judge_top_k,
             "generation_seed": (
                 self.dataset_config.seed
                 if self.dataset_config.seed is not None
@@ -315,6 +340,18 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         self._append_summary_row(
             model_dir / "summary_brief.csv", pd.DataFrame([summary])
         )
+        if self.eval_config.mlflow_config:
+            mlflow_metrics = {
+                "judged_fraction": judged_fraction,
+                "evaluated_rows": float(expected_rows),
+                "accounted_rows": float(len(responses)),
+            }
+            if censorship_rate is not None:
+                mlflow_metrics["censorship_rate"] = censorship_rate
+            if stderr is not None:
+                mlflow_metrics["stderr"] = stderr
+            self._log_mlflow_metrics(mlflow_metrics)
+            self._log_mlflow_artifacts()
 
     def _grade_impl(
         self,
