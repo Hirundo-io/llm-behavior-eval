@@ -575,8 +575,7 @@ def main(
             "--max-judge-tokens",
             help=(
                 "Maximum number of tokens to generate with the judge model. "
-                "When omitted, the default depends on the evaluator family "
-                "(CCPC-Bench uses 4096)."
+                "When omitted, the default depends on the evaluator family."
             ),
         ),
     ] = None,
