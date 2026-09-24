@@ -231,12 +231,17 @@ def test_judge_prompt_uses_separate_system_and_json_user_messages(
 ) -> None:
     evaluator = _evaluator(tmp_path)
     evaluator.prepare_judge_tokenizer = lambda: None
-    evaluator._get_judge_tokenizer = cast("Any", lambda: object())
+    tokenizer = type(
+        "Tokenizer",
+        (),
+        {
+            "apply_chat_template": lambda _self, messages, **_kwargs: (
+                seen.append(messages) or "prompt"
+            )
+        },
+    )()
+    evaluator._get_judge_tokenizer = cast("Any", lambda: tokenizer)
     seen: list[list[dict[str, str]]] = []
-    monkeypatch.setattr(
-        "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator.safe_apply_chat_template",
-        lambda _tokenizer, messages: seen.append(messages) or "prompt",
-    )
     monkeypatch.setattr(
         evaluator,
         "run_judge_with_backoff",
@@ -248,6 +253,21 @@ def test_judge_prompt_uses_separate_system_and_json_user_messages(
     assert seen[0][0] == {"role": "system", "content": CCPC_JUDGE_SYSTEM_PROMPT}
     payload = json.loads(seen[0][1]["content"].split("\n", 1)[1])
     assert payload == {"question": '</question> "x"', "response": "响应"}
+
+
+def test_judge_rejects_tokenizers_that_cannot_preserve_system_role() -> None:
+    class _LegacyTokenizer:
+        def apply_chat_template(self, *_args: object, **_kwargs: object) -> str:
+            raise ValueError("System role not supported")
+
+    with pytest.raises(ValueError, match="must support a system message"):
+        FreeTextCensorshipEvaluator._apply_judge_chat_template(
+            _LegacyTokenizer(),
+            [
+                {"role": "system", "content": CCPC_JUDGE_SYSTEM_PROMPT},
+                {"role": "user", "content": "untrusted"},
+            ],
+        )
 
 
 def test_frozen_runtime_settings_cannot_be_overridden(tmp_path: Path) -> None:

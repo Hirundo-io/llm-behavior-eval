@@ -573,8 +573,11 @@ def main(
         int | None,
         typer.Option(
             "--max-judge-tokens",
-            help="Maximum number of tokens to generate with the judge model.",
-            show_default=str(DEFAULT_MAX_JUDGE_TOKENS),
+            help=(
+                "Maximum number of tokens to generate with the judge model. "
+                "When omitted, the default depends on the evaluator family "
+                "(CCPC-Bench uses 4096)."
+            ),
         ),
     ] = None,
 ) -> None:

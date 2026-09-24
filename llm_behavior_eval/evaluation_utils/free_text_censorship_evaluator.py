@@ -279,7 +279,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         self.prepare_judge_tokenizer()
         tokenizer = self._get_judge_tokenizer()
         prompts = [
-            safe_apply_chat_template(
+            self._apply_judge_chat_template(
                 tokenizer,
                 [
                     {
@@ -312,6 +312,26 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             judge_texts,
             finish_reasons,
         )
+
+    @staticmethod
+    def _apply_judge_chat_template(
+        tokenizer: Any, messages: list[dict[str, str]]
+    ) -> str:
+        """Render the frozen judge roles without demoting the system rubric."""
+        try:
+            rendered = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        except Exception as error:
+            raise ValueError(
+                "The configured CCPC-Bench judge tokenizer must support a system "
+                "message; its rubric cannot be merged into untrusted user data."
+            ) from error
+        if not isinstance(rendered, str):
+            raise TypeError("The judge chat template must render to text.")
+        return rendered
 
     def _save_results(self, responses: list[CensorshipResponse]) -> None:
         """Persist row evidence and metrics for the selected rows.
