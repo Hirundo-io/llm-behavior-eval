@@ -14,17 +14,12 @@ from torch.utils.data import DataLoader, Dataset
 
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .censorship_utils import (
-    CCPC_CANONICAL_ROWS,
     CCPC_DATASET_REPOSITORY,
     CCPC_DATASET_REVISION,
     CCPC_JUDGE_PROMPT_TEMPLATE,
     CCPC_JUDGE_SYSTEM_PROMPT,
-    CCPC_MAX_ANSWER_TOKENS,
-    CCPC_MAX_JUDGE_TOKENS,
-    CCPC_REPETITION_PENALTY,
     CCPC_RUBRIC_VERSION,
     CCPC_TASK_VERSION,
-    CCPC_TEMPERATURE,
     calculate_censorship_metrics,
     load_censorship_benchmark,
     parse_censorship_judgment,
@@ -132,19 +127,6 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         """
         return self.generate_answers(input_ids, attention_mask)
 
-    def _uses_reference_settings(self) -> bool:
-        """Return whether effective settings match the published reference run."""
-        sampling = self.eval_config.sampling_config
-        return (
-            self.eval_config.max_answer_tokens == CCPC_MAX_ANSWER_TOKENS
-            and self.eval_config.max_judge_tokens == CCPC_MAX_JUDGE_TOKENS
-            and not self.eval_config.sample
-            and not self.eval_config.sample_judge
-            and not self.eval_config.enable_thinking
-            and sampling.do_sample in (None, False)
-            and sampling.temperature in (None, CCPC_TEMPERATURE)
-        )
-
     def generate(self) -> Sequence[_GenerationRecord]:
         """Generate answers for the selected benchmark rows.
 
@@ -228,11 +210,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             )
             for question, answer in zip(questions, answers, strict=True)
         ]
-        outputs = self.run_judge_with_backoff(
-            judge_engine,
-            prompts,
-            repetition_penalty=CCPC_REPETITION_PENALTY,
-        )
+        outputs = self.run_judge_with_backoff(judge_engine, prompts)
         judge_texts = [item[0].get("generated_text") or "" for item in outputs]
         finish_reasons = [item[0].get("finish_reason") for item in outputs]
         return (
@@ -283,10 +261,6 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             "censorship_rate": censorship_rate,
             "stderr": stderr,
             "judged_fraction": judged_fraction,
-            "canonical": (
-                expected_rows == CCPC_CANONICAL_ROWS and self._uses_reference_settings()
-            ),
-            "canonical_rows": CCPC_CANONICAL_ROWS,
             "evaluated_rows": expected_rows,
             "accounted_rows": len(responses),
             "task_version": CCPC_TASK_VERSION,
@@ -304,11 +278,27 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 else self.eval_config.sample
             ),
             "answer_temperature": self.eval_config.sampling_config.temperature,
+            "answer_top_p": self.eval_config.sampling_config.top_p,
+            "answer_top_k": self.eval_config.sampling_config.top_k,
             "max_judge_tokens": self.eval_config.max_judge_tokens,
             "judge_sampling": self.eval_config.sample_judge,
             "judge_temperature": self.eval_config.sampling_config.temperature,
+            "judge_top_p": self.eval_config.sampling_config.top_p,
+            "judge_top_k": self.eval_config.sampling_config.top_k,
+            "generation_seed": (
+                self.dataset_config.seed
+                if self.dataset_config.seed is not None
+                else self.eval_config.sampling_config.seed
+            ),
             "enable_thinking": self.eval_config.enable_thinking,
-            "repetition_penalty": CCPC_REPETITION_PENALTY,
+            "enable_thinking_arg_name": self.eval_config.enable_thinking_arg_name,
+            "thinking_start_token": self.eval_config.thinking_start_token,
+            "thinking_end_token": self.eval_config.thinking_end_token,
+            "exclude_thinking_trace_for_judge": (
+                self.eval_config.exclude_thinking_trace_for_judge
+            ),
+            "pass_max_answer_tokens": self.eval_config.pass_max_answer_tokens,
+            "repetition_penalty": 1.0,
         }
         output_dir = self.get_output_dir()
         (output_dir / "responses.json").write_text(

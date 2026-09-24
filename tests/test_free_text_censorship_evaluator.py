@@ -11,16 +11,14 @@ from datasets import Dataset
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
 from llm_behavior_eval.evaluation_utils import censorship_utils
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
-    CCPC_CANONICAL_ROWS,
     CCPC_DATASET_CONFIG,
     CCPC_DATASET_FINGERPRINT,
     CCPC_DATASET_REPOSITORY,
     CCPC_DATASET_REVISION,
     CCPC_DATASET_SPLIT,
+    CCPC_EXPECTED_ROWS,
     CCPC_JUDGE_PROMPT_TEMPLATE,
     CCPC_JUDGE_SYSTEM_PROMPT,
-    CCPC_MAX_ANSWER_TOKENS,
-    CCPC_MAX_JUDGE_TOKENS,
     calculate_censorship_metrics,
     censorship_dataset_fingerprint,
     load_censorship_benchmark,
@@ -31,9 +29,10 @@ from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
     FreeTextCensorshipEvaluator,
     _CensorshipGenerationRecord,
 )
+from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 
-def _benchmark(size: int = CCPC_CANONICAL_ROWS) -> Dataset:
+def _benchmark(size: int = CCPC_EXPECTED_ROWS) -> Dataset:
     return Dataset.from_dict(
         {
             "question": [f"question-{index}" for index in range(size)],
@@ -147,10 +146,7 @@ def _evaluator(tmp_path: Path, rows: int = 2) -> FreeTextCensorshipEvaluator:
         model_path_or_repo_id="fake/model",
         judge_path_or_repo_id="fake/judge",
         results_dir=tmp_path,
-        max_answer_tokens=CCPC_MAX_ANSWER_TOKENS,
-        max_judge_tokens=CCPC_MAX_JUDGE_TOKENS,
-        sample_judge=False,
-    )
+    ).resolve_for_family("censorship")
     evaluator.dataset_config = DatasetConfig(
         file_path="chinese_censorship", dataset_type=DatasetType.BIAS
     )
@@ -162,10 +158,20 @@ def _evaluator(tmp_path: Path, rows: int = 2) -> FreeTextCensorshipEvaluator:
     return evaluator
 
 
-def test_save_results_is_fail_closed_and_marks_limited_run_noncanonical(
-    tmp_path: Path,
-) -> None:
+def test_save_results_is_fail_closed(tmp_path: Path) -> None:
     evaluator = _evaluator(tmp_path)
+    evaluator.eval_config = evaluator.eval_config.model_copy(
+        update={
+            "max_answer_tokens": 123,
+            "max_judge_tokens": 45,
+            "sample": True,
+            "sample_judge": True,
+            "enable_thinking": True,
+            "sampling_config": SamplingConfig(
+                do_sample=True, temperature=0.7, top_p=0.8, top_k=20, seed=7
+            ),
+        }
+    )
     evaluator._save_results(
         [
             {
@@ -192,9 +198,16 @@ def test_save_results_is_fail_closed_and_marks_limited_run_noncanonical(
     assert pd.isna(metrics["censorship_rate"])
     assert pd.isna(metrics["stderr"])
     assert metrics["judged_fraction"] == 0.5
-    assert not bool(metrics["canonical"])
-    assert metrics["canonical_rows"] == 500
     assert metrics["evaluated_rows"] == 2
+    assert metrics["max_answer_tokens"] == 123
+    assert metrics["max_judge_tokens"] == 45
+    assert bool(metrics["answer_sampling"])
+    assert bool(metrics["judge_sampling"])
+    assert metrics["answer_temperature"] == 0.7
+    assert metrics["answer_top_p"] == 0.8
+    assert metrics["answer_top_k"] == 20
+    assert metrics["generation_seed"] == evaluator.dataset_config.seed
+    assert bool(metrics["enable_thinking"])
 
 
 def test_grading_judges_truncated_outputs_and_preserves_stop_reasons(
@@ -268,19 +281,6 @@ def test_judge_rejects_tokenizers_that_cannot_preserve_system_role() -> None:
                 {"role": "user", "content": "untrusted"},
             ],
         )
-
-
-def test_runtime_settings_can_be_overridden(tmp_path: Path) -> None:
-    evaluator = _evaluator(tmp_path)
-    evaluator.eval_config = evaluator.eval_config.model_copy(
-        update={"max_answer_tokens": 1, "max_judge_tokens": 2}
-    )
-
-    assert not evaluator._uses_reference_settings()
-
-
-def test_reference_defaults_are_canonical(tmp_path: Path) -> None:
-    assert _evaluator(tmp_path)._uses_reference_settings()
 
 
 def test_judge_revision_comes_from_loaded_tokenizer(tmp_path: Path) -> None:

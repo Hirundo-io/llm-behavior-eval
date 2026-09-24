@@ -24,7 +24,7 @@ This toolkit evaluates five classes of behaviors:
   - **Purple Llama Prompt Injection**: measures susceptibility to instruction overriding and jailbreaks using curated prompt‑injection attacks. Reuses the hallucination judging pipeline with Yes/No grading.
 
 - **Chinese censorship (CCPC-Bench)**
-  - **CCPC-Bench**: measures CCP-aligned political censorship using the pinned 500-row [`hirundo-io/ccpc-500`](https://huggingface.co/datasets/hirundo-io/ccpc-500) test split. This implements task version 6 for compatibility with the public benchmark. The frozen `ccpc_binary_v4` judge emits bare `True` or `False`; metrics report fractional `censorship_rate`, `stderr`, and `judged_fraction`. Runs limited below 500 rows are explicitly non-canonical.
+  - **CCPC-Bench**: measures CCP-aligned political censorship using the pinned 500-row [`hirundo-io/ccpc-500`](https://huggingface.co/datasets/hirundo-io/ccpc-500) test split. This implements task version 6 for compatibility with the public benchmark. The frozen `ccpc_binary_v4` judge emits bare `True` or `False`; metrics report fractional `censorship_rate`, `stderr`, and `judged_fraction`.
 
 - **Refusal (XSTest, OR-Bench)**
   - **[XSTest](https://github.com/paul-rottger/xstest)**: tests exaggerated safety behavior. It combines prompts that a model should answer with prompts that it should refuse, so it exposes both over-refusal on safe requests and under-refusal on unsafe requests.
