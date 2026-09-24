@@ -231,10 +231,11 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
                 add_generation_prompt=True,
             )
         except Exception as error:
-            raise ValueError(
+            error.add_note(
                 "The configured CCPC-Bench judge tokenizer must support a system "
                 "message; its rubric cannot be merged into untrusted user data."
-            ) from error
+            )
+            raise
         if not isinstance(rendered, str):
             raise TypeError("The judge chat template must render to text.")
         return rendered

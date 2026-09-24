@@ -273,7 +273,7 @@ def test_judge_rejects_tokenizers_that_cannot_preserve_system_role() -> None:
         def apply_chat_template(self, *_args: object, **_kwargs: object) -> str:
             raise ValueError("System role not supported")
 
-    with pytest.raises(ValueError, match="must support a system message"):
+    with pytest.raises(ValueError, match="System role not supported") as exc_info:
         FreeTextCensorshipEvaluator._apply_judge_chat_template(
             _LegacyTokenizer(),
             [
@@ -281,6 +281,28 @@ def test_judge_rejects_tokenizers_that_cannot_preserve_system_role() -> None:
                 {"role": "user", "content": "untrusted"},
             ],
         )
+    assert exc_info.value.__notes__ == [
+        "The configured CCPC-Bench judge tokenizer must support a system message; "
+        "its rubric cannot be merged into untrusted user data."
+    ]
+
+
+def test_judge_preserves_unrelated_tokenizer_errors() -> None:
+    failure = RuntimeError("broken tokenizer state")
+
+    class _BrokenTokenizer:
+        def apply_chat_template(self, *_args: object, **_kwargs: object) -> str:
+            raise failure
+
+    with pytest.raises(RuntimeError, match="broken tokenizer state") as exc_info:
+        FreeTextCensorshipEvaluator._apply_judge_chat_template(
+            _BrokenTokenizer(),
+            [
+                {"role": "system", "content": CCPC_JUDGE_SYSTEM_PROMPT},
+                {"role": "user", "content": "untrusted"},
+            ],
+        )
+    assert exc_info.value is failure
 
 
 def test_judge_revision_comes_from_loaded_tokenizer(tmp_path: Path) -> None:
