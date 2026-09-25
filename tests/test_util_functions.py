@@ -110,6 +110,27 @@ class ReasoningTokenizer(StubTokenizer):
         )
 
 
+class MuseGlimmerTokenizer(StubTokenizer):
+    def __init__(self) -> None:
+        super().__init__(
+            "meta-models/Muse-Glimmer-30B",
+            """{# Muse Glimmer ATEM Chat Template #}
+Reasoning strength: {{ reasoning_strength or 'high' }}.
+# Valid recipients: \"self\", \"user\".
+assistant to=self""",
+        )
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+        del messages, tokenize
+        prompt = (
+            "<|start|>system<|message|>Reasoning strength: high.\n\n"
+            '# Valid recipients: "self", "user".<|eot|>'
+        )
+        if add_generation_prompt:
+            prompt += "<|start|>assistant"
+        return prompt
+
+
 def test_pick_best_dtype_cpu() -> None:
     assert pick_best_dtype("cpu") == torch.float32
 
@@ -208,6 +229,35 @@ def test_safe_apply_chat_template_accepts_reasoning_alias(
     )
 
     assert tokenizer.enable_thinking is expected
+
+
+def test_safe_apply_chat_template_disables_muse_glimmer_thinking() -> None:
+    tokenizer = MuseGlimmerTokenizer()
+
+    formatted = safe_apply_chat_template(
+        cast("PreTrainedTokenizerBase", tokenizer),
+        [{"role": "user", "content": "Hello"}],
+        enable_thinking=False,
+    )
+
+    assert "Reasoning strength: high." not in formatted
+    assert "Reasoning strength: low." in formatted
+    assert '# Valid recipients: "self"' not in formatted
+    assert formatted.endswith("<|start|>assistant to=user<|message|>")
+
+
+def test_safe_apply_chat_template_keeps_muse_glimmer_thinking_on() -> None:
+    tokenizer = MuseGlimmerTokenizer()
+
+    formatted = safe_apply_chat_template(
+        cast("PreTrainedTokenizerBase", tokenizer),
+        [{"role": "user", "content": "Hello"}],
+        enable_thinking=True,
+    )
+
+    assert "Reasoning strength: high." in formatted
+    assert '# Valid recipients: "self", "user".' in formatted
+    assert formatted.endswith("<|start|>assistant")
 
 
 def test_safe_apply_chat_template_ignores_stale_cache_entry(

@@ -75,6 +75,43 @@ class SafeApplyChatTemplate:
         tuple[int, str], tuple[ReferenceType[PreTrainedTokenizerBase], bool]
     ] = {}
 
+    @staticmethod
+    def _is_muse_glimmer(tokenizer: PreTrainedTokenizerBase) -> bool:
+        """Return whether the active template uses Muse Glimmer's ATEM protocol."""
+        try:
+            chat_template = tokenizer.get_chat_template()
+        except ValueError:
+            return False
+        return isinstance(chat_template, str) and all(
+            marker in chat_template
+            for marker in (
+                "Muse Glimmer ATEM Chat Template",
+                "Reasoning strength:",
+                "assistant to=self",
+            )
+        )
+
+    @staticmethod
+    def _disable_muse_glimmer_thinking(input_message: str) -> str:
+        """Render Muse directly into its user channel with minimum reasoning."""
+        input_message = re.sub(
+            r"Reasoning strength: (?:low|medium|high|xhigh)\.",
+            "Reasoning strength: low.",
+            input_message,
+        )
+        input_message = re.sub(
+            r'# Valid recipients: "self"(?:, "[^"]+\.\*")*, "user"\.',
+            '# Valid recipients: "user".',
+            input_message,
+        )
+        generation_prompt = "<|start|>assistant"
+        if input_message.endswith(generation_prompt):
+            input_message = (
+                input_message[: -len(generation_prompt)]
+                + "<|start|>assistant to=user<|message|>"
+            )
+        return input_message
+
     def __call__(
         self,
         tokenizer: PreTrainedTokenizerBase,
@@ -224,6 +261,8 @@ class SafeApplyChatTemplate:
                     {"role": message["role"], "content": message["content"]}
                 )
         input_message = str(_apply_chat_template(conversation))
+        if not enable_thinking and self._is_muse_glimmer(tokenizer):
+            input_message = self._disable_muse_glimmer_thinking(input_message)
         # Try fallback for controlling reasoning mode via thinking tokens
         # NOTE: This uses a very specific pattern which may influence the generated
         #       responses due to a possible distribution shift from the training data
