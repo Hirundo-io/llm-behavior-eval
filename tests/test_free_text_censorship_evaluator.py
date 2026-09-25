@@ -168,7 +168,7 @@ def test_save_results_is_fail_closed(tmp_path: Path) -> None:
             "sample_judge": False,
             "enable_thinking": True,
             "sampling_config": SamplingConfig(
-                do_sample=None, temperature=None, top_p=None, top_k=None, seed=7
+                do_sample=True, temperature=None, top_p=None, top_k=None, seed=7
             ),
         }
     )

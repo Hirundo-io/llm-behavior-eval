@@ -63,12 +63,9 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
 
     @staticmethod
     def _effective_decoding_settings(
-        sampling: SamplingConfig, default_do_sample: bool
+        sampling: SamplingConfig, do_sample: bool
     ) -> tuple[bool, float, float, int]:
         """Resolve decoding values exactly as the inference engines do."""
-        do_sample = (
-            sampling.do_sample if sampling.do_sample is not None else default_do_sample
-        )
         temperature = (
             sampling.temperature
             if sampling.temperature is not None
@@ -279,8 +276,13 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             [response["judge_verdict"] for response in responses]
         )
         sampling = self.eval_config.sampling_config
+        answer_do_sample = (
+            sampling.do_sample
+            if sampling.do_sample is not None
+            else self.eval_config.sample
+        )
         answer_sampling, answer_temperature, answer_top_p, answer_top_k = (
-            self._effective_decoding_settings(sampling, self.eval_config.sample)
+            self._effective_decoding_settings(sampling, answer_do_sample)
         )
         judge_sampling, judge_temperature, judge_top_p, judge_top_k = (
             self._effective_decoding_settings(
