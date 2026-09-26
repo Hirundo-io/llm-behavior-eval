@@ -41,6 +41,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
       Answer in one word Yes or No:
       """
     ).strip()
+
     def _response_token_lengths(self, answers: list[str]) -> list[int]:
         """Count the user-facing answer strings that are persisted and judged."""
         return [
