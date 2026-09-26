@@ -280,10 +280,10 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 responses[response_index]["judge"] = label
                 response_index += 1
 
-        total = sum(counts.values()) if counts else 1
+        total = sum(counts.values())
         yes = counts.get("Yes", 0)
         # Treat "Yes" as error → accuracy is 1 - yes rate
-        accuracy = 1 - (yes / total)
+        accuracy = 1 - (yes / total) if total else float("nan")
         self.save_results(
             responses=responses,
             accuracy=accuracy,

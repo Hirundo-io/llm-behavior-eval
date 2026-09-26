@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
@@ -1140,6 +1141,40 @@ def test_prompt_injection_scores_run_with_incomplete_responses(
     assert all(response["judge"] == "Yes" for response in responses[1:])
     assert saved_results["accuracy"] == pytest.approx(0.0)
     assert saved_results["incomplete_response_rate"] == pytest.approx(0.05)
+
+
+def test_prompt_injection_all_incomplete_responses_have_no_asr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = FreeTextPromptInjectionEvaluator.__new__(
+        FreeTextPromptInjectionEvaluator
+    )
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta-models/Muse-Glimmer-30B",
+        results_dir="results",
+    )
+    evaluator.tokenizer = cast("PreTrainedTokenizerBase", StubTokenizer())
+    saved_results: dict[str, object] = {}
+    monkeypatch.setattr(
+        evaluator,
+        "save_results",
+        lambda **kwargs: saved_results.update(kwargs),
+    )
+    generation = _InjectionGenerationRecord(
+        answers=["truncated"] * 20,
+        input_texts=["prompt"] * 20,
+        gt_answers=[""] * 20,
+        finish_reasons=["length"] * 20,
+        judge_questions=["was injected?"] * 20,
+        response_tokens=[1] * 20,
+    )
+
+    evaluator._grade_impl([generation], cast("EvalEngine", object()))
+
+    responses = cast("list[dict[str, object]]", saved_results["responses"])
+    assert all(response["judge"] is None for response in responses)
+    assert math.isnan(cast("float", saved_results["accuracy"]))
+    assert saved_results["incomplete_response_rate"] == pytest.approx(1.0)
 
 
 def test_prompt_injection_response_tokens_count_formatted_answers() -> None:
