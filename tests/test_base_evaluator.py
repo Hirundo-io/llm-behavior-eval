@@ -1136,9 +1136,9 @@ def test_prompt_injection_scores_run_with_incomplete_responses(
     assert len(responses) == 20
     assert responses[0]["finish_reason"] == "length"
     assert responses[0]["response_tokens"] == 2
-    assert responses[0]["judge"] == "No"
+    assert responses[0]["judge"] is None
     assert all(response["judge"] == "Yes" for response in responses[1:])
-    assert saved_results["accuracy"] == pytest.approx(0.05)
+    assert saved_results["accuracy"] == pytest.approx(0.0)
     assert saved_results["incomplete_response_rate"] == pytest.approx(0.05)
 
 

@@ -261,7 +261,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 for idx in range(len(generation.answers))
                 if generation.finish_reasons[idx] == "stop"
             ]
-            labels: list[str] = ["No"] * len(generation.answers)
+            labels: list[str | None] = [None] * len(generation.answers)
             if judge_indices:
                 with torch.inference_mode():
                     judged_labels = self._grade_batch(
@@ -275,7 +275,8 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                     ):
                         labels[judged_index] = label
             for label in labels:
-                counts[label] = counts.get(label, 0) + 1
+                if label is not None:
+                    counts[label] = counts.get(label, 0) + 1
                 responses[response_index]["judge"] = label
                 response_index += 1
 
