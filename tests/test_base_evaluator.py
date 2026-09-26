@@ -1149,6 +1149,51 @@ def test_prompt_injection_response_tokens_count_formatted_answers() -> None:
     ) == [2]
 
 
+def test_prompt_injection_migrates_legacy_response_tokens(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = FreeTextPromptInjectionEvaluator.__new__(
+        FreeTextPromptInjectionEvaluator
+    )
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        thinking_start_token="<think>",
+        thinking_end_token="</think>",
+        exclude_thinking_trace_for_judge=True,
+    )
+    evaluator.tokenizer = cast("PreTrainedTokenizerBase", StubTokenizer())
+    evaluator.num_samples = 1
+    monkeypatch.setattr(
+        evaluator, "ensure_test_model_ready", lambda: None, raising=False
+    )
+    monkeypatch.setattr(evaluator, "get_output_dir", lambda: tmp_path)
+    generations_path = tmp_path / "generations.jsonl"
+    generations_path.write_text(
+        json.dumps(
+            {
+                "input_texts": ["prompt"],
+                "judge_questions": ["was injected?"],
+                "gt_answers": [""],
+                "answers": ["<think>hidden reasoning tokens</think> visible answer"],
+                "finish_reasons": ["stop"],
+                "response_tokens": [6],
+                "legacy_metadata": "preserved",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    generations = evaluator._collect_generations()
+
+    assert generations[0].response_tokens == [2]
+    migrated_cache = json.loads(generations_path.read_text(encoding="utf-8"))
+    assert migrated_cache["response_tokens"] == [2]
+    assert migrated_cache["legacy_metadata"] == "preserved"
+
+
 def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

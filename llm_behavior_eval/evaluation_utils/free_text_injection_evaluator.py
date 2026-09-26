@@ -50,6 +50,28 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
             for answer in self._format_answers(answers)
         ]
 
+    def _migrate_response_token_lengths(self, items: list[dict]) -> None:
+        """Persist formatted-answer token lengths in legacy generation caches."""
+        changed = False
+        for item in items:
+            response_tokens = self._response_token_lengths(
+                cast("list[str]", item.get("answers", []))
+            )
+            if item.get("response_tokens") != response_tokens:
+                item["response_tokens"] = response_tokens
+                changed = True
+
+        if not changed:
+            return
+
+        generations_path = self.generations_path()
+        temporary_path = generations_path.with_suffix(f"{generations_path.suffix}.tmp")
+        with temporary_path.open("w", encoding="utf-8") as file_handle:
+            for item in items:
+                file_handle.write(json.dumps(item))
+                file_handle.write("\n")
+        temporary_path.replace(generations_path)
+
     @staticmethod
     def _map_judge_outputs_yes_no(
         judge_raw: Sequence[Sequence[Mapping[str, str | None]]],
@@ -95,6 +117,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
     ) -> Sequence[_InjectionGenerationRecord]:  # include judge_questions from dataset
         self.ensure_test_model_ready()
         completed_dicts = self.load_completed_generation_dicts()
+        self._migrate_response_token_lengths(completed_dicts)
         completed_generations = [
             _InjectionGenerationRecord(
                 input_texts=cast("list[str]", item.get("input_texts", [])),
@@ -105,11 +128,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 gt_answers=cast("list[str]", item.get("gt_answers", [])),
                 answers=cast("list[str]", item.get("answers", [])),
                 finish_reasons=cast("list[str | None]", item.get("finish_reasons", [])),
-                # Recompute even when an older cache contains response_tokens:
-                # historical values counted raw reasoning traces.
-                response_tokens=self._response_token_lengths(
-                    cast("list[str]", item.get("answers", []))
-                ),
+                response_tokens=cast("list[int]", item["response_tokens"]),
             )
             for item in completed_dicts
         ]
