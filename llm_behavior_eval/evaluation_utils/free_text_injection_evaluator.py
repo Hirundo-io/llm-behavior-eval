@@ -1,3 +1,4 @@
+import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from .util_functions import safe_apply_chat_template
 @dataclass
 class _InjectionGenerationRecord(_HalluGenerationRecord):
     judge_questions: list[str]
+    response_tokens: list[int]
 
 
 class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
@@ -96,6 +98,14 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 gt_answers=cast("list[str]", item.get("gt_answers", [])),
                 answers=cast("list[str]", item.get("answers", [])),
                 finish_reasons=cast("list[str | None]", item.get("finish_reasons", [])),
+                response_tokens=(
+                    cast("list[int]", item["response_tokens"])
+                    if isinstance(item.get("response_tokens"), list)
+                    else [
+                        len(self.tokenizer.encode(answer, add_special_tokens=False))
+                        for answer in cast("list[str]", item.get("answers", []))
+                    ]
+                ),
             )
             for item in completed_dicts
         ]
@@ -131,12 +141,17 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 batch["gt_answers"], skip_special_tokens=True
             )
             answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
+            response_tokens = [
+                len(self.tokenizer.encode(answer, add_special_tokens=False))
+                for answer in answers
+            ]
             generation_record = _InjectionGenerationRecord(
                 input_texts=input_texts,
                 judge_questions=judge_questions,
                 gt_answers=gt_answers,
                 answers=answers,
                 finish_reasons=finish_reasons,
+                response_tokens=response_tokens,
             )
             generations.append(generation_record)
             self.save_generations(
@@ -147,6 +162,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                         "gt_answers": generation_record.gt_answers,
                         "answers": generation_record.answers,
                         "finish_reasons": generation_record.finish_reasons,
+                        "response_tokens": generation_record.response_tokens,
                     }
                 ]
             )
@@ -183,27 +199,51 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 "FreeTextPromptInjectionEvaluator.grade() must be called with a judge engine."
             )
 
+        injection_generations = cast(
+            "Sequence[_InjectionGenerationRecord]", generations
+        )
         finish_reasons = [
             finish_reason
-            for generation in generations
+            for generation in injection_generations
             for finish_reason in generation.finish_reasons
         ]
         incomplete_responses = finish_reasons.count("length")
         incomplete_response_rate = (
             incomplete_responses / len(finish_reasons) if finish_reasons else 0.0
         )
+        counts = {"Yes": 0, "No": 0}
+        responses: list[dict[str, object]] = [
+            {
+                "question": question,
+                "llm_answer": answer,
+                "judge": None,
+                "finish_reason": finish_reason,
+                "response_tokens": response_tokens,
+            }
+            for generation in injection_generations
+            for question, answer, finish_reason, response_tokens in zip(
+                generation.judge_questions,
+                self._format_answers(generation.answers),
+                generation.finish_reasons,
+                generation.response_tokens,
+                strict=True,
+            )
+        ]
         if incomplete_response_rate >= self.MAX_INCOMPLETE_RESPONSE_RATE:
+            output_responses = self.get_output_dir() / "responses.json"
+            with output_responses.open("w") as file_handle:
+                json.dump(responses, file_handle, indent=4)
             raise ValueError(
                 "Prompt-injection results are unusable: incomplete response rate "
                 f"{incomplete_response_rate:.1%} must be below "
-                f"{self.MAX_INCOMPLETE_RESPONSE_RATE:.0%}."
+                f"{self.MAX_INCOMPLETE_RESPONSE_RATE:.0%}. "
+                f"Diagnostics were saved to {output_responses}."
             )
 
-        counts = {"Yes": 0, "No": 0}
-        responses: list[dict] = []
+        response_index = 0
 
         for generation in tqdm(
-            cast("Sequence[_InjectionGenerationRecord]", generations),
+            injection_generations,
             desc="Grading responses",
             unit="batch",
         ):
@@ -226,25 +266,10 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                         judge_indices, judged_labels, strict=True
                     ):
                         labels[judged_index] = label
-            for question, llm_answer, label, finish_reason in zip(
-                generation.judge_questions,
-                answers,
-                labels,
-                generation.finish_reasons,
-                strict=True,
-            ):
+            for label in labels:
                 counts[label] = counts.get(label, 0) + 1
-                responses.append(
-                    {
-                        "question": question,
-                        "llm_answer": llm_answer,
-                        "judge": label,
-                        "finish_reason": finish_reason,
-                        "response_tokens": len(
-                            self.tokenizer.encode(llm_answer, add_special_tokens=False)
-                        ),
-                    }
-                )
+                responses[response_index]["judge"] = label
+                response_index += 1
 
         total = sum(counts.values()) if counts else 1
         yes = counts.get("Yes", 0)

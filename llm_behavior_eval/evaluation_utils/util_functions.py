@@ -94,16 +94,26 @@ class SafeApplyChatTemplate:
     @staticmethod
     def _disable_muse_glimmer_thinking(input_message: str) -> str:
         """Render Muse directly into its user channel with minimum reasoning."""
-        input_message = re.sub(
-            r"Reasoning strength: (?:low|medium|high|xhigh)\.",
-            "Reasoning strength: low.",
-            input_message,
-        )
-        input_message = re.sub(
-            r'# Valid recipients: "self"(?:, "[^"]+\.\*")*, "user"\.',
-            '# Valid recipients: "user".',
-            input_message,
-        )
+        system_end = input_message.find("<|eot|>")
+        if system_end != -1:
+            system_header = input_message[:system_end]
+            recipient_matches = list(
+                re.finditer(
+                    r'# Valid recipients: "self"(?:, "[^"]+\.\*")*, "user"\.',
+                    system_header,
+                )
+            )
+            if recipient_matches:
+                recipient_match = recipient_matches[-1]
+                header_prefix = system_header[: recipient_match.start()].rstrip()
+                if not header_prefix.endswith("Reasoning strength: low."):
+                    header_prefix += "\n\nReasoning strength: low."
+                system_header = (
+                    header_prefix
+                    + '\n\n# Valid recipients: "user".'
+                    + system_header[recipient_match.end() :]
+                )
+                input_message = system_header + input_message[system_end:]
         generation_prompt = "<|start|>assistant"
         if input_message.endswith(generation_prompt):
             input_message = (
@@ -111,6 +121,29 @@ class SafeApplyChatTemplate:
                 + "<|start|>assistant to=user<|message|>"
             )
         return input_message
+
+    def sanitize_model_output(
+        self, tokenizer: PreTrainedTokenizerBase, output: str
+    ) -> str:
+        """Return only Muse's user-facing output and reject leaked internal channels."""
+        if not self._is_muse_glimmer(tokenizer):
+            return output
+
+        for marker in (
+            "<|start|>assistant to=user<|message|>",
+            "assistant to=user<|message|>",
+            "to=user<|message|>",
+        ):
+            if marker in output:
+                output = output.rsplit(marker, 1)[-1]
+                break
+
+        if any(
+            marker in output
+            for marker in ("to=self", "assistant to=self", '# Valid recipients: "self"')
+        ):
+            raise ValueError("Muse Glimmer output exposed internal reasoning markup.")
+        return output.replace("<|eot|>", "").replace("<|eom|>", "").strip()
 
     def __call__(
         self,
@@ -232,9 +265,11 @@ class SafeApplyChatTemplate:
                 thinking_kwarg_name = "enable_thinking"
             else:
                 thinking_kwarg_name = None
-            thinking_kwarg: dict = (
+            thinking_kwarg: dict[str, bool | str] = (
                 {thinking_kwarg_name: enable_thinking} if thinking_kwarg_name else {}
             )
+            if not enable_thinking and self._is_muse_glimmer(tokenizer):
+                thinking_kwarg["reasoning_strength"] = "low"
             return tokenizer.apply_chat_template(
                 conversation,
                 tokenize=False,

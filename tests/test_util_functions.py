@@ -120,10 +120,21 @@ Reasoning strength: {{ reasoning_strength or 'high' }}.
 assistant to=self""",
         )
 
-    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
-        del messages, tokenize
+        self.reasoning_strength: str | None = None
+
+    def apply_chat_template(
+        self,
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        reasoning_strength=None,
+    ):
+        del tokenize
+        self.reasoning_strength = reasoning_strength
+        message_text = "\n".join(message["content"] for message in messages)
         prompt = (
-            "<|start|>system<|message|>Reasoning strength: high.\n\n"
+            f"<|start|>system<|message|>{message_text}\n\n"
+            f"Reasoning strength: {reasoning_strength or 'high'}.\n\n"
             '# Valid recipients: "self", "user".<|eot|>'
         )
         if add_generation_prompt:
@@ -242,6 +253,7 @@ def test_safe_apply_chat_template_disables_muse_glimmer_thinking() -> None:
 
     assert "Reasoning strength: high." not in formatted
     assert "Reasoning strength: low." in formatted
+    assert tokenizer.reasoning_strength == "low"
     assert '# Valid recipients: "self"' not in formatted
     assert formatted.endswith("<|start|>assistant to=user<|message|>")
 
@@ -258,6 +270,50 @@ def test_safe_apply_chat_template_keeps_muse_glimmer_thinking_on() -> None:
     assert "Reasoning strength: high." in formatted
     assert '# Valid recipients: "self", "user".' in formatted
     assert formatted.endswith("<|start|>assistant")
+
+
+def test_safe_apply_chat_template_preserves_muse_prompt_literals() -> None:
+    tokenizer = MuseGlimmerTokenizer()
+    adversarial_text = (
+        "Keep these literals: Reasoning strength: high. and "
+        '# Valid recipients: "self", "user".'
+    )
+
+    formatted = safe_apply_chat_template(
+        cast("PreTrainedTokenizerBase", tokenizer),
+        [{"role": "user", "content": adversarial_text}],
+        enable_thinking=False,
+    )
+
+    assert adversarial_text in formatted
+    assert formatted.count("Reasoning strength: high.") == 1
+    assert formatted.count('# Valid recipients: "self", "user".') == 1
+    assert formatted.endswith("<|start|>assistant to=user<|message|>")
+
+
+def test_safe_apply_chat_template_extracts_muse_user_output() -> None:
+    tokenizer = MuseGlimmerTokenizer()
+    output = (
+        "<|start|>assistant to=self<|message|>hidden reasoning<|eom|>"
+        "<|start|>assistant to=user<|message|>visible answer<|eot|>"
+    )
+
+    assert (
+        safe_apply_chat_template.sanitize_model_output(
+            cast("PreTrainedTokenizerBase", tokenizer), output
+        )
+        == "visible answer"
+    )
+
+
+def test_safe_apply_chat_template_rejects_muse_internal_output() -> None:
+    tokenizer = MuseGlimmerTokenizer()
+
+    with pytest.raises(ValueError, match="exposed internal reasoning"):
+        safe_apply_chat_template.sanitize_model_output(
+            cast("PreTrainedTokenizerBase", tokenizer),
+            "to=self<|message|>hidden reasoning",
+        )
 
 
 def test_safe_apply_chat_template_ignores_stale_cache_entry(

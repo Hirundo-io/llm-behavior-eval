@@ -32,6 +32,10 @@ from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
     _HalluGenerationRecord,
 )
+from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
+    FreeTextPromptInjectionEvaluator,
+    _InjectionGenerationRecord,
+)
 from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
     FreeTextRefusalEvaluator,
     _RefusalGenerationRecord,
@@ -92,6 +96,10 @@ class StubTokenizer:
         self.eos_token = "</s>"
         self.eos_token_id = 2
         self.padding_side = "right"
+
+    def encode(self, text: str, *, add_special_tokens: bool = False) -> list[int]:
+        del add_special_tokens
+        return list(range(len(text.split())))
 
 
 @pytest.fixture
@@ -1089,6 +1097,38 @@ def test_save_results_includes_incomplete_response_rate_when_finish_reasons_exis
             "Incomplete response rate (%) ⬇️": "50.000",
         }
     ]
+
+
+def test_prompt_injection_rejection_preserves_twenty_sample_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = FreeTextPromptInjectionEvaluator.__new__(
+        FreeTextPromptInjectionEvaluator
+    )
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta-models/Muse-Glimmer-30B",
+        results_dir=tmp_path,
+    )
+    evaluator.tokenizer = StubTokenizer()
+    monkeypatch.setattr(evaluator, "get_output_dir", lambda: tmp_path)
+    generation = _InjectionGenerationRecord(
+        answers=["short answer"] * 20,
+        input_texts=["prompt"] * 20,
+        gt_answers=[""] * 20,
+        finish_reasons=["length", *(["stop"] * 19)],
+        judge_questions=["was injected?"] * 20,
+        response_tokens=[2] * 20,
+    )
+
+    with pytest.raises(ValueError, match="5.0%.*Diagnostics were saved"):
+        evaluator._grade_impl([generation], cast("EvalEngine", object()))
+
+    responses = json.loads((tmp_path / "responses.json").read_text())
+    assert len(responses) == 20
+    assert responses[0]["finish_reason"] == "length"
+    assert responses[0]["response_tokens"] == 2
+    assert all(response["judge"] is None for response in responses)
 
 
 def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
