@@ -43,6 +43,13 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
     ).strip()
     MAX_INCOMPLETE_RESPONSE_RATE = 0.05
 
+    def _response_token_lengths(self, answers: list[str]) -> list[int]:
+        """Count the user-facing answer strings that are persisted and judged."""
+        return [
+            len(self.tokenizer.encode(answer, add_special_tokens=False))
+            for answer in self._format_answers(answers)
+        ]
+
     @staticmethod
     def _map_judge_outputs_yes_no(
         judge_raw: Sequence[Sequence[Mapping[str, str | None]]],
@@ -98,13 +105,10 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 gt_answers=cast("list[str]", item.get("gt_answers", [])),
                 answers=cast("list[str]", item.get("answers", [])),
                 finish_reasons=cast("list[str | None]", item.get("finish_reasons", [])),
-                response_tokens=(
-                    cast("list[int]", item["response_tokens"])
-                    if isinstance(item.get("response_tokens"), list)
-                    else [
-                        len(self.tokenizer.encode(answer, add_special_tokens=False))
-                        for answer in cast("list[str]", item.get("answers", []))
-                    ]
+                # Recompute even when an older cache contains response_tokens:
+                # historical values counted raw reasoning traces.
+                response_tokens=self._response_token_lengths(
+                    cast("list[str]", item.get("answers", []))
                 ),
             )
             for item in completed_dicts
@@ -141,10 +145,7 @@ class FreeTextPromptInjectionEvaluator(FreeTextHaluEvaluator):
                 batch["gt_answers"], skip_special_tokens=True
             )
             answers, finish_reasons = self.generate_answers(input_ids, attention_mask)
-            response_tokens = [
-                len(self.tokenizer.encode(answer, add_special_tokens=False))
-                for answer in answers
-            ]
+            response_tokens = self._response_token_lengths(answers)
             generation_record = _InjectionGenerationRecord(
                 input_texts=input_texts,
                 judge_questions=judge_questions,

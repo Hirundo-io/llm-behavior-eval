@@ -1131,6 +1131,24 @@ def test_prompt_injection_rejection_preserves_twenty_sample_diagnostics(
     assert all(response["judge"] is None for response in responses)
 
 
+def test_prompt_injection_response_tokens_count_formatted_answers() -> None:
+    evaluator = FreeTextPromptInjectionEvaluator.__new__(
+        FreeTextPromptInjectionEvaluator
+    )
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir="results",
+        thinking_start_token="<think>",
+        thinking_end_token="</think>",
+        exclude_thinking_trace_for_judge=True,
+    )
+    evaluator.tokenizer = cast("PreTrainedTokenizerBase", StubTokenizer())
+
+    assert evaluator._response_token_lengths(
+        ["<think>hidden reasoning tokens</think> visible answer"]
+    ) == [2]
+
+
 def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
