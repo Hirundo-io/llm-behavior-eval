@@ -1110,7 +1110,7 @@ def test_prompt_injection_rejection_preserves_twenty_sample_diagnostics(
         model_path_or_repo_id="meta-models/Muse-Glimmer-30B",
         results_dir=tmp_path,
     )
-    evaluator.tokenizer = StubTokenizer()
+    evaluator.tokenizer = cast("PreTrainedTokenizerBase", StubTokenizer())
     monkeypatch.setattr(evaluator, "get_output_dir", lambda: tmp_path)
     generation = _InjectionGenerationRecord(
         answers=["short answer"] * 20,

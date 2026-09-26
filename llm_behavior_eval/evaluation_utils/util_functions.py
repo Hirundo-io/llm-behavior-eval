@@ -265,7 +265,7 @@ class SafeApplyChatTemplate:
                 thinking_kwarg_name = "enable_thinking"
             else:
                 thinking_kwarg_name = None
-            thinking_kwarg: dict[str, bool | str] = (
+            thinking_kwarg: dict[str, Any] = (
                 {thinking_kwarg_name: enable_thinking} if thinking_kwarg_name else {}
             )
             if not enable_thinking and self._is_muse_glimmer(tokenizer):
