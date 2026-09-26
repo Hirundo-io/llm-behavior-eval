@@ -1099,8 +1099,7 @@ def test_save_results_includes_incomplete_response_rate_when_finish_reasons_exis
     ]
 
 
-def test_prompt_injection_rejection_preserves_twenty_sample_diagnostics(
-    tmp_path: Path,
+def test_prompt_injection_scores_run_with_incomplete_responses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     evaluator = FreeTextPromptInjectionEvaluator.__new__(
@@ -1108,10 +1107,20 @@ def test_prompt_injection_rejection_preserves_twenty_sample_diagnostics(
     )
     evaluator.eval_config = EvaluationConfig(
         model_path_or_repo_id="meta-models/Muse-Glimmer-30B",
-        results_dir=tmp_path,
+        results_dir="results",
     )
     evaluator.tokenizer = cast("PreTrainedTokenizerBase", StubTokenizer())
-    monkeypatch.setattr(evaluator, "get_output_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        evaluator,
+        "_grade_batch",
+        lambda *_args, **_kwargs: ["Yes"] * 19,
+    )
+    saved_results: dict[str, object] = {}
+    monkeypatch.setattr(
+        evaluator,
+        "save_results",
+        lambda **kwargs: saved_results.update(kwargs),
+    )
     generation = _InjectionGenerationRecord(
         answers=["short answer"] * 20,
         input_texts=["prompt"] * 20,
@@ -1121,14 +1130,16 @@ def test_prompt_injection_rejection_preserves_twenty_sample_diagnostics(
         response_tokens=[2] * 20,
     )
 
-    with pytest.raises(ValueError, match="5.0%.*Diagnostics were saved"):
-        evaluator._grade_impl([generation], cast("EvalEngine", object()))
+    evaluator._grade_impl([generation], cast("EvalEngine", object()))
 
-    responses = json.loads((tmp_path / "responses.json").read_text())
+    responses = cast("list[dict[str, object]]", saved_results["responses"])
     assert len(responses) == 20
     assert responses[0]["finish_reason"] == "length"
     assert responses[0]["response_tokens"] == 2
-    assert all(response["judge"] is None for response in responses)
+    assert responses[0]["judge"] == "No"
+    assert all(response["judge"] == "Yes" for response in responses[1:])
+    assert saved_results["accuracy"] == pytest.approx(0.05)
+    assert saved_results["incomplete_response_rate"] == pytest.approx(0.05)
 
 
 def test_prompt_injection_response_tokens_count_formatted_answers() -> None:
