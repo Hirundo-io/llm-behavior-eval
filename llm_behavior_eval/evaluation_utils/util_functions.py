@@ -78,10 +78,7 @@ class SafeApplyChatTemplate:
     @staticmethod
     def _is_muse_glimmer(tokenizer: PreTrainedTokenizerBase) -> bool:
         """Return whether the active template uses Muse Glimmer's ATEM protocol."""
-        try:
-            chat_template = tokenizer.get_chat_template()
-        except ValueError:
-            return False
+        chat_template = tokenizer.get_chat_template()
         return isinstance(chat_template, str) and all(
             marker in chat_template
             for marker in (

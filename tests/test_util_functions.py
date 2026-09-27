@@ -272,6 +272,22 @@ def test_safe_apply_chat_template_keeps_muse_glimmer_thinking_on() -> None:
     assert formatted.endswith("<|start|>assistant")
 
 
+def test_muse_detection_propagates_chat_template_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tokenizer = StubTokenizer("model-without-template", "unused")
+
+    def fail_to_get_chat_template() -> str:
+        raise ValueError("No chat template is configured")
+
+    monkeypatch.setattr(tokenizer, "get_chat_template", fail_to_get_chat_template)
+
+    with pytest.raises(ValueError, match="No chat template is configured"):
+        safe_apply_chat_template._is_muse_glimmer(
+            cast("PreTrainedTokenizerBase", tokenizer)
+        )
+
+
 def test_safe_apply_chat_template_preserves_muse_prompt_literals() -> None:
     tokenizer = MuseGlimmerTokenizer()
     adversarial_text = (
