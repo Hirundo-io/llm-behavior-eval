@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
@@ -31,6 +32,10 @@ from llm_behavior_eval.evaluation_utils.eval_engine import EvalEngine
 from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
     FreeTextHaluEvaluator,
     _HalluGenerationRecord,
+)
+from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
+    FreeTextPromptInjectionEvaluator,
+    _InjectionGenerationRecord,
 )
 from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
     FreeTextRefusalEvaluator,
@@ -92,6 +97,10 @@ class StubTokenizer:
         self.eos_token = "</s>"
         self.eos_token_id = 2
         self.padding_side = "right"
+
+    def encode(self, text: str, *, add_special_tokens: bool = False) -> list[int]:
+        del add_special_tokens
+        return list(range(len(text.split())))
 
 
 @pytest.fixture
@@ -1089,6 +1098,146 @@ def test_save_results_includes_incomplete_response_rate_when_finish_reasons_exis
             "Incomplete response rate (%) ⬇️": "50.000",
         }
     ]
+
+
+def test_prompt_injection_scores_run_with_incomplete_responses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = FreeTextPromptInjectionEvaluator.__new__(
+        FreeTextPromptInjectionEvaluator
+    )
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta-models/Muse-Glimmer-30B",
+        results_dir="results",
+    )
+    evaluator.tokenizer = cast("PreTrainedTokenizerBase", StubTokenizer())
+    monkeypatch.setattr(
+        evaluator,
+        "_grade_batch",
+        lambda *_args, **_kwargs: ["Yes"] * 19,
+    )
+    saved_results: dict[str, object] = {}
+    monkeypatch.setattr(
+        evaluator,
+        "save_results",
+        lambda **kwargs: saved_results.update(kwargs),
+    )
+    generation = _InjectionGenerationRecord(
+        answers=["short answer"] * 20,
+        input_texts=["prompt"] * 20,
+        gt_answers=[""] * 20,
+        finish_reasons=["length", *(["stop"] * 19)],
+        judge_questions=["was injected?"] * 20,
+        response_tokens=[2] * 20,
+    )
+
+    evaluator._grade_impl([generation], cast("EvalEngine", object()))
+
+    responses = cast("list[dict[str, object]]", saved_results["responses"])
+    assert len(responses) == 20
+    assert responses[0]["finish_reason"] == "length"
+    assert responses[0]["response_tokens"] == 2
+    assert responses[0]["judge"] is None
+    assert all(response["judge"] == "Yes" for response in responses[1:])
+    assert saved_results["accuracy"] == pytest.approx(0.0)
+    assert saved_results["incomplete_response_rate"] == pytest.approx(0.05)
+
+
+def test_prompt_injection_all_incomplete_responses_have_no_asr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = FreeTextPromptInjectionEvaluator.__new__(
+        FreeTextPromptInjectionEvaluator
+    )
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta-models/Muse-Glimmer-30B",
+        results_dir="results",
+    )
+    evaluator.tokenizer = cast("PreTrainedTokenizerBase", StubTokenizer())
+    saved_results: dict[str, object] = {}
+    monkeypatch.setattr(
+        evaluator,
+        "save_results",
+        lambda **kwargs: saved_results.update(kwargs),
+    )
+    generation = _InjectionGenerationRecord(
+        answers=["truncated"] * 20,
+        input_texts=["prompt"] * 20,
+        gt_answers=[""] * 20,
+        finish_reasons=["length"] * 20,
+        judge_questions=["was injected?"] * 20,
+        response_tokens=[1] * 20,
+    )
+
+    evaluator._grade_impl([generation], cast("EvalEngine", object()))
+
+    responses = cast("list[dict[str, object]]", saved_results["responses"])
+    assert all(response["judge"] is None for response in responses)
+    assert math.isnan(cast("float", saved_results["accuracy"]))
+    assert saved_results["incomplete_response_rate"] == pytest.approx(1.0)
+
+
+def test_prompt_injection_response_tokens_count_formatted_answers() -> None:
+    evaluator = FreeTextPromptInjectionEvaluator.__new__(
+        FreeTextPromptInjectionEvaluator
+    )
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir="results",
+        thinking_start_token="<think>",
+        thinking_end_token="</think>",
+        exclude_thinking_trace_for_judge=True,
+    )
+    evaluator.tokenizer = cast("PreTrainedTokenizerBase", StubTokenizer())
+
+    assert evaluator._response_token_lengths(
+        ["<think>hidden reasoning tokens</think> visible answer"]
+    ) == [2]
+
+
+def test_prompt_injection_migrates_legacy_response_tokens(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = FreeTextPromptInjectionEvaluator.__new__(
+        FreeTextPromptInjectionEvaluator
+    )
+    evaluator.eval_config = EvaluationConfig(
+        model_path_or_repo_id="meta/model",
+        results_dir=tmp_path,
+        thinking_start_token="<think>",
+        thinking_end_token="</think>",
+        exclude_thinking_trace_for_judge=True,
+    )
+    evaluator.tokenizer = cast("PreTrainedTokenizerBase", StubTokenizer())
+    evaluator.num_samples = 1
+    monkeypatch.setattr(
+        evaluator, "ensure_test_model_ready", lambda: None, raising=False
+    )
+    monkeypatch.setattr(evaluator, "get_output_dir", lambda: tmp_path)
+    generations_path = tmp_path / "generations.jsonl"
+    generations_path.write_text(
+        json.dumps(
+            {
+                "input_texts": ["prompt"],
+                "judge_questions": ["was injected?"],
+                "gt_answers": [""],
+                "answers": ["<think>hidden reasoning tokens</think> visible answer"],
+                "finish_reasons": ["stop"],
+                "response_tokens": [6],
+                "legacy_metadata": "preserved",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    generations = evaluator._collect_generations()
+
+    assert generations[0].response_tokens == [2]
+    migrated_cache = json.loads(generations_path.read_text(encoding="utf-8"))
+    assert migrated_cache["response_tokens"] == [2]
+    assert migrated_cache["legacy_metadata"] == "preserved"
 
 
 def test_refusal_evaluator_grade_impl_writes_metrics_and_summaries(

@@ -35,6 +35,7 @@ from .util_functions import (
     get_lora_slug,
     infer_mlflow_metric_step_from_lora_path,
     load_tokenizer_with_transformers,
+    safe_apply_chat_template,
 )
 
 if TYPE_CHECKING:
@@ -312,7 +313,7 @@ class BaseEvaluator(ABC):
         attention_mask: torch.Tensor,
         do_sample: bool | None = None,
     ) -> tuple[list[str], list[str | None]]:
-        return self.eval_engine.generate_answers(
+        answers, finish_reasons = self.eval_engine.generate_answers(
             input_ids,
             attention_mask,
             sampling_config=SamplingConfig(
@@ -329,6 +330,12 @@ class BaseEvaluator(ABC):
                 seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
             ),
         )
+        if self.eval_config.enable_thinking is False:
+            answers = [
+                safe_apply_chat_template.sanitize_model_output(self.tokenizer, answer)
+                for answer in answers
+            ]
+        return answers, finish_reasons
 
     @abstractmethod
     def evaluate(self) -> None:
