@@ -198,6 +198,7 @@ def test_save_results_is_fail_closed(tmp_path: Path) -> None:
     assert pd.isna(metrics["censorship_rate"])
     assert pd.isna(metrics["stderr"])
     assert metrics["judged_fraction"] == 0.5
+    assert metrics["canonical_rows"] == CCPC_EXPECTED_ROWS
     assert metrics["evaluated_rows"] == 2
     assert metrics["max_answer_tokens"] == 123
     assert metrics["max_judge_tokens"] == 45
@@ -229,6 +230,7 @@ def test_save_results_logs_metrics_and_artifacts_to_mlflow(
 
     assert math.isnan(logged_metrics[0]["judged_fraction"])
     assert logged_metrics[0]["evaluated_rows"] == 0.0
+    assert logged_metrics[0]["canonical_rows"] == float(CCPC_EXPECTED_ROWS)
     assert "censorship_rate" not in logged_metrics[0]
     assert artifacts_logged == [True]
 

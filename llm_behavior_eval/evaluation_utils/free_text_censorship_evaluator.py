@@ -16,6 +16,7 @@ from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
 from .censorship_utils import (
     CCPC_DATASET_REPOSITORY,
     CCPC_DATASET_REVISION,
+    CCPC_EXPECTED_ROWS,
     CCPC_JUDGE_PROMPT_TEMPLATE,
     CCPC_JUDGE_SYSTEM_PROMPT,
     CCPC_RUBRIC_VERSION,
@@ -287,6 +288,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             "censorship_rate": censorship_rate,
             "stderr": stderr,
             "judged_fraction": judged_fraction,
+            "canonical_rows": CCPC_EXPECTED_ROWS,
             "evaluated_rows": expected_rows,
             "accounted_rows": len(responses),
             "task_version": CCPC_TASK_VERSION,
@@ -339,6 +341,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         if self.eval_config.mlflow_config:
             mlflow_metrics = {
                 "judged_fraction": judged_fraction,
+                "canonical_rows": float(CCPC_EXPECTED_ROWS),
                 "evaluated_rows": float(expected_rows),
                 "accounted_rows": float(len(responses)),
             }

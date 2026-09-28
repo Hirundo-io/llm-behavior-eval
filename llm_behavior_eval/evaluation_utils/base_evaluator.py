@@ -326,7 +326,11 @@ class BaseEvaluator(ABC):
                 temperature=self.eval_config.sampling_config.temperature,
                 top_p=self.eval_config.sampling_config.top_p,
                 top_k=self.eval_config.sampling_config.top_k,
-                seed=self.dataset_config.seed or self.eval_config.sampling_config.seed,
+                seed=(
+                    self.dataset_config.seed
+                    if self.dataset_config.seed is not None
+                    else self.eval_config.sampling_config.seed
+                ),
             ),
         )
 
