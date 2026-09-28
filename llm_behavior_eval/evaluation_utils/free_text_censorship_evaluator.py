@@ -25,7 +25,7 @@ from .censorship_utils import (
     parse_censorship_judgment,
 )
 from .eval_engine import EvalEngine
-from .sampling_config import SamplingConfig
+from .sampling_config import SamplingConfig, resolve_temperature
 from .util_functions import is_model_multimodal, safe_apply_chat_template
 
 
@@ -66,13 +66,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
         sampling: SamplingConfig, do_sample: bool
     ) -> tuple[bool, float, float, int]:
         """Resolve decoding values exactly as the inference engines do."""
-        temperature = (
-            sampling.temperature
-            if sampling.temperature is not None
-            else 1.0
-            if do_sample
-            else 0.0
-        )
+        temperature = resolve_temperature(do_sample, sampling.temperature)
         top_p = sampling.top_p if sampling.top_p is not None else 1.0
         top_k = sampling.top_k if sampling.top_k is not None else 0
         return do_sample, temperature, top_p, top_k

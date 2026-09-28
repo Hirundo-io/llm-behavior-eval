@@ -168,7 +168,7 @@ def test_save_results_is_fail_closed(tmp_path: Path) -> None:
             "sample_judge": False,
             "enable_thinking": True,
             "sampling_config": SamplingConfig(
-                do_sample=True, temperature=None, top_p=None, top_k=None, seed=7
+                do_sample=True, temperature=0.7, top_p=None, top_k=None, seed=7
             ),
         }
     )
@@ -203,7 +203,7 @@ def test_save_results_is_fail_closed(tmp_path: Path) -> None:
     assert metrics["max_judge_tokens"] == 45
     assert bool(metrics["answer_sampling"])
     assert not bool(metrics["judge_sampling"])
-    assert metrics["answer_temperature"] == 1.0
+    assert metrics["answer_temperature"] == 0.7
     assert metrics["judge_temperature"] == 0.0
     assert metrics["answer_top_p"] == metrics["judge_top_p"] == 1.0
     assert metrics["answer_top_k"] == metrics["judge_top_k"] == 0

@@ -11,7 +11,7 @@ from transformers.data.data_collator import DataCollator
 from .eval_config import EvaluationConfig
 from .eval_engine import EvalEngine
 from .max_batch_size import MAX_BATCH_SIZE
-from .sampling_config import SamplingConfig
+from .sampling_config import SamplingConfig, resolve_temperature
 from .util_functions import load_transformers_model_and_tokenizer
 
 
@@ -87,9 +87,7 @@ class TransformersEvalEngine(EvalEngine):
         else:
             do_sample = sampling_config.do_sample
         max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
-        temperature = sampling_config.temperature
-        if temperature is None:
-            temperature = 1.0 if do_sample else 0.0
+        temperature = resolve_temperature(do_sample, sampling_config.temperature)
         top_p = sampling_config.top_p if sampling_config.top_p is not None else 1.0
         top_k = sampling_config.top_k if sampling_config.top_k is not None else 0
         seed = sampling_config.seed

@@ -466,6 +466,27 @@ def test_vllm_eval_engine_sampling_overrides_config(
 
 
 @pytest.mark.vllm_engine_test
+def test_vllm_eval_engine_disables_sampling_despite_explicit_temperature(
+    vllm_bundle: VllmPatchBundle, tmp_path: Path
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        max_answer_tokens=8,
+        sample=False,
+    )
+    engine = VllmEvalEngine(config)
+
+    engine.generate_answers(
+        torch.tensor([[1, 2, 3]]),
+        torch.tensor([[1, 1, 1]]),
+        sampling_config=SamplingConfig(do_sample=False, temperature=0.7),
+    )
+
+    assert vllm_bundle.sampling_recorder.calls[-1]["temperature"] == 0.0
+
+
+@pytest.mark.vllm_engine_test
 def test_vllm_eval_engine_passes_optional_kwargs(
     vllm_bundle: VllmPatchBundle, tmp_path: Path
 ) -> None:
@@ -767,6 +788,29 @@ def test_transformers_eval_engine_sampling_config_overrides_defaults(
     assert generate_call["top_p"] == 1.0
     assert generate_call["top_k"] == 0
     assert generate_call["repetition_penalty"] == 1.1
+
+
+@pytest.mark.transformers_engine_test
+def test_transformers_eval_engine_disables_sampling_despite_explicit_temperature(
+    transformers_bundle: TransformersPatchBundle, tmp_path: Path
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        max_answer_tokens=3,
+        sample=False,
+    )
+    engine = TransformersEvalEngine(transformers_bundle.data_collator, config)
+
+    engine.generate_answers(
+        torch.tensor([[7, 8]]),
+        torch.tensor([[1, 1]]),
+        sampling_config=SamplingConfig(do_sample=False, temperature=0.7),
+    )
+
+    generate_call = transformers_bundle.model.generate_calls[-1]
+    assert generate_call["do_sample"] is False
+    assert generate_call["temperature"] == 0.0
 
 
 @pytest.mark.transformers_engine_test
