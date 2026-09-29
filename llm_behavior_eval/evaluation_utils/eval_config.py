@@ -20,7 +20,7 @@ FAMILY_TOKEN_DEFAULTS: dict[EvaluatorFamily, dict[str, int | bool]] = {
     },
     "censorship": {
         "max_answer_tokens": 8192,
-        "max_judge_tokens": 128,
+        "max_judge_tokens": 4096,
         "sample_judge": False,
         "enable_thinking": False,
     },

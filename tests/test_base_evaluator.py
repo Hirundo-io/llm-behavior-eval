@@ -88,6 +88,7 @@ class CaptureState:
     free_model_calls: list[bool] = field(default_factory=list)
     grade_called_with_judge: bool | None = None
     grade_generations_count: int | None = None
+    generation_sampling_config: SamplingConfig | None = None
 
 
 class StubTokenizer:
@@ -282,6 +283,39 @@ def test_prepare_dataloader_receives_eval_engine_tokenizer(
     assert evaluator.eval_loader == "loader"
     assert evaluator.num_samples == 3
     assert capture_state.engine_dataset == evaluator.eval_dataset
+
+
+def test_generate_answers_preserves_zero_dataset_seed(
+    tmp_path: Path, capture_state: CaptureState
+) -> None:
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="meta/model",
+            results_dir=tmp_path,
+            sampling_config=SamplingConfig(seed=111),
+        ),
+        DatasetConfig(
+            file_path="repo/dataset",
+            dataset_type=DatasetType.BIAS,
+            seed=0,
+        ),
+    )
+
+    class RecordingEngine:
+        def generate_answers(
+            self,
+            _input_ids: torch.Tensor,
+            _attention_mask: torch.Tensor,
+            sampling_config: SamplingConfig,
+        ) -> tuple[list[str], list[str | None]]:
+            capture_state.generation_sampling_config = sampling_config
+            return ["answer"], ["stop"]
+
+    evaluator.eval_engine = cast("Any", RecordingEngine())
+    evaluator.generate_answers(torch.tensor([[1]]), torch.tensor([[1]]))
+
+    assert capture_state.generation_sampling_config is not None
+    assert capture_state.generation_sampling_config.seed == 0
 
 
 def test_prepare_dataloader_propagates_explicit_and_default_dataset_id(

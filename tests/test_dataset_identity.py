@@ -148,4 +148,4 @@ def test_catalog_is_complete_and_expansions_are_unique() -> None:
         "hirundo-io/XSTest",
         "hirundo-io/or-bench",
     ]
-    assert expand_dataset_preset("chinese_censorship") == ["hirundo-io/ccpc-bench"]
+    assert expand_dataset_preset("chinese_censorship") == ["hirundo-io/ccpc-500"]

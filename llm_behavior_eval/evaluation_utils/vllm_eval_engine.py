@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from .eval_engine import EvalEngine
+from .sampling_config import resolve_temperature
 from .util_functions import (
     build_vllm_prompt_token_ids,
     load_tokenizer_with_transformers,
@@ -186,10 +187,7 @@ class VllmEvalEngine(EvalEngine):
         else:
             do_sample = sampling_config.do_sample
         max_new_tokens = self._get_max_new_tokens(self.eval_config, self.is_judge)
-        if sampling_config.temperature is None:
-            temperature = 1.0 if do_sample else 0.0
-        else:
-            temperature = sampling_config.temperature
+        temperature = resolve_temperature(do_sample, sampling_config.temperature)
         top_p = sampling_config.top_p if sampling_config.top_p is not None else 1.0
         top_k = sampling_config.top_k if sampling_config.top_k is not None else 0
         stop_token_ids = self._collect_stop_token_ids()

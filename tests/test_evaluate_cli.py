@@ -157,6 +157,7 @@ def test_cli_help_includes_chinese_censorship_guidance() -> None:
 
     assert result.exit_code == 0
     assert "chinese_censorship" in visible_output
+    assert "default depends on the evaluator family" in visible_output
     assert "--judge-model" in visible_output
     assert "default or configured" in visible_output
     assert "evaluated model" in visible_output
