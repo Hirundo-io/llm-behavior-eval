@@ -26,6 +26,7 @@ from llm_behavior_eval.evaluation_utils.censorship_utils import (
 )
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
+    CCPC_SUMMARY_RATE_HEADER,
     FreeTextCensorshipEvaluator,
     _CensorshipGenerationRecord,
 )
@@ -212,51 +213,18 @@ def test_save_results_is_fail_closed(tmp_path: Path) -> None:
     assert bool(metrics["enable_thinking"])
 
 
-@pytest.mark.parametrize("legacy_state", ["none", "fraction", "mixed"])
+@pytest.mark.parametrize("censored_rows", [0, 23, 25, None])
 @pytest.mark.parametrize("summary_filename", ["summary_brief.csv", "summary_full.csv"])
 def test_summary_uses_percentage_header_and_preserves_raw_metrics(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     summary_filename: str,
-    legacy_state: str,
+    censored_rows: int | None,
 ) -> None:
     evaluator = _evaluator(tmp_path, rows=25)
     monkeypatch.setattr(evaluator, "_judge_model_revision", lambda: "0123456789abcdef")
-    monkeypatch.setattr(
-        evaluator,
-        "_append_summary_row",
-        FreeTextCensorshipEvaluator._append_summary_row.__get__(evaluator),
-    )
+    monkeypatch.delattr(evaluator, "_append_summary_row")
     (tmp_path / "model").mkdir()
-    if legacy_state != "none":
-        historical = pd.DataFrame(
-            [
-                {
-                    "Dataset": "old",
-                    "censorship_rate": 0.5,
-                    "evaluator_version": "0.1.8",
-                    "judge_model_revision": "001234",
-                }
-            ]
-        )
-        if legacy_state == "mixed":
-            historical = pd.concat(
-                [
-                    historical,
-                    pd.DataFrame(
-                        [
-                            {
-                                "Dataset": "new",
-                                "Censorship rate (%) ⬇️": 80,
-                                "evaluator_version": "0.1.8",
-                                "judge_model_revision": "001234",
-                            }
-                        ]
-                    ),
-                ],
-                ignore_index=True,
-            )
-        historical.to_csv(tmp_path / "model" / summary_filename, index=False)
     evaluator._save_results(
         [
             {
@@ -265,26 +233,38 @@ def test_summary_uses_percentage_header_and_preserves_raw_metrics(
                 "llm_answer": "answer",
                 "finish_reason": "stop",
                 "judge_finish_reason": "stop",
-                "judge_raw": "True" if index < 23 else "False",
-                "judge_verdict": index < 23,
+                "judge_raw": (
+                    "unknown"
+                    if censored_rows is None
+                    else "True"
+                    if index < censored_rows
+                    else "False"
+                ),
+                "judge_verdict": (
+                    None if censored_rows is None else index < censored_rows
+                ),
             }
             for index in range(25)
         ]
     )
     summary = pd.read_csv(tmp_path / "model" / summary_filename, dtype=str)
     metrics = pd.read_csv(tmp_path / "metrics.csv", dtype=str)
-    assert "Censorship rate (%) ⬇️" in summary.columns
+    assert CCPC_SUMMARY_RATE_HEADER == "Censorship rate (%) ⬇️"
     assert "censorship_rate" not in summary.columns
-    if legacy_state != "none":
-        assert float(summary.iloc[0]["Censorship rate (%) ⬇️"]) == 50
-        assert summary.iloc[0]["judge_model_revision"] == "001234"
-        assert summary.iloc[0]["evaluator_version"] == "0.1.8"
-        if legacy_state == "mixed":
-            assert float(summary.iloc[1]["Censorship rate (%) ⬇️"]) == 80
-    assert float(summary.iloc[-1]["Censorship rate (%) ⬇️"]) == pytest.approx(92.0)
-    assert float(metrics.iloc[0]["censorship_rate"]) == pytest.approx(0.92)
+    if censored_rows is None:
+        # Preserve the existing omission of all-empty metric columns.
+        assert CCPC_SUMMARY_RATE_HEADER not in summary.columns
+        assert pd.isna(metrics.iloc[0]["censorship_rate"])
+        assert float(metrics.iloc[0]["judged_fraction"]) == 0
+    else:
+        assert float(summary.iloc[0][CCPC_SUMMARY_RATE_HEADER]) == pytest.approx(
+            censored_rows / 25 * 100
+        )
+        assert float(metrics.iloc[0]["censorship_rate"]) == pytest.approx(
+            censored_rows / 25
+        )
     for column in ("evaluator_version", "dataset_revision", "judge_model_revision"):
-        assert summary.iloc[-1][column] == metrics.iloc[0][column]
+        assert summary.iloc[0][column] == metrics.iloc[0][column]
 
 
 def test_save_results_logs_metrics_and_artifacts_to_mlflow(
