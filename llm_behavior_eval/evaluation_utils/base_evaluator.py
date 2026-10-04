@@ -684,13 +684,17 @@ class BaseEvaluator(ABC):
         normalized_dataframe = dataframe.replace("", pd.NA)
         return normalized_dataframe.dropna(axis=1, how="all")
 
+    def _read_summary(self, summary_file_path: Path) -> pd.DataFrame:
+        """Load existing summary rows before appending new results."""
+        return pd.read_csv(summary_file_path)
+
     def _append_summary_row(
         self,
         summary_file_path: Path,
         summary_row: pd.DataFrame,
     ) -> None:
         if summary_file_path.exists():
-            existing_summary = pd.read_csv(summary_file_path)
+            existing_summary = self._read_summary(summary_file_path)
             existing_clean = self._drop_empty_columns(existing_summary)
             row_clean = self._drop_empty_columns(summary_row)
             combined_summary = pd.concat(

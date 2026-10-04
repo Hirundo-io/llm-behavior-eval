@@ -212,9 +212,13 @@ def test_save_results_is_fail_closed(tmp_path: Path) -> None:
     assert bool(metrics["enable_thinking"])
 
 
+@pytest.mark.parametrize("legacy_state", ["none", "fraction", "mixed"])
 @pytest.mark.parametrize("summary_filename", ["summary_brief.csv", "summary_full.csv"])
 def test_summary_uses_percentage_header_and_preserves_raw_metrics(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, summary_filename: str
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    summary_filename: str,
+    legacy_state: str,
 ) -> None:
     evaluator = _evaluator(tmp_path, rows=25)
     monkeypatch.setattr(evaluator, "_judge_model_revision", lambda: "0123456789abcdef")
@@ -224,6 +228,35 @@ def test_summary_uses_percentage_header_and_preserves_raw_metrics(
         FreeTextCensorshipEvaluator._append_summary_row.__get__(evaluator),
     )
     (tmp_path / "model").mkdir()
+    if legacy_state != "none":
+        historical = pd.DataFrame(
+            [
+                {
+                    "Dataset": "old",
+                    "censorship_rate": 0.5,
+                    "evaluator_version": "0.1.8",
+                    "judge_model_revision": "001234",
+                }
+            ]
+        )
+        if legacy_state == "mixed":
+            historical = pd.concat(
+                [
+                    historical,
+                    pd.DataFrame(
+                        [
+                            {
+                                "Dataset": "new",
+                                "Censorship rate (%) ⬇️": 80,
+                                "evaluator_version": "0.1.8",
+                                "judge_model_revision": "001234",
+                            }
+                        ]
+                    ),
+                ],
+                ignore_index=True,
+            )
+        historical.to_csv(tmp_path / "model" / summary_filename, index=False)
     evaluator._save_results(
         [
             {
@@ -242,10 +275,16 @@ def test_summary_uses_percentage_header_and_preserves_raw_metrics(
     metrics = pd.read_csv(tmp_path / "metrics.csv", dtype=str)
     assert "Censorship rate (%) ⬇️" in summary.columns
     assert "censorship_rate" not in summary.columns
-    assert float(summary.iloc[0]["Censorship rate (%) ⬇️"]) == pytest.approx(92.0)
+    if legacy_state != "none":
+        assert float(summary.iloc[0]["Censorship rate (%) ⬇️"]) == 50
+        assert summary.iloc[0]["judge_model_revision"] == "001234"
+        assert summary.iloc[0]["evaluator_version"] == "0.1.8"
+        if legacy_state == "mixed":
+            assert float(summary.iloc[1]["Censorship rate (%) ⬇️"]) == 80
+    assert float(summary.iloc[-1]["Censorship rate (%) ⬇️"]) == pytest.approx(92.0)
     assert float(metrics.iloc[0]["censorship_rate"]) == pytest.approx(0.92)
     for column in ("evaluator_version", "dataset_revision", "judge_model_revision"):
-        assert summary.iloc[0][column] == metrics.iloc[0][column]
+        assert summary.iloc[-1][column] == metrics.iloc[0][column]
 
 
 def test_save_results_logs_metrics_and_artifacts_to_mlflow(

@@ -252,6 +252,18 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             raise TypeError("The judge chat template must render to text.")
         return rendered
 
+    def _read_summary(self, summary_file_path: Path) -> pd.DataFrame:
+        """Migrate legacy fractional summaries while preserving provenance text."""
+        summary = pd.read_csv(summary_file_path, dtype=str)
+        if "censorship_rate" in summary:
+            legacy_percent = pd.to_numeric(summary.pop("censorship_rate")) * 100
+            header = "Censorship rate (%) ⬇️"
+            if header in summary:
+                summary[header] = summary[header].fillna(legacy_percent)
+            else:
+                summary[header] = legacy_percent
+        return summary
+
     def _save_results(self, responses: list[CensorshipResponse]) -> None:
         """Persist row evidence and metrics for the selected rows.
 
