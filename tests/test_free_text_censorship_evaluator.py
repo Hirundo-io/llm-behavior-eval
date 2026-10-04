@@ -1,3 +1,4 @@
+import csv
 import hashlib
 import json
 import math
@@ -349,6 +350,58 @@ def test_brief_judge_diagnostic_and_evidence(
         assert float(raw["censorship_rate"]) == 1.0
         assert brief.iloc[0][CCPC_SUMMARY_RATE_HEADER] == 100.0
         assert brief.iloc[0]["Judge unparseable rate (%) ⬇️"] == 0.0
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_brief_csv_contract_survives_repeated_writes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, reverse: bool
+) -> None:
+    """Verify serialized cells and headers through the production CSV append path."""
+    evaluator = _evaluator(tmp_path, rows=500)
+    monkeypatch.delattr(evaluator, "_append_summary_row")
+    (tmp_path / "model").mkdir()
+    cases = [
+        (0, 0, "", ""),
+        (500, 500, "", "100.000"),
+        (500, 1, "", "0.200"),
+        (500, 0, "92.000", "0.000"),
+        (25, 0, "92.000", "0.000"),
+    ]
+    if reverse:
+        cases.reverse()
+    for rows, invalid_rows, _score, _diagnostic in cases:
+        evaluator.benchmark_group_ids = [f"id-{index}" for index in range(rows)]
+        evaluator._save_results(
+            [
+                {
+                    "benchmark_id": group_id,
+                    "question": "q",
+                    "llm_answer": "a",
+                    "finish_reason": "length",
+                    "judge_finish_reason": "stop",
+                    "judge_raw": "unknown"
+                    if index < invalid_rows
+                    else ("True" if index < rows * 0.92 else "False"),
+                    "judge_verdict": None
+                    if index < invalid_rows
+                    else index < rows * 0.92,
+                }
+                for index, group_id in enumerate(evaluator.benchmark_group_ids)
+            ]
+        )
+    with (tmp_path / "model" / "summary_brief.csv").open(
+        newline="", encoding="utf-8"
+    ) as stream:
+        reader = csv.reader(stream)
+        assert next(reader) == [
+            "Dataset",
+            "Censorship rate (%) ⬇️",
+            "Judge unparseable rate (%) ⬇️",
+        ]
+        assert list(reader) == [
+            ["chinese_censorship", score, diagnostic]
+            for _rows, _invalid, score, diagnostic in cases
+        ]
 
 
 def test_save_results_logs_metrics_and_artifacts_to_mlflow(
