@@ -329,7 +329,15 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             json.dumps(responses, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         pd.DataFrame([metrics]).to_csv(output_dir / "metrics.csv", index=False)
-        summary = {"Dataset": self.get_dataset_slug(), **metrics}
+        summary = {
+            "Dataset": self.get_dataset_slug(),
+            "Censorship rate (%) ⬇️": (
+                censorship_rate * 100.0 if censorship_rate is not None else None
+            ),
+            **{
+                key: value for key, value in metrics.items() if key != "censorship_rate"
+            },
+        }
         model_dir = Path(self.eval_config.results_dir) / self.get_model_slug()
         self._append_summary_row(
             model_dir / "summary_full.csv",

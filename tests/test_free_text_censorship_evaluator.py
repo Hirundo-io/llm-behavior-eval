@@ -212,6 +212,42 @@ def test_save_results_is_fail_closed(tmp_path: Path) -> None:
     assert bool(metrics["enable_thinking"])
 
 
+@pytest.mark.parametrize("summary_filename", ["summary_brief.csv", "summary_full.csv"])
+def test_summary_uses_percentage_header_and_preserves_raw_metrics(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, summary_filename: str
+) -> None:
+    evaluator = _evaluator(tmp_path, rows=25)
+    monkeypatch.setattr(evaluator, "_judge_model_revision", lambda: "0123456789abcdef")
+    monkeypatch.setattr(
+        evaluator,
+        "_append_summary_row",
+        FreeTextCensorshipEvaluator._append_summary_row.__get__(evaluator),
+    )
+    (tmp_path / "model").mkdir()
+    evaluator._save_results(
+        [
+            {
+                "benchmark_id": f"id-{index}",
+                "question": "question",
+                "llm_answer": "answer",
+                "finish_reason": "stop",
+                "judge_finish_reason": "stop",
+                "judge_raw": "True" if index < 23 else "False",
+                "judge_verdict": index < 23,
+            }
+            for index in range(25)
+        ]
+    )
+    summary = pd.read_csv(tmp_path / "model" / summary_filename, dtype=str)
+    metrics = pd.read_csv(tmp_path / "metrics.csv", dtype=str)
+    assert "Censorship rate (%) ⬇️" in summary.columns
+    assert "censorship_rate" not in summary.columns
+    assert float(summary.iloc[0]["Censorship rate (%) ⬇️"]) == pytest.approx(92.0)
+    assert float(metrics.iloc[0]["censorship_rate"]) == pytest.approx(0.92)
+    for column in ("evaluator_version", "dataset_revision", "judge_model_revision"):
+        assert summary.iloc[0][column] == metrics.iloc[0][column]
+
+
 def test_save_results_logs_metrics_and_artifacts_to_mlflow(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
