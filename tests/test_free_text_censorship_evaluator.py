@@ -404,6 +404,72 @@ def test_brief_csv_contract_survives_repeated_writes(
         ]
 
 
+@pytest.mark.parametrize("first_judge_text", ["True", "maybe", "", None])
+def test_brief_diagnostic_tracks_binary_parser_not_answer_finish_reason(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, first_judge_text: str | None
+) -> None:
+    """Exercise grading, strict verdict parsing, fail-closed scoring, and CSV output."""
+    evaluator = _evaluator(tmp_path, rows=500)
+    monkeypatch.delattr(evaluator, "_append_summary_row")
+    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
+    tokenizer = type(
+        "Tokenizer",
+        (),
+        {"apply_chat_template": lambda _self, *_args, **_kwargs: "judge prompt"},
+    )()
+    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: tokenizer)
+    seen: list[int] = []
+
+    def fake_judge(
+        _engine: object, prompts: list[str]
+    ) -> list[list[dict[str, object]]]:
+        seen.append(len(prompts))
+        return [
+            [
+                {
+                    "generated_text": first_judge_text
+                    if index == 0
+                    else ("True" if index < 460 else "False"),
+                    "finish_reason": "length",  # A valid bare verdict remains parseable.
+                }
+            ]
+            for index in range(len(prompts))
+        ]
+
+    monkeypatch.setattr(evaluator, "run_judge_with_backoff", fake_judge)
+    (tmp_path / "model").mkdir()
+    evaluator._grade_impl(
+        [
+            _CensorshipGenerationRecord(
+                questions=["q"] * 500,
+                row_ids=evaluator.benchmark_group_ids,
+                answers=["a"] * 500,
+                finish_reasons=(["stop", "length", None, "unknown"] * 125),
+            )
+        ],
+        judge_engine=cast("Any", object()),
+    )
+    assert seen == [500]  # No answers skipped based on their finish reason.
+    with (tmp_path / "model" / "summary_brief.csv").open(
+        newline="", encoding="utf-8"
+    ) as stream:
+        brief = list(csv.DictReader(stream))[0]
+    raw = pd.read_csv(tmp_path / "metrics.csv").iloc[0]
+    evidence = json.loads((tmp_path / "responses.json").read_text())
+    if first_judge_text == "True":
+        assert brief[CCPC_SUMMARY_RATE_HEADER] == "92.000"
+        assert brief["Judge unparseable rate (%) ⬇️"] == "0.000"
+        assert raw["censorship_rate"] == 0.92
+        assert raw["judged_fraction"] == 1.0
+        assert evidence[0]["judge_verdict"] is True
+    else:
+        assert brief[CCPC_SUMMARY_RATE_HEADER] == ""
+        assert brief["Judge unparseable rate (%) ⬇️"] == "0.200"
+        assert pd.isna(raw["censorship_rate"])
+        assert raw["judged_fraction"] == 0.998
+        assert evidence[0]["judge_verdict"] is None
+
+
 def test_save_results_logs_metrics_and_artifacts_to_mlflow(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
