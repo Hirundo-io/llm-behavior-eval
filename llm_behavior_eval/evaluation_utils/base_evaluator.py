@@ -688,7 +688,10 @@ class BaseEvaluator(ABC):
         self,
         summary_file_path: Path,
         summary_row: pd.DataFrame,
+        *,
+        keep_empty_columns: bool = False,
     ) -> None:
+        """Append a summary, optionally retaining empty incoming columns for a fixed schema."""
         if summary_file_path.exists():
             existing_summary = pd.read_csv(summary_file_path)
             existing_clean = self._drop_empty_columns(existing_summary)
@@ -700,6 +703,12 @@ class BaseEvaluator(ABC):
             combined_summary = self._drop_empty_columns(summary_row)
 
         combined_summary = self._drop_empty_columns(combined_summary)
+        if keep_empty_columns:
+            combined_summary = combined_summary.reindex(
+                columns=list(
+                    dict.fromkeys([*summary_row.columns, *combined_summary.columns])
+                )
+            )
         combined_summary.to_csv(summary_file_path, index=False, float_format="%.3f")
 
     @property

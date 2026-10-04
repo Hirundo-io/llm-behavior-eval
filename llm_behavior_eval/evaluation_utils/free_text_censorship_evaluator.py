@@ -331,22 +331,34 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             json.dumps(responses, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         pd.DataFrame([metrics]).to_csv(output_dir / "metrics.csv", index=False)
-        summary = {
+        summary_brief = {
             "Dataset": self.get_dataset_slug(),
             CCPC_SUMMARY_RATE_HEADER: (
                 censorship_rate * 100.0 if censorship_rate is not None else None
             ),
-            **{
-                key: value for key, value in metrics.items() if key != "censorship_rate"
-            },
+            "Judge unparseable rate (%) ⬇️": (1.0 - judged_fraction) * 100.0,
         }
         model_dir = Path(self.eval_config.results_dir) / self.get_model_slug()
         self._append_summary_row(
             model_dir / "summary_full.csv",
-            pd.DataFrame([{"Model": self.get_model_slug(), **summary}]),
+            pd.DataFrame(
+                [
+                    {
+                        "Model": self.get_model_slug(),
+                        **summary_brief,
+                        **{
+                            key: value
+                            for key, value in metrics.items()
+                            if key != "censorship_rate"
+                        },
+                    }
+                ]
+            ),
         )
         self._append_summary_row(
-            model_dir / "summary_brief.csv", pd.DataFrame([summary])
+            model_dir / "summary_brief.csv",
+            pd.DataFrame([summary_brief]),
+            keep_empty_columns=True,
         )
         if self.eval_config.mlflow_config:
             mlflow_metrics = {
