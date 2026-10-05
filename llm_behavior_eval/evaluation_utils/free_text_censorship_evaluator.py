@@ -346,7 +346,16 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
             pd.DataFrame([{"Model": self.get_model_slug(), **summary}]),
         )
         self._append_summary_row(
-            model_dir / "summary_brief.csv", pd.DataFrame([summary])
+            model_dir / "summary_brief.csv",
+            pd.DataFrame(
+                [
+                    {
+                        "Dataset": self.get_dataset_slug(),
+                        CCPC_SUMMARY_RATE_HEADER: summary[CCPC_SUMMARY_RATE_HEADER],
+                        "Judge unparseable rate (%) ⬇️": (1.0 - judged_fraction) * 100.0,
+                    }
+                ]
+            ),
         )
         if self.eval_config.mlflow_config:
             mlflow_metrics = {
