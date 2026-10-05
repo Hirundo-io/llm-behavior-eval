@@ -30,6 +30,9 @@ from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
     FreeTextCensorshipEvaluator,
     _CensorshipGenerationRecord,
 )
+from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
+    FreeTextRefusalEvaluator,
+)
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 
 
@@ -303,6 +306,79 @@ def test_brief_reports_one_unparseable_verdict_among_500(
     assert CCPC_SUMMARY_RATE_HEADER not in brief.index
     assert pd.isna(raw["censorship_rate"])
     assert raw["judged_fraction"] == 0.998
+
+
+@pytest.mark.parametrize("refusal_first", [False, True])
+def test_ccpc_and_refusal_share_brief_summary_without_losing_values(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, refusal_first: bool
+) -> None:
+    ccpc = _evaluator(tmp_path)
+    monkeypatch.delattr(ccpc, "_append_summary_row")
+    (tmp_path / "model").mkdir()
+    refusal = FreeTextRefusalEvaluator.__new__(FreeTextRefusalEvaluator)
+    refusal.eval_config = ccpc.eval_config
+    refusal.dataset_config = ccpc.dataset_config
+    refusal.mlflow_config = None
+    refusal.get_model_slug = ccpc.get_model_slug
+    refusal.get_dataset_slug = lambda: "xstest"
+    refusal_dir = tmp_path / "xstest"
+    refusal_dir.mkdir()
+    refusal.get_output_dir = lambda: refusal_dir
+    metrics = {
+        "safe_refusal_rate": 0.1,
+        "unsafe_refusal_rate": 0.9,
+        "heuristic_safe_refusal_rate": 0.1,
+        "heuristic_unsafe_refusal_rate": 0.9,
+        "safe_samples": 10,
+        "unsafe_samples": 10,
+        "safe_known": 10,
+        "unsafe_known": 10,
+        "incomplete_responses": 0,
+        "unknown_finish_reasons": 0,
+        "judge_unparseable": 1,
+        "judge_attempted_samples": 20,
+        "judged_samples": 19,
+        "incomplete_response_rate": 0.0,
+        "unknown_finish_reason_rate": 0.0,
+        "judge_unparseable_rate": 0.05,
+        "judge_parse_success_rate": 0.95,
+    }
+    responses = [
+        {
+            "benchmark_id": group_id,
+            "question": "q",
+            "llm_answer": "a",
+            "finish_reason": "stop",
+            "judge_finish_reason": "stop",
+            "judge_raw": "True" if index == 0 else "False",
+            "judge_verdict": index == 0,
+        }
+        for index, group_id in enumerate(ccpc.benchmark_group_ids)
+    ]
+    if refusal_first:
+        refusal._save_refusal_results([], metrics)
+    ccpc._save_results(responses)
+    if not refusal_first:
+        refusal._save_refusal_results([], metrics)
+    brief = pd.read_csv(tmp_path / "model" / "summary_brief.csv").set_index("Dataset")
+    assert len(brief) == 2
+    assert set(brief.columns) == {
+        "Thinking",
+        CCPC_SUMMARY_RATE_HEADER,
+        "Judge unparseable rate (%) ⬇️",
+        "Safe refusal rate (%) ⬇️",
+        "Unsafe refusal rate (%) ⬆️",
+        "Incomplete response rate (%) ⬇️",
+    }
+    assert brief.loc["chinese_censorship", CCPC_SUMMARY_RATE_HEADER] == 50.0
+    assert brief.loc["chinese_censorship", "Judge unparseable rate (%) ⬇️"] == 0.0
+    assert pd.isna(brief.loc["chinese_censorship", "Safe refusal rate (%) ⬇️"])
+    assert pd.isna(brief.loc["chinese_censorship", "Thinking"])
+    assert brief.loc["xstest", "Safe refusal rate (%) ⬇️"] == 10.0
+    assert brief.loc["xstest", "Unsafe refusal rate (%) ⬆️"] == 90.0
+    assert brief.loc["xstest", "Judge unparseable rate (%) ⬇️"] == 5.0
+    assert brief.loc["xstest", "Thinking"] == "off"
+    assert pd.isna(brief.loc["xstest", CCPC_SUMMARY_RATE_HEADER])
 
 
 def test_save_results_logs_metrics_and_artifacts_to_mlflow(
