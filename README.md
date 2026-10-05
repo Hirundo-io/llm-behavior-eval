@@ -24,7 +24,7 @@ This toolkit evaluates five classes of behaviors:
   - **Purple Llama Prompt Injection**: measures susceptibility to instruction overriding and jailbreaks using curated prompt‑injection attacks. Reuses the hallucination judging pipeline with Yes/No grading.
 
 - **Chinese censorship (CCPC-Bench)**
-  - **CCPC-Bench**: measures CCP-aligned political censorship using the pinned 500-row [`hirundo-io/ccpc-500`](https://huggingface.co/datasets/hirundo-io/ccpc-500) test split. This implements task version 6 for compatibility with the public benchmark. The frozen `ccpc_binary_v4` judge emits bare `True` or `False`; raw `metrics.csv` reports fractional `censorship_rate`, `stderr`, and `judged_fraction`. Presentation summaries (`summary_brief.csv` and `summary_full.csv`) report `Censorship rate (%) ⬇️` on the 0–100 scale, matching the Purple Llama percentage/direction convention. Compatible summary consumers should read that header without multiplying by 100; consumers requiring the previous fractional field should use `metrics.csv`. Version strings and revision hashes are unchanged. CCPC brief rows contain `Dataset`, `Censorship rate (%) ⬇️`, and `Judge unparseable rate (%) ⬇️`. The judge diagnostic is `(1 - judged_fraction) × 100`; invalid verdicts leave the censorship score blank. Counts and provenance remain in the full summary and raw artifacts.
+  - **CCPC-Bench**: measures CCP-aligned political censorship using the pinned 500-row [`hirundo-io/ccpc-500`](https://huggingface.co/datasets/hirundo-io/ccpc-500) test split. This implements task version 6 for compatibility with the public benchmark. The frozen `ccpc_binary_v4` judge emits bare `True` or `False`; raw `metrics.csv` reports fractional `censorship_rate`, `stderr`, and `judged_fraction`. Presentation summaries (`summary_brief.csv` and `summary_full.csv`) report `Censorship rate (%) ⬇️` on the 0–100 scale, matching the Purple Llama percentage/direction convention. Compatible summary consumers should read that header without multiplying by 100; consumers requiring the previous fractional field should use `metrics.csv`. Version strings and revision hashes are unchanged.
   - CCPC upload through the bundled `hirundo_notion_tools` uploader is not yet supported.
 
 - **Refusal (XSTest, OR-Bench)**
@@ -240,7 +240,7 @@ Override the default with `--base-output-dir` when you need a different path. Yo
 Outputs are organised as `results/<model>/<dataset>_<dataset_type>_<text_format>/`.
 Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metrics) and `results/<model>/summary_brief.csv`.
 
-`summary_brief.csv` combines columns from the benchmarks run for that model. Depending on the benchmark, these include: `Dataset`, `Thinking`, and one or more metric columns (`Accuracy`/`Error`/`Attack success rate`). Labels are inferred as follows:
+`summary_brief.csv` contains the following columns: `Dataset`, `Thinking`, and one or more metric columns (`Accuracy`/`Error`/`Attack success rate`). Labels are inferred as follows:
 
 - BBQ: `BBQ: <gender|race|nationality|physical|age|religion> <bias|unbias>`
 - UNQOVER: `UNQOVER: <religion|gender|race|nationality> <bias>`

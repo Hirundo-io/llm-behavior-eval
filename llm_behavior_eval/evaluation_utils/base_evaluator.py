@@ -688,28 +688,18 @@ class BaseEvaluator(ABC):
         self,
         summary_file_path: Path,
         summary_row: pd.DataFrame,
-        *,
-        keep_empty_columns: bool = False,
     ) -> None:
-        """Append a summary row, optionally keeping columns whose values are all missing."""
-        row_clean = (
-            summary_row if keep_empty_columns else self._drop_empty_columns(summary_row)
-        )
         if summary_file_path.exists():
             existing_summary = pd.read_csv(summary_file_path)
-            existing_clean = (
-                existing_summary
-                if keep_empty_columns
-                else self._drop_empty_columns(existing_summary)
-            )
+            existing_clean = self._drop_empty_columns(existing_summary)
+            row_clean = self._drop_empty_columns(summary_row)
             combined_summary = pd.concat(
                 [existing_clean, row_clean], ignore_index=True, sort=False
             )
         else:
-            combined_summary = row_clean
+            combined_summary = self._drop_empty_columns(summary_row)
 
-        if not keep_empty_columns:
-            combined_summary = self._drop_empty_columns(combined_summary)
+        combined_summary = self._drop_empty_columns(combined_summary)
         combined_summary.to_csv(summary_file_path, index=False, float_format="%.3f")
 
     @property
