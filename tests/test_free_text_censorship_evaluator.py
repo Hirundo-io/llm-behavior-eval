@@ -27,6 +27,7 @@ from llm_behavior_eval.evaluation_utils.censorship_utils import (
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
     CCPC_SUMMARY_RATE_HEADER,
+    CensorshipResponse,
     FreeTextCensorshipEvaluator,
     _CensorshipGenerationRecord,
 )
@@ -343,7 +344,7 @@ def test_ccpc_and_refusal_share_brief_summary_without_losing_values(
         "judge_unparseable_rate": 0.05,
         "judge_parse_success_rate": 0.95,
     }
-    responses = [
+    responses: list[CensorshipResponse] = [
         {
             "benchmark_id": group_id,
             "question": "q",
