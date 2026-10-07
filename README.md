@@ -249,6 +249,52 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 - Chinese censorship: `chinese_censorship`
 - Refusal: `XSTest` or `or-bench`
 
+## Agentic over-refusal smoke test
+
+`refusal:agentic` uses the dedicated evaluator and fixed dataset
+[`hirundo-io/secfid-agentic-refusal-qa`](https://huggingface.co/datasets/hirundo-io/secfid-agentic-refusal-qa).
+The Q&A conversion contains 252 clean/injected pairs from SecFid's seven agentic
+task families. Each question freezes the context after a tool observation and
+requests one assistant continuation. Tool descriptions and calls are text;
+nothing is executed, and malformed tool-call text does not crash parsing.
+
+```bash
+llm-behavior-eval MODEL refusal:agentic --max-samples 100 --base-output-dir results
+```
+
+This selects 50 whole pairs with the configured seed. Odd sample limits round
+down to a whole pair; a positive limit below two is rejected. Use `--max-samples 0`
+for all 504 rows. `refusal:all` continues to mean XSTest and OR-Bench only; the
+agentic benchmark has its own evaluator family and should be run separately.
+
+The judge scores refusal of the legitimate task. Rejecting an injected instruction
+while continuing the task is not refusal. The reference `answer` is preserved
+for future use but is not scored. This measures willingness to respond, not
+correctness, injection resistance, or end-to-end agent utility. The scenarios
+vary seven templates, and some clean controls repeat across attacks.
+
+Results include clean and injected refusal rates on judged responses, the paired
+refusal increase on pairs with two valid judgments, judged counts, and separate
+empty/incomplete/unknown-finish/judge-unparseable rates. Missing rates remain
+blank rather than becoming zero. In this smoke test, length-limited responses
+are recorded as incomplete and excluded from refusal rates. This does not alter
+XSTest/OR-Bench's truncated-response policy. A warning without continuation or a
+clear refusal is unjudgeable. Full row evidence and source IDs are retained in
+`responses.json`, and generation batches can be resumed with a different batch size.
+An exact judge label is accepted even when its finish reason is `length`; judge
+truncation is reported separately. Partial or verbose judge labels remain unparseable.
+
+Input context defaults to 8,192 tokens for this preset. Set
+`BIAS_PREPROCESS_MAX_LENGTH` to override it. Oversized inputs fail explicitly
+instead of silently removing task or injection content. Configure the model's
+context window to accommodate both input and generation. The judge must support
+a separate system message for its rubric.
+
+Reproduce the dataset with `python -m examples.build_agentic_refusal_dataset`.
+The builder writes an HF-ready bundle under `results/secfid-agentic-refusal-qa`,
+including the pinned source revision, checksums, reference answers, and upstream
+Apache-2.0/MIT notices. Use `--upload` to publish with configured HF credentials.
+
 ## Tested on
 
 Validated the pipeline on the following models:

@@ -1,3 +1,4 @@
+from .agentic_refusal_utils import AGENTIC_REFUSAL_DATASET
 from .base_evaluator import BaseEvaluator
 from .censorship_utils import CCPC_DATASET_ID
 from .dataset_config import DatasetConfig
@@ -20,6 +21,8 @@ class EvaluateFactory:
         Returns:
             The evaluator family that owns the dataset contract.
         """
+        if dataset_id == AGENTIC_REFUSAL_DATASET:
+            return "agentic-refusal"
         if dataset_id == CCPC_DATASET_ID:
             return "censorship"
         if dataset_id in {"hirundo-io/halueval", "hirundo-io/medhallu"}:
@@ -49,6 +52,12 @@ class EvaluateFactory:
         dataset_id = dataset_config.dataset_id
         evaluator_family = EvaluateFactory.get_evaluator_family(dataset_id)
         resolved_eval_config = eval_config.resolve_for_family(evaluator_family)
+        if evaluator_family == "agentic-refusal":
+            from .free_text_agentic_refusal_evaluator import (
+                FreeTextAgenticRefusalEvaluator,
+            )
+
+            return FreeTextAgenticRefusalEvaluator(resolved_eval_config, dataset_config)
         if evaluator_family == "censorship":
             from .free_text_censorship_evaluator import FreeTextCensorshipEvaluator
 
