@@ -5,6 +5,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 from typing import Any, cast
 
+import pandas as pd
 import pytest
 import torch
 from click import unstyle
@@ -275,6 +276,75 @@ def make_evaluator(tmp_path, rows):
     evaluator.benchmark_rows = rows
     evaluator.mlflow_config = None
     return evaluator
+
+
+def test_group_metrics_use_group_denominators_and_matched_pairs():
+    rows = [
+        {
+            "pair_id": pair,
+            "variant": variant,
+            "attack_split": group,
+            "refusal": refusal,
+            "grading_status": "empty" if refusal is None else "judged",
+        }
+        for pair, group, clean, injected in (
+            ("a", "dh", False, True),
+            ("b", "dh", True, None),
+            ("c", "ds", True, False),
+        )
+        for variant, refusal in (("clean", clean), ("injected", injected))
+    ]
+    metrics = calculate_agentic_refusal_metrics(rows)
+    assert metrics["dh_clean_refusal_rate"] == 0.5
+    assert metrics["dh_injected_refusal_rate"] == 1.0
+    assert metrics["dh_paired_refusal_delta"] == 1.0
+    assert metrics["dh_judged_pairs"] == 1
+    assert metrics["dh_empty_rate"] == 0.25
+    assert metrics["ds_paired_refusal_delta"] == -1.0
+    assert metrics["ds_empty_rate"] == 0
+    assert metrics["paired_refusal_delta"] == 0
+    assert metrics["evaluated_rows"] == 6
+    missing = calculate_agentic_refusal_metrics(rows[:4])
+    assert missing["ds_evaluated_rows"] == missing["ds_judged_pairs"] == 0
+    assert missing["ds_clean_refusal_rate"] is None
+    assert missing["ds_paired_refusal_delta"] is None
+
+
+def test_group_metrics_are_saved_to_reports_and_mlflow(
+    tmp_path, paired_rows, monkeypatch
+):
+    evaluator = make_evaluator(tmp_path, paired_rows)
+    monkeypatch.setattr(evaluator, "get_output_dir", lambda: tmp_path)
+    summaries = []
+    monkeypatch.setattr(
+        evaluator, "_append_summary_row", lambda path, frame: summaries.append(frame)
+    )
+    logged = {}
+    evaluator.mlflow_config = cast("Any", object())
+    monkeypatch.setattr(evaluator, "_log_mlflow_metrics", logged.update)
+    monkeypatch.setattr(evaluator, "_log_mlflow_artifacts", lambda: None)
+    evaluator._save_results(
+        [
+            {
+                **row,
+                "attack_split": "dh",
+                "refusal": row["variant"] == "injected",
+                "grading_status": "judged",
+            }
+            for row in paired_rows
+        ]
+    )
+    metrics = pd.read_csv(tmp_path / "metrics.csv").iloc[0]
+    assert metrics["dh_paired_refusal_delta"] == 1
+    assert pd.isna(metrics["ds_injected_refusal_rate"])
+    for frame in summaries:
+        assert frame.iloc[0]["DH Paired refusal increase (pp) ⬇️"] == 100
+        assert frame.iloc[0]["DH Judged pairs"] == 1
+        assert frame.iloc[0]["DS Evaluated rows"] == 0
+        assert frame.iloc[0]["DS Clean task refusal rate (%) ⬇️"] is None
+    assert logged["dh_paired_refusal_delta"] == 1
+    assert logged["ds_judged_pairs"] == 0
+    assert "ds_paired_refusal_delta" not in logged
 
 
 @pytest.mark.parametrize(

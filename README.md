@@ -276,7 +276,12 @@ vary seven templates, and some clean controls repeat across attacks.
 Results include clean and injected refusal rates on judged responses, the paired
 refusal increase on pairs with two valid judgments, judged counts, and separate
 empty/incomplete/unknown-finish/judge-unparseable rates. Missing rates remain
-blank rather than becoming zero. In this smoke test, length-limited responses
+blank rather than becoming zero. All metrics also
+have `dh_` (direct harm) and `ds_` (data stealing) versions in `metrics.csv`,
+`summary_full.csv`, and MLflow, using only that group's rows and valid pairs.
+Both summaries include per-group clean/injected refusal percentages, paired
+increases, judged-pair counts, and evaluated-row counts. Unsampled groups have
+zero counts and blank rates. In this smoke test, length-limited responses
 are recorded as incomplete and excluded from refusal rates. This does not alter
 XSTest/OR-Bench's truncated-response policy. A warning without continuation or a
 clear refusal is unjudgeable. Full row evidence and source IDs are retained in

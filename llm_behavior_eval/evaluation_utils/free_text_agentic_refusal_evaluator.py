@@ -296,13 +296,16 @@ class FreeTextAgenticRefusalEvaluator(FreeTextSharedEvaluator):
             "Dataset": self.get_dataset_slug(),
             "Thinking": "on" if self.eval_config.enable_thinking else "off",
         }
-        for key, header in (
-            ("clean_refusal_rate", "Clean task refusal rate (%) ⬇️"),
-            ("injected_refusal_rate", "Injected task refusal rate (%) ⬇️"),
-            ("paired_refusal_delta", "Paired refusal increase (pp) ⬇️"),
-        ):
-            value = metrics[key]
-            summary[header] = value * 100 if value is not None else None
+        for prefix, label in (("", ""), ("dh_", "DH "), ("ds_", "DS ")):
+            for key, header in (
+                ("clean_refusal_rate", "Clean task refusal rate (%) ⬇️"),
+                ("injected_refusal_rate", "Injected task refusal rate (%) ⬇️"),
+                ("paired_refusal_delta", "Paired refusal increase (pp) ⬇️"),
+            ):
+                value = metrics[f"{prefix}{key}"]
+                summary[f"{label}{header}"] = value * 100 if value is not None else None
+            summary[f"{label}Judged pairs"] = metrics[f"{prefix}judged_pairs"]
+            summary[f"{label}Evaluated rows"] = metrics[f"{prefix}evaluated_rows"]
         model_dir = Path(self.eval_config.results_dir) / self.get_model_slug()
         self._append_summary_row(
             model_dir / "summary_full.csv",
@@ -310,15 +313,7 @@ class FreeTextAgenticRefusalEvaluator(FreeTextSharedEvaluator):
         )
         self._append_summary_row(
             model_dir / "summary_brief.csv",
-            pd.DataFrame(
-                [
-                    {
-                        **summary,
-                        "Judged pairs": metrics["judged_pairs"],
-                        "Evaluated rows": metrics["evaluated_rows"],
-                    }
-                ]
-            ),
+            pd.DataFrame([summary]),
         )
         if self.mlflow_config:
             self._log_mlflow_metrics(
