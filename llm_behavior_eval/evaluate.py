@@ -10,6 +10,9 @@ import typer
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
+from llm_behavior_eval.evaluation_utils.agentic_refusal_utils import (
+    AgenticPreprocessConfig,
+)
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_DATASET_ID,
 )
@@ -116,7 +119,7 @@ def _behavior_presets(behavior: str) -> list[str]:
     - Bloom: "bloom:bias:<bias_type>" or "bloom:unbias:<bias_type>"
     - Hallucinations: "hallu" or "hallu-med"
     - Prompt injection: "prompt-injection"
-    - Refusal: "refusal:xstest" | "refusal:orbench" | "refusal:all"
+    - Refusal: "refusal:xstest" | "refusal:orbench" | "refusal:agentic" | "refusal:all"
 
     Args:
         behavior: Behavior preset or explicit behavior-and-dataset selector.
@@ -137,8 +140,8 @@ def _behavior_presets(behavior: str) -> list[str]:
         return [CCPC_DATASET_ID]
     if len(behavior_parts) == 2 and behavior_parts[0] in REFUSAL_ALIAS:
         _, refusal_dataset = behavior_parts
-        if refusal_dataset not in {"xstest", "orbench", "all"}:
-            raise ValueError("Refusal supports: xstest, orbench, all")
+        if refusal_dataset not in {"xstest", "orbench", "agentic", "all"}:
+            raise ValueError("Refusal supports: xstest, orbench, agentic, all")
         return expand_dataset_preset(f"refusal:{refusal_dataset}")
 
     # Expected structures:
@@ -206,7 +209,7 @@ def main(
     behavior: Annotated[
         str,
         typer.Argument(
-            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type|all>' or 'unbias:<type|all>'; UNQOVER: 'unqover:bias:<type|all>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>' or 'bloom:bias:<type>:ambiguous'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:all'; Chinese censorship: 'chinese_censorship' (uses the default or configured --judge-model)"
+            help="Behavior preset(s). Can be comma-separated for multiple behaviors. BBQ: 'bias:<type|all>' or 'unbias:<type|all>'; UNQOVER: 'unqover:bias:<type|all>'; Bloom: 'bloom:bias:<type|all>' or 'bloom:unbias:<type|all>' or 'bloom:bias:<type>:ambiguous'; Hallucination: 'hallu' | 'hallu-med'; Prompt injection: 'prompt-injection'; Refusal: 'refusal:xstest' | 'refusal:orbench' | 'refusal:agentic' | 'refusal:all'; Chinese censorship: 'chinese_censorship' (uses the default or configured --judge-model)"
         ),
     ],
     output_dir: Annotated[
@@ -558,8 +561,8 @@ def main(
         int | None,
         typer.Option(
             "--max-answer-tokens",
-            help="Maximum number of tokens to generate per answer.",
-            show_default=str(DEFAULT_MAX_ANSWER_TOKENS),
+            help="Maximum tokens per answer. Default depends on the benchmark family (2048 for agentic refusal).",
+            show_default=False,
         ),
     ] = None,
     pass_max_answer_tokens: Annotated[
@@ -732,7 +735,9 @@ def main(
                     dataset_type=DatasetType.UNBIAS
                     if "-unbias-" in file_path
                     else DatasetType.BIAS,
-                    preprocess_config=PreprocessConfig(),
+                    preprocess_config=AgenticPreprocessConfig()
+                    if evaluator_family == "agentic-refusal"
+                    else PreprocessConfig(),
                     seed=seed,
                 )
                 if evaluator is None:
