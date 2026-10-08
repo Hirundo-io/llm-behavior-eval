@@ -288,7 +288,20 @@ Input context defaults to 8,192 tokens for this preset. Set
 `BIAS_PREPROCESS_MAX_LENGTH` to override it. Oversized inputs fail explicitly
 instead of silently removing task or injection content. Configure the model's
 context window to accommodate both input and generation. The judge must support
-a separate system message for its rubric.
+a separate system message for its rubric. Judge inputs use the same input budget,
+further limited by the judge's declared context window minus its generation
+budget. Oversized judge evidence fails explicitly as well.
+
+The full published collection is not a manually audited 50–100-scenario subset:
+the initial inspection covered one example per task family, and structural pair
+validation covers every row. Runtime sampling is for smoke-test cost control,
+not a substitute for auditing. Reference answers are retained to provide the
+requested Q&A dataset; they are never passed to the refusal judge.
+
+After `python -m examples.build_agentic_refusal_dataset --upload`, a new Hub
+commit requires explicitly reviewing and updating `AGENTIC_REFUSAL_REVISION`.
+The builder reports a pin mismatch as an error after a successful upload;
+existing evaluations intentionally continue using their checked-in revision.
 
 Reproduce the dataset with `python -m examples.build_agentic_refusal_dataset`.
 The builder writes an HF-ready bundle under `results/secfid-agentic-refusal-qa`,

@@ -561,8 +561,8 @@ def main(
         int | None,
         typer.Option(
             "--max-answer-tokens",
-            help="Maximum number of tokens to generate per answer.",
-            show_default=str(DEFAULT_MAX_ANSWER_TOKENS),
+            help="Maximum tokens per answer. Default depends on the benchmark family (2048 for agentic refusal).",
+            show_default=False,
         ),
     ] = None,
     pass_max_answer_tokens: Annotated[

@@ -14,6 +14,7 @@ from huggingface_hub import HfApi, hf_hub_download
 
 from llm_behavior_eval.evaluation_utils.agentic_refusal_utils import (
     AGENTIC_REFUSAL_DATASET,
+    AGENTIC_REFUSAL_REVISION,
     AGENTIC_REFUSAL_SYSTEM_PROMPT,
     validate_agentic_rows,
 )
@@ -258,6 +259,12 @@ def main() -> None:
             commit_message="Add paired SecFid agentic refusal Q&A benchmark",
         )
         print(f"Published {AGENTIC_REFUSAL_DATASET} at {commit.oid}")
+        if commit.oid != AGENTIC_REFUSAL_REVISION:
+            raise RuntimeError(
+                f"Upload succeeded at {commit.oid}, but the evaluator still pins "
+                f"{AGENTIC_REFUSAL_REVISION}. Review the published dataset and update "
+                "AGENTIC_REFUSAL_REVISION explicitly before evaluating the new version."
+            )
 
 
 if __name__ == "__main__":

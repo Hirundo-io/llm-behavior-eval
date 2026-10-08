@@ -92,6 +92,23 @@ class FreeTextAgenticRefusalEvaluator(FreeTextSharedEvaluator):
         """Persist and resume exact source rows independently of inference batch size."""
         self.ensure_test_model_ready()
         saved = self.load_completed_generation_dicts()
+        for item in saved:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"rows", "answers", "finish_reasons"}
+                or not isinstance(item["rows"], list)
+                or not all(isinstance(row, dict) for row in item["rows"])
+                or not isinstance(item["answers"], list)
+                or not all(isinstance(answer, str) for answer in item["answers"])
+                or not isinstance(item["finish_reasons"], list)
+                or not all(
+                    reason is None or isinstance(reason, str)
+                    for reason in item["finish_reasons"]
+                )
+            ):
+                raise ValueError(
+                    "Malformed saved agentic generations; use a fresh output directory"
+                )
         generations = [_AgenticRefusalGenerationRecord(**item) for item in saved]
         completed = [row for record in generations for row in record.rows]
         if completed != self.benchmark_rows[: len(completed)]:
@@ -156,6 +173,30 @@ class FreeTextAgenticRefusalEvaluator(FreeTextSharedEvaluator):
             if not isinstance(prompt, str):
                 raise TypeError("Agentic judge chat template must render to text")
             prompts.append(prompt)
+        # Bound the complete rubric and evidence, reserving room for the verdict.
+        # Tokenizer limits can be sentinel values, so also impose our input budget.
+        limits = [self.dataset_config.preprocess_config.max_length]
+        model = getattr(judge_engine, "model", None)
+        config = getattr(model, "config", None)
+        text_config = getattr(config, "text_config", config)
+        engine_config = getattr(
+            getattr(model, "llm_engine", None), "model_config", None
+        )
+        for limit in (
+            getattr(tokenizer, "model_max_length", None),
+            getattr(text_config, "max_position_embeddings", None),
+            getattr(engine_config, "max_model_len", None),
+            getattr(judge_engine, "max_model_len", None),
+        ):
+            if isinstance(limit, int) and 0 < limit < 10**12:
+                limits.append(limit - (self.eval_config.max_judge_tokens or 0))
+        tokenized = tokenizer(prompts, truncation=False, padding=False)
+        if any(len(ids) > min(limits) for ids in tokenized["input_ids"]):
+            raise ValueError(
+                f"Agentic judge prompt exceeds input budget={min(limits)}; "
+                "task and response evidence are never silently truncated. "
+                "Check BIAS_PREPROCESS_MAX_LENGTH and the judge context/generation limits."
+            )
         raw = self.run_judge_with_backoff(judge_engine, prompts)
         texts = [item[0].get("generated_text") or "" for item in raw]
         reasons = [item[0].get("finish_reason") for item in raw]
@@ -246,7 +287,8 @@ class FreeTextAgenticRefusalEvaluator(FreeTextSharedEvaluator):
             output / "metrics.csv", index=False
         )
         summary: dict[str, str | int | float | None] = {
-            "Dataset": self.get_dataset_slug()
+            "Dataset": self.get_dataset_slug(),
+            "Thinking": "on" if self.eval_config.enable_thinking else "off",
         }
         for key, header in (
             ("clean_refusal_rate", "Clean task refusal rate (%) ⬇️"),
