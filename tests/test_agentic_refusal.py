@@ -13,6 +13,7 @@ from datasets import Dataset
 from typer.testing import CliRunner
 
 import examples.build_agentic_refusal_dataset as builder_module
+import llm_behavior_eval.evaluation_utils.base_evaluator as base_module
 import llm_behavior_eval.evaluation_utils.free_text_agentic_refusal_evaluator as evaluator_module
 from examples.build_agentic_refusal_dataset import convert_rows, reference_answer
 from llm_behavior_eval import DatasetConfig, EvaluationConfig
@@ -28,6 +29,7 @@ from llm_behavior_eval.evaluation_utils.agentic_refusal_utils import (
 )
 from llm_behavior_eval.evaluation_utils.dataset_config import PreprocessConfig
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
+from llm_behavior_eval.evaluation_utils.eval_config import MlflowConfig
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
 from llm_behavior_eval.evaluation_utils.free_text_agentic_refusal_evaluator import (
     FreeTextAgenticRefusalEvaluator,
@@ -314,15 +316,24 @@ def test_group_metrics_are_saved_to_reports_and_mlflow(
     tmp_path, paired_rows, monkeypatch
 ):
     evaluator = make_evaluator(tmp_path, paired_rows)
-    monkeypatch.setattr(evaluator, "get_output_dir", lambda: tmp_path)
-    summaries = []
-    monkeypatch.setattr(
-        evaluator, "_append_summary_row", lambda path, frame: summaries.append(frame)
-    )
-    logged = {}
-    evaluator.mlflow_config = cast("Any", object())
-    monkeypatch.setattr(evaluator, "_log_mlflow_metrics", logged.update)
-    monkeypatch.setattr(evaluator, "_log_mlflow_artifacts", lambda: None)
+    metric_calls: list[tuple[dict[str, float], int | None]] = []
+    summary_metrics: dict[str, float] = {}
+    artifact_calls: list[tuple[str, str]] = []
+
+    class MlflowClient:
+        def log_metrics(self, metrics, *, step):
+            metric_calls.append((metrics, step))
+
+        def log_metric(self, key, value):
+            summary_metrics[key] = value
+
+        def log_artifacts(self, local_dir, *, artifact_path):
+            artifact_calls.append((local_dir, artifact_path))
+
+    monkeypatch.setattr(base_module, "mlflow", MlflowClient())
+    evaluator.eval_config.mlflow_config = MlflowConfig()
+    evaluator.mlflow_config = evaluator.eval_config.mlflow_config
+    evaluator._inferred_mlflow_metric_step = 7
     evaluator._save_results(
         [
             {
@@ -334,17 +345,26 @@ def test_group_metrics_are_saved_to_reports_and_mlflow(
             for row in paired_rows
         ]
     )
-    metrics = pd.read_csv(tmp_path / "metrics.csv").iloc[0]
+    output = tmp_path / "model" / "secfid-agentic-refusal-qa"
+    metrics = pd.read_csv(output / "metrics.csv").iloc[0]
     assert metrics["dh_paired_refusal_delta"] == 1
     assert pd.isna(metrics["ds_injected_refusal_rate"])
-    for frame in summaries:
+    for name in ("summary_full.csv", "summary_brief.csv"):
+        frame = pd.read_csv(tmp_path / "model" / name)
+        assert len(frame) == 1
         assert frame.iloc[0]["DH Paired refusal increase (pp) ⬇️"] == 100
         assert frame.iloc[0]["DH Judged pairs"] == 1
         assert frame.iloc[0]["DS Evaluated rows"] == 0
-        assert frame.iloc[0]["DS Clean task refusal rate (%) ⬇️"] is None
-    assert logged["dh_paired_refusal_delta"] == 1
-    assert logged["ds_judged_pairs"] == 0
-    assert "ds_paired_refusal_delta" not in logged
+        # Shared summary persistence omits columns that are entirely undefined.
+        assert "DS Clean task refusal rate (%) ⬇️" not in frame
+    assert len(metric_calls) == 1
+    logged, step = metric_calls[0]
+    assert step == 7
+    assert logged["secfid_agentic_refusal_qa_dh_paired_refusal_delta"] == 1
+    assert logged["secfid_agentic_refusal_qa_ds_judged_pairs"] == 0
+    assert "secfid_agentic_refusal_qa_ds_paired_refusal_delta" not in logged
+    assert summary_metrics["dhpairedrefusaldelta"] == 1
+    assert artifact_calls == [(str(tmp_path / "model"), "")]
 
 
 @pytest.mark.parametrize(
