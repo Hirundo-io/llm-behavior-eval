@@ -533,7 +533,7 @@ def test_dataset_update_preserves_agentic_defaults(
     )
     if override is not None:
         dataset.preprocess_config = PreprocessConfig(max_length=override)
-    calls = []
+    calls: list[str | int] = []
     monkeypatch.setattr(evaluator, "_set_seed", lambda: calls.append("seed"))
     monkeypatch.setattr(
         evaluator,
