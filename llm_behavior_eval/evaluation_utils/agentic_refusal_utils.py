@@ -6,13 +6,21 @@ from typing import Any
 
 from datasets import Dataset, load_dataset
 
-from .dataset_config import PreprocessConfig
+from .dataset_config import DatasetConfig, PreprocessConfig
 
 
 class AgenticPreprocessConfig(PreprocessConfig):
     """Allow tool schemas without changing other benchmarks' context defaults."""
 
     max_length: int = 8192
+
+
+def resolve_agentic_dataset_config(dataset_config: DatasetConfig) -> DatasetConfig:
+    """Apply agentic defaults while preserving explicit settings and caller state."""
+    preprocess = AgenticPreprocessConfig(
+        **dataset_config.preprocess_config.model_dump(exclude_unset=True)
+    )
+    return dataset_config.model_copy(update={"preprocess_config": preprocess})
 
 
 AGENTIC_REFUSAL_DATASET = "hirundo-io/secfid-agentic-refusal-qa"

@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import pytest
 import torch
+from click import unstyle
 from datasets import Dataset
 from typer.testing import CliRunner
 
@@ -109,24 +110,60 @@ def test_upload_requires_explicit_pin_update(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
         "sys.argv", ["builder", "--upload", "--output-dir", str(tmp_path)]
     )
-    monkeypatch.setattr(builder_module, "build_dataset", lambda path: [])
-    api = SimpleNamespace(
-        create_repo=lambda *args, **kwargs: None,
-        upload_folder=lambda **kwargs: SimpleNamespace(oid="new-revision"),
-    )
+    calls = []
+
+    def build(path):
+        assert path == tmp_path
+        calls.append("build")
+        return []
+
+    class Hub:
+        def create_repo(self, repo_id, *, repo_type, exist_ok):
+            assert calls == ["build"]
+            assert (repo_id, repo_type, exist_ok) == (
+                AGENTIC_REFUSAL_DATASET,
+                "dataset",
+                True,
+            )
+            calls.append("create_repo")
+
+        def upload_folder(
+            self, *, repo_id, repo_type, folder_path, allow_patterns, commit_message
+        ):
+            assert calls == ["build", "create_repo"]
+            assert repo_id == AGENTIC_REFUSAL_DATASET
+            assert repo_type == "dataset"
+            assert folder_path == tmp_path
+            assert allow_patterns == [
+                "README.md",
+                "LICENSE",
+                "THIRD_PARTY_LICENSES/*",
+                "manifest.json",
+                "data/test.jsonl",
+            ]
+            assert commit_message == "Add paired SecFid agentic refusal Q&A benchmark"
+            calls.append("upload_folder")
+            return SimpleNamespace(oid="new-revision")
+
+    monkeypatch.setattr(builder_module, "build_dataset", build)
+    api = Hub()
     monkeypatch.setattr(builder_module, "HfApi", lambda: api)
     with pytest.raises(RuntimeError, match="Upload succeeded at new-revision"):
         builder_module.main()
+    assert calls == ["build", "create_repo", "upload_folder"]
     assert "Published" in capsys.readouterr().out
+    calls.clear()
     monkeypatch.setattr(builder_module, "AGENTIC_REFUSAL_REVISION", "new-revision")
     builder_module.main()
+    assert calls == ["build", "create_repo", "upload_folder"]
 
 
-def test_help_describes_family_dependent_answer_budget():
-    result = CliRunner().invoke(app, ["--help"], terminal_width=200, color=False)
+@pytest.mark.parametrize("color", [False, True])
+def test_help_describes_family_dependent_answer_budget(color):
+    result = CliRunner().invoke(app, ["--help"], terminal_width=200, color=color)
     assert result.exit_code == 0
     assert "2048 for agentic refusal" in " ".join(
-        result.output.replace("│", " ").split()
+        unstyle(result.output).replace("│", " ").split()
     )
 
 
@@ -484,6 +521,34 @@ def test_factory_context_default_preserves_explicit_override(
     assert dataset.preprocess_config.max_length == (
         1024 if override is None else override
     )
+
+
+@pytest.mark.parametrize("override", [None, 1024, 4096])
+def test_dataset_update_preserves_agentic_defaults(
+    tmp_path, paired_rows, monkeypatch, override
+):
+    evaluator = make_evaluator(tmp_path, paired_rows)
+    dataset = DatasetConfig(
+        file_path=AGENTIC_REFUSAL_DATASET, dataset_type=DatasetType.BIAS
+    )
+    if override is not None:
+        dataset.preprocess_config = PreprocessConfig(max_length=override)
+    calls = []
+    monkeypatch.setattr(evaluator, "_set_seed", lambda: calls.append("seed"))
+    monkeypatch.setattr(
+        evaluator,
+        "prepare_dataloader",
+        lambda: calls.append(evaluator.dataset_config.preprocess_config.max_length),
+    )
+    monkeypatch.setattr(
+        evaluator, "_ensure_run_configuration_allowed", lambda: calls.append("validate")
+    )
+    evaluator.update_dataset_config(dataset)
+    assert calls == ["seed", 8192 if override is None else override, "validate"]
+    assert dataset.preprocess_config.max_length == (
+        1024 if override is None else override
+    )
+    assert evaluator.dataset_config is not dataset
 
 
 @pytest.mark.parametrize(

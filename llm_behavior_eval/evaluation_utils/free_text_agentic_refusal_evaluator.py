@@ -19,10 +19,12 @@ from .agentic_refusal_utils import (
     calculate_agentic_refusal_metrics,
     load_agentic_refusal_benchmark,
     parse_agentic_refusal_judgment,
+    resolve_agentic_dataset_config,
     select_agentic_pairs,
     serialize_agentic_judge_input,
 )
 from .base_evaluator import FreeTextSharedEvaluator, _GenerationRecord
+from .dataset_config import DatasetConfig
 from .eval_engine import EvalEngine
 from .util_functions import is_model_multimodal, safe_apply_chat_template
 
@@ -35,6 +37,10 @@ class _AgenticRefusalGenerationRecord(_GenerationRecord):
 
 class FreeTextAgenticRefusalEvaluator(FreeTextSharedEvaluator):
     """Keep pairing, task-relative judging and metrics isolated from safety refusal."""
+
+    def update_dataset_config(self, dataset_config: DatasetConfig) -> None:
+        """Retain agentic preprocessing defaults when reusing an evaluator."""
+        super().update_dataset_config(resolve_agentic_dataset_config(dataset_config))
 
     def prepare_dataloader(self) -> None:
         """Select complete pairs and fail rather than silently truncate an attack."""

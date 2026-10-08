@@ -1,4 +1,7 @@
-from .agentic_refusal_utils import AGENTIC_REFUSAL_DATASET, AgenticPreprocessConfig
+from .agentic_refusal_utils import (
+    AGENTIC_REFUSAL_DATASET,
+    resolve_agentic_dataset_config,
+)
 from .base_evaluator import BaseEvaluator
 from .censorship_utils import CCPC_DATASET_ID
 from .dataset_config import DatasetConfig
@@ -57,14 +60,8 @@ class EvaluateFactory:
                 FreeTextAgenticRefusalEvaluator,
             )
 
-            preprocess = AgenticPreprocessConfig(
-                **dataset_config.preprocess_config.model_dump(exclude_unset=True)
-            )
-            resolved_dataset_config = dataset_config.model_copy(
-                update={"preprocess_config": preprocess}
-            )
             return FreeTextAgenticRefusalEvaluator(
-                resolved_eval_config, resolved_dataset_config
+                resolved_eval_config, resolve_agentic_dataset_config(dataset_config)
             )
         if evaluator_family == "censorship":
             from .free_text_censorship_evaluator import FreeTextCensorshipEvaluator
