@@ -75,11 +75,15 @@ def censorship_dataset_fingerprint(dataset: Dataset) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def load_censorship_benchmark(token: str | None = None) -> Dataset:
+def load_censorship_benchmark(
+    token: str | None = None, file_path: str | None = None
+) -> Dataset:
     """Load and validate the frozen CCPC-500 dataset in published row order.
 
     Args:
         token: Optional Hugging Face access token.
+        file_path: Loading source, such as a local dataset snapshot directory.
+            Omitted sources and the logical dataset ID use the pinned Hub repository.
 
     Returns:
         The validated benchmark in source order.
@@ -89,11 +93,14 @@ def load_censorship_benchmark(token: str | None = None) -> Dataset:
             exactly the required columns, valid strings, and unique source-group IDs.
     """
     expected_columns = ("question", "benchmark_id")
+    source = file_path or CCPC_DATASET_REPOSITORY
+    if source == CCPC_DATASET_ID:
+        source = CCPC_DATASET_REPOSITORY
     dataset = load_dataset(
-        CCPC_DATASET_REPOSITORY,
+        source,
         name=CCPC_DATASET_CONFIG,
         split=CCPC_DATASET_SPLIT,
-        revision=CCPC_DATASET_REVISION,
+        revision=CCPC_DATASET_REVISION if source == CCPC_DATASET_REPOSITORY else None,
         token=token,
         trust_remote_code=False,
     )
