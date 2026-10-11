@@ -5,6 +5,9 @@ build-backend = "setuptools.build_meta"
 [project.scripts]
 llm-behavior-eval = "llm_behavior_eval.evaluate:app"
 
+[project.entry-points.inspect_ai]
+llm_behavior_eval = "llm_behavior_eval.inspect_tasks._registry"
+
 [project]
 name = "llm-behavior-eval"
 version = "0.1.10"
@@ -56,6 +59,7 @@ vllm = ["vllm>=0.23.0,<0.24"]  # tested line; newer vLLM needs torch>=2.13/cu13x
 gcs = ["google-cloud-storage"]
 azure = ["azure-storage-blob","azure-identity"]
 gpt-oss = ["opencv-python-headless>=4.12.0.88"]
+inspect = ["inspect-ai>=0.3.278,<0.4"]
 
 [dependency-groups]
 dev = [
@@ -64,7 +68,7 @@ dev = [
   "pytest>=8.3.5",
   "pyyaml>=6.0.2",
   "pre-commit>=4.3.0",
-  "llm-behavior-eval[mlflow,vllm,gcs,azure]",
+  "llm-behavior-eval[mlflow,vllm,gcs,azure,inspect]",
   "pyrefly>=0.63.1",
   "types-PyYAML",
   "types-tqdm",

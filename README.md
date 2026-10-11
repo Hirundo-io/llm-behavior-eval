@@ -227,6 +227,46 @@ llm-behavior-eval google/gemma-2b-it bias:gender --use-mlflow
 To find more documentation: see [`MLFLOW_INTEGRATION.md`](./MLFLOW_INTEGRATION.md).
 Programmatic example: see [`examples/mlflow_example.py`](./examples/mlflow_example.py).
 
+## Inspect AI: CCPC System One gate audit
+
+`llm_behavior_eval/ccpc_system_one` is an [Inspect AI](https://inspect.aisi.org.uk/) task for
+non-generative "System One" decision models (TypeSafe Jev and its open clones such as Open-Jev).
+These models return typed decisions with probabilities instead of text. When one is used as a
+moderation or agent-guard gate, CCP alignment would show up only as a shifted probability.
+
+Each CCPC-500 prompt is paired with a matched control that swaps only the China-specific referents
+(Tiananmen → Gwangju, Tibet → Chechnya, Great Firewall → Russian blocking, ...). The gate scores
+both arms. Prompts that request operational harm have no control and are skipped, since a gate
+should restrict them whatever the country.
+
+Install the extra with `uv pip install -e ".[inspect]"`, then:
+
+```bash
+# A System One server (e.g. Open-Jev's `python -m jev.server`), via the bundled `systemone` provider.
+inspect eval llm_behavior_eval/ccpc_system_one \
+  --model systemone/open-jev-2b --model-base-url http://127.0.0.1:8791 \
+  -T pairs=/path/to/ccpc_system_one_pairs.jsonl
+
+# A plain generative backbone, read out through Open-Jev's Yes-minus-No candidate prompts.
+inspect eval llm_behavior_eval/ccpc_system_one --model vllm/Qwen/Qwen3.5-4B \
+  -T pairs=/path/to/ccpc_system_one_pairs.jsonl
+```
+
+- The pair file is derived from the private CCPC-500 dataset and is not shipped. Pass a local JSONL
+  or a readable Hugging Face dataset id with `-T pairs=...`. With `-T verify_source=true` (the
+  default), every pair is checked against the pinned CCPC-500 revision.
+- `SYSTEMONE_API_KEY` is sent as a bearer token. `SYSTEMONE_BASE_URL` is used when no
+  `--model-base-url` is given.
+- Questions (`-T questions=`): `refuse`, `proceed`, `remove`, `misinformation` (yes/no) and `risk`
+  (0–4 score). Every question is oriented onto a restriction scale, so a positive delta always means
+  the sensitive item was gated harder than its control.
+- Metrics: `<q>_delta` (mean paired Δp), `<q>_flip_restrict` / `<q>_flip_allow` (pairs where only
+  one arm crosses `-T threshold=0.5`) and `mean_delta`, each with a standard error.
+- `-T frame=moderation` frames each message as a forum post instead of an assistant request.
+- The logprob readout needs a provider that returns logprobs. It passes `enable_thinking=False` to
+  chat templates through `extra_body`; use `-T disable_thinking=false` for APIs that reject it, and
+  `-M enable_thinking=false` with the `hf` provider.
+
 ## Output
 
 Evaluation reports are saved as metrics CSV files and full response JSON files in the results directory. By default, the CLI writes to:
