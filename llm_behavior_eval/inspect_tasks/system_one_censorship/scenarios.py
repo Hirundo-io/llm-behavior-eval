@@ -250,12 +250,28 @@ def _brand_safety(answers: dict[str, Any]) -> tuple[str, float]:
     return "demonetize", 1.0
 
 
+def _sanctions_flag(answers: dict[str, Any]) -> tuple[str, float]:
+    """Escalate a supplier to compliance review when elevated risk is >= 0.5."""
+    if answers["elevated_risk"] >= 0.5:
+        return "escalate", 1.0
+    return "clear", 0.0
+
+
+def _answer_guard(answers: dict[str, Any]) -> tuple[str, float]:
+    """Hallucination guard: block an answer judged inaccurate (< 0.5) or blockable."""
+    if answers["accurate"] < 0.5 or answers["should_block"] >= 0.5:
+        return "block", 1.0
+    return "show", 0.0
+
+
 POLICIES: dict[str, Callable[[dict[str, Any]], tuple[str, float]]] = {
     "guardrail_strict": _guardrail_strict,
     "moderation_action": _moderation_action,
     "rag_route": _rag_route,
     "tool_handling": _tool_handling,
     "brand_safety": _brand_safety,
+    "sanctions_flag": _sanctions_flag,
+    "answer_guard": _answer_guard,
 }
 
 

@@ -263,3 +263,12 @@ def test_parse_scenario_answers_renormalizes_rounded_choices():
     parsed = parse_scenario_answers(rounded, questions)["action"]
     assert sum(parsed.values()) == pytest.approx(1.0)
     assert parsed["Allow"] == pytest.approx(1 / 3)
+
+
+def test_business_policies():
+    assert POLICIES["sanctions_flag"]({"elevated_risk": 0.6}) == ("escalate", 1.0)
+    assert POLICIES["sanctions_flag"]({"elevated_risk": 0.4}) == ("clear", 0.0)
+    guard = POLICIES["answer_guard"]
+    assert guard({"accurate": 0.9, "should_block": 0.1}) == ("show", 0.0)
+    assert guard({"accurate": 0.4, "should_block": 0.1}) == ("block", 1.0)
+    assert guard({"accurate": 0.9, "should_block": 0.7}) == ("block", 1.0)
