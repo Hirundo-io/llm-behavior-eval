@@ -1,15 +1,26 @@
 import hashlib
 import json
 import math
+import socket
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pandas as pd
 import pytest
 from datasets import Dataset
 
-from llm_behavior_eval import DatasetConfig, EvaluationConfig, MlflowConfig
-from llm_behavior_eval.evaluation_utils import censorship_utils
+from llm_behavior_eval import (
+    DatasetConfig,
+    EvaluateFactory,
+    EvaluationConfig,
+    MlflowConfig,
+)
+from llm_behavior_eval.evaluation_utils import (
+    base_evaluator,
+    censorship_utils,
+    free_text_censorship_evaluator,
+)
 from llm_behavior_eval.evaluation_utils.censorship_utils import (
     CCPC_DATASET_CONFIG,
     CCPC_DATASET_FINGERPRINT,
@@ -46,7 +57,12 @@ def _benchmark(size: int = CCPC_EXPECTED_ROWS) -> Dataset:
     )
 
 
-def test_loads_pinned_ccpc_500_in_source_order(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "file_path", [None, "chinese_censorship", CCPC_DATASET_REPOSITORY]
+)
+def test_loads_pinned_ccpc_500_in_source_order(
+    monkeypatch: pytest.MonkeyPatch, file_path: str | None
+) -> None:
     captured: dict[str, object] = {}
 
     def fake_load_dataset(path: str, **kwargs: object) -> Dataset:
@@ -59,7 +75,7 @@ def test_loads_pinned_ccpc_500_in_source_order(monkeypatch: pytest.MonkeyPatch) 
         "CCPC_DATASET_FINGERPRINT",
         censorship_dataset_fingerprint(_benchmark()),
     )
-    actual = load_censorship_benchmark("token")
+    actual = load_censorship_benchmark("token", file_path=file_path)
     assert actual["benchmark_id"][:2] == ["ccpc500-0000", "ccpc500-0001"]
     assert captured == {
         "path": CCPC_DATASET_REPOSITORY,
@@ -69,6 +85,141 @@ def test_loads_pinned_ccpc_500_in_source_order(monkeypatch: pytest.MonkeyPatch) 
         "token": "token",
         "trust_remote_code": False,
     }
+
+
+@pytest.fixture
+def offline_ccpc_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Provide an uncached local snapshot with a known synthetic reference digest."""
+    source = tmp_path / "ccpc-500"
+    (source / "data").mkdir(parents=True)
+    _benchmark().to_parquet(source / "data" / "test-00000-of-00001.parquet")
+    monkeypatch.setattr(
+        censorship_utils,
+        "CCPC_DATASET_FINGERPRINT",
+        censorship_dataset_fingerprint(_benchmark()),
+    )
+
+    def block_network(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("Local CCPC loading attempted network access")
+
+    monkeypatch.setattr(socket.socket, "connect", block_network)
+    monkeypatch.setattr(socket, "create_connection", block_network)
+    load_dataset = censorship_utils.load_dataset
+
+    def load_local(path: str, **kwargs: Any) -> Dataset:
+        assert path == str(source)
+        assert kwargs == {
+            "name": CCPC_DATASET_CONFIG,
+            "split": CCPC_DATASET_SPLIT,
+            "revision": None,
+            "token": None,
+            "trust_remote_code": False,
+        }
+        return cast(
+            "Dataset",
+            load_dataset(path, cache_dir=str(tmp_path / "empty-cache"), **kwargs),
+        )
+
+    monkeypatch.setattr(censorship_utils, "load_dataset", load_local)
+    return source
+
+
+def test_native_evaluator_loads_local_snapshot_offline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, offline_ccpc_source: Path
+) -> None:
+    class Tokenizer:
+        name_or_path = "fake/model"
+
+        def get_chat_template(self) -> str:
+            return "{{ messages }}"
+
+        def apply_chat_template(self, messages: list[dict[str, str]], **_: Any) -> str:
+            return messages[0]["content"]
+
+        def __call__(self, prompts: list[str], **_: Any) -> dict[str, list[list[int]]]:
+            return {
+                "input_ids": [[1]] * len(prompts),
+                "attention_mask": [[1]] * len(prompts),
+            }
+
+    loaded: list[Dataset] = []
+    engine = SimpleNamespace(
+        tokenizer=Tokenizer(),
+        set_dataset=loaded.append,
+        get_batch_size=lambda: 2,
+        ensure_test_model_ready=lambda: None,
+    )
+    monkeypatch.setattr(base_evaluator, "TransformersEvalEngine", lambda *_a: engine)
+    monkeypatch.setattr(
+        free_text_censorship_evaluator, "is_model_multimodal", lambda *_a: False
+    )
+    evaluator = EvaluateFactory.create_evaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="fake/model", results_dir=tmp_path, max_samples=3
+        ),
+        DatasetConfig(
+            file_path=str(offline_ccpc_source),
+            dataset_id="chinese_censorship",
+            dataset_type=DatasetType.BIAS,
+        ),
+    )
+    assert isinstance(evaluator, FreeTextCensorshipEvaluator)
+    assert evaluator.get_dataset_slug() == "chinese_censorship"
+    assert evaluator.benchmark_questions == ["question-0", "question-1", "question-2"]
+    assert evaluator.benchmark_group_ids == [
+        "ccpc500-0000",
+        "ccpc500-0001",
+        "ccpc500-0002",
+    ]
+    assert evaluator.num_samples == 3
+    assert loaded == [evaluator.eval_dataset]
+    assert [batch["ccpc_row_index"].tolist() for batch in evaluator.eval_loader] == [
+        [0, 1],
+        [2],
+    ]
+
+
+@pytest.mark.parametrize(
+    ("corruption", "error"),
+    [
+        ("row_count", "exactly 500 rows"),
+        ("missing_column", "columns must be exactly"),
+        ("extra_column", "columns must be exactly"),
+        ("empty_question", "non-empty string"),
+        ("empty_id", "non-empty string"),
+        ("null_question", "non-empty string"),
+        ("duplicate_id", "must be unique"),
+        ("altered", "pinned published order and contents"),
+        ("reordered", "pinned published order and contents"),
+    ],
+)
+def test_local_dataset_contract_rejects_corruption(
+    offline_ccpc_source: Path, corruption: str, error: str
+) -> None:
+    rows = cast("dict[str, list[str | None]]", _benchmark().to_dict())
+    if corruption == "row_count":
+        rows = {key: values[:-1] for key, values in rows.items()}
+    elif corruption == "missing_column":
+        del rows["benchmark_id"]
+    elif corruption == "extra_column":
+        rows["extra"] = ["extra"] * CCPC_EXPECTED_ROWS
+    elif corruption == "empty_question":
+        rows["question"][0] = " "
+    elif corruption == "empty_id":
+        rows["benchmark_id"][0] = ""
+    elif corruption == "null_question":
+        rows["question"][0] = None
+    elif corruption == "duplicate_id":
+        rows["benchmark_id"][0] = rows["benchmark_id"][1]
+    elif corruption == "altered":
+        rows["question"][0] = "changed question"
+    elif corruption == "reordered":
+        rows = {key: list(reversed(values)) for key, values in rows.items()}
+    Dataset.from_dict(rows).to_parquet(
+        offline_ccpc_source / "data" / "test-00000-of-00001.parquet"
+    )
+    with pytest.raises(ValueError, match=error):
+        load_censorship_benchmark(file_path=str(offline_ccpc_source))
 
 
 @pytest.mark.parametrize(

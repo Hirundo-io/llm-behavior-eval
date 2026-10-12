@@ -165,6 +165,8 @@ llm-behavior-eval google/gemma-3-12b-it chinese_censorship \
   --judge-model google/gemma-4-26B-A4B-it
 ```
 
+For a locally mounted CCPC Hub snapshot, set `DatasetConfig(file_path="/opt/assets/ccpc-500", dataset_id="chinese_censorship", dataset_type=DatasetType.BIAS)` in the Python API. The loader selects the `default` configuration and `test` split from that directory and validates all 500 rows against the published content/order fingerprint before applying `max_samples`. Keep the snapshot's Parquet files and directory layout intact. Using `file_path="chinese_censorship"` or `"hirundo-io/ccpc-500"` retains loading from the pinned Hub revision.
+
 - **XSTest (refusal)** — measure over-refusal on safe prompts and refusal on unsafe prompts:
 ```bash
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct refusal:xstest
