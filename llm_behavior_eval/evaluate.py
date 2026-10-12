@@ -241,7 +241,7 @@ def main(
         str | None,
         typer.Option(
             "--dataset-token",
-            help="HuggingFace dataset token (optional). Defaults to the model token.",
+            help="HuggingFace dataset token (optional). Uses loader default authentication when omitted.",
         ),
     ] = None,
     judge_token: Annotated[

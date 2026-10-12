@@ -62,7 +62,7 @@ class EvaluationConfig(BaseModel):
         model_path_or_repo_id: HF repo ID or path of the model under test (e.g. "meta-llama/Llama-3.1-8B-Instruct").
         model_output_dir: Optional override for the model output directory slug under results_dir.
         model_token: HuggingFace token for the model under test.
-        dataset_token: HuggingFace dataset token. Falls back to model_token when omitted.
+        dataset_token: HuggingFace dataset token. Uses loader default authentication when omitted.
         judge_batch_size: Batch size for the judge model (free-text tasks only). If None, will be adjusted for GPU limits.
         max_judge_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
             Use None to apply the evaluator-family default at runtime.

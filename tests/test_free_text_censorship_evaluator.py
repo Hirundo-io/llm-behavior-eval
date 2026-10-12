@@ -128,7 +128,7 @@ def offline_ccpc_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path
     ("model_token", "dataset_token", "expected"),
     [
         (None, None, None),
-        ("synthetic-model", None, "synthetic-model"),
+        ("synthetic-model", None, None),
         (None, "synthetic-dataset", "synthetic-dataset"),
         ("synthetic-model", "synthetic-dataset", "synthetic-dataset"),
     ],

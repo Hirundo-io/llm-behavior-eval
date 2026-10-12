@@ -77,9 +77,7 @@ class FreeTextCensorshipEvaluator(FreeTextSharedEvaluator):
     def prepare_dataloader(self) -> None:
         """Load, limit, and tokenize benchmark rows in published order."""
         benchmark = load_censorship_benchmark(
-            self.eval_config.dataset_token
-            if self.eval_config.dataset_token is not None
-            else self.eval_config.model_token,
+            self.eval_config.dataset_token,
             file_path=self.dataset_config.file_path,
         )
         num_samples = (

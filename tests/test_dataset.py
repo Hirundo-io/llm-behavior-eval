@@ -170,7 +170,7 @@ def test_free_text_preprocess_function_uses_default_system_prompt_when_enabled(
     ]
 
 
-def test_custom_dataset_passes_token_without_obsolete_remote_code_arg(
+def test_custom_dataset_passes_dataset_token_without_obsolete_remote_code_arg(
     monkeypatch: pytest.MonkeyPatch,
 ):
     ds = Dataset.from_dict({"question": ["q"], "answer": ["a"]})
@@ -187,7 +187,7 @@ def test_custom_dataset_passes_token_without_obsolete_remote_code_arg(
         "repo/gated-dataset",
         DatasetType.BIAS,
         trust_remote_code=True,
-        token="hf_test_token",
+        dataset_token="hf_test_token",
     )
 
     assert captured == {
@@ -331,7 +331,7 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
     [
         ("synthetic-model", "synthetic-dataset", "synthetic-dataset"),
         (None, "synthetic-dataset", "synthetic-dataset"),
-        ("synthetic-model", None, "synthetic-model"),
+        ("synthetic-model", None, None),
         (None, None, None),
         ("synthetic-model", "", ""),
     ],

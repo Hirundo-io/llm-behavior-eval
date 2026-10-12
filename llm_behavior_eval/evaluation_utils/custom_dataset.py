@@ -182,8 +182,8 @@ class CustomDataset:
             file_path: Local path or HuggingFace dataset identifier.
             dataset_type: The type of the dataset (e.g., BIAS or UNBIAS).
             trust_remote_code: Whether to trust remote code when loading the dataset.
-            token: HuggingFace model token, also used for datasets by default.
-            dataset_token: Optional separate dataset credential.
+            token: HuggingFace model token for metadata lookups during preprocessing.
+            dataset_token: Optional dataset credential. None uses loader default authentication.
             dataset_id (optional): Logical dataset identity. Defaults to ``file_path``.
         """
         self.file_path = file_path
@@ -194,7 +194,7 @@ class CustomDataset:
         try:
             raw = load_dataset(
                 str(self.file_path),
-                token=dataset_token if dataset_token is not None else token,
+                token=dataset_token,
             )
         except (OSError, ValueError) as exc:
             raise RuntimeError(
