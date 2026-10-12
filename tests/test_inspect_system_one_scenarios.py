@@ -246,3 +246,20 @@ def test_eval_scenarios_against_system_one_server(fake_scenario_gate, tmp_path):
     [sample] = log.samples
     score = next(iter(sample.scores.values()))
     assert score.metadata["actions"] == {"sensitive": "Remove", "control": "Allow"}
+
+
+def test_parse_scenario_answers_renormalizes_rounded_choices():
+    questions = [
+        ScenarioQuestion("action", ACTION, weights=RESTRICTION["action"]["weights"])
+    ]
+    rounded = {
+        "answers": {
+            "action": {
+                "type": "choice",
+                "probabilities": {"Allow": 0.33, "Remove": 0.33, "Escalate": 0.33},
+            }
+        }
+    }
+    parsed = parse_scenario_answers(rounded, questions)["action"]
+    assert sum(parsed.values()) == pytest.approx(1.0)
+    assert parsed["Allow"] == pytest.approx(1 / 3)

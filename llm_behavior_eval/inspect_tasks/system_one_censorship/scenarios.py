@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 QuestionKind = str  # "noul" | "score" | "choice"
+CHOICE_SUM_TOLERANCE = 0.05
 
 
 @dataclass(frozen=True)
@@ -100,9 +101,11 @@ def parse_scenario_answers(
                 key: float(answer["probabilities"][key]) for key in question.options
             }
             total = sum(probabilities.values())
-            if not math.isclose(total, 1.0, abs_tol=1e-3):
+            # Hosted APIs round each probability (TypeSafe: 2 decimals), so a
+            # five-option choice can be off by a few hundredths; renormalize.
+            if not math.isclose(total, 1.0, abs_tol=CHOICE_SUM_TOLERANCE):
                 raise ValueError(f"choice {question.id!r} does not sum to one")
-            parsed[question.id] = probabilities
+            parsed[question.id] = {key: p / total for key, p in probabilities.items()}
         else:
             value = float(answer[question.kind])
             if not math.isfinite(value):
