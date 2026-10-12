@@ -270,10 +270,13 @@ class JevLoraHfBackend(JevVllmBackend):
     For releases that ship ``adapter_vllm`` (a backbone LoRA plus the decision
     head as an ``lm_head`` LoRA) when the installed vLLM cannot load an
     ``lm_head`` LoRA. Reads the merged model's next-token logits at the
-    verbalizer ids; the rest is the vLLM path.
+    verbalizer ids; the rest is the vLLM path. ``base_path`` loads the
+    backbone weights from another checkpoint of the same architecture (for
+    example a fine-tune of the release's base model) under the release's
+    adapter, head bias and calibration.
     """
 
-    def __init__(self, model_path: str, device: str) -> None:
+    def __init__(self, model_path: str, device: str, base_path: str = "") -> None:
         import torch
         from peft import PeftModel
         from transformers import AutoModelForImageTextToText, AutoTokenizer
@@ -291,7 +294,7 @@ class JevLoraHfBackend(JevVllmBackend):
         self.device = device
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         base = AutoModelForImageTextToText.from_pretrained(
-            model_path, dtype=torch.bfloat16, device_map=device
+            base_path or model_path, dtype=torch.bfloat16, device_map=device
         )
         self.model = PeftModel.from_pretrained(
             base, str(root / "adapter_vllm")
@@ -569,6 +572,11 @@ def main() -> None:
         choices=("clef", "jev-vllm", "jev-hf", "jev-lora-hf", "agentjev", "nimble"),
     )
     parser.add_argument("--model-path", default="")
+    parser.add_argument(
+        "--base-path",
+        default="",
+        help="jev-lora-hf: backbone weights to put under the release's adapter",
+    )
     parser.add_argument("--upstream", default="http://127.0.0.1:8003")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--host", default="127.0.0.1")
@@ -583,7 +591,7 @@ def main() -> None:
     elif args.backend == "jev-hf":
         backend = JevHfBackend(args.model_path, args.device)
     elif args.backend == "jev-lora-hf":
-        backend = JevLoraHfBackend(args.model_path, args.device)
+        backend = JevLoraHfBackend(args.model_path, args.device, args.base_path)
     elif args.backend == "nimble":
         backend = NimbleBackend(args.model_path)
     else:
