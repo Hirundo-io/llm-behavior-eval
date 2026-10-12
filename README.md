@@ -1,6 +1,6 @@
-# [llm-behavior-eval](https://hirundo-io.github.io/llm-behavior-eval/) &middot; [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/hirundo-io/llm-behavior-eval/blob/main/LICENSE) [![pypi version](https://img.shields.io/pypi/v/llm-behavior-eval)](https://pypi.org/project/llm-behavior-eval/)
+# [llm-behavior-eval](https://github.com/Hirundo-io/llm-behavior-eval) &middot; [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/hirundo-io/llm-behavior-eval/blob/main/LICENSE) [![pypi version](https://img.shields.io/pypi/v/llm-behavior-eval)](https://pypi.org/project/llm-behavior-eval/)
 
-[![Deploy docs](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/deploy-docs.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/deploy-docs.yaml) [![pyrefly](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/pyrefly.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/pyrefly.yaml) [![ruff](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/ruff.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/ruff.yaml) [![Unit tests](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/tests.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/tests.yaml) [![Vulnerability scan](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/vulnerability-scan.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/vulnerability-scan.yaml)
+[![pyrefly](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/pyrefly.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/pyrefly.yaml) [![ruff](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/ruff.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/ruff.yaml) [![Unit tests](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/tests.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/tests.yaml) [![Vulnerability scan](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/vulnerability-scan.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/vulnerability-scan.yaml)
 
 A Python 3.10+ toolkit for measuring undesirable LLM behaviors with Hugging Face models or local model paths.
 
@@ -181,6 +181,28 @@ llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct refusal:orbench
 ```bash
 llm-behavior-eval meta-llama/Llama-3.1-8B-Instruct refusal:all
 ```
+
+### Local and offline datasets
+
+`DatasetConfig.file_path` is the physical loading source and may be a local
+directory. Set `DatasetConfig.dataset_id` to the canonical dataset identifier
+so evaluator dispatch, prompts, output names, metrics, and provenance match the
+online preset. If omitted, `dataset_id` defaults to `file_path`.
+
+```python
+from llm_behavior_eval import DatasetConfig, DatasetType
+
+config = DatasetConfig(
+    file_path="/opt/assets/halueval",
+    dataset_id="hirundo-io/halueval",
+    dataset_type=DatasetType.BIAS,
+)
+```
+
+Release tooling can call `list_dataset_presets()` to enumerate every supported
+preset and its complete `dataset_ids` expansion. `expand_dataset_preset()`
+provides the same expansion used by the CLI. Both functions are available from
+`llm_behavior_eval`.
 
 ### Interpreting refusal results
 
