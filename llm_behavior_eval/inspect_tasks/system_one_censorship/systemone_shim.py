@@ -6,6 +6,9 @@ apart from the chosen backend's own dependencies)::
     # Cloudflare Clef / Clef-Flash: wraps the model card's ``systemone()``
     python systemone_shim.py clef --model-path <snapshot dir> --port 30000
 
+    # autotrust JEV-*: the model card's transformers + peft path
+    python systemone_shim.py jev-hf --model-path <snapshot dir> --port 30001
+
     # autotrust JEV-*: translates to the System 1 read-out of a vLLM server
     # started with ``--enable-lora --lora-modules jev-decision=<dir>/adapter_vllm
     # --logprobs-mode processed_logprobs``
@@ -187,6 +190,56 @@ class JevVllmBackend:
         return {"model": request.get("model", self.name), "answers": answers}
 
 
+class JevHfBackend(JevVllmBackend):
+    """Run a JEV System 1 head with transformers + peft (the model card's plain path).
+
+    Used when the installed vLLM cannot load JEV's ``lm_head`` LoRA. The head is
+    a linear ``hidden -> 24 slots`` projection on the last token's final-norm
+    hidden state; logits are divided by the per-kind temperature and
+    softmaxed over the kind's slots.
+    """
+
+    def __init__(self, model_path: str, device: str) -> None:
+        import torch
+        from peft import PeftModel
+        from safetensors.torch import load_file
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        root = Path(model_path)
+        config = json.loads((root / "judge_config.json").read_text())
+        self.ranges = config["slots"]["ranges"]
+        self.temperatures = json.loads((root / "calibration.json").read_text())[
+            "per_kind"
+        ]
+        self.name = root.name
+        self.torch = torch
+        self.device = device
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        base = AutoModelForCausalLM.from_pretrained(
+            model_path, dtype=torch.bfloat16, device_map=device
+        )
+        self.model = PeftModel.from_pretrained(
+            base, str(root / "adapter")
+        ).merge_and_unload()
+        self.model.eval()
+        head = load_file(str(root / "head.safetensors"))
+        self.weight = head["proj.weight"].to(device)
+        self.bias_vector = head["proj.bias"].to(device)
+        self.lock = threading.Lock()
+
+    def readout(self, kind: str, prompt: str, n_options: int) -> list[float]:
+        start, end = self.ranges[kind]
+        if n_options > end - start:
+            raise ValueError(f"{kind} supports at most {end - start} options")
+        torch = self.torch
+        ids = self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
+        ids = ids.to(self.device)
+        with self.lock, torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            hidden = self.model.model(**ids).last_hidden_state[0, -1].float()
+        logits = (self.weight @ hidden + self.bias_vector) / self.temperatures[kind]
+        return torch.softmax(logits[start : start + n_options], 0).tolist()
+
+
 class ClefBackend:
     """Call the ``systemone`` function shipped in a Clef model snapshot."""
 
@@ -253,7 +306,7 @@ def make_handler(backend: Callable[[dict[str, Any]], dict[str, Any]]) -> type:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("backend", choices=("clef", "jev-vllm"))
+    parser.add_argument("backend", choices=("clef", "jev-vllm", "jev-hf"))
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--upstream", default="http://127.0.0.1:8003")
     parser.add_argument("--device", default="cuda")
@@ -264,6 +317,8 @@ def main() -> None:
         backend: Callable[[dict[str, Any]], dict[str, Any]] = ClefBackend(
             args.model_path, args.device
         )
+    elif args.backend == "jev-hf":
+        backend = JevHfBackend(args.model_path, args.device)
     else:
         backend = JevVllmBackend(args.model_path, args.upstream)
     server = ThreadingHTTPServer((args.host, args.port), make_handler(backend))
