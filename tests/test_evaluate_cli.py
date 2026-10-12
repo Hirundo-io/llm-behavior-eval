@@ -151,9 +151,11 @@ def test_behavior_presets_expand_refusal_all() -> None:
     ]
 
 
-def test_cli_help_includes_chinese_censorship_guidance() -> None:
-    result = CliRunner().invoke(evaluate.app, ["--help"], env={"COLUMNS": "300"})
-    visible_output = strip_ansi(result.output)
+@pytest.mark.parametrize("columns", [80, 300])
+def test_cli_help_includes_chinese_censorship_guidance(columns: int) -> None:
+    result = CliRunner().invoke(evaluate.app, ["--help"], env={"COLUMNS": str(columns)})
+    # Rich wraps help text inside panel borders at narrow terminal widths.
+    visible_output = " ".join(strip_ansi(result.output).replace("│", " ").split())
 
     assert result.exit_code == 0
     assert "chinese_censorship" in visible_output
