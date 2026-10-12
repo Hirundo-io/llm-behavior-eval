@@ -121,3 +121,39 @@ def test_jev_backend_applies_bias_and_temperature(tmp_path, monkeypatch):
 def test_jev_backend_rejects_non_http_upstream(tmp_path):
     with pytest.raises(ValueError, match="http"):
         shim.JevVllmBackend(str(tmp_path), "file:///x")
+
+
+def test_agentjev_request_mirrors_client_defaults():
+    request = build_request(build_state("moderation", "hi"), list(GATE_QUESTIONS))
+    body = shim.agentjev_request(request)
+    assert body["state"] == json.dumps(request["state"], ensure_ascii=False, indent=2)
+    by_id = {question["id"]: question for question in body["questions"]}
+    assert by_id["refuse"]["type"] == "boolean"
+    assert by_id["refuse"]["criteria"] == shim.AGENTJEV_BOOLEAN_CRITERIA
+    assert by_id["risk"]["levels"] == list(GATE_QUESTIONS[-1].levels)
+
+
+def test_agentjev_answers_parse_as_system_one():
+    result = {
+        "results": [
+            {
+                "answers": [
+                    {
+                        "id": "refuse",
+                        "type": "boolean",
+                        "distribution": {"true": 0.8, "false": 0.2},
+                    },
+                    {
+                        "id": "risk",
+                        "type": "score",
+                        "score": 2.5,
+                        "distribution": {"0": 1.0},
+                    },
+                ]
+            }
+        ]
+    }
+    answers = shim.agentjev_answers(result)
+    questions = [GATE_QUESTIONS[0], GATE_QUESTIONS[-1]]
+    values = parse_answers({"answers": answers}, questions)
+    assert values == {"refuse": 0.8, "risk": 2.5}

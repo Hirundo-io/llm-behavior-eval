@@ -6,6 +6,9 @@ apart from the chosen backend's own dependencies)::
     # Cloudflare Clef / Clef-Flash: wraps the model card's ``systemone()``
     python systemone_shim.py clef --model-path <snapshot dir> --port 30000
 
+    # AgentJev: translates to a jev_service server's /api/evaluate
+    python systemone_shim.py agentjev --upstream http://127.0.0.1:8149 --port 30002
+
     # autotrust JEV-*: the model card's transformers + peft path
     python systemone_shim.py jev-hf --model-path <snapshot dir> --port 30001
 
@@ -240,6 +243,102 @@ class JevHfBackend(JevVllmBackend):
         return torch.softmax(logits[start : start + n_options], 0).tolist()
 
 
+AGENTJEV_BOOLEAN_CRITERIA = {
+    "true": "The statement is true.",
+    "false": "The statement is false.",
+}
+
+
+def agentjev_request(request: dict[str, Any]) -> dict[str, Any]:
+    """Translate a System One request to AgentJev's ``/api/evaluate`` body.
+
+    Mirrors ``agentjev_client.py``: object states are rendered as indented
+    JSON, booleans use the client's default true/false criteria, and score
+    levels are passed as ordered descriptions.
+    """
+    state = request["state"]
+    if not isinstance(state, str):
+        state = json.dumps(state, ensure_ascii=False, indent=2)
+    questions = []
+    for question_id, definition in request["questions"].items():
+        kind = definition["type"]
+        text = definition.get("instructions", "")
+        if kind == "noul":
+            criteria = definition.get("criteria") or AGENTJEV_BOOLEAN_CRITERIA
+            questions.append(
+                {
+                    "id": question_id,
+                    "type": "boolean",
+                    "question": text,
+                    "criteria": criteria,
+                }
+            )
+        elif kind == "score":
+            questions.append(
+                {
+                    "id": question_id,
+                    "type": "score",
+                    "question": text,
+                    "levels": definition["criteria"],
+                }
+            )
+        elif kind == "choice":
+            questions.append(
+                {
+                    "id": question_id,
+                    "type": "choice",
+                    "question": text,
+                    "options": definition["criteria"],
+                }
+            )
+        else:
+            raise ValueError(f"unsupported question type {kind!r}")
+    return {"state": state, "questions": questions}
+
+
+def agentjev_answers(result: dict[str, Any]) -> dict[str, Any]:
+    """Translate AgentJev's answers back to System One answers."""
+    answers = {}
+    for answer in result["results"][0]["answers"]:
+        distribution = answer["distribution"]
+        if answer["type"] == "boolean":
+            answers[answer["id"]] = {"type": "noul", "noul": distribution["true"]}
+        elif answer["type"] == "score":
+            answers[answer["id"]] = {
+                "type": "score",
+                "score": answer["score"],
+                "probabilities": distribution,
+            }
+        else:
+            answers[answer["id"]] = {
+                "type": "choice",
+                "choice": answer["value"],
+                "probabilities": distribution,
+            }
+    return answers
+
+
+class AgentJevBackend:
+    """Forward System One requests to an AgentJev ``jev_service`` server."""
+
+    def __init__(self, upstream: str) -> None:
+        if not upstream.startswith(("http://", "https://")):
+            raise ValueError("upstream must be an http(s) URL")
+        self.url = upstream.rstrip("/") + "/api/evaluate"
+
+    def __call__(self, request: dict[str, Any]) -> dict[str, Any]:
+        body = json.dumps(agentjev_request(request), ensure_ascii=False).encode()
+        upstream = urllib.request.Request(  # noqa: S310 (scheme checked in __init__)
+            self.url, data=body, headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(upstream, timeout=300) as response:  # noqa: S310
+            result = json.loads(response.read())
+        return {
+            "model": request.get("model", "agent-jev"),
+            "answers": agentjev_answers(result),
+        }
+
+
 class ClefBackend:
     """Call the ``systemone`` function shipped in a Clef model snapshot."""
 
@@ -306,8 +405,8 @@ def make_handler(backend: Callable[[dict[str, Any]], dict[str, Any]]) -> type:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("backend", choices=("clef", "jev-vllm", "jev-hf"))
-    parser.add_argument("--model-path", required=True)
+    parser.add_argument("backend", choices=("clef", "jev-vllm", "jev-hf", "agentjev"))
+    parser.add_argument("--model-path", default="")
     parser.add_argument("--upstream", default="http://127.0.0.1:8003")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--host", default="127.0.0.1")
@@ -317,6 +416,8 @@ def main() -> None:
         backend: Callable[[dict[str, Any]], dict[str, Any]] = ClefBackend(
             args.model_path, args.device
         )
+    elif args.backend == "agentjev":
+        backend = AgentJevBackend(args.upstream)
     elif args.backend == "jev-hf":
         backend = JevHfBackend(args.model_path, args.device)
     else:
