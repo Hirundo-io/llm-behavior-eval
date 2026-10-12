@@ -273,6 +273,7 @@ class BaseEvaluator(ABC):
             self.dataset_config.dataset_type,
             trust_remote_code=self.trust_remote_code,
             token=self.eval_config.model_token,
+            dataset_token=self.eval_config.dataset_token,
             dataset_id=self.dataset_config.dataset_id,
         )
         test_dataset = custom_dataset.preprocess(
@@ -966,7 +967,7 @@ class BaseEvaluator(ABC):
 
     def _current_run_config(self) -> RunConfig:
         evaluation_config_snapshot = self.eval_config.model_dump(
-            exclude={"model_token", "judge_token"},
+            exclude={"model_token", "judge_token", "dataset_token"},
             exclude_none=True,
         )
         dataset_config_snapshot = self.dataset_config.model_dump(exclude_none=True)

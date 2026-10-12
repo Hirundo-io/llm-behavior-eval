@@ -855,3 +855,37 @@ def test_main_defaults_output_dir_to_data_dir(
     evaluate.main("fake/model", "hallu")
     eval_config = capture_eval_config[-1]
     assert eval_config.results_dir == expected
+
+
+def test_cli_forwards_separate_dataset_credentials(capture_eval_config):
+    result = CliRunner().invoke(
+        evaluate.app,
+        [
+            "fake/model",
+            "hallu",
+            "--model-token",
+            "synthetic-model",
+            "--dataset-token",
+            "synthetic-dataset",
+            "--judge-token",
+            "synthetic-judge",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    config = capture_eval_config[-1]
+    assert config.model_token == "synthetic-model"
+    assert config.dataset_token == "synthetic-dataset"
+    assert config.judge_token == "synthetic-judge"
+
+
+def test_dataset_credential_is_excluded_from_config(tmp_path):
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        dataset_token="synthetic-dataset",
+    )
+    assert "dataset_token" not in config.model_dump()
+    assert "synthetic-dataset" not in config.model_dump_json()
+    assert "synthetic-dataset" not in repr(config)
+    assert "synthetic-dataset" not in str(config)
+    assert config.resolve_for_family("refusal").dataset_token == "synthetic-dataset"

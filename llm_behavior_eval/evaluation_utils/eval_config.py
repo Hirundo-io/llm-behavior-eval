@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic.functional_validators import model_validator
 
 from .sampling_config import SamplingConfig
@@ -62,6 +62,7 @@ class EvaluationConfig(BaseModel):
         model_path_or_repo_id: HF repo ID or path of the model under test (e.g. "meta-llama/Llama-3.1-8B-Instruct").
         model_output_dir: Optional override for the model output directory slug under results_dir.
         model_token: HuggingFace token for the model under test.
+        dataset_token: HuggingFace dataset token. Falls back to model_token when omitted.
         judge_batch_size: Batch size for the judge model (free-text tasks only). If None, will be adjusted for GPU limits.
         max_judge_tokens: Number of tokens to generate with the judge model. Typical range is 16-64.
             Use None to apply the evaluator-family default at runtime.
@@ -100,6 +101,7 @@ class EvaluationConfig(BaseModel):
     model_output_dir: str | None = None
     lora_path_or_repo_id: str | None = None
     model_token: str | None = None
+    dataset_token: str | None = Field(default=None, exclude=True, repr=False)
     judge_batch_size: None | int = None
     max_judge_tokens: int | None = None
     judge_path_or_repo_id: str = "google/gemma-3-12b-it"
