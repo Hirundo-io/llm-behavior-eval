@@ -130,21 +130,29 @@ def system_one_accuracy(
     suites: str | list[str] = "jevbench,human",
     per_task: int = 50,
     max_options: int = 16,
+    usecase_per_task: int = 200,
     disable_thinking: bool = True,
 ) -> Task:
     """Accuracy of a decision model on public typed-decision benchmarks.
 
     Args:
-        suites: Comma-separated suites: ``jevbench`` (231 authored cases) and/or
-            ``human`` (human-labelled public datasets).
+        suites: Comma-separated suites: ``jevbench`` (231 authored cases),
+            ``human`` (human-labelled public datasets) and/or ``usecases``
+            (deployment-style tasks).
         per_task: Items sampled per task in the ``human`` suite.
         max_options: Skip ``human`` questions with more options than this.
+        usecase_per_task: Items per task in the ``usecases`` suite.
         disable_thinking: Pass ``enable_thinking=False`` in the logprob readout.
     """
     if isinstance(suites, str):
         suites = [s.strip() for s in suites.split(",") if s.strip()]
     return Task(
-        dataset=accuracy_dataset(suites, per_task=per_task, max_options=max_options),
+        dataset=accuracy_dataset(
+            suites,
+            per_task=per_task,
+            max_options=max_options,
+            usecase_per_task=usecase_per_task,
+        ),
         solver=accuracy_readout(disable_thinking=disable_thinking),
         scorer=accuracy_score(),
         version=ACCURACY_TASK_VERSION,

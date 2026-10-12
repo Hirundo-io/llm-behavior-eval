@@ -163,3 +163,31 @@ def test_eval_accuracy_against_system_one_server(fake_gate, tmp_path, monkeypatc
     assert correct["grouped_human"].value == pytest.approx(1.0)
     # All three answers at 0.9 confidence, 2 of 3 right.
     assert by_name["confidence"].metrics["ece"].value == pytest.approx(abs(0.9 - 2 / 3))
+
+
+def test_intent_items_always_include_gold_and_fixed_options():
+    import random
+
+    from llm_behavior_eval.inspect_tasks.system_one_censorship import usecases
+
+    names = [f"intent_{i}" for i in range(30)] + ["oos"]
+    pairs = [(f"text {i}", names[i % 31]) for i in range(60)]
+    items = usecases._intent_items(
+        "t", random.Random(0), 20, pairs, names, "q?", always={"oos": "none"}
+    )
+    assert len(items) == 20
+    for item in items:
+        options = item["question"]["criteria"]
+        assert len(options) == usecases.INTENT_OPTIONS
+        assert item["gold"] in options
+        assert options["oos"] == "none"
+
+
+def test_balanced_sampling_halves():
+    import random
+
+    from llm_behavior_eval.inspect_tasks.system_one_censorship.usecases import _balanced
+
+    picked = _balanced(random.Random(0), list(range(50)), list(range(100, 150)), 20)
+    assert sum(gold for _, gold in picked) == 10
+    assert len(picked) == 20

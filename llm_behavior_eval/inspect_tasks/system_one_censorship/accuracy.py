@@ -8,6 +8,9 @@ Suites (each item is one state plus one typed question with a gold answer):
   as System One questions; a fixed sample of ``per_task`` items per task,
   keeping only questions with at most ``max_options`` options so that every
   decision model can answer every item.
+- ``usecases``: deployment-style tasks (guardrails, moderation, RAG
+  faithfulness, intent routing, tool use, search) built from public,
+  commercially licensed datasets; see ``usecases.py``.
 
 Files are pinned to a commit, so a suite is the same items on every run.
 """
@@ -43,7 +46,7 @@ SOURCES = {
         "data/test-00000-of-00001.parquet",
     ),
 }
-SUITES = tuple(SOURCES)
+SUITES = (*SOURCES, "usecases")
 NOUL_GOLD = {"yes": "true", "no": "false", "1": "true", "0": "false"}
 
 
@@ -129,7 +132,10 @@ def human_items(
 
 
 def accuracy_dataset(
-    suites: list[str], per_task: int = 50, max_options: int = 16
+    suites: list[str],
+    per_task: int = 50,
+    max_options: int = 16,
+    usecase_per_task: int = 200,
 ) -> MemoryDataset:
     unknown = sorted(set(suites) - set(SUITES))
     if unknown:
@@ -139,6 +145,10 @@ def accuracy_dataset(
         items += jevbench_items()
     if "human" in suites:
         items += human_items(per_task=per_task, max_options=max_options)
+    if "usecases" in suites:
+        from .usecases import usecase_items
+
+        items += usecase_items(per_task=usecase_per_task)
     samples = [
         Sample(
             id=f"{item['source']}/{item['id']}",
