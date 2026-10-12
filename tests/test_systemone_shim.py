@@ -227,3 +227,28 @@ def test_jev_lora_hf_backend_reads_verbalizer_logits():
     probabilities = backend.readout("noul", "prompt", 2)
     expected = shim.softmax([1.0 / 2.0, (2.0 + 1.0) / 2.0])
     assert probabilities == pytest.approx(expected)
+
+
+def test_letter_prompt_follows_tev1_card():
+    messages = shim.letter_prompt(
+        "Returns within 30 days.", {"type": "noul", "instructions": "In window?"}
+    )
+    assert messages[0]["content"] == shim.LETTER_SYSTEM
+    body = json.loads(messages[1]["content"])
+    assert body["question"] == "In window?"
+    assert [(o["label"], o["key"]) for o in body["options"]] == [
+        ("A", "yes"),
+        ("B", "no"),
+    ]
+
+
+def test_letter_answers_parse_as_system_one():
+    answers = {}
+    for question in GATE_QUESTIONS:
+        definition = question.to_request()
+        n = len(shim.letter_options(definition))
+        probabilities = [0.7, 0.3] if n == 2 else [0.1, 0.2, 0.3, 0.2, 0.2]
+        answers[question.id] = shim.letter_answer(definition, probabilities)
+    values = parse_answers({"answers": answers}, list(GATE_QUESTIONS))
+    assert values["refuse"] == pytest.approx(0.7)
+    assert values["risk"] == pytest.approx(0.2 + 0.6 + 0.6 + 0.8)
