@@ -157,3 +157,73 @@ def test_agentjev_answers_parse_as_system_one():
     questions = [GATE_QUESTIONS[0], GATE_QUESTIONS[-1]]
     values = parse_answers({"answers": answers}, questions)
     assert values == {"refuse": 0.8, "risk": 2.5}
+
+
+def test_nimble_field_maps_each_kind():
+    field, is_score = shim.nimble_field("refuse", {"type": "noul", "instructions": "q"})
+    assert field == {"type": "boolean", "description": "q"} and not is_score
+    field, is_score = shim.nimble_field(
+        "risk", {"type": "score", "instructions": "q", "criteria": ["low", "high"]}
+    )
+    assert is_score
+    assert field["choices"] == ["0", "1"]
+    assert field["choice_descriptions"] == {"0": "low", "1": "high"}
+    field, _ = shim.nimble_field(
+        "pick", {"type": "choice", "criteria": {"a": "first", "b": None}}
+    )
+    assert field["description"] == "pick"
+    assert field["choices"] == ["a", "b"]
+    assert field["choice_descriptions"] == {"a": "first"}
+
+
+def test_nimble_field_rejects_unsupported_type():
+    with pytest.raises(ValueError, match="unsupported"):
+        shim.nimble_field("x", {"type": "text"})
+
+
+def test_nimble_answers_parse_as_system_one():
+    answers = {}
+    for question in GATE_QUESTIONS:
+        definition = question.to_request()
+        if question.kind == "noul":
+            field = {"probabilities": {"false": 0.3, "true": 0.7}}
+        else:
+            probabilities = dict(zip("01234", [0.1, 0.2, 0.3, 0.2, 0.2], strict=True))
+            field = {
+                "probabilities": probabilities,
+                "expected_score": sum(int(k) * p for k, p in probabilities.items()),
+            }
+        answers[question.id] = shim.nimble_answer(definition, field)
+    values = parse_answers({"answers": answers}, list(GATE_QUESTIONS))
+    assert values["refuse"] == pytest.approx(0.7)
+    assert values["risk"] == pytest.approx(0.2 + 0.6 + 0.6 + 0.8)
+
+
+def test_jev_lora_hf_backend_reads_verbalizer_logits():
+    import threading
+    from types import SimpleNamespace
+
+    import torch
+
+    backend = object.__new__(shim.JevLoraHfBackend)
+    backend.ranges = {"noul": [0, 2]}
+    backend.verbalizer_ids = [3, 5]
+    backend.bias = [0.0, 1.0]
+    backend.temperatures = {"noul": 2.0}
+    backend.torch = torch
+    backend.device = "cpu"
+    backend.lock = threading.Lock()
+
+    class Tokens(dict):
+        def to(self, device):
+            return self
+
+    backend.tokenizer = lambda prompt, **kwargs: Tokens(
+        input_ids=torch.tensor([[1, 2]])
+    )
+    logits = torch.zeros(1, 1, 8)
+    logits[0, 0, 3], logits[0, 0, 5] = 1.0, 2.0
+    backend.model = lambda **kwargs: SimpleNamespace(logits=logits)
+    probabilities = backend.readout("noul", "prompt", 2)
+    expected = shim.softmax([1.0 / 2.0, (2.0 + 1.0) / 2.0])
+    assert probabilities == pytest.approx(expected)

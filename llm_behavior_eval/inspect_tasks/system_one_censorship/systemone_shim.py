@@ -18,6 +18,13 @@ apart from the chosen backend's own dependencies)::
     python systemone_shim.py jev-vllm --model-path <snapshot dir> \\
         --upstream http://127.0.0.1:8003 --port 30001
 
+    # autotrust JEV-*-VL: the same adapter_vllm read-out with transformers + peft,
+    # for a vLLM that cannot load its lm_head LoRA
+    python systemone_shim.py jev-lora-hf --model-path <snapshot dir> --port 30001
+
+    # Bespoke-Nimble: wraps the model card's ``NimbleModel.score()``
+    python systemone_shim.py nimble --model-path <snapshot dir> --port 30003
+
 The JEV translation mirrors the model card and ``vl/serve_decide.py``: the
 bare ``[kind]/[state]/[question]/[options]/[decision]:`` template, a one-token
 read-out restricted to the verbalizer ids, plus the head bias, divided by the
@@ -151,11 +158,7 @@ class JevVllmBackend:
         self.name = root.name
 
     def readout(self, kind: str, prompt: str, n_options: int) -> list[float]:
-        start, end = self.ranges[kind]
-        if n_options > end - start:
-            raise ValueError(f"{kind} supports at most {end - start} options")
-        ids = self.verbalizer_ids[start : start + n_options]
-        bias = self.bias[start : start + n_options]
+        ids, bias = self.slots(kind, n_options)
         body = {
             "model": JEV_LORA,
             "prompt": prompt,
@@ -172,10 +175,28 @@ class JevVllmBackend:
             result = json.loads(response.read())
         top = result["choices"][0]["logprobs"]["top_logprobs"][0]
         logprobs = {int(key.split(":")[1]): value for key, value in top.items()}
+        return self.decide(kind, [logprobs.get(token, -1e9) for token in ids], bias)
+
+    def slots(self, kind: str, n_options: int) -> tuple[list[int], list[float]]:
+        """Verbalizer token ids and head bias for the first ``n_options`` slots."""
+        start, end = self.ranges[kind]
+        if n_options > end - start:
+            raise ValueError(f"{kind} supports at most {end - start} options")
+        return (
+            self.verbalizer_ids[start : start + n_options],
+            self.bias[start : start + n_options],
+        )
+
+    def decide(self, kind: str, scores: list[float], bias: list[float]) -> list[float]:
+        """Head bias plus per-kind temperature over the verbalizer scores.
+
+        ``scores`` may be logits or logprobs: a shift shared by every option
+        cancels in the softmax.
+        """
         return softmax(
             [
-                (max(logprobs.get(token, -1e9), -1e9) + b) / self.temperatures[kind]
-                for token, b in zip(ids, bias, strict=True)
+                (max(score, -1e9) + b) / self.temperatures[kind]
+                for score, b in zip(scores, bias, strict=True)
             ]
         )
 
@@ -241,6 +262,51 @@ class JevHfBackend(JevVllmBackend):
             hidden = self.model.model(**ids).last_hidden_state[0, -1].float()
         logits = (self.weight @ hidden + self.bias_vector) / self.temperatures[kind]
         return torch.softmax(logits[start : start + n_options], 0).tolist()
+
+
+class JevLoraHfBackend(JevVllmBackend):
+    """Run JEV's vLLM System 1 adapter with transformers + peft.
+
+    For releases that ship ``adapter_vllm`` (a backbone LoRA plus the decision
+    head as an ``lm_head`` LoRA) when the installed vLLM cannot load an
+    ``lm_head`` LoRA. Reads the merged model's next-token logits at the
+    verbalizer ids; the rest is the vLLM path.
+    """
+
+    def __init__(self, model_path: str, device: str) -> None:
+        import torch
+        from peft import PeftModel
+        from transformers import AutoModelForImageTextToText, AutoTokenizer
+
+        root = Path(model_path)
+        head = json.loads((root / "adapter_vllm" / "decision_head.json").read_text())
+        self.ranges = head["slots"]["ranges"]
+        self.verbalizer_ids = head["verbalizer_ids"]
+        self.bias = head["bias"]
+        self.temperatures = json.loads((root / "calibration.json").read_text())[
+            "per_kind"
+        ]
+        self.name = root.name
+        self.torch = torch
+        self.device = device
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        base = AutoModelForImageTextToText.from_pretrained(
+            model_path, dtype=torch.bfloat16, device_map=device
+        )
+        self.model = PeftModel.from_pretrained(
+            base, str(root / "adapter_vllm")
+        ).merge_and_unload()
+        self.model.eval()
+        self.lock = threading.Lock()
+
+    def readout(self, kind: str, prompt: str, n_options: int) -> list[float]:
+        ids, bias = self.slots(kind, n_options)
+        torch = self.torch
+        tokens = self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
+        tokens = tokens.to(self.device)
+        with self.lock, torch.no_grad():
+            logits = self.model(**tokens, logits_to_keep=1).logits[0, -1].float()
+        return self.decide(kind, logits[ids].tolist(), bias)
 
 
 AGENTJEV_BOOLEAN_CRITERIA = {
@@ -339,6 +405,99 @@ class AgentJevBackend:
         }
 
 
+def nimble_field(
+    question_id: str, definition: dict[str, Any]
+) -> tuple[dict[str, Any], bool]:
+    """Translate one System One question to a Nimble schema field.
+
+    Returns the field and whether it is a score field. A ``score`` question is
+    an integer-valued enum over its level indices, each described by its level,
+    as the model card prescribes for rubric scores.
+    """
+    kind = definition["type"]
+    description = definition.get("instructions") or question_id
+    criteria = definition.get("criteria")
+    if kind == "noul":
+        return {"type": "boolean", "description": description}, False
+    if kind == "score":
+        if not isinstance(criteria, list) or len(criteria) < 2:
+            raise ValueError("score questions need at least 2 described levels")
+        levels = [str(index) for index in range(len(criteria))]
+        return {
+            "type": "enum",
+            "choices": levels,
+            "description": description,
+            "choice_descriptions": {
+                level: text if isinstance(text, str) else json.dumps(text)
+                for level, text in zip(levels, criteria, strict=True)
+            },
+        }, True
+    if kind == "choice":
+        if not isinstance(criteria, dict) or len(criteria) < 2:
+            raise ValueError("choice questions need at least 2 options")
+        return {
+            "type": "enum",
+            "choices": list(criteria),
+            "description": description,
+            "choice_descriptions": {
+                name: text for name, text in criteria.items() if isinstance(text, str)
+            },
+        }, False
+    raise ValueError(f"unsupported question type {kind!r}")
+
+
+def nimble_answer(definition: dict[str, Any], field: dict[str, Any]) -> dict[str, Any]:
+    """Format one Nimble field result as a System One answer."""
+    probabilities = field["probabilities"]
+    if definition["type"] == "noul":
+        return {"type": "noul", "noul": probabilities["true"]}
+    if definition["type"] == "score":
+        return {
+            "type": "score",
+            "score": field["expected_score"],
+            "probabilities": probabilities,
+            "legend": {str(i): level for i, level in enumerate(definition["criteria"])},
+        }
+    best = max(probabilities, key=probabilities.__getitem__)
+    return {
+        "type": "choice",
+        "choice": best,
+        "confidence": probabilities[best],
+        "probabilities": probabilities,
+    }
+
+
+class NimbleBackend:
+    """Score with the ``NimbleModel`` helper shipped in a Bespoke-Nimble snapshot.
+
+    Each question is scored in its own call, with the state as the context.
+    """
+
+    def __init__(self, model_path: str) -> None:
+        sys.path.insert(0, model_path)
+        from inference import NimbleModel  # type: ignore[import-not-found]
+
+        self.model = NimbleModel(model_path)
+        self.name = Path(model_path).name
+        self.lock = threading.Lock()
+
+    def __call__(self, request: dict[str, Any]) -> dict[str, Any]:
+        context = jev_state_text(request["state"])
+        answers = {}
+        for question_id, definition in request["questions"].items():
+            field, is_score = nimble_field(question_id, definition)
+            with self.lock:
+                result = self.model.score(
+                    context,
+                    {question_id: field},
+                    score_fields=[question_id] if is_score else [],
+                )
+            answers[question_id] = nimble_answer(
+                definition, result["fields"][question_id]
+            )
+        return {"model": request.get("model", self.name), "answers": answers}
+
+
 class ClefBackend:
     """Call the ``systemone`` function shipped in a Clef model snapshot."""
 
@@ -405,7 +564,10 @@ def make_handler(backend: Callable[[dict[str, Any]], dict[str, Any]]) -> type:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("backend", choices=("clef", "jev-vllm", "jev-hf", "agentjev"))
+    parser.add_argument(
+        "backend",
+        choices=("clef", "jev-vllm", "jev-hf", "jev-lora-hf", "agentjev", "nimble"),
+    )
     parser.add_argument("--model-path", default="")
     parser.add_argument("--upstream", default="http://127.0.0.1:8003")
     parser.add_argument("--device", default="cuda")
@@ -420,6 +582,10 @@ def main() -> None:
         backend = AgentJevBackend(args.upstream)
     elif args.backend == "jev-hf":
         backend = JevHfBackend(args.model_path, args.device)
+    elif args.backend == "jev-lora-hf":
+        backend = JevLoraHfBackend(args.model_path, args.device)
+    elif args.backend == "nimble":
+        backend = NimbleBackend(args.model_path)
     else:
         backend = JevVllmBackend(args.model_path, args.upstream)
     server = ThreadingHTTPServer((args.host, args.port), make_handler(backend))
