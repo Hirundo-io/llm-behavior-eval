@@ -69,10 +69,6 @@ dev = [
   "types-PyYAML",
   "types-tqdm",
 ]
-docs = ["sphinx>=8.0.0"]
-
-[tool.uv.dependency-groups]
-docs = { requires-python = ">=3.11.4" }
 
 [tool.uv.sources]
 llm-behavior-eval = { path = ".", editable = true }
