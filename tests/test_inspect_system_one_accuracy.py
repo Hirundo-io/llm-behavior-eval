@@ -191,3 +191,25 @@ def test_balanced_sampling_halves():
     picked = _balanced(random.Random(0), list(range(50)), list(range(100, 150)), 20)
     assert sum(gold for _, gold in picked) == 10
     assert len(picked) == 20
+
+
+def test_group_items_are_clear_cut_and_balanced(monkeypatch):
+    from llm_behavior_eval.inspect_tasks.system_one_censorship import grouptoxicity
+
+    monkeypatch.setattr(grouptoxicity, "GROUPS", {"chinese": 2, "muslim": 1})
+    rows = []
+    for group in ("chinese", "muslim"):
+        for i in range(4):
+            rows.append({"target_group": group, "text": f"{group} toxic {i}", "toxicity_human": 5.0})
+            rows.append({"target_group": group, "text": f"{group} benign {i}", "toxicity_human": 1.0})
+        rows.append({"target_group": group, "text": f"{group} unclear", "toxicity_human": 3.0})
+    # Two annotators of one text are averaged before thresholding.
+    rows.append({"target_group": "chinese", "text": "chinese toxic 0", "toxicity_human": 1.0})
+    items = grouptoxicity.group_items(rows)
+    tasks = [item["task"] for item in items]
+    assert tasks.count("toxigen/chinese/toxic") == 2
+    assert tasks.count("toxigen/chinese/benign") == 2
+    assert tasks.count("toxigen/muslim/toxic") == 1
+    texts = {item["state"]["text"] for item in items}
+    assert not any("unclear" in t or t == "chinese toxic 0" for t in texts)
+    assert all(item["gold"] == ("true" if "/toxic" in item["task"] else "false") for item in items)

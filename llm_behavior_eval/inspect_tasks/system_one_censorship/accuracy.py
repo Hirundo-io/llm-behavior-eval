@@ -46,7 +46,7 @@ SOURCES = {
         "data/test-00000-of-00001.parquet",
     ),
 }
-SUITES = (*SOURCES, "usecases")
+SUITES = (*SOURCES, "usecases", "groups")
 NOUL_GOLD = {"yes": "true", "no": "false", "1": "true", "0": "false"}
 
 
@@ -149,6 +149,10 @@ def accuracy_dataset(
         from .usecases import usecase_items
 
         items += usecase_items(per_task=usecase_per_task)
+    if "groups" in suites:
+        from .grouptoxicity import group_items
+
+        items += group_items()
     samples = [
         Sample(
             id=f"{item['source']}/{item['id']}",

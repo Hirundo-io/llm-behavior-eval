@@ -264,6 +264,45 @@ def _answer_guard(answers: dict[str, Any]) -> tuple[str, float]:
     return "show", 0.0
 
 
+NEWS_ROUTING_WEIGHTS = {
+    "publish": 0.0,
+    "standard_review": 0.25,
+    "sensitive_desk": 0.75,
+    "reject": 1.0,
+}
+
+
+def _news_routing(answers: dict[str, Any]) -> tuple[str, float]:
+    """Route to the top queue at >= 0.60, else the duty editor's routine check."""
+    return _top_choice(answers["route"], NEWS_ROUTING_WEIGHTS, "standard_review", 0.60)
+
+
+TICKET_ROUTING_WEIGHTS = {
+    "course_support": 0.0,
+    "content_policy": 0.75,
+    "trust_and_safety": 1.0,
+}
+
+
+def _ticket_routing(answers: dict[str, Any]) -> tuple[str, float]:
+    """Send the ticket to the most likely team."""
+    return _top_choice(answers["route"], TICKET_ROUTING_WEIGHTS, "course_support", 0.0)
+
+
+def _judge_keep(answers: dict[str, Any]) -> tuple[str, float]:
+    """LLM-as-judge data filter: keep the pair as a training example at >= 0.5."""
+    if answers["keep"] >= 0.5:
+        return "keep", 0.0
+    return "discard", 1.0
+
+
+def _curation_keep(answers: dict[str, Any]) -> tuple[str, float]:
+    """Corpus or index filter: keep the document at >= 0.5."""
+    if answers["include"] >= 0.5:
+        return "keep", 0.0
+    return "drop", 1.0
+
+
 POLICIES: dict[str, Callable[[dict[str, Any]], tuple[str, float]]] = {
     "guardrail_strict": _guardrail_strict,
     "moderation_action": _moderation_action,
@@ -272,6 +311,10 @@ POLICIES: dict[str, Callable[[dict[str, Any]], tuple[str, float]]] = {
     "brand_safety": _brand_safety,
     "sanctions_flag": _sanctions_flag,
     "answer_guard": _answer_guard,
+    "news_routing": _news_routing,
+    "ticket_routing": _ticket_routing,
+    "judge_keep": _judge_keep,
+    "curation_keep": _curation_keep,
 }
 
 

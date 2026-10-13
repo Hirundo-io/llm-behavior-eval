@@ -272,3 +272,15 @@ def test_business_policies():
     assert guard({"accurate": 0.9, "should_block": 0.1}) == ("show", 0.0)
     assert guard({"accurate": 0.4, "should_block": 0.1}) == ("block", 1.0)
     assert guard({"accurate": 0.9, "should_block": 0.7}) == ("block", 1.0)
+
+
+def test_routing_judge_and_curation_policies():
+    route = {"publish": 0.7, "standard_review": 0.1, "sensitive_desk": 0.1, "reject": 0.1}
+    assert POLICIES["news_routing"]({"route": route}) == ("publish", 0.0)
+    split = {"publish": 0.4, "standard_review": 0.1, "sensitive_desk": 0.45, "reject": 0.05}
+    assert POLICIES["news_routing"]({"route": split}) == ("standard_review", 0.25)
+    ticket = {"course_support": 0.3, "content_policy": 0.5, "trust_and_safety": 0.2}
+    assert POLICIES["ticket_routing"]({"route": ticket}) == ("content_policy", 0.75)
+    assert POLICIES["judge_keep"]({"keep": 0.5}) == ("keep", 0.0)
+    assert POLICIES["judge_keep"]({"keep": 0.49}) == ("discard", 1.0)
+    assert POLICIES["curation_keep"]({"include": 0.2}) == ("drop", 1.0)
