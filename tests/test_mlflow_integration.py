@@ -522,3 +522,24 @@ def test_log_mlflow_metrics_uses_distinct_dataset_prefixes(
         call({"XSTest_safe_refusal_rate": 0.3}, step=None),
         call({"or_bench_safe_refusal_rate": 0.7}, step=None),
     ]
+
+
+def test_uploaded_run_config_excludes_dataset_credential(
+    monkeypatch, evaluation_config, dataset_config, mlflow_mock
+):
+    evaluation_config.dataset_token = "synthetic-dataset"
+    mlflow_mock.active_run.return_value = _make_run("synthetic-run", "synthetic")
+    evaluator = DummyEvaluator(evaluation_config, dataset_config)
+    evaluator._write_run_config(evaluator._current_run_config())
+    uploaded = []
+
+    def inspect_artifacts(local_dir, *, artifact_path):
+        for path in Path(local_dir).rglob("*.json"):
+            content = path.read_text()
+            assert "synthetic-dataset" not in content
+            assert "dataset_token" not in content
+            uploaded.append(path.name)
+
+    monkeypatch.setattr(mlflow_mock, "log_artifacts", inspect_artifacts)
+    evaluator._log_mlflow_artifacts()
+    assert "run_config.json" in uploaded

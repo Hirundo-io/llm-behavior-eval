@@ -80,6 +80,7 @@ class CaptureState:
     thinking_end_token: str | None = None
     pass_max_answer_tokens: bool | None = None
     token: str | None = None
+    dataset_token: str | None = None
     padding_side_at_preprocess: str | None = None
     init_args: tuple[str, DatasetType] | None = None
     custom_dataset_id: str | None = None
@@ -187,10 +188,12 @@ def patch_custom_dataset(
             trust_remote_code: bool = False,
             token: str | None = None,
             dataset_id: str | None = None,
+            dataset_token: str | None = None,
         ) -> None:
             capture_state.init_args = (file_path, dataset_type)
             capture_state.trust_remote_code = trust_remote_code
             capture_state.token = token
+            capture_state.dataset_token = dataset_token
             capture_state.custom_dataset_id = dataset_id
             self.trust_remote_code = trust_remote_code
             self.dataset_id = dataset_id or file_path
@@ -1796,3 +1799,35 @@ def test_run_config_choice_not_remembered_prompts_again_without_second_remember_
 
     assert prompt_calls["count"] == 2
     assert confirm_calls["count"] == 1
+
+
+@pytest.mark.parametrize("model_token", [None, "synthetic-model"])
+def test_dataset_token_is_forwarded_separately(tmp_path, capture_state, model_token):
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        model_token=model_token,
+        dataset_token="synthetic-dataset",
+        judge_token="synthetic-judge",
+    )
+    ConcreteEvaluator(
+        config, DatasetConfig(file_path="fake/dataset", dataset_type=DatasetType.BIAS)
+    )
+    assert capture_state.dataset_token == "synthetic-dataset"
+    assert capture_state.token == model_token
+    assert config.judge_token == "synthetic-judge"
+
+
+def test_saved_run_configuration_excludes_dataset_credential(tmp_path):
+    evaluator = ConcreteEvaluator(
+        EvaluationConfig(
+            model_path_or_repo_id="fake/model",
+            results_dir=tmp_path,
+            dataset_token="synthetic-dataset",
+        ),
+        DatasetConfig(file_path="fake/dataset", dataset_type=DatasetType.BIAS),
+    )
+    snapshot = evaluator._current_run_config()
+    evaluator._write_run_config(snapshot)
+    assert "dataset_token" not in snapshot["evaluation_config"]
+    assert "synthetic-dataset" not in evaluator.run_config_path().read_text()

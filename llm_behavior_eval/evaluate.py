@@ -237,6 +237,13 @@ def main(
             "--model-token", help="HuggingFace token for the model (optional)"
         ),
     ] = None,
+    dataset_token: Annotated[
+        str | None,
+        typer.Option(
+            "--dataset-token",
+            help="HuggingFace dataset token (optional). Uses loader default authentication when omitted.",
+        ),
+    ] = None,
     judge_token: Annotated[
         str | None,
         typer.Option(
@@ -674,6 +681,7 @@ def main(
         model_path_or_repo_id=model_path_or_repo_id,
         model_output_dir=model_output_dir,
         model_token=model_token,
+        dataset_token=dataset_token,
         lora_path_or_repo_id=lora_path_or_repo_id,
         judge_path_or_repo_id=judge_path_or_repo_id,
         judge_token=judge_token,

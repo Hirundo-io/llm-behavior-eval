@@ -124,8 +124,22 @@ def offline_ccpc_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path
     return source
 
 
+@pytest.mark.parametrize(
+    ("model_token", "dataset_token", "expected"),
+    [
+        (None, None, None),
+        ("synthetic-model", None, None),
+        (None, "synthetic-dataset", "synthetic-dataset"),
+        ("synthetic-model", "synthetic-dataset", "synthetic-dataset"),
+    ],
+)
 def test_native_evaluator_loads_local_snapshot_offline(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, offline_ccpc_source: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    offline_ccpc_source: Path,
+    model_token: str | None,
+    dataset_token: str | None,
+    expected: str | None,
 ) -> None:
     class Tokenizer:
         name_or_path = "fake/model"
@@ -142,6 +156,19 @@ def test_native_evaluator_loads_local_snapshot_offline(
                 "attention_mask": [[1]] * len(prompts),
             }
 
+    loader = free_text_censorship_evaluator.load_censorship_benchmark
+
+    def load_benchmark(token, *, file_path):
+        assert token == expected
+        return loader(None, file_path=file_path)
+
+    def model_metadata(_path, _trust, token):
+        assert token == model_token
+        return False
+
+    monkeypatch.setattr(
+        free_text_censorship_evaluator, "load_censorship_benchmark", load_benchmark
+    )
     loaded: list[Dataset] = []
     engine = SimpleNamespace(
         tokenizer=Tokenizer(),
@@ -151,11 +178,15 @@ def test_native_evaluator_loads_local_snapshot_offline(
     )
     monkeypatch.setattr(base_evaluator, "TransformersEvalEngine", lambda *_a: engine)
     monkeypatch.setattr(
-        free_text_censorship_evaluator, "is_model_multimodal", lambda *_a: False
+        free_text_censorship_evaluator, "is_model_multimodal", model_metadata
     )
     evaluator = EvaluateFactory.create_evaluator(
         EvaluationConfig(
-            model_path_or_repo_id="fake/model", results_dir=tmp_path, max_samples=3
+            model_path_or_repo_id="fake/model",
+            results_dir=tmp_path,
+            max_samples=3,
+            model_token=model_token,
+            dataset_token=dataset_token,
         ),
         DatasetConfig(
             file_path=str(offline_ccpc_source),

@@ -170,7 +170,7 @@ def test_free_text_preprocess_function_uses_default_system_prompt_when_enabled(
     ]
 
 
-def test_custom_dataset_passes_token_without_obsolete_remote_code_arg(
+def test_custom_dataset_passes_dataset_token_without_obsolete_remote_code_arg(
     monkeypatch: pytest.MonkeyPatch,
 ):
     ds = Dataset.from_dict({"question": ["q"], "answer": ["a"]})
@@ -187,7 +187,7 @@ def test_custom_dataset_passes_token_without_obsolete_remote_code_arg(
         "repo/gated-dataset",
         DatasetType.BIAS,
         trust_remote_code=True,
-        token="hf_test_token",
+        dataset_token="hf_test_token",
     )
 
     assert captured == {
@@ -324,3 +324,60 @@ def test_custom_dataset_preprocess_switches_default_system_prompt_by_dataset_fam
     )
 
     assert captured_messages == expected_messages
+
+
+@pytest.mark.parametrize(
+    ("model_token", "dataset_token", "expected"),
+    [
+        ("synthetic-model", "synthetic-dataset", "synthetic-dataset"),
+        (None, "synthetic-dataset", "synthetic-dataset"),
+        ("synthetic-model", None, None),
+        (None, None, None),
+        ("synthetic-model", "", ""),
+    ],
+)
+def test_custom_dataset_separates_read_and_model_credentials(
+    monkeypatch, model_token, dataset_token, expected
+):
+    captured = {}
+    ds = Dataset.from_dict({"question": ["q"], "answer": ["a"]})
+
+    def load_dataset(path, *, token):
+        captured["read_token"] = token
+        return DatasetDict({"train": ds})
+
+    def model_metadata(_path, _trust, token):
+        captured["model_token"] = token
+        return False
+
+    monkeypatch.setattr(custom_dataset_module, "load_dataset", load_dataset)
+    monkeypatch.setattr(custom_dataset_module, "is_model_multimodal", model_metadata)
+    monkeypatch.setattr(
+        custom_dataset_module,
+        "free_text_preprocess_function",
+        lambda *_a, **_kw: {"test_input_ids": [[1]]},
+    )
+    from types import SimpleNamespace
+
+    from llm_behavior_eval.evaluation_utils.dataset_config import PreprocessConfig
+
+    dataset = CustomDataset(
+        "fake/dataset",
+        DatasetType.BIAS,
+        token=model_token,
+        dataset_token=dataset_token,
+    )
+    dataset.preprocess(
+        cast(
+            "PreTrainedTokenizerBase",
+            cast(
+                "object",
+                SimpleNamespace(
+                    name_or_path="fake/model",
+                    batch_decode=lambda *_a, **_kw: ["decoded"],
+                ),
+            ),
+        ),
+        PreprocessConfig(),
+    )
+    assert captured == {"read_token": expected, "model_token": model_token}
