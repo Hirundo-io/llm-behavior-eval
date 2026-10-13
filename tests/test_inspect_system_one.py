@@ -1,3 +1,4 @@
+import asyncio
 import json
 import math
 import threading
@@ -7,10 +8,13 @@ import pytest
 
 pytest.importorskip("inspect_ai")
 
+import httpx
+
 from inspect_ai import eval as inspect_eval
 from inspect_ai.model import (
     ChatCompletionChoice,
     ChatMessageAssistant,
+    GenerateConfig,
     Logprob,
     Logprobs,
     ModelOutput,
@@ -37,6 +41,8 @@ from llm_behavior_eval.inspect_tasks.system_one_censorship.protocol import (
 )
 from llm_behavior_eval.inspect_tasks.system_one_censorship.provider import (
     SystemOneAPI,
+    SystemOneRefusal,
+    encode_request,
     systemone_endpoint,
     unwrap_response,
 )
@@ -245,6 +251,20 @@ def test_get_model_resolves_systemone_provider(fake_gate):
     )
     assert isinstance(model.api, SystemOneAPI)
     assert model.api.endpoint == f"{fake_gate}/v1/systemone"
+
+
+def test_refusal_is_not_retried():
+    def handler(request):
+        return httpx.Response(502, json={"error": {"message": 'OpenAI refused to answer question "q"', "code": 502}})
+
+    api = SystemOneAPI("systemone/hosted", base_url="http://gate.test", path="")
+    api._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    request = encode_request({"state": {"text": "x"}, "questions": {"q": {"type": "noul", "instructions": "y?"}}})
+    with pytest.raises(SystemOneRefusal) as caught:
+        asyncio.run(api.generate([request], [], "none", GenerateConfig()))
+    assert not api.should_retry(caught.value)
+    outage = httpx.HTTPStatusError("bad gateway", request=httpx.Request("POST", "http://gate.test"), response=httpx.Response(502))
+    assert api.should_retry(outage)
 
 
 def test_eval_against_system_one_server(fake_gate, pairs_file, monkeypatch, tmp_path):

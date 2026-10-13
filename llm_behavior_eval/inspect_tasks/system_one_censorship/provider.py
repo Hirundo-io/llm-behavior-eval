@@ -56,6 +56,10 @@ def unwrap_response(body: Any) -> dict[str, Any]:
     return body
 
 
+class SystemOneRefusal(ValueError):
+    """The decision server refused to answer; not retried."""
+
+
 class SystemOneAPI(ModelAPI):
     """Send System One requests to a decision server over HTTP.
 
@@ -131,6 +135,10 @@ class SystemOneAPI(ModelAPI):
         if response.status_code == 422:
             # The server rejected the request itself; retrying cannot help.
             raise ValueError(f"System One request rejected: {response.text}")
+        if response.status_code >= 500 and "refused" in response.text:
+            # A hosted model declined to decide (e.g. OpenRouter: 502 "OpenAI refused to answer
+            # question ..."). It is deterministic, so it is an outcome to record, not a retry.
+            raise SystemOneRefusal(response.text)
         response.raise_for_status()
         result = unwrap_response(response.json())
         call = ModelCall.create(
