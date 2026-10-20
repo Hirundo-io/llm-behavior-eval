@@ -127,31 +127,11 @@ Gemma 4 text generation uses `runner="generate"` and
 `language_model_only=True`; judges always use this text-only path and never inherit
 the evaluated model adapter. Rank-110 LoRA adapters require
 `--vllm-max-lora-rank 128` (LoRA is enabled automatically when an adapter is supplied); use
-`--vllm-language-model-only` for a text-only evaluated model too. Short eager-mode
-GPU smoke tests cover base generation, adapter generation, and the unadapted judge;
-they do not establish full benchmark quality, long-context capacity, multimodal
-support, or CUDA-graph performance. See `examples/gemma4_smoke.py` for a reproducible
-integration smoke test. Run each mode in its own process with the venv activated:
+`--vllm-language-model-only` for a text-only evaluated model too.
 
-```bash
-python examples/gemma4_smoke.py base
-python examples/gemma4_smoke.py adapter --adapter /path/to/hf_checkpoint
-# Supply the evaluated adapter deliberately: the judge must ignore it.
-python examples/gemma4_smoke.py judge --adapter /path/to/hf_checkpoint \
-  --model google/gemma-4-26B-A4B-it --gpu-memory-utilization 0.8
-```
-
-Set `HF_HUB_OFFLINE=1` when all checkpoint/tokenizer files are already cached.
-The smoke test uses a 512-token context, 24 generated tokens, BF16, and eager mode;
-size GPU utilization for your available memory and run it only on an idle GPU.
-On 2026-10-20, the locked stack passed all three modes on the H100: the base
-12B and its rank-110 refusal-reduction adapter each answered `4`; the unadapted
-26B-A4B judge answered `No` to a factual-error check. The adapter run compiled
-both Triton LoRA shrink and expand kernels. The base/adapter used per-layer
-(head dimension, KV heads) pairs `(256, 8)` / `(512, 1)`; the judge used
-`(256, 8)` / `(512, 2)`. Matching Python 3.12.3 headers also passed a C compilation
-check. These are generation smoke tests, not full evaluation results.
-
+vLLM 0.30 does not support bitsandbytes quantization. Leave `--use-4bit` and
+`--use-4bit-judge` disabled for vLLM, or select the Transformers backend for the
+role that requires bitsandbytes 4-bit loading.
 
 ## Development Container
 
