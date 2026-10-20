@@ -227,6 +227,7 @@ class VllmConstructorCall:
     compilation_config: CompilationConfigStub
     pipeline_parallel_size: int = 1
     distributed_executor_backend: str | None = None
+    lora_target_modules: list[str] | None = None
 
 
 class RecordingLlm:
@@ -255,6 +256,7 @@ class RecordingLlm:
         compilation_config: CompilationConfigStub,
         pipeline_parallel_size: int = 1,
         distributed_executor_backend: str | None = None,
+        lora_target_modules: list[str] | None = None,
     ) -> None:
         self.calls.append(
             VllmConstructorCall(
@@ -278,6 +280,7 @@ class RecordingLlm:
                 compilation_config=compilation_config,
                 pipeline_parallel_size=pipeline_parallel_size,
                 distributed_executor_backend=distributed_executor_backend,
+                lora_target_modules=lora_target_modules,
             )
         )
 
@@ -571,6 +574,7 @@ def test_vllm_parallelism_only_applies_to_evaluated_model(
             tensor_parallel_size=8,
             pipeline_parallel_size=2,
             distributed_executor_backend="ray",
+            lora_target_modules=["q_proj", "o_proj"],
         ),
     )
     VllmEvalEngine(config, is_judge=is_judge)
@@ -578,6 +582,7 @@ def test_vllm_parallelism_only_applies_to_evaluated_model(
     assert kwargs["tensor_parallel_size"] == (None if is_judge else 8)
     assert kwargs["pipeline_parallel_size"] == (1 if is_judge else 2)
     assert kwargs["distributed_executor_backend"] == (None if is_judge else "ray")
+    assert kwargs["lora_target_modules"] == (None if is_judge else ["q_proj", "o_proj"])
 
 
 @pytest.mark.parametrize(
@@ -588,6 +593,9 @@ def test_vllm_parallelism_only_applies_to_evaluated_model(
         {"pipeline_parallel_size": 0},
         {"pipeline_parallel_size": -1},
         {"distributed_executor_backend": "unsupported"},
+        {"lora_target_modules": []},
+        {"lora_target_modules": [""]},
+        {"lora_target_modules": ["q_proj", " "]},
     ],
 )
 def test_vllm_config_rejects_invalid_parallelism(kwargs) -> None:
@@ -619,6 +627,7 @@ def test_load_vllm_model_uses_text_generation_defaults(
         tensor_parallel_size=2,
         pipeline_parallel_size=pipeline_size,
         distributed_executor_backend=backend,
+        lora_target_modules=["q_proj", "o_proj"],
         max_model_len=4096,
         tokenizer_mode="slow",
         config_format="hf",
@@ -637,6 +646,7 @@ def test_load_vllm_model_uses_text_generation_defaults(
             tensor_parallel_size=2,
             pipeline_parallel_size=pipeline_size,
             distributed_executor_backend=backend,
+            lora_target_modules=["q_proj", "o_proj"],
             max_num_seqs=16,
             hf_token=None,
             max_model_len=4096,

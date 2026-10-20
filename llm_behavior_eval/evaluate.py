@@ -428,6 +428,13 @@ def main(
             help="Maximum LoRA rank for vLLM.",
         ),
     ] = DEFAULT_MAX_LORA_RANK,
+    vllm_lora_target_module: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--vllm-lora-target-module",
+            help="Restrict evaluated-model LoRA wrapping to this module suffix; repeat for each target.",
+        ),
+    ] = None,
     vllm_language_model_only: Annotated[
         bool,
         typer.Option(
@@ -689,6 +696,7 @@ def main(
             gpu_memory_utilization=vllm_gpu_memory_utilization,
             enable_lora=lora_path_or_repo_id is not None,
             max_lora_rank=vllm_max_lora_rank,
+            lora_target_modules=vllm_lora_target_module,
             language_model_only=vllm_language_model_only,
             enforce_eager=vllm_enforce_eager,
         )

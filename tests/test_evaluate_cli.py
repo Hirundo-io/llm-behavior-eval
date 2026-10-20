@@ -498,6 +498,10 @@ def test_cli_passes_multinode_parallelism(
             "2",
             "--vllm-distributed-executor-backend",
             "ray",
+            "--vllm-lora-target-module",
+            "q_proj",
+            "--vllm-lora-target-module",
+            "o_proj",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -506,6 +510,7 @@ def test_cli_passes_multinode_parallelism(
     assert config.tensor_parallel_size == 8
     assert config.pipeline_parallel_size == 2
     assert config.distributed_executor_backend == "ray"
+    assert config.lora_target_modules == ["q_proj", "o_proj"]
 
 
 @pytest.mark.parametrize(

@@ -120,6 +120,12 @@ RAY_ADDRESS=<head-ip>:6379 VLLM_HOST_IP=<head-ip> \
 Use `--lora-path-or-repo-id /shared/adapter` for an adapter-backed run when
 the model's vLLM implementation supports that adapter. File-sharded Hugging Face
 checkpoints load normally; tensor/pipeline parallelism controls GPU placement.
+For adapters that modify only selected layers, repeat
+`--vllm-lora-target-module <suffix>` for every adapter target. This forwards
+vLLM's deployment-time target filter and avoids allocating LoRA kernels for
+unused layers (for example, FP8 MoE experts in an attention-only adapter).
+Use the suffixes expected by the model's vLLM implementation, including its
+packed-module mappings; do not omit a trained target.
 The model architecture must support the selected parallelism, precision, and
 adapter targets. The evaluator does not provision or stop the Ray cluster.
 See [vLLM's multi-node guidance](https://docs.vllm.ai/en/stable/serving/parallelism_scaling/)

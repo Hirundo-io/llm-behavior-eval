@@ -93,6 +93,9 @@ class VllmEvalEngine(EvalEngine):
             gpu_memory_utilization=vllm_config.gpu_memory_utilization,
             enable_lora=vllm_config.enable_lora and not self.is_judge,
             max_lora_rank=vllm_config.max_lora_rank,
+            lora_target_modules=None
+            if self.is_judge
+            else vllm_config.lora_target_modules,
             language_model_only=True
             if self.is_judge
             else vllm_config.language_model_only,

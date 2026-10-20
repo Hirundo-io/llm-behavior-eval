@@ -467,6 +467,7 @@ def load_vllm_model(
     language_model_only: bool = False,
     pipeline_parallel_size: int = 1,
     distributed_executor_backend: Literal["ray", "mp"] | None = None,
+    lora_target_modules: list[str] | None = None,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -491,6 +492,7 @@ def load_vllm_model(
         pipeline_parallel_size: Number of pipeline stages.
         distributed_executor_backend: Worker backend; ray supports a prestarted
             multi-node cluster. None preserves vLLM's automatic backend selection.
+        lora_target_modules: Optional LoRA module suffix filter passed to vLLM.
 
     Returns:
         An instantiated ``vllm.LLM`` engine configured with the requested dtype,
@@ -545,6 +547,7 @@ def load_vllm_model(
             gpu_memory_utilization=gpu_memory_utilization,
             enable_lora=enable_lora,
             max_lora_rank=max_lora_rank,
+            lora_target_modules=lora_target_modules,
             language_model_only=language_model_only,
             compilation_config=CompilationConfig(cudagraph_specialize_lora=False),
         )
