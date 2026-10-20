@@ -533,8 +533,9 @@ def load_vllm_model(
             hf_token=token,
             max_model_len=max_model_len,
             tokenizer_mode=tokenizer_mode or default_tokenizer_mode,
-            config_format=config_format,
-            load_format=load_format,
+            # vLLM 0.30 requires concrete format strings, not explicit None.
+            config_format=config_format or "auto",
+            load_format=load_format or "auto",
             gpu_memory_utilization=gpu_memory_utilization,
             enable_lora=enable_lora,
             max_lora_rank=max_lora_rank,

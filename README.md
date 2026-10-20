@@ -84,9 +84,74 @@ If you use [uv](https://docs.astral.sh/uv/), run `uv venv .venv` and
 
 ### vLLM extra
 
-The `vllm` extra is pinned to `vllm>=0.23.0,<0.24` — the tested line for the text-only Gemma-4 judge (`runner="generate"`, `language_model_only=True`) on `torch==2.11`. The upper bound is deliberate: newer vLLM releases require `torch>=2.13` / cu13x wheels, so an open floor would silently pull an incompatible stack. The extra is optional — if the vLLM stack doesn't fit your environment, run the judge on the transformers backend (`--judge-engine transformers`), which needs no vLLM install.
+The `vllm` extra selects `vllm>=0.30.0,<0.31` on Linux x86_64/aarch64. The
+Transformers range is `>=5.20.2,<5.21`. vLLM 0.30 resolves Gemma 4 attention
+parameters from each layer config, preserving heterogeneous head dimensions and
+KV-head counts. vLLM 0.23 with Transformers 5.20.2 instead reads global
+`config.head_dim` and raises `AmbiguousGlobalPerLayerAttributeError`. Do not disable
+that guard or downgrade Transformers to work around it. See the upstream
+[per-layer resolver](https://github.com/vllm-project/vllm/blob/v0.30.0/vllm/transformers_utils/configs/gemma4.py)
+and [architecture converter](https://github.com/vllm-project/vllm/blob/v0.30.0/vllm/transformers_utils/model_arch_config_convertor.py).
+As of 2026-10-20, the newer 0.31/0.32 releases cap Transformers below 5.20.2; they are
+excluded deliberately to preserve this tested Transformers version.
 
-The base `transformers` floor is `>=5.10.4` for the same reason: that is the oldest release verified to load the `gemma4_unified` config. vLLM 0.23 itself allows `transformers>=4.56.0` and its registry does contain `Gemma4UnifiedForConditionalGeneration`, so the architecture is supported — but an older `transformers` fails to recognise the *config* and the engine never starts.
+Use the lockfile to install the complete stack together. On Linux, vLLM 0.30
+requires Torch 2.13.0; its wheels select CUDA 13.0.3 and Triton 3.7.1. Do not
+independently replace Torch or Triton. NVIDIA driver 580 or newer is required for
+the CUDA 13 runtime. Runtime libraries come from the wheels; FlashInfer JIT
+compilation also needs a compatible CUDA toolkit with `nvcc`, C++ build tools,
+and `ninja` on PATH (the latter is installed with vLLM). The validation host has
+CUDA 13.0.88 at `/usr/local/cuda`.
+The project supports Python 3.10.12–3.13; the Gemma 4 GPU validation uses CPython
+3.12.3, an H100, and driver 580.159.04. macOS uses the Transformers backend;
+the vLLM dependency is excluded there by a platform marker.
+
+```bash
+# Choose an interpreter with matching development headers.
+uv venv --python /usr/bin/python3.12 .venv-gemma4
+UV_PROJECT_ENVIRONMENT=.venv-gemma4 uv sync --locked --no-dev --extra vllm
+source .venv-gemma4/bin/activate
+# Activation also puts the wheel-provided ninja/build tools on PATH.
+.venv-gemma4/bin/python -c 'import pathlib, sysconfig; p = pathlib.Path(sysconfig.get_path("include"), "Python.h"); print(p); assert p.is_file()'
+```
+
+A Triton C-extension compilation error mentioning missing `Python.h` is a Python
+build-environment problem, separate from Gemma 4 configuration compatibility.
+Install development headers matching the selected interpreter (for example,
+`python3.12-dev` for the distribution Python 3.12), or choose a uv-managed Python
+that includes its headers. Do not point a Python 3.12 build at another minor
+version of the headers. For shared installations, validate in a separate venv;
+`UV_PROJECT_ENVIRONMENT` prevents `uv sync` from modifying the shared `.venv`.
+
+Gemma 4 text generation uses `runner="generate"` and
+`language_model_only=True`; judges always use this text-only path and never inherit
+the evaluated model adapter. Rank-110 LoRA adapters require
+`--vllm-max-lora-rank 128` (LoRA is enabled automatically when an adapter is supplied); use
+`--vllm-language-model-only` for a text-only evaluated model too. Short eager-mode
+GPU smoke tests cover base generation, adapter generation, and the unadapted judge;
+they do not establish full benchmark quality, long-context capacity, multimodal
+support, or CUDA-graph performance. See `examples/gemma4_smoke.py` for a reproducible
+integration smoke test. Run each mode in its own process with the venv activated:
+
+```bash
+python examples/gemma4_smoke.py base
+python examples/gemma4_smoke.py adapter --adapter /path/to/hf_checkpoint
+# Supply the evaluated adapter deliberately: the judge must ignore it.
+python examples/gemma4_smoke.py judge --adapter /path/to/hf_checkpoint \
+  --model google/gemma-4-26B-A4B-it --gpu-memory-utilization 0.8
+```
+
+Set `HF_HUB_OFFLINE=1` when all checkpoint/tokenizer files are already cached.
+The smoke test uses a 512-token context, 24 generated tokens, BF16, and eager mode;
+size GPU utilization for your available memory and run it only on an idle GPU.
+On 2026-10-20, the locked stack passed all three modes on the H100: the base
+12B and its rank-110 refusal-reduction adapter each answered `4`; the unadapted
+26B-A4B judge answered `No` to a factual-error check. The adapter run compiled
+both Triton LoRA shrink and expand kernels. The base/adapter used per-layer
+(head dimension, KV heads) pairs `(256, 8)` / `(512, 1)`; the judge used
+`(256, 8)` / `(512, 2)`. Matching Python 3.12.3 headers also passed a C compilation
+check. These are generation smoke tests, not full evaluation results.
+
 
 ## Development Container
 

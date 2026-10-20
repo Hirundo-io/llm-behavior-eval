@@ -628,6 +628,8 @@ def test_load_vllm_model_forwards_multimodal_opt_out(
     call = RecordingLlm.calls[0]
     assert call.model == "fake/multimodal-model"
     assert call.language_model_only is False
+    assert call.config_format == "auto"
+    assert call.load_format == "auto"
 
 
 @pytest.mark.vllm_engine_test
