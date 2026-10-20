@@ -40,7 +40,8 @@ dependencies = [
   # Gemma 4 uses guarded per-layer configs; keep the tested vLLM/Transformers pair.
   "transformers>=5.20.2,<5.21",
   "networkx<4.0.0",
-  "typer<1.0.0",
+  # Typer 0.27 bundles Click; older Typer loses argument help with Click 8.5.
+  "typer>=0.27.3,<0.28",
   "accelerate<2.0.0",
   "bitsandbytes<1.0.0; platform_system != \"Darwin\"",
   "protobuf<7.0.0",                                    # needed for Mistral models

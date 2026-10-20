@@ -494,7 +494,7 @@ def main(
         bool,
         typer.Option(
             "--use-4bit/--no-use-4bit",
-            help="Load the model in 4-bit mode using bitsandbytes (Transformers backend only).",
+            help="Load the model in 4-bit mode (using bitsandbytes).",
         ),
     ] = DEFAULT_USE_4BIT,
     device_map: Annotated[
@@ -523,7 +523,7 @@ def main(
         bool,
         typer.Option(
             "--use-4bit-judge/--no-use-4bit-judge",
-            help="Load the judge model using bitsandbytes 4-bit quantization (Transformers backend only).",
+            help="Load the judge model using 4-bit quantization (bitsandbytes).",
         ),
     ] = False,
     sample: Annotated[
@@ -587,16 +587,15 @@ def main(
         ),
     ] = None,
 ) -> None:
-    """Evaluate model behavior with a default or configured --judge-model.
+    """Run evaluations and trust inference checks both roles.
 
-    Behaviors include bias:<type|all> and unbias:<type|all> (BBQ),
-    unqover:bias:<type|all>, bloom:bias:<type|all>, bloom:unbias:<type|all>,
-    hallu, hallu-med, prompt-injection, refusal:xstest, refusal:orbench,
-    refusal:all, and chinese_censorship. Comma-separated presets must belong
-    to the same evaluator family.
-
-    Remote-code trust is inferred for both the evaluated model and judge;
-    an explicit flag overrides inference.
+    Args:
+        model: Model repository identifier or local path.
+        behavior: Behavior preset or comma-separated presets to evaluate.
+        judge_model: Judge repository identifier or local path.
+        trust_remote_code: Explicit remote-code authorization.
+    Raises:
+        ValueError: If evaluator families are mixed.
     """
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model

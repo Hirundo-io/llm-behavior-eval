@@ -2586,7 +2586,7 @@ requires-dist = [
     { name = "torch", specifier = "<3.0.0" },
     { name = "tqdm" },
     { name = "transformers", specifier = ">=5.20.2,<5.21" },
-    { name = "typer", specifier = "<1.0.0" },
+    { name = "typer", specifier = ">=0.27.3,<0.28" },
     { name = "vllm", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'vllm') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'vllm')", specifier = ">=0.30.0,<0.31" },
 ]
 provides-extras = ["mlflow", "vllm", "gcs", "azure", "gpt-oss"]
@@ -6132,17 +6132,17 @@ wheels = [
 
 [[package]]
 name = "typer"
-version = "0.19.2"
+version = "0.27.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "click" },
+    { name = "annotated-doc" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
     { name = "rich" },
     { name = "shellingham" },
-    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/21/ca/950278884e2ca20547ff3eb109478c6baf6b8cf219318e6bc4f666fad8e8/typer-0.19.2.tar.gz", hash = "sha256:9ad824308ded0ad06cc716434705f691d4ee0bfd0fb081839d2e426860e7fdca", size = 104755, upload-time = "2025-09-23T09:47:48.256Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/03/51/d33db42cc72ffd8c30777547b42d01f0cbf9d95a770457698d0174b3ed71/typer-0.27.3.tar.gz", hash = "sha256:d0396f770a560ab1b0a8504e13b5f254b728cedb05c61cf0359e944e50ce8901", size = 205303, upload-time = "2026-10-06T17:24:16.61Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/22/35617eee79080a5d071d0f14ad698d325ee6b3bf824fc0467c03b30e7fa8/typer-0.19.2-py3-none-any.whl", hash = "sha256:755e7e19670ffad8283db353267cb81ef252f595aa6834a0d1ca9312d9326cb9", size = 46748, upload-time = "2025-09-23T09:47:46.777Z" },
+    { url = "https://files.pythonhosted.org/packages/07/ea/2e31b67051e91a133189e9c000c222502ddc6969856416de0d095de4c0b0/typer-0.27.3-py3-none-any.whl", hash = "sha256:e50022f28b82a86313e54501317a1db64bf8f8d036ff8cfe5ca7e47675454aff", size = 123312, upload-time = "2026-10-06T17:24:15.054Z" },
 ]
 
 [[package]]
