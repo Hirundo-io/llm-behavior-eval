@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 from torch import cuda
 
 from .vllm_types import TokenizerModeOption
@@ -27,6 +29,10 @@ class VllmConfig(BaseModel):
             and load only the language model. Judge loads always omit multimodal
             encoders. This setting has no effect on text-only architectures.
         enforce_eager: Whether to enforce eager execution (useful for CPU-only setups or for saving memory on CUDA graphs).
+        tensor_parallel_size: Evaluated-model tensor parallelism. None uses local GPU count.
+        pipeline_parallel_size: Evaluated-model pipeline stages (e.g. number of nodes).
+        distributed_executor_backend: Evaluated-model worker backend. Use ray for an
+            existing multi-node Ray cluster. These three settings do not affect judges.
     """
 
     max_model_len: int | None = None
@@ -39,3 +45,6 @@ class VllmConfig(BaseModel):
     max_lora_rank: int = 128
     language_model_only: bool = False
     enforce_eager: bool = not cuda.is_available()
+    tensor_parallel_size: int | None = Field(default=None, ge=1)
+    pipeline_parallel_size: int = Field(default=1, ge=1)
+    distributed_executor_backend: Literal["ray", "mp"] | None = None

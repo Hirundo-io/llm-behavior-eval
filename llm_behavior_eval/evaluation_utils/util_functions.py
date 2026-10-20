@@ -465,6 +465,8 @@ def load_vllm_model(
     enable_lora: bool = False,
     max_lora_rank: int = VllmConfig.model_fields["max_lora_rank"].default,
     language_model_only: bool = False,
+    pipeline_parallel_size: int = 1,
+    distributed_executor_backend: Literal["ray", "mp"] | None = None,
 ) -> LLM:
     """Load a vLLM model engine.
 
@@ -486,6 +488,9 @@ def load_vllm_model(
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
         language_model_only: Whether to omit multimodal encoders and load only the
             language model. This has no effect on text-only architectures.
+        pipeline_parallel_size: Number of pipeline stages.
+        distributed_executor_backend: Worker backend; ray supports a prestarted
+            multi-node cluster. None preserves vLLM's automatic backend selection.
 
     Returns:
         An instantiated ``vllm.LLM`` engine configured with the requested dtype,
@@ -529,6 +534,8 @@ def load_vllm_model(
             tensor_parallel_size=tensor_parallel
             if tensor_parallel is not None
             else default_tensor_parallel,
+            pipeline_parallel_size=pipeline_parallel_size,
+            distributed_executor_backend=distributed_executor_backend,
             max_num_seqs=batch_size,
             hf_token=token,
             max_model_len=max_model_len,

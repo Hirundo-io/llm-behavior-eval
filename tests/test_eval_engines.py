@@ -4,7 +4,7 @@ import sys
 import types
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import pytest
 
@@ -225,6 +225,8 @@ class VllmConstructorCall:
     max_lora_rank: int
     language_model_only: bool
     compilation_config: CompilationConfigStub
+    pipeline_parallel_size: int = 1
+    distributed_executor_backend: str | None = None
 
 
 class RecordingLlm:
@@ -251,6 +253,8 @@ class RecordingLlm:
         max_lora_rank: int,
         language_model_only: bool,
         compilation_config: CompilationConfigStub,
+        pipeline_parallel_size: int = 1,
+        distributed_executor_backend: str | None = None,
     ) -> None:
         self.calls.append(
             VllmConstructorCall(
@@ -272,6 +276,8 @@ class RecordingLlm:
                 max_lora_rank=max_lora_rank,
                 language_model_only=language_model_only,
                 compilation_config=compilation_config,
+                pipeline_parallel_size=pipeline_parallel_size,
+                distributed_executor_backend=distributed_executor_backend,
             )
         )
 
@@ -552,8 +558,48 @@ def test_vllm_eval_engine_forces_text_only_generation_for_judge(
     assert last_call.kwargs["language_model_only"] is True
 
 
+@pytest.mark.parametrize("is_judge", [False, True])
+@pytest.mark.vllm_engine_test
+def test_vllm_parallelism_only_applies_to_evaluated_model(
+    vllm_bundle: VllmPatchBundle, tmp_path: Path, is_judge: bool
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        inference_engine="vllm",
+        vllm_config=VllmConfig(
+            tensor_parallel_size=8,
+            pipeline_parallel_size=2,
+            distributed_executor_backend="ray",
+        ),
+    )
+    VllmEvalEngine(config, is_judge=is_judge)
+    kwargs = vllm_bundle.model_loader.calls[-1].kwargs
+    assert kwargs["tensor_parallel_size"] == (None if is_judge else 8)
+    assert kwargs["pipeline_parallel_size"] == (1 if is_judge else 2)
+    assert kwargs["distributed_executor_backend"] == (None if is_judge else "ray")
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"tensor_parallel_size": 0},
+        {"tensor_parallel_size": -1},
+        {"pipeline_parallel_size": 0},
+        {"pipeline_parallel_size": -1},
+        {"distributed_executor_backend": "unsupported"},
+    ],
+)
+def test_vllm_config_rejects_invalid_parallelism(kwargs) -> None:
+    with pytest.raises(ValueError):
+        VllmConfig(**kwargs)
+
+
+@pytest.mark.parametrize("pipeline_size,backend", [(1, None), (2, "ray")])
 def test_load_vllm_model_uses_text_generation_defaults(
     monkeypatch: pytest.MonkeyPatch,
+    pipeline_size: int,
+    backend: Literal["ray", "mp"] | None,
 ) -> None:
     from llm_behavior_eval.evaluation_utils.util_functions import load_vllm_model
 
@@ -571,6 +617,8 @@ def test_load_vllm_model_uses_text_generation_defaults(
         trust_remote_code=False,
         batch_size=16,
         tensor_parallel_size=2,
+        pipeline_parallel_size=pipeline_size,
+        distributed_executor_backend=backend,
         max_model_len=4096,
         tokenizer_mode="slow",
         config_format="hf",
@@ -587,6 +635,8 @@ def test_load_vllm_model_uses_text_generation_defaults(
             enforce_eager=False,
             quantization=None,
             tensor_parallel_size=2,
+            pipeline_parallel_size=pipeline_size,
+            distributed_executor_backend=backend,
             max_num_seqs=16,
             hf_token=None,
             max_model_len=4096,

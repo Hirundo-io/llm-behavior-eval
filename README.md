@@ -88,6 +88,48 @@ The `vllm` extra is pinned to `vllm>=0.23.0,<0.24` — the tested line for the t
 
 The base `transformers` floor is `>=5.10.4` for the same reason: that is the oldest release verified to load the `gemma4_unified` config. vLLM 0.23 itself allows `transformers>=4.56.0` and its registry does contain `Gemma4UnifiedForConditionalGeneration`, so the architecture is supported — but an older `transformers` fails to recognise the *config* and the engine never starts.
 
+### Sharding an evaluated model across nodes
+
+The vLLM backend accepts `--vllm-tensor-parallel-size`,
+`--vllm-pipeline-parallel-size`, and
+`--vllm-distributed-executor-backend ray`. Without these options, inference
+continues to use the local GPU count and vLLM's automatic backend selection.
+Parallel sizes must be positive integers. These settings apply to the evaluated
+model; the judge retains local automatic GPU placement.
+
+For two nodes with eight GPUs each, install the same Python, vLLM, PyTorch, and
+model dependencies on both nodes. Make the checkpoint and any LoRA adapter
+available at identical absolute paths on every node. Start a Ray cluster on a
+trusted private network, using each node's private IP:
+
+```bash
+# Head node
+VLLM_HOST_IP=<head-ip> ray start --head --node-ip-address=<head-ip> \
+  --port=6379 --num-gpus=8
+# Worker node
+VLLM_HOST_IP=<worker-ip> ray start --address=<head-ip>:6379 \
+  --node-ip-address=<worker-ip> --num-gpus=8
+# Run the evaluator once, on the head node
+RAY_ADDRESS=<head-ip>:6379 VLLM_HOST_IP=<head-ip> \
+  llm-behavior-eval /shared/model prompt-injection \
+  --model-engine vllm --vllm-tensor-parallel-size 8 \
+  --vllm-pipeline-parallel-size 2 --vllm-distributed-executor-backend ray \
+  --vllm-max-model-len 4096 --batch-size 8 --max-samples 0
+```
+
+Use `--lora-path-or-repo-id /shared/adapter` for an adapter-backed run when
+the model's vLLM implementation supports that adapter. File-sharded Hugging Face
+checkpoints load normally; tensor/pipeline parallelism controls GPU placement.
+The model architecture must support the selected parallelism, precision, and
+adapter targets. The evaluator does not provision or stop the Ray cluster.
+See [vLLM's multi-node guidance](https://docs.vllm.ai/en/stable/serving/parallelism_scaling/)
+for network setup and architecture limitations.
+
+If hostnames resolve to loopback addresses, set `GLOO_SOCKET_IFNAME` and
+`NCCL_SOCKET_IFNAME` to the routable network interface on each node before
+starting Ray and the evaluator (for example `eth0`). A wrong interface can cause
+distributed initialization to fail even when Ray reports all GPUs available.
+
 ## Development Container
 
 The repository ships a VS Code Dev Container definition (`.devcontainer/`). The setup script installs the base project dependencies to keep the image lean. If you need optional extras (for example MLflow or vLLM), set `LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS` before the container runs:

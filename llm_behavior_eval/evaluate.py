@@ -340,6 +340,29 @@ def main(
             help="""Model engine to use for model inference. "vllm" or "transformers". DO NOT combine with the inference_engine argument.""",
         ),
     ] = "transformers",
+    vllm_tensor_parallel_size: Annotated[
+        int | None,
+        typer.Option(
+            "--vllm-tensor-parallel-size",
+            min=1,
+            help="Evaluated-model tensor parallelism; defaults to local GPU count.",
+        ),
+    ] = None,
+    vllm_pipeline_parallel_size: Annotated[
+        int,
+        typer.Option(
+            "--vllm-pipeline-parallel-size",
+            min=1,
+            help="Evaluated-model pipeline stages; does not affect the judge.",
+        ),
+    ] = 1,
+    vllm_distributed_executor_backend: Annotated[
+        Literal["ray", "mp"] | None,
+        typer.Option(
+            "--vllm-distributed-executor-backend",
+            help="Evaluated-model worker backend; ray uses an existing Ray cluster.",
+        ),
+    ] = None,
     vllm_max_model_len: Annotated[
         int | None,
         typer.Option(
@@ -653,6 +676,9 @@ def main(
     using_vllm = any([arg == "vllm" for arg in vllm_related_args])
     if using_vllm:
         vllm_config = VllmConfig(
+            tensor_parallel_size=vllm_tensor_parallel_size,
+            pipeline_parallel_size=vllm_pipeline_parallel_size,
+            distributed_executor_backend=vllm_distributed_executor_backend,
             max_model_len=vllm_max_model_len,
             judge_max_model_len=vllm_judge_max_model_len
             if vllm_judge_max_model_len is not None
