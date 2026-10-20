@@ -99,8 +99,11 @@ model; the judge retains local automatic GPU placement.
 
 For two nodes with eight GPUs each, install the same Python, vLLM, PyTorch, and
 model dependencies on both nodes. Make the checkpoint and any LoRA adapter
-available at identical absolute paths on every node. Start a Ray cluster on a
-trusted private network, using each node's private IP:
+available at identical absolute paths on every node. Activate that environment
+before starting Ray so workers can find compiler helpers such as `ninja`.
+Verify the worker user can read every checkpoint and adapter file on each node;
+shared filesystems may map the same username to different numeric user IDs.
+Start a Ray cluster on a trusted private network, using each node's private IP:
 
 ```bash
 # Head node
