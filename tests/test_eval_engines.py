@@ -487,6 +487,43 @@ def test_vllm_eval_engine_disables_sampling_despite_explicit_temperature(
 
 
 @pytest.mark.vllm_engine_test
+@pytest.mark.parametrize("is_judge", [False, True])
+def test_vllm_rejects_bitsandbytes_before_loading(
+    vllm_bundle: VllmPatchBundle, tmp_path: Path, is_judge: bool
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        judge_path_or_repo_id="fake/judge",
+        results_dir=tmp_path,
+        use_4bit=not is_judge,
+        use_4bit_judge=is_judge,
+    )
+    disable_flag = "--no-use-4bit-judge" if is_judge else "--no-use-4bit"
+    engine_flag = "--judge-engine" if is_judge else "--model-engine"
+    with pytest.raises(ValueError, match="does not support bitsandbytes") as exc:
+        VllmEvalEngine(config, is_judge=is_judge)
+    assert disable_flag in str(exc.value)
+    assert f"{engine_flag} transformers" in str(exc.value)
+    assert not vllm_bundle.model_loader.calls
+
+
+@pytest.mark.vllm_engine_test
+@pytest.mark.parametrize("is_judge", [False, True])
+def test_vllm_ignores_other_roles_quantization(
+    vllm_bundle: VllmPatchBundle, tmp_path: Path, is_judge: bool
+) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        judge_path_or_repo_id="fake/judge",
+        results_dir=tmp_path,
+        use_4bit=is_judge,
+        use_4bit_judge=not is_judge,
+    )
+    VllmEvalEngine(config, is_judge=is_judge)
+    assert vllm_bundle.model_loader.calls[-1].kwargs["quantization"] is None
+
+
+@pytest.mark.vllm_engine_test
 def test_vllm_eval_engine_passes_optional_kwargs(
     vllm_bundle: VllmPatchBundle, tmp_path: Path
 ) -> None:
@@ -628,6 +665,8 @@ def test_load_vllm_model_forwards_multimodal_opt_out(
     call = RecordingLlm.calls[0]
     assert call.model == "fake/multimodal-model"
     assert call.language_model_only is False
+    assert call.config_format == "auto"
+    assert call.load_format == "auto"
 
 
 @pytest.mark.vllm_engine_test

@@ -53,7 +53,7 @@ class EvaluationConfig(BaseModel):
         max_samples: Optional limit on the number of examples to process. Use None to evaluate the full set.
         batch_size: Batch size for model inference. Depends on GPU memory (commonly 16-64). If None, will be adjusted for GPU limits.
         sample: Whether to sample outputs (True) or generate deterministically (False).
-        use_4bit: Whether to load the model in 4-bit mode (using bitsandbytes).
+        use_4bit: Whether to load the model in bitsandbytes 4-bit mode (Transformers only).
             This is only relevant for the model under test.
         device_map: Device map for model inference. If None, will be set to "auto".
         max_answer_tokens: Number of tokens to generate per answer. Typical range is 32-256.
@@ -70,7 +70,7 @@ class EvaluationConfig(BaseModel):
         judge_token: HuggingFace token for the judge model. Defaults to the value of `model_token` if not provided.
         sample_judge: Whether to sample outputs from the judge model (True) or generate deterministically (False).
             Use None to apply the evaluator-family default at runtime.
-        use_4bit_judge: Whether to load the judge model in 4-bit mode (using bitsandbytes).
+        use_4bit_judge: Whether to load the judge in bitsandbytes 4-bit mode (Transformers only).
             This is only relevant for the judge model.
         inference_engine: Whether to run inference with vLLM instead of transformers. Overrides model_engine and judge_engine arguments.
         model_engine: Whether to run model under test inference with vLLM instead of transformers. DO NOT combine with the inference_engine argument.

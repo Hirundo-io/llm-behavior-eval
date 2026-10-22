@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from datasets import Dataset
     from vllm import PromptType, SamplingParams
     from vllm.lora.request import LoRARequest
-    from vllm.model_executor.layers.quantization import QuantizationMethods
 
     from .eval_config import EvaluationConfig
     from .sampling_config import SamplingConfig
@@ -44,6 +43,13 @@ class VllmEvalEngine(EvalEngine):
         )
         model_token = self._get_model_token(eval_config, is_judge)
         use_4bit = self._get_use_4bit(eval_config, is_judge)
+        if use_4bit:
+            disable_flag = "--no-use-4bit-judge" if is_judge else "--no-use-4bit"
+            engine_flag = "--judge-engine" if is_judge else "--model-engine"
+            raise ValueError(
+                "vLLM 0.30 does not support bitsandbytes 4-bit loading. "
+                f"Use {disable_flag} or {engine_flag} transformers."
+            )
         batch_size_config = self._get_batch_size_from_config(eval_config, is_judge)
         batch_size = batch_size_config or 256
 
@@ -56,7 +62,6 @@ class VllmEvalEngine(EvalEngine):
             self.tokenizer.pad_token = self.tokenizer.eos_token
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype = pick_best_vllm_dtype(device)
-        quantization: QuantizationMethods | None = "bitsandbytes" if use_4bit else None
         # Extract vLLM configuration
         vllm_config = eval_config.vllm_config or VllmConfig()
         max_model_len = (
@@ -76,7 +81,7 @@ class VllmEvalEngine(EvalEngine):
             batch_size,
             model_token,
             enforce_eager=vllm_config.enforce_eager,
-            quantization=quantization,
+            quantization=None,
             max_model_len=max_model_len,
             tokenizer_mode=vllm_config.tokenizer_mode,
             config_format=vllm_config.config_format,

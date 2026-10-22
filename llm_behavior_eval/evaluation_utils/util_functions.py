@@ -476,7 +476,7 @@ def load_vllm_model(
         token: The HuggingFace token to use for the model.
         tensor_parallel_size: Optional tensor parallelism degree passed to vLLM.
         enforce_eager: Whether to enforce eager execution (useful for CPU-only setups).
-        quantization: Optional quantization backend (for example ``"bitsandbytes"`` for 4-bit inference).
+        quantization: Optional vLLM quantization backend supported by the selected checkpoint.
         max_model_len: Optional maximum model length passed to vLLM.
         tokenizer_mode: Optional tokenizer mode string forwarded to vLLM.
         config_format: Optional config format string forwarded to vLLM.
@@ -533,8 +533,9 @@ def load_vllm_model(
             hf_token=token,
             max_model_len=max_model_len,
             tokenizer_mode=tokenizer_mode or default_tokenizer_mode,
-            config_format=config_format,
-            load_format=load_format,
+            # vLLM 0.30 requires concrete format strings, not explicit None.
+            config_format=config_format or "auto",
+            load_format=load_format or "auto",
             gpu_memory_utilization=gpu_memory_utilization,
             enable_lora=enable_lora,
             max_lora_rank=max_lora_rank,
