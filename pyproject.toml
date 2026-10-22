@@ -70,6 +70,10 @@ dev = [
   "types-tqdm",
 ]
 
+# Apply the seven-day supply-chain cooldown whenever dependencies are resolved.
+[tool.uv]
+exclude-newer = "7d"
+
 [tool.uv.sources]
 llm-behavior-eval = { path = ".", editable = true }
 
