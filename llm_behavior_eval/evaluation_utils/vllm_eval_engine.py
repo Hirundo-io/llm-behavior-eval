@@ -80,6 +80,15 @@ class VllmEvalEngine(EvalEngine):
             eval_config.trust_remote_code,
             batch_size,
             model_token,
+            tensor_parallel_size=None
+            if self.is_judge
+            else vllm_config.tensor_parallel_size,
+            pipeline_parallel_size=1
+            if self.is_judge
+            else vllm_config.pipeline_parallel_size,
+            distributed_executor_backend=None
+            if self.is_judge
+            else vllm_config.distributed_executor_backend,
             enforce_eager=vllm_config.enforce_eager,
             quantization=None,
             max_model_len=max_model_len,
@@ -89,6 +98,9 @@ class VllmEvalEngine(EvalEngine):
             gpu_memory_utilization=vllm_config.gpu_memory_utilization,
             enable_lora=vllm_config.enable_lora and not self.is_judge,
             max_lora_rank=vllm_config.max_lora_rank,
+            lora_target_modules=None
+            if self.is_judge
+            else vllm_config.lora_target_modules,
             language_model_only=True
             if self.is_judge
             else vllm_config.language_model_only,

@@ -477,6 +477,56 @@ def test_vllm_defaults_preserve_vllm_configuration(
     assert vllm_config.gpu_memory_utilization == DEFAULT_VLLM_GPU_MEMORY_UTILIZATION
     assert VllmConfig().max_model_len is None
     assert VllmConfig().gpu_memory_utilization == DEFAULT_VLLM_GPU_MEMORY_UTILIZATION
+    assert vllm_config.tensor_parallel_size is None
+    assert vllm_config.pipeline_parallel_size == 1
+    assert vllm_config.distributed_executor_backend is None
+
+
+def test_cli_passes_multinode_parallelism(
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    result = CliRunner().invoke(
+        evaluate.app,
+        [
+            "fake/model",
+            "prompt-injection",
+            "--model-engine",
+            "vllm",
+            "--vllm-tensor-parallel-size",
+            "8",
+            "--vllm-pipeline-parallel-size",
+            "2",
+            "--vllm-distributed-executor-backend",
+            "ray",
+            "--vllm-lora-target-module",
+            "q_proj",
+            "--vllm-lora-target-module",
+            "o_proj",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    config = capture_eval_config[-1].vllm_config
+    assert config is not None
+    assert config.tensor_parallel_size == 8
+    assert config.pipeline_parallel_size == 2
+    assert config.distributed_executor_backend == "ray"
+    assert config.lora_target_modules == ["q_proj", "o_proj"]
+
+
+@pytest.mark.parametrize(
+    "option,value",
+    [
+        ("--vllm-tensor-parallel-size", "0"),
+        ("--vllm-pipeline-parallel-size", "-1"),
+        ("--vllm-distributed-executor-backend", "unsupported"),
+    ],
+)
+def test_cli_rejects_invalid_parallelism(option: str, value: str) -> None:
+    result = CliRunner().invoke(
+        evaluate.app,
+        ["fake/model", "prompt-injection", "--model-engine", "vllm", option, value],
+    )
+    assert result.exit_code == 2
 
 
 def test_main_allows_replacing_existing_output(
