@@ -84,6 +84,9 @@ class EvaluationConfig(BaseModel):
         thinking_start_token: Thinking start token to use for the model (e.g. '<think>').
         thinking_end_token: Thinking end token to use for the model (e.g. '</think>').
         exclude_thinking_trace_for_judge: Whether to exclude thinking trace from judgement.
+        harmony_final_channel_only: Whether to keep only the final-channel message of
+            GPT-OSS (Harmony) completions, marking completions without one as incomplete.
+            Applies to the evaluated model, not the judge, and only to Harmony tokenizers.
         trust_remote_code: Whether to trust remote code when loading models.
         sampling_config: Sampling configuration for model inference.
         mlflow_config: MLflow configuration for tracking (optional).
@@ -118,6 +121,7 @@ class EvaluationConfig(BaseModel):
     thinking_start_token: str | None = None
     thinking_end_token: str | None = None
     exclude_thinking_trace_for_judge: bool = False
+    harmony_final_channel_only: bool = False
     trust_remote_code: bool = False
     sampling_config: SamplingConfig = SamplingConfig()
     mlflow_config: "MlflowConfig | None" = None
