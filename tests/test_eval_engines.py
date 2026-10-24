@@ -11,6 +11,8 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from transformers import PreTrainedTokenizerFast
+
 pytest.importorskip("torch")
 import torch
 from datasets import Dataset
@@ -875,3 +877,63 @@ def test_transformers_eval_engine_get_batch_size_autotune(
     assert batch_size == len(dataset)
     assert transformers_bundle.find_recorder.calls == [len(dataset)]
     assert transformers_bundle.candidate_recorder.calls == [len(dataset)]
+
+
+class HarmonyVllmModel(DummyVllmModel):
+    def __init__(self, outputs_log: list[object], token_ids: list[list[int]]) -> None:
+        super().__init__(outputs_log)
+        self.token_ids = token_ids
+
+    def generate(self, **kwargs):
+        self.outputs_log.append(kwargs)
+        return [
+            SimpleNamespace(
+                outputs=[
+                    SimpleNamespace(
+                        text="flattened", token_ids=ids, finish_reason="stop"
+                    )
+                ]
+            )
+            for ids in self.token_ids
+        ]
+
+
+@pytest.mark.vllm_engine_test
+@pytest.mark.parametrize("enabled", [True, False])
+def test_vllm_eval_engine_keeps_harmony_final_channel(
+    vllm_bundle: VllmPatchBundle,
+    tmp_path: Path,
+    enabled: bool,
+    harmony_tokenizer: PreTrainedTokenizerFast,
+) -> None:
+    """The evaluated model's answer is its final-channel text when the flag is set."""
+    tokenizer = harmony_tokenizer
+    completions = [
+        "<|channel|> analysis <|message|> We must refuse. <|end|> <|start|> assistant "
+        "<|channel|> final <|message|> I cannot share that. <|return|>",
+        "<|channel|> analysis <|message|> We must",
+    ]
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+        max_answer_tokens=16,
+        harmony_final_channel_only=enabled,
+    )
+    engine = VllmEvalEngine(config)
+    engine.tokenizer = tokenizer
+    engine.model = HarmonyVllmModel(
+        [], [tokenizer.encode(text, add_special_tokens=False) for text in completions]
+    )
+
+    answers, finish_reasons = engine.generate_answers(
+        torch.tensor([[1], [2]]),
+        torch.tensor([[1], [1]]),
+        sampling_config=SamplingConfig(do_sample=False),
+    )
+
+    if enabled:
+        assert answers == ["I cannot share that.", ""]
+        assert finish_reasons == ["stop", "length"]
+    else:
+        assert answers == ["flattened", "flattened"]
+        assert finish_reasons == ["stop", "stop"]

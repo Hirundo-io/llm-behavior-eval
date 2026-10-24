@@ -10,6 +10,7 @@ from transformers.data.data_collator import DataCollator
 
 from .eval_config import EvaluationConfig
 from .eval_engine import EvalEngine
+from .harmony_final import final_channel_answers, keeps_final_channel_only
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig, resolve_temperature
 from .util_functions import load_transformers_model_and_tokenizer
@@ -133,6 +134,10 @@ class TransformersEvalEngine(EvalEngine):
                 finish_reasons.append("stop")
             else:
                 finish_reasons.append("length")
+        if keeps_final_channel_only(self.eval_config, self.is_judge, self.tokenizer):
+            return final_channel_answers(
+                self.tokenizer, generated_tokens.tolist(), finish_reasons
+            )
         return answers, finish_reasons
 
     def ensure_test_model_ready(self) -> None:

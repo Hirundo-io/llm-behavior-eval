@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from .eval_engine import EvalEngine
+from .harmony_final import final_channel_answers, keeps_final_channel_only
 from .sampling_config import resolve_temperature
 from .util_functions import (
     build_vllm_prompt_token_ids,
@@ -155,14 +156,17 @@ class VllmEvalEngine(EvalEngine):
         )
         responses: list[str] = []
         finish_reasons: list[str | None] = []
+        completion_token_ids: list[list[int]] = []
         for output in outputs:
             candidates = getattr(output, "outputs", [])
             if not candidates:
                 responses.append("")
                 finish_reasons.append(None)
+                completion_token_ids.append([])
                 continue
             first_candidate = candidates[0]
             responses.append(getattr(first_candidate, "text", ""))
+            completion_token_ids.append(list(getattr(first_candidate, "token_ids", [])))
             finish_reason = getattr(first_candidate, "finish_reason", None)
             if finish_reason == "length":
                 finish_reasons.append("length")
@@ -170,6 +174,10 @@ class VllmEvalEngine(EvalEngine):
                 finish_reasons.append("stop")
             else:
                 finish_reasons.append(None)
+        if keeps_final_channel_only(self.eval_config, self.is_judge, self.tokenizer):
+            return final_channel_answers(
+                self.tokenizer, completion_token_ids, finish_reasons
+            )
         return responses, finish_reasons
 
     def _get_vllm_sampling_params(
