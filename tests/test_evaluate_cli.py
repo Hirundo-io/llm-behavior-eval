@@ -4,7 +4,7 @@ import os
 import sys
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pytest
 from click.utils import strip_ansi
@@ -577,62 +577,89 @@ def test_eval_config_validates_lora_only_with_vllm() -> None:
         )
 
 
-def test_eval_config_allows_lora_with_vllm_inference_engine() -> None:
-    """Test that lora_path_or_repo_id is allowed when inference_engine is vllm."""
-    from pathlib import Path
+@pytest.mark.parametrize("with_vllm_config", [False, True])
+@pytest.mark.parametrize(
+    ("inference_engine", "model_engine", "judge_engine"),
+    [
+        (None, "transformers", "vllm"),
+        ("transformers", "vllm", "transformers"),
+        ("transformers", "vllm", "vllm"),
+    ],
+)
+def test_eval_config_rejects_lora_with_effective_transformers_backend(
+    tmp_path: Path,
+    inference_engine: Literal["transformers"] | None,
+    model_engine: Literal["transformers", "vllm"],
+    judge_engine: Literal["transformers", "vllm"],
+    with_vllm_config: bool,
+) -> None:
+    with pytest.raises(
+        ValueError, match="LoRA usage currently only supported with vLLM"
+    ):
+        EvaluationConfig(
+            model_path_or_repo_id="fake/model",
+            results_dir=tmp_path,
+            lora_path_or_repo_id="/path/to/lora",
+            inference_engine=inference_engine,
+            model_engine=model_engine,
+            judge_engine=judge_engine,
+            vllm_config=VllmConfig() if with_vllm_config else None,
+        )
 
-    from llm_behavior_eval.evaluation_utils.eval_config import (
-        EvaluationConfig,
-    )
 
-    # Should not raise error when LoRA is specified and using vLLM via inference_engine
+@pytest.mark.parametrize("with_vllm_config", [False, True])
+@pytest.mark.parametrize(
+    ("inference_engine", "model_engine", "judge_engine"),
+    [
+        (None, "vllm", "transformers"),
+        (None, "vllm", "vllm"),
+        ("vllm", "transformers", "transformers"),
+    ],
+)
+def test_eval_config_allows_lora_with_effective_vllm_backend(
+    tmp_path: Path,
+    inference_engine: Literal["vllm"] | None,
+    model_engine: Literal["transformers", "vllm"],
+    judge_engine: Literal["transformers", "vllm"],
+    with_vllm_config: bool,
+) -> None:
     config = EvaluationConfig(
         model_path_or_repo_id="fake/model",
-        results_dir=Path("/tmp"),
+        results_dir=tmp_path,
         lora_path_or_repo_id="/path/to/lora",
-        inference_engine="vllm",
+        inference_engine=inference_engine,
+        model_engine=model_engine,
+        judge_engine=judge_engine,
+        vllm_config=VllmConfig() if with_vllm_config else None,
     )
     assert config.lora_path_or_repo_id == "/path/to/lora"
 
 
-def test_eval_config_allows_lora_with_vllm_model_engine() -> None:
-    """Test that lora_path_or_repo_id is allowed when model_engine is vllm."""
-    from pathlib import Path
-
-    from llm_behavior_eval.evaluation_utils.eval_config import (
-        EvaluationConfig,
-    )
-
-    # Should not raise error when LoRA is specified and using vLLM via model_engine
-    config = EvaluationConfig(
-        model_path_or_repo_id="fake/model",
-        results_dir=Path("/tmp"),
-        lora_path_or_repo_id="/path/to/lora",
-        model_engine="vllm",
-    )
-    assert config.lora_path_or_repo_id == "/path/to/lora"
-
-
-def test_eval_config_allows_lora_with_vllm_config() -> None:
-    """Test that lora_path_or_repo_id is allowed when vllm_config is provided."""
-    from pathlib import Path
-
-    from llm_behavior_eval.evaluation_utils.eval_config import (
-        EvaluationConfig,
-    )
-    from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
-
-    vllm_config = VllmConfig(max_model_len=8192)
-
-    # Should not raise error when LoRA is specified and vllm_config is provided
-    config = EvaluationConfig(
-        model_path_or_repo_id="fake/model",
-        results_dir=Path("/tmp"),
-        lora_path_or_repo_id="/path/to/lora",
-        vllm_config=vllm_config,
-        model_engine="vllm",
-    )
-    assert config.lora_path_or_repo_id == "/path/to/lora"
+@pytest.mark.parametrize(
+    ("inference_engine", "model_engine", "judge_engine"),
+    [
+        (None, "transformers", "vllm"),
+        ("transformers", "vllm", "transformers"),
+    ],
+)
+def test_main_rejects_transformers_lora_before_creating_evaluator(
+    capture_eval_config: list[EvaluationConfig],
+    inference_engine: Literal["transformers"] | None,
+    model_engine: Literal["transformers", "vllm"],
+    judge_engine: Literal["transformers", "vllm"],
+) -> None:
+    with pytest.raises(
+        ValueError, match="LoRA usage currently only supported with vLLM"
+    ):
+        evaluate.main(
+            "fake/model",
+            "hallu",
+            lora_path_or_repo_id="/path/to/lora",
+            inference_engine=inference_engine,
+            model_engine=model_engine,
+            judge_engine=judge_engine,
+        )
+    assert capture_eval_config == []
 
 
 def test_eval_config_allows_none_lora_path() -> None:

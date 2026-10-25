@@ -87,6 +87,13 @@ def _mock_model_loading(monkeypatch):
         "llm_behavior_eval.evaluation_utils.transformers_eval_engine.load_transformers_model_and_tokenizer",
         _stub_loader,
     )
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.base_evaluator.VllmEvalEngine",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            tokenizer=dummy_tokenizer,
+            ensure_test_model_ready=lambda: None,
+        ),
+    )
 
 
 @pytest.fixture
@@ -198,7 +205,7 @@ def test_init_mlflow_prefers_active_run_over_lora_inferred_run_id(
         results_dir=evaluation_config.results_dir,
         batch_size=evaluation_config.batch_size,
         vllm_config=VllmConfig(),
-        judge_engine="vllm",
+        model_engine="vllm",
         lora_path_or_repo_id="mlflow://abc123def45678901234567890123456",
         mlflow_config=evaluation_config.mlflow_config,
     )
@@ -227,7 +234,7 @@ def test_init_mlflow_reuses_lora_run_id_from_http_tracking_uri_ref(
         results_dir=evaluation_config.results_dir,
         batch_size=evaluation_config.batch_size,
         vllm_config=VllmConfig(),
-        judge_engine="vllm",
+        model_engine="vllm",
         lora_path_or_repo_id=(
             f"http://tracking.example/runs/{lora_run_id}/"
             "hf_checkpoints/checkpoint-000020"
@@ -257,7 +264,7 @@ def test_init_mlflow_reuses_lora_run_id_when_no_user_or_active_run(
         results_dir=evaluation_config.results_dir,
         batch_size=evaluation_config.batch_size,
         vllm_config=VllmConfig(),
-        judge_engine="vllm",
+        model_engine="vllm",
         lora_path_or_repo_id=f"mlflow://{lora_run_id}",
         mlflow_config=evaluation_config.mlflow_config,
     )
@@ -438,7 +445,7 @@ def test_save_results_logs_mlflow_metrics_without_inferred_checkpoint_step(
         results_dir=evaluation_config.results_dir,
         batch_size=evaluation_config.batch_size,
         vllm_config=VllmConfig(),
-        judge_engine="vllm",
+        model_engine="vllm",
         lora_path_or_repo_id="mlflow://abc123/hf_checkpoints/checkpoint-000020",
         mlflow_config=evaluation_config.mlflow_config,
     )
@@ -468,7 +475,7 @@ def test_save_results_logs_mlflow_metrics_with_inferred_checkpoint_step_same_run
         results_dir=evaluation_config.results_dir,
         batch_size=evaluation_config.batch_size,
         vllm_config=VllmConfig(),
-        judge_engine="vllm",
+        model_engine="vllm",
         lora_path_or_repo_id=f"mlflow://{lora_run_id}/hf_checkpoints/checkpoint-000020",
         mlflow_config=MlflowConfig(
             mlflow_tracking_uri=evaluation_config.mlflow_config.mlflow_tracking_uri,  # type: ignore[union-attr]
