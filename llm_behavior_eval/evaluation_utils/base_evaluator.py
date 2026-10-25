@@ -1108,6 +1108,33 @@ class FreeTextSharedEvaluator(BaseEvaluator):
     - Initialize and free judge pipeline
     """
 
+    def _remaining_generation_batches(
+        self, completed_samples: int
+    ) -> Generator[dict[str, Tensor], None, None]:
+        """Yield uncached samples in the loader's deterministic dataset order.
+
+        Cache records describe a completed sample prefix, independent of the
+        batch size selected for this run. Slice every collated field together
+        when that prefix ends inside a batch, and stop at ``num_samples``.
+        """
+        remaining = self.num_samples - completed_samples
+        if remaining <= 0:
+            return
+
+        for batch in self.eval_loader:
+            batch_size = len(batch["test_input_ids"])
+            if completed_samples >= batch_size:
+                completed_samples -= batch_size
+                continue
+
+            start = completed_samples
+            stop = min(batch_size, start + remaining)
+            completed_samples = 0
+            yield {key: value[start:stop] for key, value in batch.items()}
+            remaining -= stop - start
+            if remaining <= 0:
+                break
+
     def _run_with_cleanup(self, run_fn: Callable[[], None]) -> None:
         """
         Execute run_fn and, when appropriate, call cleanup in a finally block.
