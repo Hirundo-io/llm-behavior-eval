@@ -881,6 +881,29 @@ class BaseEvaluator(ABC):
         )
         return None
 
+    def mlflow_artifact_path(self) -> str:
+        """MLflow artifact folder for this run's uploads.
+
+        Returns:
+            ``""`` (the run root) when ``mlflow_artifact_path_subfolder`` is not set,
+            otherwise ``llm-behavior-eval/<subfolder>``, where ``timestamp`` is
+            replaced by one timestamp per run.
+        """
+        mlflow_config = self.eval_config.mlflow_config
+        raw_subfolder = (
+            (mlflow_config.mlflow_artifact_path_subfolder or "").strip()
+            if mlflow_config
+            else ""
+        )
+        if raw_subfolder == "timestamp":
+            subfolder = self._mlflow_run_artifact_timestamp or datetime.now().strftime(
+                "%Y-%m-%d_%H-%M-%S"
+            )
+            return f"llm-behavior-eval/{subfolder}"
+        if raw_subfolder:
+            return f"llm-behavior-eval/{raw_subfolder}"
+        return ""
+
     def _log_mlflow_artifacts(self) -> None:
         """Log evaluation artifacts to MLflow.
 
@@ -896,18 +919,7 @@ class BaseEvaluator(ABC):
 
         model_slug = self.get_model_slug()
         model_results_dir = Path(self.eval_config.results_dir) / model_slug
-        raw_subfolder = (
-            self.eval_config.mlflow_config.mlflow_artifact_path_subfolder or ""
-        ).strip()
-        if raw_subfolder == "timestamp":
-            subfolder = self._mlflow_run_artifact_timestamp or datetime.now().strftime(
-                "%Y-%m-%d_%H-%M-%S"
-            )
-            artifact_path = f"llm-behavior-eval/{subfolder}"
-        elif raw_subfolder:
-            artifact_path = f"llm-behavior-eval/{raw_subfolder}"
-        else:
-            artifact_path = ""
+        artifact_path = self.mlflow_artifact_path()
 
         summary_full_path = model_results_dir / "summary_full.csv"
         if summary_full_path.exists():

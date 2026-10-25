@@ -2549,6 +2549,9 @@ gpt-oss = [
 mlflow = [
     { name = "mlflow" },
 ]
+plotly = [
+    { name = "plotly" },
+]
 vllm = [
     { name = "vllm", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
@@ -2556,7 +2559,7 @@ vllm = [
 [package.dev-dependencies]
 dev = [
     { name = "bumpver" },
-    { name = "llm-behavior-eval", extra = ["azure", "gcs", "mlflow", "vllm"] },
+    { name = "llm-behavior-eval", extra = ["azure", "gcs", "mlflow", "plotly", "vllm"] },
     { name = "pre-commit" },
     { name = "pyrefly" },
     { name = "pytest" },
@@ -2579,6 +2582,7 @@ requires-dist = [
     { name = "numpy", specifier = "<3.0.0" },
     { name = "opencv-python-headless", marker = "extra == 'gpt-oss'", specifier = ">=4.12.0.88" },
     { name = "pandas", specifier = "<3.0.0" },
+    { name = "plotly", marker = "extra == 'plotly'", specifier = ">=7.1.0,<8" },
     { name = "protobuf", specifier = "<7.0.0" },
     { name = "pydantic", specifier = "<3.0.0" },
     { name = "pydantic-settings", specifier = "<3.0.0" },
@@ -2589,12 +2593,12 @@ requires-dist = [
     { name = "typer", specifier = ">=0.27.3,<0.28" },
     { name = "vllm", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'vllm') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'vllm')", specifier = ">=0.30.0,<0.31" },
 ]
-provides-extras = ["mlflow", "vllm", "gcs", "azure", "gpt-oss"]
+provides-extras = ["mlflow", "vllm", "gcs", "azure", "gpt-oss", "plotly"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "bumpver", specifier = ">=2024.1130" },
-    { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "azure"], editable = "." },
+    { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "azure", "plotly"], editable = "." },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyrefly", specifier = ">=0.63.1" },
     { name = "pytest", specifier = ">=8.3.5" },
@@ -3206,6 +3210,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0a/7d/a988f258104dcd2ccf1ed40fdc97e26c4ac351eeaf81d76e266c52d84e2f/multiprocess-0.70.16-py312-none-any.whl", hash = "sha256:fc0544c531920dde3b00c29863377f87e1632601092ea2daca74e4beb40faa2e", size = 146741, upload-time = "2024-01-28T18:52:29.395Z" },
     { url = "https://files.pythonhosted.org/packages/ea/89/38df130f2c799090c978b366cfdf5b96d08de5b29a4a293df7f7429fa50b/multiprocess-0.70.16-py38-none-any.whl", hash = "sha256:a71d82033454891091a226dfc319d0cfa8019a4e888ef9ca910372a446de4435", size = 132628, upload-time = "2024-01-28T18:52:30.853Z" },
     { url = "https://files.pythonhosted.org/packages/da/d9/f7f9379981e39b8c2511c9e0326d212accacb82f12fbfdc1aa2ce2a7b2b6/multiprocess-0.70.16-py39-none-any.whl", hash = "sha256:a0bafd3ae1b732eac64be2e72038231c1ba97724b60b09400d68f229fcc2fbf3", size = 133351, upload-time = "2024-01-28T18:52:31.981Z" },
+]
+
+[[package]]
+name = "narwhals"
+version = "2.27.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/21/f64d6b2dbea7bf3f8c38cdc786dcc6ef012ca3d173ad208c782c9a7bedf6/narwhals-2.27.1.tar.gz", hash = "sha256:aed93076a3ea42d9c32c88e4eb5ea422a21937011cbe1f480f9572a523c82094", size = 735013, upload-time = "2026-10-10T06:52:18.113Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/89/5d4c86da1130d9059681e5b6cd7645df5c10279a6a079c5c37dcb2cc6f3f/narwhals-2.27.1-py3-none-any.whl", hash = "sha256:d057df13f5852b8e157596e82eb5e955fad267425df5e420e0ee9863da483b31", size = 483211, upload-time = "2026-10-10T06:52:16.32Z" },
 ]
 
 [[package]]
@@ -4140,6 +4153,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/61/33/9611380c2bdb1225fdef633e2a9610622310fed35ab11dac9620972ee088/platformdirs-4.5.0.tar.gz", hash = "sha256:70ddccdd7c99fc5942e9fc25636a8b34d04c24b335100223152c2803e4063312", size = 21632, upload-time = "2025-10-08T17:44:48.791Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/73/cb/ac7874b3e5d58441674fb70742e6c374b28b0c7cb988d37d991cde47166c/platformdirs-4.5.0-py3-none-any.whl", hash = "sha256:e578a81bb873cbb89a41fcc904c7ef523cc18284b7e3b3ccf06aca1403b7ebd3", size = 18651, upload-time = "2025-10-08T17:44:47.223Z" },
+]
+
+[[package]]
+name = "plotly"
+version = "7.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "narwhals" },
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/49/c3/72b369f5ed7701b04ab0ea3dcf83e9bbce71c0b3bc6f07f87568550d09ea/plotly-7.1.0.tar.gz", hash = "sha256:f860166a4a3d78c69cb1f4a15f28a5c8283eade98a282a698f3bb853a449ace5", size = 6689315, upload-time = "2026-09-15T19:21:21.75Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/7d/905a3a3d51087515719058c94cfbda2ff0fc14417c20d557ae3e82d8b250/plotly-7.1.0-py3-none-any.whl", hash = "sha256:dbb7fa18afce40d0a8e80d1bf162eceb3faa0ce5a77fe741ad09a74cf78f53f3", size = 9692368, upload-time = "2026-09-15T19:21:18.331Z" },
 ]
 
 [[package]]

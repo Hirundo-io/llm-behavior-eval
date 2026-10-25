@@ -296,6 +296,18 @@ llm-behavior-eval google/gemma-2b-it bias:gender --use-mlflow
 To find more documentation: see [`MLFLOW_INTEGRATION.md`](./MLFLOW_INTEGRATION.md).
 Programmatic example: see [`examples/mlflow_example.py`](./examples/mlflow_example.py).
 
+### Radar charts (Optional)
+
+Add `--plot` to write one interactive Plotly radar chart per percentage metric in `summary_full.csv`, with the model's datasets around the axis. Charts are saved to `results/<model>/plots/radar_<metric>.html` and, when MLflow is enabled, logged to the run under `plots/`. A plotting failure is logged and does not fail the evaluation.
+
+Install: `pip install llm-behavior-eval[plotly]`.
+
+```bash
+llm-behavior-eval google/gemma-2b-it bias:all --plot
+```
+
+To compare several models or label your own categories, call `draw_radar_chart` from `llm_behavior_eval.evaluation_utils.plotting` with one value list per model.
+
 ## Output
 
 Evaluation reports are saved as metrics CSV files and full response JSON files in the results directory. By default, the CLI writes to:
