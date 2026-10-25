@@ -61,7 +61,8 @@ def test_draw_radar_chart_rejects_mismatched_inputs(
 def test_require_plotly_explains_missing_extra(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(plotting.importlib.util, "find_spec", lambda _name: None)
+    # A None entry makes the import fail, as with a missing or broken install.
+    monkeypatch.setitem(sys.modules, "plotly.graph_objects", None)
 
     with pytest.raises(ImportError, match=r"llm-behavior-eval\[plotly\]"):
         plotting.require_plotly()
@@ -110,6 +111,32 @@ def test_plot_summary_metrics_charts_each_percentage_metric(
     assert "50.0" not in error_html
     assert logged == [
         (str(path), "llm-behavior-eval/run/plots") for path in chart_paths
+    ]
+
+
+def test_plot_summary_metrics_writes_every_chart_before_uploading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    summary_csv = tmp_path / "summary_full.csv"
+    summary_csv.write_text(
+        "Dataset,Accuracy (%) ⬆️,Error (%) ⬇️\nbbq-age-bias,,50.0\nhalueval,70.0,\n",
+        encoding="utf-8",
+    )
+
+    def failing_log_artifact(path: str, artifact_path: str | None = None) -> None:
+        raise OSError("tracking server unavailable")
+
+    monkeypatch.setitem(
+        sys.modules, "mlflow", SimpleNamespace(log_artifact=failing_log_artifact)
+    )
+
+    with pytest.raises(OSError, match="tracking server"):
+        plotting.plot_summary_metrics(
+            summary_csv, series_label="model", log_to_mlflow=True
+        )
+    assert sorted(path.name for path in (tmp_path / "plots").iterdir()) == [
+        "radar_accuracy.html",
+        "radar_error.html",
     ]
 
 

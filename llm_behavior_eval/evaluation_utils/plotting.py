@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import re
 from typing import TYPE_CHECKING
 
@@ -21,13 +20,21 @@ PLOTS_DIR_NAME = "plots"
 
 
 def require_plotly() -> None:
-    """Fail early when Plotly is not installed.
+    """Fail early when Plotly cannot be imported.
 
     Raises:
-        ImportError: If the ``plotly`` package cannot be imported.
+        ImportError: If ``plotly.graph_objects`` cannot be imported.
     """
-    if importlib.util.find_spec("plotly") is None:
-        raise ImportError(PLOTLY_INSTALL_HINT)
+    try:
+        import plotly.graph_objects  # noqa: F401
+    except ImportError as error:
+        raise ImportError(PLOTLY_INSTALL_HINT) from error
+
+
+def _log_chart_to_mlflow(chart_path: Path, artifact_path: str | None) -> None:
+    import mlflow
+
+    mlflow.log_artifact(str(chart_path), artifact_path=artifact_path)
 
 
 def _validate_series(
@@ -113,9 +120,7 @@ def draw_radar_chart(
         figure.write_image(save_path)
 
     if log_to_mlflow:
-        import mlflow
-
-        mlflow.log_artifact(str(save_path), artifact_path=mlflow_artifact_path)
+        _log_chart_to_mlflow(save_path, mlflow_artifact_path)
     return save_path
 
 
@@ -140,7 +145,8 @@ def plot_summary_metrics(
     Args:
         summary_csv: The model's ``summary_full.csv`` or ``summary_brief.csv``.
         series_label: Legend label for the model.
-        log_to_mlflow: Upload each chart to the active MLflow run.
+        log_to_mlflow: Upload the charts to the active MLflow run once they
+            are all written, so an upload failure never loses a local chart.
         mlflow_artifact_path: Base MLflow artifact folder; charts go under
             its ``plots`` subfolder.
 
@@ -178,8 +184,9 @@ def plot_summary_metrics(
                 .tolist(),
                 title=f"{metric_column} by dataset",
                 save_path=plots_dir / _chart_file_name(metric_column),
-                log_to_mlflow=log_to_mlflow,
-                mlflow_artifact_path=chart_artifact_path,
             )
         )
+    if log_to_mlflow:
+        for chart_path in chart_paths:
+            _log_chart_to_mlflow(chart_path, chart_artifact_path)
     return chart_paths
