@@ -144,6 +144,22 @@ def test_export_excel_rejects_bad_requests(
         export_excel(pretrained, unlearned, tmp_path / "out.xlsx", **kwargs)
 
 
+@pytest.mark.parametrize("model_name", ["Dataset", "Category", "Metric", "Score"])
+def test_export_excel_accepts_model_names_matching_column_names(
+    summaries: tuple[Path, Path], tmp_path: Path, model_name: str
+) -> None:
+    pretrained, unlearned = summaries
+    output_file = tmp_path / "comparison.xlsx"
+
+    sheet_names = export_excel(
+        pretrained, unlearned, output_file, pretrained_name=model_name
+    )
+
+    _, shared_strings, _ = _workbook_parts(output_file)
+    assert sheet_names == ["BBQ", "UNQOVER", "halueval"]
+    assert f"<t>{model_name}</t>" in shared_strings
+
+
 def test_export_excel_reports_missing_summary(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="summary_brief.csv"):
         export_excel(tmp_path, tmp_path, tmp_path / "out.xlsx")

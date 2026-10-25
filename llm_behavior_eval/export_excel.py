@@ -39,6 +39,8 @@ HEADLINE_METRIC_COLUMNS = (
 )
 CATEGORY_HEADER = "Category"
 METRIC_HEADER = "Metric"
+SCORE_COLUMN = "Score"
+SCORE_SUFFIXES = ("_pretrained", "_unlearned")
 MAX_SHEET_NAME_LENGTH = 31
 INVALID_SHEET_CHARACTERS = re.compile(r"[\[\]:*?/\\]")
 
@@ -96,11 +98,11 @@ def load_headline_scores(summary: Path) -> pd.DataFrame:
                 DATASET_COLUMN: dataset,
                 CATEGORY_HEADER: category,
                 METRIC_HEADER: metric,
-                "Score": float(row[metric]),
+                SCORE_COLUMN: float(row[metric]),
             }
         )
     return pd.DataFrame(
-        scores, columns=[DATASET_COLUMN, CATEGORY_HEADER, METRIC_HEADER, "Score"]
+        scores, columns=[DATASET_COLUMN, CATEGORY_HEADER, METRIC_HEADER, SCORE_COLUMN]
     )
 
 
@@ -153,17 +155,17 @@ def export_excel(
         raise ValueError("The two model names must differ.")
 
     merge_keys = [DATASET_COLUMN, CATEGORY_HEADER, METRIC_HEADER]
+    # Fixed internal score columns; the model names only label the workbook,
+    # so a name like "Dataset" cannot collide with a merge key.
     comparison = pd.merge(
-        load_headline_scores(pretrained_summary).rename(
-            columns={"Score": pretrained_name}
-        ),
-        load_headline_scores(unlearned_summary).rename(
-            columns={"Score": unlearned_name}
-        ),
+        load_headline_scores(pretrained_summary),
+        load_headline_scores(unlearned_summary),
         on=merge_keys,
         how="outer",
         sort=False,
+        suffixes=SCORE_SUFFIXES,
     )
+    score_columns = [f"{SCORE_COLUMN}{suffix}" for suffix in SCORE_SUFFIXES]
     available_datasets = list(dict.fromkeys(comparison[DATASET_COLUMN]))
     selected_datasets = datasets or available_datasets
     missing_datasets = sorted(set(selected_datasets) - set(available_datasets))
@@ -190,10 +192,11 @@ def export_excel(
             worksheet = workbook.add_worksheet(sheet_name)
             headers = [CATEGORY_HEADER, METRIC_HEADER, pretrained_name, unlearned_name]
             worksheet.write_row(0, 0, headers, header_format)
-            for row_index, row in enumerate(rows.itertuples(index=False), start=1):
-                worksheet.write_string(row_index, 0, getattr(row, CATEGORY_HEADER))
-                worksheet.write_string(row_index, 1, getattr(row, METRIC_HEADER))
-                for column_index, score in enumerate(row[-2:], start=2):
+            for row_index, (_, row) in enumerate(rows.iterrows(), start=1):
+                worksheet.write_string(row_index, 0, row[CATEGORY_HEADER])
+                worksheet.write_string(row_index, 1, row[METRIC_HEADER])
+                scores = row[score_columns]
+                for column_index, score in enumerate(scores, start=2):
                     if pd.notna(score):
                         worksheet.write_number(
                             row_index, column_index, score, score_format
