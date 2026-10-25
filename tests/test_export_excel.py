@@ -160,6 +160,21 @@ def test_export_excel_accepts_model_names_matching_column_names(
     assert f"<t>{model_name}</t>" in shared_strings
 
 
+@pytest.mark.parametrize("bad_value", ["inf", "high"])
+def test_export_excel_rejects_non_finite_scores(tmp_path: Path, bad_value: str) -> None:
+    pretrained = _write_summary(
+        tmp_path / "pretrained", f"BBQ: age bias,off,,{bad_value},,,0.0\n"
+    )
+    unlearned = _write_summary(
+        tmp_path / "unlearned", "BBQ: age bias,off,,12.5,,,0.0\n"
+    )
+
+    with pytest.raises(
+        ValueError, match=rf"'BBQ: age bias' has .* value '?{bad_value}'?\."
+    ):
+        export_excel(pretrained, unlearned, tmp_path / "out.xlsx")
+
+
 def test_export_excel_reports_missing_summary(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="summary_brief.csv"):
         export_excel(tmp_path, tmp_path, tmp_path / "out.xlsx")

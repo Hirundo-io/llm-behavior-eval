@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import math
 import re
 from typing import TYPE_CHECKING
 
@@ -60,6 +61,20 @@ def _split_dataset_label(label: str) -> tuple[str, str]:
     return dataset.strip(), category.strip()
 
 
+def _finite_score(value: object, label: str, metric: str, summary_path: Path) -> float:
+    """Convert a summary cell to a finite number, naming the cell when it isn't."""
+    try:
+        score = float(str(value))
+    except ValueError:
+        score = math.nan
+    if not math.isfinite(score):
+        raise ValueError(
+            f"{summary_path}: {label!r} has a non-numeric or non-finite "
+            f"{metric!r} value {value!r}."
+        )
+    return score
+
+
 def load_headline_scores(summary: Path) -> pd.DataFrame:
     """Read one model's headline score per summary row.
 
@@ -98,7 +113,7 @@ def load_headline_scores(summary: Path) -> pd.DataFrame:
                 DATASET_COLUMN: dataset,
                 CATEGORY_HEADER: category,
                 METRIC_HEADER: metric,
-                SCORE_COLUMN: float(row[metric]),
+                SCORE_COLUMN: _finite_score(row[metric], label, metric, summary_path),
             }
         )
     return pd.DataFrame(

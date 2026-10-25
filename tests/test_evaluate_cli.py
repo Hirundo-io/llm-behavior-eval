@@ -952,3 +952,29 @@ def test_cli_export_excel_forwards_options(
             "unlearned_name": "Unlearned v2",
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        FileNotFoundError("Summary file not found: missing.csv"),
+        ValueError("Datasets not found in either summary: ['CBBQ']"),
+        ImportError("Excel export needs the optional Excel extra"),
+    ],
+)
+def test_cli_export_excel_reports_errors_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, error: Exception
+) -> None:
+    def failing_export_excel(**kwargs: object) -> list[str]:
+        raise error
+
+    monkeypatch.setattr(evaluate, "export_excel", failing_export_excel)
+
+    result = CliRunner().invoke(
+        evaluate.app,
+        ["export-excel", "a", "b", "--output", str(tmp_path / "out.xlsx")],
+    )
+
+    assert result.exit_code == 1
+    assert f"Error: {error}" in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)

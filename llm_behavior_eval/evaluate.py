@@ -836,14 +836,18 @@ def export_excel_command(
     Each dataset gets a sheet with one row per category, both models' headline
     scores, and a horizontal bar chart.
     """
-    sheet_names = export_excel(
-        pretrained_summary=pretrained_summary,
-        unlearned_summary=unlearned_summary,
-        output_file=output_file,
-        datasets=datasets,
-        pretrained_name=pretrained_name,
-        unlearned_name=unlearned_name,
-    )
+    try:
+        sheet_names = export_excel(
+            pretrained_summary=pretrained_summary,
+            unlearned_summary=unlearned_summary,
+            output_file=output_file,
+            datasets=datasets,
+            pretrained_name=pretrained_name,
+            unlearned_name=unlearned_name,
+        )
+    except (FileNotFoundError, ImportError, ValueError) as error:
+        typer.echo(f"Error: {error}", err=True)
+        raise typer.Exit(code=1) from error
     typer.echo(f"Wrote {output_file} with sheets: {', '.join(sheet_names)}")
 
 
