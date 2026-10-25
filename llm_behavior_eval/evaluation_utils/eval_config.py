@@ -178,13 +178,11 @@ class EvaluationConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_lora_path_or_repo_id(self):
-        # LoRA usage currently only supported with vLLM
-        using_vllm = self.vllm_config is not None or any(
-            [arg == "vllm" for arg in [self.inference_engine, self.model_engine]]
-        )
-        if self.lora_path_or_repo_id is not None and not using_vllm:
+        effective_model_engine = self.inference_engine or self.model_engine
+        if self.lora_path_or_repo_id is not None and effective_model_engine != "vllm":
             raise ValueError(
-                "LoRA usage currently only supported with vLLM (Either inference_engine or model_engine must be set to 'vllm')"
+                "LoRA usage currently only supported with vLLM for the evaluated model "
+                "(inference_engine overrides model_engine)"
             )
         return self
 
