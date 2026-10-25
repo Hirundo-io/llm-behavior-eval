@@ -2540,6 +2540,9 @@ azure = [
     { name = "azure-identity" },
     { name = "azure-storage-blob" },
 ]
+excel = [
+    { name = "xlsxwriter" },
+]
 gcs = [
     { name = "google-cloud-storage" },
 ]
@@ -2556,7 +2559,7 @@ vllm = [
 [package.dev-dependencies]
 dev = [
     { name = "bumpver" },
-    { name = "llm-behavior-eval", extra = ["azure", "gcs", "mlflow", "vllm"] },
+    { name = "llm-behavior-eval", extra = ["azure", "excel", "gcs", "mlflow", "vllm"] },
     { name = "pre-commit" },
     { name = "pyrefly" },
     { name = "pytest" },
@@ -2588,13 +2591,14 @@ requires-dist = [
     { name = "transformers", specifier = ">=5.20.2,<5.21" },
     { name = "typer", specifier = ">=0.27.3,<0.28" },
     { name = "vllm", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'vllm') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'vllm')", specifier = ">=0.30.0,<0.31" },
+    { name = "xlsxwriter", marker = "extra == 'excel'", specifier = ">=3.2.9,<4" },
 ]
-provides-extras = ["mlflow", "vllm", "gcs", "azure", "gpt-oss"]
+provides-extras = ["mlflow", "vllm", "gcs", "azure", "gpt-oss", "excel"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "bumpver", specifier = ">=2024.1130" },
-    { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "azure"], editable = "." },
+    { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "azure", "excel"], editable = "." },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyrefly", specifier = ">=0.63.1" },
     { name = "pytest", specifier = ">=8.3.5" },
@@ -6501,6 +6505,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/96/4b/327b3cf702b685a2be28d15490faa4beeac00c4fbcf9bb2d7db0fda32931/xgrammar-0.2.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:cbc6014dc1c92fc317b14519121c8163fe35fd934179e5a45d83f780ff231826", size = 44678489, upload-time = "2026-05-17T21:38:00.791Z" },
     { url = "https://files.pythonhosted.org/packages/e8/ef/8b5a8f103818a2a2b779c6ca21b5cda3536c78800bf25c6a37f87b130877/xgrammar-0.2.1-cp313-cp313-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:bb015d246a8c87bf46b11759442924cd6f96baf3ba444062a98e9a45ec5a1021", size = 44218981, upload-time = "2026-05-17T21:38:13.295Z" },
     { url = "https://files.pythonhosted.org/packages/32/75/25ddd211f073a9db8299bdfec4534874d5d5d5f69499bb0c2ce9bf75f483/xgrammar-0.2.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ba024024a454f31d3cb88679a1b073eba0133860f14525f1f5856fa46dec5228", size = 44678423, upload-time = "2026-05-17T21:38:18.812Z" },
+]
+
+[[package]]
+name = "xlsxwriter"
+version = "3.2.9"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/46/2c/c06ef49dc36e7954e55b802a8b231770d286a9758b3d936bd1e04ce5ba88/xlsxwriter-3.2.9.tar.gz", hash = "sha256:254b1c37a368c444eac6e2f867405cc9e461b0ed97a3233b2ac1e574efb4140c", size = 215940, upload-time = "2025-09-16T00:16:21.63Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3a/0c/3662f4a66880196a590b202f0db82d919dd2f89e99a27fadef91c4a33d41/xlsxwriter-3.2.9-py3-none-any.whl", hash = "sha256:9a5db42bc5dff014806c58a20b9eae7322a134abb6fce3c92c181bfb275ec5b3", size = 175315, upload-time = "2025-09-16T00:16:20.108Z" },
 ]
 
 [[package]]

@@ -3,10 +3,11 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 import torch
 import typer
+from typer.core import TyperGroup
 
 os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
@@ -44,7 +45,16 @@ from llm_behavior_eval.evaluation_utils.vllm_config import (
     VllmConfig,
 )
 from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
+from llm_behavior_eval.export_excel import (
+    DEFAULT_PRETRAINED_NAME,
+    DEFAULT_UNLEARNED_NAME,
+    export_excel,
+)
 from llm_behavior_eval.presets import build_bias_dataset_id, expand_dataset_preset
+
+if TYPE_CHECKING:
+    # Typer bundles Click privately; TyperGroup.parse_args takes this Context.
+    from typer._click import Context as ClickContext
 
 torch.set_float32_matmul_precision("high")
 
@@ -785,8 +795,88 @@ def main(
         empty_cuda_cache_if_available()
 
 
-app = typer.Typer()
-app.command()(main)
+def export_excel_command(
+    pretrained_summary: Annotated[
+        Path,
+        typer.Argument(
+            help="First model's summary_brief.csv, or its results/<model> folder."
+        ),
+    ],
+    unlearned_summary: Annotated[
+        Path,
+        typer.Argument(
+            help="Second model's summary_brief.csv, or its results/<model> folder."
+        ),
+    ],
+    output_file: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="The .xlsx workbook to write."),
+    ],
+    datasets: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--dataset",
+            help=(
+                "Dataset to export as a sheet, e.g. BBQ, UNQOVER or halueval. "
+                "Repeat for several sheets. Defaults to every dataset."
+            ),
+        ),
+    ] = None,
+    pretrained_name: Annotated[
+        str,
+        typer.Option("--pretrained-name", help="Name of the first model."),
+    ] = DEFAULT_PRETRAINED_NAME,
+    unlearned_name: Annotated[
+        str,
+        typer.Option("--unlearned-name", help="Name of the second model."),
+    ] = DEFAULT_UNLEARNED_NAME,
+) -> None:
+    """Compare two models' summaries in an Excel workbook.
+
+    Each dataset gets a sheet with one row per category, both models' headline
+    scores, and a horizontal bar chart.
+    """
+    sheet_names = export_excel(
+        pretrained_summary=pretrained_summary,
+        unlearned_summary=unlearned_summary,
+        output_file=output_file,
+        datasets=datasets,
+        pretrained_name=pretrained_name,
+        unlearned_name=unlearned_name,
+    )
+    typer.echo(f"Wrote {output_file} with sheets: {', '.join(sheet_names)}")
+
+
+EVALUATE_COMMAND_NAME = "evaluate"
+
+
+class _EvaluateByDefaultGroup(TyperGroup):
+    """Run ``evaluate`` unless the first argument names another command.
+
+    This keeps ``llm-behavior-eval <model> <behavior>`` and
+    ``llm-behavior-eval --help`` working next to the other subcommands.
+    """
+
+    def parse_args(self, ctx: "ClickContext", args: list[str]) -> list[str]:
+        group_only_options = {
+            option
+            for param in self.get_params(ctx)
+            for option in param.opts
+            if option not in ctx.help_option_names
+        }
+        if not args or (
+            args[0] not in self.commands and args[0] not in group_only_options
+        ):
+            args = [EVALUATE_COMMAND_NAME, *args]
+        return super().parse_args(ctx, args)
+
+
+app = typer.Typer(cls=_EvaluateByDefaultGroup)
+app.command(
+    EVALUATE_COMMAND_NAME,
+    epilog="To compare two models in Excel, see: llm-behavior-eval export-excel --help",
+)(main)
+app.command("export-excel")(export_excel_command)
 
 if __name__ == "__main__":
     app()
