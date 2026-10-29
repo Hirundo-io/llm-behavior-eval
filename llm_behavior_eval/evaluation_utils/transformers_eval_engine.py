@@ -147,7 +147,7 @@ class TransformersEvalEngine(EvalEngine):
 
             def halve_reducer():
                 nonlocal current_bs
-                current_bs = max(1, current_bs // 2)
+                current_bs //= 2
                 return current_bs
 
             wrapper = find_executable_batch_size(

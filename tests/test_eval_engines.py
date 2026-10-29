@@ -875,3 +875,83 @@ def test_transformers_eval_engine_get_batch_size_autotune(
     assert batch_size == len(dataset)
     assert transformers_bundle.find_recorder.calls == [len(dataset)]
     assert transformers_bundle.candidate_recorder.calls == [len(dataset)]
+
+
+@pytest.fixture
+def transformers_batch_size_engine(
+    transformers_bundle: TransformersPatchBundle,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> TransformersEvalEngine:
+    """Stub model loading while preserving Accelerate's real retry loop."""
+    monkeypatch.setattr(
+        "llm_behavior_eval.evaluation_utils.transformers_eval_engine.load_transformers_model_and_tokenizer",
+        transformers_bundle.loader_stub,
+    )
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir=tmp_path,
+    )
+    return TransformersEvalEngine(transformers_bundle.data_collator, config)
+
+
+@pytest.mark.parametrize(
+    ("sample_count", "largest_fitting_batch", "expected_candidates"),
+    [
+        (4, 0, [4, 2, 1]),
+        (1, 0, [1]),
+        (4, 1, [4, 2, 1]),
+        (4, 4, [4]),
+    ],
+)
+def test_transformers_batch_size_search_with_real_accelerate(
+    transformers_batch_size_engine: TransformersEvalEngine,
+    monkeypatch: pytest.MonkeyPatch,
+    sample_count: int,
+    largest_fitting_batch: int,
+    expected_candidates: list[int],
+) -> None:
+    engine = transformers_batch_size_engine
+    engine.set_dataset(Dataset.from_dict({"prompt": list(range(sample_count))}))
+    candidates: list[int] = []
+
+    def probe(candidate_bs: int) -> int:
+        candidates.append(candidate_bs)
+        # Bound retries so a broken reducer fails instead of hanging CI.
+        assert len(candidates) <= 8, (
+            f"Batch-size search did not terminate: {candidates}"
+        )
+        if candidate_bs > largest_fitting_batch:
+            raise RuntimeError("CUDA out of memory.")
+        return candidate_bs
+
+    monkeypatch.setattr(engine, "_get_first_non_oom_batch_size", probe)
+
+    if largest_fitting_batch == 0:
+        with pytest.raises(
+            RuntimeError, match="No executable batch size found, reached zero"
+        ):
+            engine.get_batch_size()
+    else:
+        assert engine.get_batch_size() == largest_fitting_batch
+
+    assert candidates == expected_candidates
+
+
+@pytest.mark.parametrize("is_judge", [False, True])
+def test_transformers_explicit_batch_size_skips_search(
+    transformers_batch_size_engine: TransformersEvalEngine,
+    monkeypatch: pytest.MonkeyPatch,
+    is_judge: bool,
+) -> None:
+    engine = transformers_batch_size_engine
+    engine.eval_config.batch_size = 7
+    engine.eval_config.judge_batch_size = 3
+    engine.is_judge = is_judge
+
+    def unexpected_probe(candidate_bs: int) -> int:
+        pytest.fail(f"Explicit batch size should bypass probing, tried {candidate_bs}")
+
+    monkeypatch.setattr(engine, "_get_first_non_oom_batch_size", unexpected_probe)
+
+    assert engine.get_batch_size() == (3 if is_judge else 7)
