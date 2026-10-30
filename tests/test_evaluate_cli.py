@@ -279,10 +279,10 @@ def test_main_allows_configured_ccpc_judge_and_checks_both_trusted_providers(
     assert not capture_eval_config[-1].trust_remote_code
 
     evaluate.main("fake/model", "chinese_censorship")
-    assert capture_eval_config[-1].judge_path_or_repo_id == "google/gemma-3-12b-it"
+    assert capture_eval_config[-1].judge_path_or_repo_id == "google/gemma-4-12B-it"
 
     evaluate.main("google/model", "hallu")
-    assert capture_eval_config[-1].judge_path_or_repo_id == "google/gemma-3-12b-it"
+    assert capture_eval_config[-1].judge_path_or_repo_id == "google/gemma-4-12B-it"
     assert capture_eval_config[-1].trust_remote_code
 
     evaluate.main("google/model", "hallu", judge_model="untrusted/judge")
@@ -891,3 +891,32 @@ def test_dataset_credential_is_excluded_from_config(tmp_path):
     assert "synthetic-dataset" not in repr(config)
     assert "synthetic-dataset" not in str(config)
     assert config.resolve_for_family("refusal").dataset_token == "synthetic-dataset"
+
+
+@pytest.mark.parametrize("judge_model", [None, "example/custom-judge"])
+def test_cli_judge_default_and_override(
+    capture_eval_config: list[EvaluationConfig], judge_model: str | None
+) -> None:
+    args = ["fake/model", "hallu"]
+    if judge_model is not None:
+        args.extend(["--judge-model", judge_model])
+    result = CliRunner().invoke(evaluate.app, args)
+    assert result.exit_code == 0, result.output
+    assert capture_eval_config[-1].judge_path_or_repo_id == (
+        judge_model or "google/gemma-4-12B-it"
+    )
+
+
+@pytest.mark.parametrize("judge_model", [None, "example/custom-judge"])
+def test_python_judge_default_and_override(judge_model: str | None) -> None:
+    config = EvaluationConfig(
+        model_path_or_repo_id="fake/model",
+        results_dir="results",
+    )
+    if judge_model is not None:
+        config = EvaluationConfig(
+            model_path_or_repo_id="fake/model",
+            results_dir="results",
+            judge_path_or_repo_id=judge_model,
+        )
+    assert config.judge_path_or_repo_id == (judge_model or "google/gemma-4-12B-it")
