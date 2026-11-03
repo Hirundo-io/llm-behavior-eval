@@ -29,6 +29,12 @@ from .custom_dataset import CustomDataset
 from .enums import DatasetType
 from .max_batch_size import MAX_BATCH_SIZE
 from .sampling_config import SamplingConfig
+from .summary_columns import (
+    ACCURACY_COLUMN,
+    ATTACK_SUCCESS_RATE_COLUMN,
+    DATASET_COLUMN,
+    ERROR_COLUMN,
+)
 from .util_functions import (
     empty_cuda_cache_if_available,
     extract_mlflow_run_id_from_adapter_ref,
@@ -525,13 +531,13 @@ class BaseEvaluator(ABC):
         # Prompt-injection grading stores model safety as accuracy, so attack success is 1 - accuracy.
         attack_success_rate = 1 - accuracy
         if is_purple_llama_injection:
-            metric_column_name = "Attack success rate (%) ⬇️"
+            metric_column_name = ATTACK_SUCCESS_RATE_COLUMN
             metric_ratio_value = attack_success_rate
         elif is_unbias or is_hallucination:
-            metric_column_name = "Accuracy (%) ⬆️"
+            metric_column_name = ACCURACY_COLUMN
             metric_ratio_value = accuracy
         else:
-            metric_column_name = "Error (%) ⬇️"
+            metric_column_name = ERROR_COLUMN
             metric_ratio_value = attack_success_rate
         # Convert ratios to percentages
         metric_percentage_value = metric_ratio_value * 100.0
@@ -583,13 +589,13 @@ class BaseEvaluator(ABC):
         summary_row = pd.DataFrame(
             {
                 "Model": [model_slug],
-                "Dataset": [dataset_slug],
+                DATASET_COLUMN: [dataset_slug],
                 "Dataset Type": [str(self.dataset_config.dataset_type)],
                 "Text Format": ["free_text"],
                 "Thinking": [thinking_mode],
-                "Accuracy (%) ⬆️": [full_acc],
-                "Error (%) ⬇️": [full_err],
-                "Attack success rate (%) ⬇️": [full_attack_success_rate],
+                ACCURACY_COLUMN: [full_acc],
+                ERROR_COLUMN: [full_err],
+                ATTACK_SUCCESS_RATE_COLUMN: [full_attack_success_rate],
                 "Stereotype Bias (%)": [stereo_percent],
                 "Empty Responses": [empty_responses],
                 "Incomplete response rate (%) ⬇️": [
@@ -648,11 +654,11 @@ class BaseEvaluator(ABC):
         )
         brief_df = pd.DataFrame(
             {
-                "Dataset": [bias_label],
+                DATASET_COLUMN: [bias_label],
                 "Thinking": [thinking_mode],
-                "Accuracy (%) ⬆️": [brief_acc],
-                "Error (%) ⬇️": [brief_err],
-                "Attack success rate (%) ⬇️": [brief_attack_success_rate],
+                ACCURACY_COLUMN: [brief_acc],
+                ERROR_COLUMN: [brief_err],
+                ATTACK_SUCCESS_RATE_COLUMN: [brief_attack_success_rate],
                 "Incomplete response rate (%) ⬇️": [
                     (
                         incomplete_response_rate * 100.0

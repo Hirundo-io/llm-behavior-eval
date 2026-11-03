@@ -318,6 +318,19 @@ Per‑model summaries are saved as `results/<model>/summary_full.csv` (full metr
 - Chinese censorship: `chinese_censorship`
 - Refusal: `XSTest` or `or-bench`
 
+### Compare two models in Excel
+
+`llm-behavior-eval export-excel` compares two models' `summary_brief.csv` files, for example a pretrained model and its unlearned version, in an `.xlsx` workbook. Each dataset gets its own sheet with one row per category, both models' headline scores (Error, Attack success rate, Censorship rate or Accuracy), and a horizontal bar chart. The dataset is the part of a label before `:` (`BBQ` in `BBQ: age bias`); labels without `:`, such as `halueval`, get a sheet of their own. Refusal rows have no single headline score and are left out.
+
+Install: `pip install llm-behavior-eval[excel]`.
+
+```bash
+llm-behavior-eval export-excel results/Llama-3.1-8B-Instruct results/Llama-3.1-8B-Instruct-lora-unlearned \
+  --output comparison.xlsx --dataset BBQ --dataset UNQOVER
+```
+
+Pass a `summary_brief.csv` file or the model results folder that contains it. Without `--dataset`, every dataset is exported. The columns are named "Pretrained model" and "Unlearned model" unless you pass `--pretrained-name` and `--unlearned-name`.
+
 ## Tested on
 
 Validated the pipeline on the following models:

@@ -891,3 +891,90 @@ def test_dataset_credential_is_excluded_from_config(tmp_path):
     assert "synthetic-dataset" not in repr(config)
     assert "synthetic-dataset" not in str(config)
     assert config.resolve_for_family("refusal").dataset_token == "synthetic-dataset"
+
+
+def test_cli_keeps_evaluate_as_the_default_command(capture_eval_config) -> None:
+    explicit = CliRunner().invoke(evaluate.app, ["evaluate", "fake/model", "hallu"])
+    implicit = CliRunner().invoke(evaluate.app, ["fake/model", "hallu"])
+
+    assert explicit.exit_code == 0, explicit.output
+    assert implicit.exit_code == 0, implicit.output
+    assert [config.model_path_or_repo_id for config in capture_eval_config] == [
+        "fake/model",
+        "fake/model",
+    ]
+
+
+def test_cli_help_points_to_export_excel() -> None:
+    result = CliRunner().invoke(evaluate.app, ["--help"], env={"COLUMNS": "200"})
+
+    assert result.exit_code == 0
+    assert "export-excel --help" in strip_ansi(result.output)
+
+
+def test_cli_export_excel_forwards_options(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_export_excel(**kwargs: object) -> list[str]:
+        calls.append(kwargs)
+        return ["BBQ", "UNQOVER"]
+
+    monkeypatch.setattr(evaluate, "export_excel", fake_export_excel)
+
+    result = CliRunner().invoke(
+        evaluate.app,
+        [
+            "export-excel",
+            str(tmp_path / "pretrained"),
+            str(tmp_path / "unlearned"),
+            "--output",
+            str(tmp_path / "comparison.xlsx"),
+            "--dataset",
+            "BBQ",
+            "--dataset",
+            "UNQOVER",
+            "--unlearned-name",
+            "Unlearned v2",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "sheets: BBQ, UNQOVER" in result.output
+    assert calls == [
+        {
+            "pretrained_summary": tmp_path / "pretrained",
+            "unlearned_summary": tmp_path / "unlearned",
+            "output_file": tmp_path / "comparison.xlsx",
+            "datasets": ["BBQ", "UNQOVER"],
+            "pretrained_name": "Pretrained model",
+            "unlearned_name": "Unlearned v2",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        FileNotFoundError("Summary file not found: missing.csv"),
+        ValueError("Datasets not found in either summary: ['CBBQ']"),
+        ImportError("Excel export needs the optional Excel extra"),
+    ],
+)
+def test_cli_export_excel_reports_errors_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, error: Exception
+) -> None:
+    def failing_export_excel(**kwargs: object) -> list[str]:
+        raise error
+
+    monkeypatch.setattr(evaluate, "export_excel", failing_export_excel)
+
+    result = CliRunner().invoke(
+        evaluate.app,
+        ["export-excel", "a", "b", "--output", str(tmp_path / "out.xlsx")],
+    )
+
+    assert result.exit_code == 1
+    assert f"Error: {error}" in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
