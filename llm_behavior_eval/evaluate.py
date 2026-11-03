@@ -3,7 +3,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 import torch
 import typer
@@ -35,6 +35,10 @@ from llm_behavior_eval.evaluation_utils.eval_config import (
     EvaluatorFamily,
 )
 from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
+from llm_behavior_eval.evaluation_utils.plotting import (
+    plot_summary_metrics,
+    require_plotly,
+)
 from llm_behavior_eval.evaluation_utils.sampling_config import SamplingConfig
 from llm_behavior_eval.evaluation_utils.util_functions import (
     empty_cuda_cache_if_available,
@@ -45,6 +49,9 @@ from llm_behavior_eval.evaluation_utils.vllm_config import (
 )
 from llm_behavior_eval.evaluation_utils.vllm_types import TokenizerModeOption
 from llm_behavior_eval.presets import build_bias_dataset_id, expand_dataset_preset
+
+if TYPE_CHECKING:
+    from llm_behavior_eval.evaluation_utils.base_evaluator import BaseEvaluator
 
 torch.set_float32_matmul_precision("high")
 
@@ -84,6 +91,30 @@ def _resolve_bias_behavior(
     if bias_type not in allowed_types:
         raise ValueError(f"{support_label} supports: {allowed_with_all}")
     return [build_bias_dataset_id(prefix, bias_type, kind)]
+
+
+def _plot_summary_metrics(evaluator: "BaseEvaluator") -> None:
+    """Chart the model summary; a plotting failure never fails a graded run."""
+    model_slug = evaluator.get_model_slug()
+    summary_csv = (
+        Path(evaluator.eval_config.results_dir) / model_slug / "summary_full.csv"
+    )
+    log_to_mlflow = evaluator.mlflow_config is not None
+    try:
+        chart_paths = plot_summary_metrics(
+            summary_csv,
+            series_label=model_slug,
+            log_to_mlflow=log_to_mlflow,
+            mlflow_artifact_path=evaluator.mlflow_artifact_path()
+            if log_to_mlflow
+            else None,
+        )
+    except Exception:
+        logging.exception(
+            "Could not plot %s; evaluation results are kept.", summary_csv
+        )
+        return
+    logging.info("Wrote %d radar chart(s) next to %s", len(chart_paths), summary_csv)
 
 
 def _default_results_dir() -> Path:
@@ -586,6 +617,17 @@ def main(
             ),
         ),
     ] = None,
+    plot: Annotated[
+        bool,
+        typer.Option(
+            "--plot/--no-plot",
+            help=(
+                "After grading, write a Plotly radar chart per summary metric to "
+                "<results>/<model>/plots (needs the 'plotly' extra). With MLflow "
+                "enabled, the charts are also logged to the run."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Run evaluations and trust inference checks both roles.
 
@@ -597,6 +639,8 @@ def main(
     Raises:
         ValueError: If evaluator families are mixed.
     """
+    if plot:
+        require_plotly()
     model_path_or_repo_id = model
     judge_path_or_repo_id = judge_model
     result_dir = output_dir if output_dir is not None else _default_results_dir()
@@ -777,6 +821,8 @@ def main(
                 with evaluator.dataset_mlflow_run():
                     evaluator.grade(generations, judge)
         evaluation_error = False
+        if plot:
+            _plot_summary_metrics(evaluator)
     finally:
         if evaluator is not None and evaluator.started_mlflow_run:
             evaluator.cleanup(error=evaluation_error)

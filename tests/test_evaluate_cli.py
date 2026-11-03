@@ -891,3 +891,80 @@ def test_dataset_credential_is_excluded_from_config(tmp_path):
     assert "synthetic-dataset" not in repr(config)
     assert "synthetic-dataset" not in str(config)
     assert config.resolve_for_family("refusal").dataset_token == "synthetic-dataset"
+
+
+class _PlottingStubEvaluator(_StubEvaluator):
+    def __init__(self, eval_config: EvaluationConfig) -> None:
+        self.eval_config = eval_config
+        self.mlflow_config = eval_config.mlflow_config
+
+    def get_model_slug(self) -> str:
+        return "model"
+
+    def mlflow_artifact_path(self) -> str:
+        return "llm-behavior-eval/run"
+
+
+@pytest.fixture
+def plotting_evaluator(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        evaluate.EvaluateFactory,
+        "create_evaluator",
+        staticmethod(
+            lambda eval_config, dataset_config: _PlottingStubEvaluator(eval_config)
+        ),
+    )
+
+
+@pytest.mark.usefixtures("plotting_evaluator")
+def test_main_plots_model_summary_after_grading(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_plot_summary_metrics(summary_csv: Path, **kwargs: object) -> list[Path]:
+        calls.append({"summary_csv": summary_csv, **kwargs})
+        return []
+
+    monkeypatch.setattr(evaluate, "plot_summary_metrics", fake_plot_summary_metrics)
+
+    evaluate.main("fake/model", "hallu", output_dir=tmp_path, plot=True)
+
+    assert calls == [
+        {
+            "summary_csv": tmp_path / "model" / "summary_full.csv",
+            "series_label": "model",
+            "log_to_mlflow": False,
+            "mlflow_artifact_path": None,
+        }
+    ]
+
+
+@pytest.mark.usefixtures("plotting_evaluator")
+def test_main_keeps_results_when_plotting_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def failing_plot_summary_metrics(summary_csv: Path, **kwargs: object) -> None:
+        raise ValueError("bad summary")
+
+    monkeypatch.setattr(evaluate, "plot_summary_metrics", failing_plot_summary_metrics)
+
+    evaluate.main("fake/model", "hallu", output_dir=tmp_path, plot=True)
+
+    assert "Could not plot" in caplog.text
+
+
+def test_main_requires_plotly_before_evaluating(
+    monkeypatch: pytest.MonkeyPatch,
+    capture_eval_config: list[EvaluationConfig],
+) -> None:
+    def missing_plotly() -> None:
+        raise ImportError("plotly missing")
+
+    monkeypatch.setattr(evaluate, "require_plotly", missing_plotly)
+
+    with pytest.raises(ImportError, match="plotly missing"):
+        evaluate.main("fake/model", "hallu", plot=True)
+    assert capture_eval_config == []
