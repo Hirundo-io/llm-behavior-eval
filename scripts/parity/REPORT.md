@@ -145,6 +145,15 @@ archives and existing pure-Python tooling supplied the fallback environment.
 - Repository-wide Ruff format/check: pass. Focused Pyrefly over scripts/parity and the evidence tests: **0 diagnostics**.
 - Pending comparison exits 2 with all 31 rows incomplete, as designed.
 
+Parent integration validation (same day): all nine benchmark test modules,
+foundation, registry smoke and evidence tests passed together: **254 passed**
+in 75.45 seconds. This run used the existing OR-Bench worktree's complete
+comparison environment with the integration checkout on `PYTHONPATH`, offline
+HF flags, and execution outside sandbox socket restrictions. Repository Ruff
+format/check and focused parity-script/test Pyrefly checks also passed after
+narrowing the shuffled Arrow dataset type. These are deterministic/mock checks;
+they do not qualify the live benchmark score gate.
+
 Fixtures cover missing/duplicate/misaligned IDs, hash mismatch, failed samples
 and runs, absent fields/provenance/primary metrics, undefined metrics, confusion
 counts, percent/fraction conversion, batched generation evidence, and 1024/256

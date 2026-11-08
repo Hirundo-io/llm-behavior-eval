@@ -29,11 +29,12 @@ def main() -> None:
         dataset = Dataset.from_file(str(args.arrow))
         source.mkdir(parents=True, exist_ok=True)
         dataset.to_parquet(str(source / "train.parquet"))
-        selected = (
-            dataset.add_column("_source_id", list(range(len(dataset))))
-            .shuffle(seed=42)
-            .select(range(min(args.samples, len(dataset))))
+        selected = dataset.add_column("_source_id", list(range(len(dataset)))).shuffle(
+            seed=42
         )
+        if not isinstance(selected, Dataset):
+            raise TypeError("Expected a single shuffled Arrow dataset")
+        selected = selected.select(range(min(args.samples, len(selected))))
         (args.root / "selection.json").write_text(
             json.dumps(
                 {
