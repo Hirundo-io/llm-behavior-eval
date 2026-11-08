@@ -90,6 +90,23 @@ def test_offline_caps_and_validation(tmp_path, monkeypatch):
         refusal_dataset("hirundo-io/XSTest", max_samples=1)
 
 
+def test_xstest_shuffle_before_cap(monkeypatch):
+    from llm_behavior_eval.xstest.dataset import dataset
+
+    source = Dataset.from_dict(
+        {"question": [f"q{i}" for i in range(20)], "label": ["safe"] * 20}
+    )
+    monkeypatch.setattr(
+        "llm_behavior_eval.refusal.dataset.load_hf_dataset", lambda *a, **kw: source
+    )
+    expected = list(source.shuffle(seed=42)["question"])
+    for cap in (3, 0):
+        data = dataset(max_samples=cap)
+        questions = expected[:cap] if cap else expected
+        assert [s.input for s in data] == questions
+        assert [s.id for s in data] == [f"hirundo-io/XSTest:{q[1:]}" for q in questions]
+
+
 def test_legacy_metric_parity(monkeypatch, legacy):
     labels = ["safe", "safe", "safe", "unsafe", "unsafe", "unsafe", "safe"]
     answers = [

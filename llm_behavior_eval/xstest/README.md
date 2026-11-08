@@ -4,7 +4,8 @@
 loads `hirundo-io/XSTest`. Legacy `refusal:xstest` and `refusal:all` are unchanged.
 Use `-T dataset_path=/snapshot` for a saved HF dataset or another HF loading
 source; `dataset_token` is optional. Source row IDs are `hirundo-io/XSTest:<index>`.
-The entire source is validated before the default 500-row cap; nonpositive or
+The entire source is validated and shuffled with the legacy seed 42 before the
+default 500-row cap; source-row IDs remain stable. Nonpositive or
 None means all. Input is question (preferred) or prompt, with no target.
 
 Answer generation is native Inspect, user-only with a trailing newline,

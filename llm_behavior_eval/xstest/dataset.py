@@ -15,4 +15,5 @@ def dataset(
         dataset_path=dataset_path,
         dataset_token=dataset_token,
         max_samples=max_samples,
+        seed=42,
     )
