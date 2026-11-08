@@ -34,7 +34,7 @@ This toolkit evaluates five classes of behaviors:
 Dataset identifiers:
 
 - BBQ: `hirundo-io/bbq-<bias_type>-<bias|unbias>-free-text`
-- UNQOVER: `unqover/unqover-<bias_type>-bias-free-text`
+- UNQOVER: `hirundo-io/unqover-<bias_type>-bias-free-text` (native Inspect: [UNQOVER guide](llm_behavior_eval/unqover/README.md))
 - HaluEval: `hirundo-io/halueval`
 - Med‑Hallu: `hirundo-io/medhallu`
 - Prompt Injection (Purple Llama): `hirundo-io/prompt-injection-purple-llama`
