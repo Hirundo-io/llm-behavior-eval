@@ -371,3 +371,34 @@ is backed up at the unique `VM_OFF_h200.llm169-f8a66042-backup` sibling path.
 GPU ownership remains with this run until all work finishes and original-state
 cleanup is verified. Box and rtx2 are untouched. No PR, push, release, Linear or
 Slack action has been taken.
+
+Follow-up wiring observations (still not the 500-row deliverable): all nine
+families have run real two-row answer/judge paths. The first combined native
+server run reproduced both Med-Hallu input token sequences but changed both
+answers. A fresh native server reproduced both legacy answers exactly. A further
+BBQ-then-Med-Hallu run with vLLM's public per-case `cache_salt` also reproduced all
+four answers exactly while reusing the server. This implicates server/cache
+history; it does not establish a numerical root cause or permit divergence.
+Historical differing outputs are preserved under `small/`, the fresh diagnostic
+under `isolated/`, and the cache-namespace diagnostic under `salt-probe/`.
+
+Inspect 0.3.288's separate score API suppresses raw model call records. The runner
+now observes the provider's existing `on_response` hook, preserving its callback,
+and correlates raw judge responses by response ID. A real BBQ scoring probe
+captured nonempty raw responses and prompt token IDs. Earlier scoring logs lack
+this observation and remain explicitly incomplete. `ordered.py` uses the public
+`score_async(samples=...)` context-provider API to serialize saved samples in
+source order; it does not alter sample input, target, scoring, or the saved
+answer log. This aligns batch-one judge scheduling with the retained evaluator.
+Response insertion order is reported separately from sample-grouped event order.
+
+Two report-only corrections follow actual artifact inspection: Purple message
+comparison excludes Inspect's random message IDs while retaining all content and
+other fields; CCPC's documented `C/I/N` verdicts map to retained true/false/null.
+Neither correction changes production behavior. Synthetic boundary probes and
+the all-31 capped matrix are now queued on H200 with per-case cache namespaces,
+ordered samples, matched greedy BF16 budgets, request seed 42, engine seed 0,
+maximum one sequence, and explicit 16384 prefill capacity. No 500-row completion
+is asserted here. The durable controller records phase commands/status and
+runner hashes in the remote root. Raw wiring/reuse evidence is also preserved in
+ignored `results/llm169-production-h200/wiring-and-reuse-evidence.tar.gz`.

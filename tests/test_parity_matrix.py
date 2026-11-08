@@ -97,3 +97,120 @@ def test_matrix_missing_results_are_not_zero(tmp_path):
     assert all(
         row["metrics"] is None and row["samples"] is None for row in report["cases"]
     )
+
+
+def test_native_response_observer_preserves_hook_and_failure_evidence(
+    tmp_path, monkeypatch
+):
+    from typing import Any
+
+    from inspect_ai.model import get_model
+
+    from scripts.parity.capture import capture_judge_responses
+
+    model = get_model("mockllm/capture")
+    api: Any = model.api
+    observed = []
+    monkeypatch.setattr(api, "on_response", observed.append, raising=False)
+    original = api.on_response
+    response = {"id": "real-response-id", "prompt_token_ids": [2, 2, 106]}
+    path = tmp_path / "responses.json"
+    with pytest.raises(RuntimeError, match="later scoring failed"):
+        with capture_judge_responses(model, path):
+            api.on_response(response)
+            raise RuntimeError("later scoring failed")
+    assert api.on_response is original
+    assert observed == [response]
+    assert json.loads(path.read_text()) == {"real-response-id": response}
+
+
+def test_ordered_samples_preserve_objects_and_sequence():
+    import asyncio
+    from types import SimpleNamespace
+
+    from scripts.parity.ordered import ordered_samples
+
+    samples = [object(), object(), object()]
+    observed = []
+
+    async def run():
+        provider = ordered_samples(SimpleNamespace(samples=samples))
+
+        async def visit(index):
+            async with provider(index) as sample:
+                assert sample is samples[index]
+                observed.append(index)
+                await asyncio.sleep(0)
+                observed.append(index)
+
+        await asyncio.gather(visit(2), visit(0), visit(1))
+
+    asyncio.run(run())
+    assert observed == [0, 0, 1, 1, 2, 2]
+
+
+def test_inspect_score_accepts_ordered_saved_sample_provider(tmp_path):
+    import asyncio
+
+    from inspect_ai import Task, score_async
+    from inspect_ai import eval as inspect_eval
+    from inspect_ai.dataset import Sample
+    from inspect_ai.scorer import Score, accuracy, scorer
+    from inspect_ai.solver import generate
+
+    from scripts.parity.ordered import ordered_samples
+
+    seen = []
+
+    @scorer(metrics=[accuracy()])
+    def observe():
+        async def score(state, target):
+            seen.append(state.sample_id)
+            await asyncio.sleep(0)
+            return Score(value=1)
+
+        return score
+
+    task = Task(
+        dataset=[Sample(id=i, input=f"Question {i}") for i in range(3)],
+        solver=generate(),
+        scorer=observe(),
+    )
+    log = inspect_eval(
+        task,
+        model="mockllm/ordered",
+        score=False,
+        max_samples=1,
+        log_dir=str(tmp_path),
+        display="none",
+    )[0]
+    result = asyncio.run(
+        score_async(
+            log, task.scorer, samples=ordered_samples(log), copy=False, display="none"
+        )
+    )
+    assert seen == [0, 1, 2]
+    assert all(sample.scores for sample in result.samples)
+    assert result.results.scores[0].metrics["accuracy"].value == 1
+
+
+def test_original_messages_ignore_generated_ids_only():
+    from inspect_ai.model import ChatMessageSystem, ChatMessageUser
+
+    from scripts.parity.report_matrix import input_content
+
+    original = [ChatMessageSystem(content="S"), ChatMessageUser(content="Q\n")]
+    replayed = [ChatMessageSystem(content="S"), ChatMessageUser(content="Q\n")]
+    assert original != replayed
+    assert input_content(original) == input_content(replayed)
+    replayed[1].content = "Q"
+    assert input_content(original) != input_content(replayed)
+
+
+@pytest.mark.parametrize("value,expected", [("C", True), ("I", False), ("N", None)])
+def test_ccpc_comparator_uses_documented_labels(value, expected):
+    from scripts.parity.report_matrix import ccpc_verdict
+
+    assert ccpc_verdict(value) is expected
+    with pytest.raises(KeyError):
+        ccpc_verdict("unrecognized")

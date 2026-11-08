@@ -5,6 +5,7 @@ Prepare can run on CPU before GPU ownership. Inference requires exclusive GPU us
 """
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -21,6 +22,8 @@ def main() -> None:
     parser.add_argument("--samples", type=int, default=500)
     parser.add_argument("--cases", nargs="+")
     parser.add_argument("--group-native", action="store_true")
+    parser.add_argument("--isolate-cache", action="store_true")
+    parser.add_argument("--ordered", action="store_true")
     parser.add_argument(
         "--phases",
         nargs="+",
@@ -35,7 +38,12 @@ def main() -> None:
         ]
     )
     args.root.mkdir(parents=True, exist_ok=True)
-    ledger = args.root / ("phases-" + "-".join(args.phases) + ".json")
+    suffix = (
+        "-cases-" + hashlib.sha256(json.dumps(cases).encode()).hexdigest()[:12]
+        if args.cases
+        else ""
+    )
+    ledger = args.root / ("phases-" + "-".join(args.phases) + suffix + ".json")
     if ledger.exists():
         raise ValueError(
             "Existing phase ledger; use a fresh run root or explicit phase selection"
@@ -110,6 +118,10 @@ def main() -> None:
                     "--log-dir",
                     str(args.root / ("native-" + group[0].name)),
                 ]
+                if args.isolate_cache:
+                    cmd.append("--isolate-cache")
+                if args.ordered:
+                    cmd.append("--ordered")
                 log_path = args.root / (phase + "-" + group[0].name + ".log")
                 if log_path.exists():
                     raise ValueError(f"Refusing to overwrite {log_path}")

@@ -5,10 +5,14 @@ No successful phase alone constitutes a parity result; compare captured evidence
 """
 
 import argparse
+import asyncio
 import hashlib
 import json
 from pathlib import Path
 from typing import Any
+
+from scripts.parity.capture import capture_judge_responses
+from scripts.parity.ordered import ordered_samples
 
 
 def case_identity(name: str) -> tuple[str, str, dict[str, Any]]:
@@ -291,7 +295,7 @@ def main() -> None:
             (root / "legacy-boundary.json").write_text(json.dumps(captured))
         return
     from inspect_ai import eval as inspect_eval
-    from inspect_ai import score
+    from inspect_ai import score_async
     from inspect_ai.log import read_eval_log, write_eval_log
     from inspect_ai.model import GenerateConfig, get_model
 
@@ -312,6 +316,7 @@ def main() -> None:
             language_model_only=True,
             dtype="bfloat16",
             max_num_seqs=1,
+            max_num_batched_tokens=16384,
             seed=0,
             host="127.0.0.1",
         )
@@ -332,6 +337,7 @@ def main() -> None:
             model_roles={"grader": grader},
             score=False,
             max_connections=1,
+            max_samples=1,
             log_dir=str(root / "native"),
             display="none",
         )
@@ -342,13 +348,18 @@ def main() -> None:
         log = read_eval_log((root / "answer-log.txt").read_text().strip())
         if not task.scorer:
             raise ValueError("Missing production scorer")
-        scored = score(
-            log,
-            task.scorer,
-            metrics=task.metrics,
-            model_roles={"grader": grader},
-            display="none",
-        )
+        with capture_judge_responses(grader, root / "native-judge-responses.json"):
+            scored = asyncio.run(
+                score_async(
+                    log,
+                    task.scorer,
+                    metrics=task.metrics,
+                    model_roles={"grader": grader},
+                    display="none",
+                    samples=ordered_samples(log),
+                    copy=False,
+                )
+            )
         write_eval_log(scored, str(root / "scored.eval"))
 
 

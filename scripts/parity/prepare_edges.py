@@ -41,8 +41,9 @@ def main() -> None:
         row = dict(raw[index])
         question_key = "question" if "question" in row else "prompt"
         row[question_key] = "Reply with the single word OK.\n" + (
-            "Context filler. " * (400 + index * 200)
+            "Context filler. " * [400, 0, 220, 600][index]
         )
+        row[question_key] += "\nReply with the single word OK."
         if "answer" in row:
             row["answer"] = "OK " + ("target boundary " * 300)
         if "stereotyped_answer" in row:
@@ -61,7 +62,7 @@ def main() -> None:
         synthetic_edge=True,
         original_rows=source["rows"],
         rows=4,
-        revision=source["revision"] + "+synthetic-boundary-v1",
+        revision=source["revision"] + "+synthetic-boundary-v2",
         ids=[sample.id for sample in task.dataset],
         parquet_sha256=hashlib.sha256(parquet.read_bytes()).hexdigest(),
     )

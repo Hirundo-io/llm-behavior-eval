@@ -7,8 +7,25 @@ from collections import Counter
 from pathlib import Path
 from typing import cast
 
+from inspect_ai.model import ChatMessage
+from inspect_ai.scorer import CORRECT, INCORRECT, NOANSWER
+
 from scripts.parity.compare import compare_case, digest
 from scripts.parity.qualify_matrix import case_identity
+
+
+def input_content(value: str | list[ChatMessage]) -> str | list[dict]:
+    """Compare original messages while ignoring Inspect's fresh random IDs only."""
+    return (
+        value
+        if isinstance(value, str)
+        else [message.model_dump(exclude={"id"}) for message in value]
+    )
+
+
+def ccpc_verdict(value: str) -> bool | None:
+    """Map the documented Inspect labels to retained bool/null verdicts."""
+    return {CORRECT: True, INCORRECT: False, NOANSWER: None}[value]
 
 
 def main() -> None:
@@ -20,11 +37,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--provision", type=Path, required=True)
+    parser.add_argument("--tokenizer-path", type=Path)
     args = parser.parse_args()
     root = args.root.resolve()
     identity = json.loads((root / "identity-config.json").read_text())
     source = json.loads((root / "source.json").read_text())
     provision = json.loads(args.provision.read_text())
+    provisioned = {model["path"]: model for model in provision["models"].values()}
+    if args.tokenizer_path:
+        for filename, expected in provisioned[identity["answer"]][
+            "metadata_sha256"
+        ].items():
+            if filename.startswith("tokenizer") or filename in {
+                "special_tokens_map.json",
+                "chat_template.jinja",
+            }:
+                if digest(args.tokenizer_path / filename) != expected:
+                    raise ValueError(f"Replay tokenizer metadata differs: {filename}")
     family, _, task_args = case_identity(identity["case"])
     paths = list((root / "legacy").rglob("responses.json"))
     if len(paths) != 1:
@@ -92,10 +121,20 @@ def main() -> None:
         dataset_path=str(root / "dataset"), max_samples=identity["samples"], **task_args
     )
     originals = {sample.id: sample for sample in task.dataset}
-    tokenizer = AutoTokenizer.from_pretrained(identity["answer"], local_files_only=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.tokenizer_path or identity["answer"], local_files_only=True
+    )
     if tokenizer is None:
         raise ValueError("Tokenizer did not load")
+    native_response_path = root / "native-judge-responses.json"
+    native_responses = (
+        json.loads(native_response_path.read_text())
+        if native_response_path.exists()
+        else {}
+    )
+    missing_judge_capture = []
     native_judge_ids = []
+    native_judge_outputs = []
     lengths = {
         "answer": [],
         "target": [],
@@ -104,18 +143,26 @@ def main() -> None:
     }
     for sample in log.samples or []:
         original = originals[sample.id]
-        if sample.input != original.input or sample.target != original.target:
+        if (
+            input_content(sample.input) != input_content(original.input)
+            or sample.target != original.target
+        ):
             raise ValueError(f"{sample.id}: original input/target changed")
         events = [event for event in sample.events if event.event == "model"]
         if not events or events[0].call is None or events[0].call.response is None:
             raise ValueError(f"{sample.id}: no actual answer call")
         for event in events[1:]:
-            if event.call is None or event.call.response is None:
-                raise ValueError("Missing judge response event")
-            judge_ids = event.call.response.get("prompt_token_ids")
+            response = event.call.response if event.call else None
+            if response is None:
+                response = native_responses.get(event.output.response_id)
+            if response is None:
+                missing_judge_capture.append(event.output.response_id)
+                continue
+            judge_ids = response.get("prompt_token_ids")
             if not isinstance(judge_ids, list) or not judge_ids:
                 raise ValueError("Missing actual judge prompt IDs")
             native_judge_ids.append(judge_ids)
+            native_judge_outputs.append((tuple(judge_ids), event.output.completion))
         tokens = events[0].call.response.get("prompt_token_ids")
         if (
             not isinstance(tokens, list)
@@ -130,6 +177,18 @@ def main() -> None:
         if meta is None:
             raise ValueError("Missing production score metadata")
         compatibility = sample.metadata["compatibility"]
+        probe = compatibility["prompt"]
+        expected_tokens = [
+            token
+            for token, keep in zip(
+                probe["input_ids"], probe["attention_mask"], strict=True
+            )
+            if keep
+        ]
+        if expected_tokens != tokens:
+            raise ValueError(
+                f"{sample.id}: production metadata differs from actual answer boundary"
+            )
         lengths["answer"].append(len(tokens))
         for component in ("target", "stereotype"):
             if component in compatibility:
@@ -154,7 +213,7 @@ def main() -> None:
             if family == "prompt_injection" and meta.get("skipped")
             else score.answer
             if family == "prompt_injection"
-            else meta["verdict"]
+            else ccpc_verdict(meta["verdict"])
         )
         question = (
             meta["judge_question"]
@@ -185,12 +244,19 @@ def main() -> None:
     )
     (root / "comparison-identity.json").write_text(json.dumps(sidecar, indent=2))
     config = dict(
+        answer_tokenizer_metadata_sha256=provisioned[identity["answer"]][
+            "metadata_sha256"
+        ],
+        judge_tokenizer_metadata_sha256=provisioned[identity["judge"]][
+            "metadata_sha256"
+        ],
         dataset_seed=source["dataset_seed"],
         cap=len(source["ids"]),
         dtype="bfloat16",
         batch_size=1,
         judge_batch_size=1,
         max_num_seqs=1,
+        max_num_batched_tokens=16384,
         temperature=0,
         engine_seed=0,
         request_seed=42,
@@ -219,9 +285,20 @@ def main() -> None:
     }
     native_run = {
         **run,
-        "config": {**config, "request_seed": native_seed},
+        "config": {
+            **config,
+            "request_seed": native_seed,
+            "max_num_batched_tokens": log.eval.model_args.get(
+                "max_num_batched_tokens", "unrecorded API default"
+            ),
+        },
         "transport": "Inspect-owned server",
     }
+    execution = dict(
+        native_sample_concurrency=log.eval.config.max_samples,
+        native_extra_body=log.eval.model_generate_config.extra_body,
+        legacy_execution="Fresh engine per case, sequential answer and judge batches of one",
+    )
     fields = dict(
         verdict=("observed.verdict", "metadata.observed.verdict"),
         answer=("model_answer" if bias else "llm_answer", "output.completion"),
@@ -236,6 +313,11 @@ def main() -> None:
             "metadata.observed.rendered_prompt",
         ),
     )
+    if family == "prompt_injection":
+        fields["response_tokens"] = (
+            "response_tokens",
+            f"scores.{scorer}.metadata.response_tokens",
+        )
     if bias or hallu:
         fields["target"] = ("observed.target", "metadata.compatibility.target.decoded")
     if stereotypes:
@@ -371,6 +453,8 @@ def main() -> None:
         json.dumps(dict(expected_cases=[case["name"]], cases=[case]), indent=2)
     )
     report = compare_case(root, case)
+    report["report_tool_sha256"] = digest(Path(__file__))
+    report["execution"] = execution
     report["boundary_lengths"] = {
         name: dict(
             min=min(values),
@@ -383,20 +467,46 @@ def main() -> None:
     }
     report["synthetic_edge"] = bool(source.get("synthetic_edge"))
     judge_path = root / "legacy-judge-boundary.json"
-    if judge_path.exists():
-        legacy_judge_ids = [
-            row["input_token_ids"] for row in json.loads(judge_path.read_text())
+    if missing_judge_capture:
+        report["judge_boundary"] = dict(
+            status="unavailable: Inspect score omitted raw API calls",
+            missing_response_ids=missing_judge_capture,
+        )
+        report["errors"].append(
+            "Actual native judge token IDs not captured; rerun scoring with response observer"
+        )
+        report["status"] = "incomplete"
+    elif judge_path.exists():
+        judge_observations = json.loads(judge_path.read_text())
+        legacy_judge_ids = [row["input_token_ids"] for row in judge_observations]
+        legacy_judge_outputs = [
+            (tuple(row["input_token_ids"]), row["answer"]) for row in judge_observations
+        ]
+        response_order = [
+            response.get("prompt_token_ids") for response in native_responses.values()
         ]
         report["judge_boundary"] = dict(
             legacy_requests=len(legacy_judge_ids),
             native_requests=len(native_judge_ids),
-            identical_order=legacy_judge_ids == native_judge_ids,
+            identical_sample_grouped_order=legacy_judge_ids == native_judge_ids,
+            identical_response_order=legacy_judge_ids == response_order
+            if native_response_path.exists()
+            else None,
+            ordering_note="Response-hook insertion order records actual native completions. Both sides have one active sequence; sample-grouped event order is reported separately.",
+            identical_raw_outputs=Counter(legacy_judge_outputs)
+            == Counter(native_judge_outputs),
             identical_multiset=Counter(map(tuple, legacy_judge_ids))
             == Counter(map(tuple, native_judge_ids)),
             legacy_max_tokens=max(map(len, legacy_judge_ids), default=0),
             native_max_tokens=max(map(len, native_judge_ids), default=0),
             legacy_sha256=digest(judge_path),
+            native_response_sha256=digest(native_response_path)
+            if native_response_path.exists()
+            else None,
         )
+        if not report["judge_boundary"]["identical_raw_outputs"]:
+            report["errors"].append("Raw judge outputs differ for observed input IDs")
+            report["status"] = "incomplete"
         if not report["judge_boundary"]["identical_multiset"]:
             report["errors"].append("Actual judge token boundaries differ")
             report["status"] = "incomplete"
