@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from inspect_ai.model import GenerateConfig
+from inspect_ai.model import GenerateConfig, Model
 
 Family = Literal["bias", "hallucination", "prompt-injection", "refusal", "censorship"]
 _BUDGETS = {
@@ -35,3 +35,14 @@ def thinking_args(
             )
         return {"enable_thinking": enabled, "do_sample": False}
     return {"extra_body": {"chat_template_kwargs": {argument: enabled}}}
+
+
+def vllm_thinking_args(model: Model, family: Family, *, judge: bool = False) -> dict:
+    """Preserve provider controls while enforcing the family's thinking policy."""
+    controls = thinking_args(family, provider="vllm", judge=judge)
+    extra = dict(model.config.extra_body or {})
+    extra["chat_template_kwargs"] = {
+        **extra.get("chat_template_kwargs", {}),
+        **controls["extra_body"]["chat_template_kwargs"],
+    }
+    return {"extra_body": extra}

@@ -3,7 +3,7 @@
 from inspect_ai.model import GenerateConfig, Model, ModelName, get_model
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 
-from llm_behavior_eval.common.generation import generation_config, thinking_args
+from llm_behavior_eval.common.generation import generation_config, vllm_thinking_args
 
 
 def configured_generation(
@@ -13,13 +13,9 @@ def configured_generation(
     config = generation_config("hallucination", judge=judge)
     provider = ModelName(model).api
     if provider == "vllm":
-        controls = thinking_args("hallucination", provider="vllm", judge=judge)
-        extra = dict(model.config.extra_body or {})
-        extra["chat_template_kwargs"] = {
-            **extra.get("chat_template_kwargs", {}),
-            **controls["extra_body"]["chat_template_kwargs"],
-        }
-        config = config.model_copy(update={"extra_body": extra})
+        config = config.model_copy(
+            update=vllm_thinking_args(model, "hallucination", judge=judge)
+        )
     elif provider == "hf":
         if (
             getattr(model.api, "enable_thinking", None) is not False

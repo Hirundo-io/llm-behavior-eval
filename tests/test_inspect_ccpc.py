@@ -183,6 +183,8 @@ def test_native_judge_all_finishes(monkeypatch, stop):
 
 def test_thinking_controls():
     class FakeModel:
+        config = SimpleNamespace(extra_body=None)
+
         def __init__(self, name, **kw):
             self.name, self.api = name, SimpleNamespace(**kw)
 

@@ -4,7 +4,7 @@ from inspect_ai import Task, task
 from inspect_ai.model import GenerateConfig, Model, get_model
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 
-from llm_behavior_eval.common.generation import generation_config, thinking_args
+from llm_behavior_eval.common.generation import generation_config, vllm_thinking_args
 from llm_behavior_eval.prompt_injection.dataset import dataset
 
 
@@ -17,7 +17,7 @@ def model_config(
         return config
     if provider == "vllm":
         return config.model_copy(
-            update=thinking_args("prompt-injection", provider="vllm", judge=judge)
+            update=vllm_thinking_args(model, "prompt-injection", judge=judge)
         )
     if (
         provider == "hf"

@@ -3,7 +3,7 @@
 from inspect_ai.model import GenerateConfig, Model, get_model
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 
-from llm_behavior_eval.common.generation import generation_config, thinking_args
+from llm_behavior_eval.common.generation import generation_config, vllm_thinking_args
 
 PROMPT_PARITY = (
     "unresolved: legacy chat-template decoding and 1024-token input truncation"
@@ -16,7 +16,7 @@ def ccpc_config(
     config = generation_config("censorship", judge=judge)
     provider = str(model).split("/")[0]
     if provider == "vllm":
-        config.extra_body = thinking_args("censorship", provider="vllm", judge=judge)[
+        config.extra_body = vllm_thinking_args(model, "censorship", judge=judge)[
             "extra_body"
         ]
     elif provider == "hf":

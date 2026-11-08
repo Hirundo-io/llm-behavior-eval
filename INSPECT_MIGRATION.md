@@ -1,8 +1,8 @@
 # Native Inspect foundation (LLM-156)
 
 Native Inspect is the public execution path. The legacy CLI is retired (LLM-168);
-legacy evaluator/config imports remain deprecated for parity validation. Eight
-benchmark tasks are integrated; Purple Llama `prompt_injection` is pending. Inspect 0.3.288 is tested and pinned to `<0.3.289`; revalidate provider
+legacy evaluator/config imports remain deprecated for parity validation. All nine
+benchmark tasks are integrated. Inspect 0.3.288 is tested and pinned to `<0.3.289`; revalidate provider
 contracts before widening this range. Inspect requires Python 3.11+, so its
 mandatory dependency has a Python-version marker; Python 3.10 remains legacy-only.
 
@@ -51,6 +51,10 @@ and loads them directly by file path.
   returns **model args for HF**, **GenerateConfig kwargs for vLLM**. Only refusal
   answer generation enables thinking; judges always request false. HF also
   requests `do_sample=False`. Custom argument names are rejected for HF.
+* `vllm_thinking_args(model, family, *, judge=False)` applies that thinking policy
+  while preserving the model's other `extra_body` controls and template kwargs.
+  All benchmark families use it so caller-supplied truncation, special-token and
+  token-ID capture settings survive. It does not itself establish input parity.
 * `judge_scorer(prompt, pattern, *, config=None, parse=float, only_stop=False,
   exclude_thinking_trace_for_judge=True, thinking_start_token='<think>',
   thinking_end_token='</think>')` returns an Inspect Scorer. Prompt fields are
