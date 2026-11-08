@@ -1,6 +1,7 @@
 """Legacy text preprocessing at the native provider boundary (no inference engine)."""
 
 import hashlib
+import json
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -92,13 +93,69 @@ def judge_target(state: TaskState, target: str) -> str:
     )
 
 
+def validate_hf(api: Any, tokenizer: Any | None = None) -> None:
+    """Validate native HF configuration without mutating shared provider state."""
+    args = api.tokenizer_call_args
+    if not isinstance(args, dict) or set(args) - {
+        "truncation",
+        "max_length",
+        "add_special_tokens",
+    }:
+        raise ValueError(
+            "Unsupported HF tokenizer_call_args; omit padding/return_tensors"
+        )
+    if args.get("add_special_tokens", True) is not True:
+        raise ValueError("HF requires add_special_tokens=True")
+    if tokenizer is None:
+        if args.get("truncation", False) is not False or "max_length" in args:
+            raise ValueError(
+                "Legacy HF judge must not have answer truncation/max_length configured"
+            )
+        return
+    if args != dict(truncation=True, max_length=1024, add_special_tokens=True):
+        raise ValueError(
+            "HF answer requires tokenizer_call_args={truncation: true, max_length: 1024, add_special_tokens: true}"
+        )
+    if api.use_chat_template is False:
+        raise ValueError("HF answer requires use_chat_template=True")
+    if (
+        api.chat_template is not None
+        and api.chat_template != tokenizer.get_chat_template()
+    ):
+        raise ValueError(
+            "HF chat_template override differs from compatibility tokenizer"
+        )
+    if not isinstance(api.enable_thinking, bool):
+        raise ValueError("HF requires explicit enable_thinking")
+
+    def identity(value: Any) -> dict[str, Any]:
+        if not getattr(value, "is_fast", False):
+            raise ValueError(
+                "HF compatibility requires a fast tokenizer with inspectable identity"
+            )
+        backend = json.loads(value.backend_tokenizer.to_str())
+        # Runtime encode settings differ: native HF owns dynamic left EOS pads.
+        backend.pop("padding", None)
+        backend.pop("truncation", None)
+        return backend
+
+    if (
+        identity(api.tokenizer) != identity(tokenizer)
+        or api.tokenizer.get_chat_template() != tokenizer.get_chat_template()
+        or api.tokenizer.truncation_side != tokenizer.truncation_side
+    ):
+        raise ValueError(
+            "HF provider tokenizer differs from compatibility tokenizer content/template/truncation"
+        )
+
+
 def compatibility_task(
     task: Task, tokenizer_path: str | None, revision: str | None, *, family: str
 ) -> Task:
     """Wrap generation, preserving original input and writing explicit judge metadata.
 
     Real providers require an explicit matching tokenizer. Mock smoke runs are
-    deliberately unqualified. vLLM owns templating and generation; encoded text
+    deliberately unqualified. HF/vLLM own templating and generation; encoded text
     is never sent back as a user message.
     """
     original = task.solver
@@ -119,9 +176,9 @@ def compatibility_task(
                     raise ValueError(
                         "Supply compatibility_tokenizer (matching local snapshot) for production preprocessing"
                     )
-                if provider not in {"vllm", "mockllm"}:
+                if provider not in {"vllm", "hf", "mockllm"}:
                     raise ValueError(
-                        "Production preprocessing currently requires native vllm; HF/API answer token boundaries are unsupported"
+                        "Production preprocessing requires native hf or vllm; API answer token boundaries are unsupported"
                     )
                 tokenizer = load_tokenizer(tokenizer_path, revision)
                 messages = [dict(role=m.role, content=m.text) for m in state.messages]
@@ -138,16 +195,32 @@ def compatibility_task(
                     raise ValueError(
                         "Additional chat template arguments require separate legacy qualification"
                     )
+                thinking = template_args.get("enable_thinking", False)
+                if provider == "hf":
+                    api: Any = model.api
+                    validate_hf(api, tokenizer)
+                    thinking = api.enable_thinking
+                    rendered = tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True,
+                        enable_thinking=thinking,
+                    )
+                    if api.hf_chat(state.messages, []) != rendered:
+                        raise ValueError(
+                            "HF provider message/template transformation differs from legacy rendering"
+                        )
                 probe = preprocess(
                     tokenizer,
                     messages,
                     state.target.text,
-                    thinking=template_args.get("enable_thinking", False),
+                    thinking=thinking,
                     question=state.metadata.get("judge_question")
                     if family == "prompt_injection"
                     else None,
                     stereotype=state.metadata.get("stereotyped_answer"),
                 )
+                probe["thinking"] = thinking
                 if family == "ccpc":
                     probe["judge_question"] = state.input_text
                 state.metadata["compatibility"] = probe
@@ -160,6 +233,11 @@ def compatibility_task(
                 state.metadata["prompt_parity"] = (
                     "production legacy-text-v1; live token equality requires qualification"
                 )
+                if provider == "hf":
+                    probe["provider_padding"] = (
+                        "dynamic left EOS; unpadded IDs equivalent, generation unqualified"
+                    )
+                    return await generate(state, tool_calls=tool_calls, **kwargs)
                 extra.update(
                     return_token_ids=True,
                     add_special_tokens=True,
@@ -178,10 +256,14 @@ def compatibility_task(
 
 
 def judge_config(state: TaskState, config: GenerateConfig) -> GenerateConfig:
-    """Apply compatibility controls only to native vLLM graders, never answer caps."""
-    if "compatibility" not in state.metadata or not str(
-        get_model(role="grader", required=True)
-    ).startswith("vllm/"):
+    """Validate HF and configure vLLM graders without applying answer caps."""
+    if "compatibility" not in state.metadata:
+        return config
+    model = get_model(role="grader", required=True)
+    if str(model).startswith("hf/"):
+        validate_hf(model.api)
+        return config
+    if not str(model).startswith("vllm/"):
         return config
     extra = dict(config.extra_body or {})
     if extra.get("truncate_prompt_tokens") is not None:

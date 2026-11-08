@@ -49,11 +49,18 @@ grader = get_model(
     api_key="no-auth-placeholder",  # use deployment credentials where required
 )
 eval(
-    unqover(externally_configured_thinking=True),
+    unqover(
+        externally_configured_thinking=True, compatibility_tokenizer="/models/answer"
+    ),
     model="hf/local",
     model_args={
         "model_path": "/models/answer",
         "tokenizer_path": "/models/answer",
+        "tokenizer_call_args": {
+            "truncation": True,
+            "max_length": 1024,
+            "add_special_tokens": True,
+        },
         "enable_thinking": False,
         "do_sample": False,
     },
@@ -97,16 +104,13 @@ read observed in this runner); CLI smoke tests retain Inspect’s default log fo
 The API routing fixture monkeypatches transport: it is not live endpoint parity.
 No GPU/provider/fixed-live-model parity or measured benchmark result is claimed.
 
-Legacy generation truncates inputs at 1024 tokens, then decodes the evaluated
-model's chat template (including system text) as the judge question; targets and
-stereotypes also pass through tokenizer decoding after a default 256-token cap.
-Native Inspect currently uses
-raw question/target text without those model-specific round trips or truncation.
-This unresolved inherited gap is recorded in score `prompt_parity`; the long-input
-fixture explicitly asserts raw, untruncated questions and absence of rendered
-system text. Live-model acceptance remains open.
+Production preprocessing now preserves the legacy 1024-token input and decoded judge text, plus 256-token target/stereotype round trips. Original input/target remain logged. See [HF/vLLM configuration and live qualification limits](../../INSPECT_MIGRATION.md#native-hf-preprocessing). CPU boundary tests do not establish live generation or score parity.
 
 Inspect `max_tokens` represents legacy `length` (empty/incorrect/incomplete).
 Other non-stop reasons and missing choices are skipped and treated as empty and
 incorrect, but not incomplete; the legacy grader instead exhausts its iterator
 for those reasons. This inherited extension is not claimed as parity.
+
+Production HF/vLLM answers require an explicit matching `compatibility_tokenizer`.
+See [native HF configuration](../../INSPECT_MIGRATION.md#native-hf-preprocessing)
+for answer-only tokenizer caps and independently configured grader options.

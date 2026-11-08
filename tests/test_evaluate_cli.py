@@ -67,20 +67,41 @@ def test_native_example_selects_tasks_and_independent_grader(monkeypatch):
     assert selected == [
         (
             "llm_behavior_eval/bbq",
-            {"bias_type": "gender", "kind": "bias", "max_samples": 200},
+            {
+                "bias_type": "gender",
+                "kind": "bias",
+                "max_samples": 200,
+                "compatibility_tokenizer": "/models/answer",
+            },
         ),
-        ("llm_behavior_eval/medhallu", {"max_samples": 200}),
+        (
+            "llm_behavior_eval/medhallu",
+            {"max_samples": 200, "compatibility_tokenizer": "/models/answer"},
+        ),
     ]
-    assert options["model_roles"] == {"grader": "hf/google/gemma-3-12b-it"}
+    assert options["model_roles"] == {"grader": "hf/local-judge"}
     assert options["model"] != options["model_roles"]["grader"]
     assert models == [
         (
             options["model"],
-            {"enable_thinking": False, "do_sample": False},
+            {
+                "enable_thinking": False,
+                "do_sample": False,
+                "model_path": "/models/answer",
+                "tokenizer_call_args": {
+                    "truncation": True,
+                    "max_length": 1024,
+                    "add_special_tokens": True,
+                },
+            },
         ),
         (
             options["model_roles"]["grader"],
-            {"enable_thinking": False, "do_sample": False},
+            {
+                "enable_thinking": False,
+                "do_sample": False,
+                "model_path": "/models/judge",
+            },
         ),
     ]
 

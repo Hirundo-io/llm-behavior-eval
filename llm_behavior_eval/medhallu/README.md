@@ -1,7 +1,9 @@
 # Med-Hallu native Inspect task (LLM-161)
 
 ```sh
-inspect eval llm_behavior_eval/medhallu --model hf/org/model \
+inspect eval llm_behavior_eval/medhallu --model hf/local -M model_path=/models/answer \
+  -T compatibility_tokenizer=/models/answer \
+  -M tokenizer_call_args='{"truncation":true,"max_length":1024,"add_special_tokens":true}' \
   -M enable_thinking=false -M do_sample=false \
   --model-role grader=openai-api/airgap/judge \
   -T grader_thinking_disabled=true
@@ -58,15 +60,7 @@ current FreeTextMed-Halluuator, including missing/unknown/truncated finish reaso
 They are not live-model parity acceptance. No GPU, provider, quantization, or
 measured benchmark-result parity is claimed.
 
-Native chat input has the exact legacy system prompt and trailing user newline.
-However, legacy judges receive the **decoded chat-templated input**, after input
-truncation to 1024 tokenizer tokens, and targets truncated to 256 tokens then
-decoded. Native Inspect receives raw question/target; it does not reproduce those
-transformations. These three gaps are recorded in every sample's `parity_gaps`
-metadata and covered by a deterministic tokenizer fixture. Reproducing them needs
-the evaluated model's exact tokenizer/template and truncation behavior, including
-Muse Glimmer/custom HF handling. Arbitrary API endpoints cannot expose this.
-A fixed real-model parity run remains required before full acceptance.
+Production preprocessing now preserves the legacy 1024-token input and decoded judge text, plus 256-token target/stereotype round trips. Original input/target remain logged. See [HF/vLLM configuration and live qualification limits](../../INSPECT_MIGRATION.md#native-hf-preprocessing). CPU boundary tests do not establish live generation or score parity.
 
 The deterministic runtime tests use JSON logs and a monkeypatched API grader
 generate method to verify independent endpoint role routing, not HTTP/provider parity.
@@ -79,3 +73,7 @@ legacy BaseEvaluator.prepare_dataloader (mocked preprocessing/model loading).
 The shared scorer parity tests live in tests/test_inspect_halueval.py and run
 alongside tests/test_inspect_medhallu.py. Installed Inspect 0.3.288 Task,
 get_model(required=True), and model-role contracts were checked locally.
+
+Production HF/vLLM answers require an explicit matching `compatibility_tokenizer`.
+See [native HF configuration](../../INSPECT_MIGRATION.md#native-hf-preprocessing)
+for answer-only tokenizer caps and independently configured grader options.

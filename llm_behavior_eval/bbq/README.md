@@ -1,6 +1,6 @@
 # Native BBQ (LLM-157)
 
-`inspect eval llm_behavior_eval/bbq -T bias_type=gender -T kind=bias --model hf/ORG/MODEL -M enable_thinking=false -M do_sample=false --model-role grader=hf/google/gemma-3-12b-it`
+Use the Python example below to configure both HF roles independently.
 
 Configure the grader's HF model arguments independently as well (Python example
 below); its tokenizer requires `enable_thinking=False`, `do_sample=False`.
@@ -22,11 +22,26 @@ from inspect_ai import eval
 from inspect_ai.model import get_model
 from llm_behavior_eval.bbq.task import bbq
 
-grader = get_model("hf/google/gemma-3-12b-it", enable_thinking=False, do_sample=False)
+grader = get_model(
+    "hf/local-judge",
+    model_path="/models/gemma3-judge",
+    auto_model_class="AutoModelForImageTextToText",
+    enable_thinking=False,
+    do_sample=False,
+)
 eval(
-    bbq(),
-    model="hf/ORG/MODEL",
-    model_args={"enable_thinking": False, "do_sample": False},
+    bbq(compatibility_tokenizer="/models/answer"),
+    model="hf/local",
+    model_args={
+        "model_path": "/models/answer",
+        "enable_thinking": False,
+        "do_sample": False,
+        "tokenizer_call_args": {
+            "truncation": True,
+            "max_length": 1024,
+            "add_special_tokens": True,
+        },
+    },
     model_roles={"grader": grader},
 )
 ```
@@ -68,13 +83,7 @@ Deterministic tests compare against the actual legacy `_grade_impl` with fixed
 judge results and no inference; this is not live-model parity. GPU, provider,
 quantization and fixed parity model acceptance remain unverified.
 
-Exact system/user text is preserved except the judge Question uses the raw
-question. Legacy decodes the evaluated tokenizer's chat template (including
-system text), truncates model inputs at 1024 tokens, and tokenizes/decodes targets
-and stereotyped targets too. Native Inspect does not replicate these
-model-specific round trips or input truncation. These are unresolved parity gaps,
-explicitly logged in `prompt_parity`; tests pin the raw-question choice. Long
-inputs therefore can differ. Muse Glimmer custom chat templates are unsupported.
+Production preprocessing now preserves the legacy 1024-token input and decoded judge text, plus 256-token target/stereotype round trips. Original input/target remain logged. See [HF/vLLM configuration and live qualification limits](../../INSPECT_MIGRATION.md#native-hf-preprocessing). CPU boundary tests do not establish live generation or score parity.
 
 Only `stop` outputs reach the grader. Inspect `max_tokens` maps legacy `length`
 and counts as incomplete/empty/incorrect. Other finish reasons are skipped and
@@ -82,3 +91,7 @@ count as empty/incorrect but not incomplete: legacy currently raises iterator
 exhaustion for them. Missing choices use this same documented extension. Raw GT,
 stereotype and uncertainty judge output, parsed flags, finish reason, source
 metadata and the actual judge question are retained in score metadata.
+
+Production HF/vLLM answers require an explicit matching `compatibility_tokenizer`.
+See [native HF configuration](../../INSPECT_MIGRATION.md#native-hf-preprocessing)
+for answer-only tokenizer caps and independently configured grader options.

@@ -9,7 +9,9 @@ from inspect_ai.model import get_model
 from llm_behavior_eval import list_dataset_presets
 
 
-def main() -> None:
+def main(
+    answer_snapshot: str = "/models/answer", judge_snapshot: str = "/models/judge"
+) -> None:
     catalog = {preset.name: preset for preset in list_dataset_presets()}
     tasks = []
     for name in ("bias:gender", "hallu-med"):
@@ -20,7 +22,11 @@ def main() -> None:
             )
             tasks.append(
                 task_with(
-                    constructor(**dict(mapping.task_args), max_samples=200),
+                    constructor(
+                        **dict(mapping.task_args),
+                        max_samples=200,
+                        compatibility_tokenizer=answer_snapshot,
+                    ),
                     name=mapping.task_name,
                 )
             )
@@ -29,13 +35,20 @@ def main() -> None:
     inspect_eval(
         tasks,
         model=get_model(
-            "hf/meta-llama/Llama-3.1-8B-Instruct",
+            "hf/local-answer",
+            model_path=answer_snapshot,
+            tokenizer_call_args=dict(
+                truncation=True, max_length=1024, add_special_tokens=True
+            ),
             enable_thinking=False,
             do_sample=False,
         ),
         model_roles={
             "grader": get_model(
-                "hf/google/gemma-3-12b-it", enable_thinking=False, do_sample=False
+                "hf/local-judge",
+                model_path=judge_snapshot,
+                enable_thinking=False,
+                do_sample=False,
             )
         },
         log_dir="results/inspect",

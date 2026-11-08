@@ -51,7 +51,7 @@ engine flags; consult provider help and each task's README before loading adapte
 
 Run outside the checkout to ensure Inspect resolves installed registered names
 rather than similarly named source directories. Production preprocessing requires
-a matching explicit answer tokenizer and the native vLLM answer provider:
+a matching explicit answer tokenizer and a native vLLM or HF answer provider:
 
 ```bash
 mkdir -p results/native
@@ -66,7 +66,7 @@ inspect view --log-dir logs
 Use immutable local snapshots matching the deployments. The family applies native
 thinking controls independently to both roles. API graders may instead use the
 existing external-thinking assertions; their hidden tokenization remains
-unqualified. HF and generic API answer boundaries currently fail explicitly.
+unqualified. HF configuration is shown in [the migration reference](INSPECT_MIGRATION.md#native-hf-preprocessing). Generic API answers remain unsupported.
 See [production preprocessing and qualification](scripts/parity/README.md#production-preprocessing-contract-llm-169)
 for task options, DSTA deployment scope, and separate answer/judge processes.
 Local/offline datasets use `-T dataset_path=/absolute/path/to/saved-dataset`;
