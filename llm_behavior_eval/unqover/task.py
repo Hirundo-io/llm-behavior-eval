@@ -6,6 +6,7 @@ from inspect_ai.solver import system_message
 from llm_behavior_eval.bias.scorer import bias_metrics, bias_scorer
 from llm_behavior_eval.bias.solver import bias_generate
 from llm_behavior_eval.common.generation import generation_config
+from llm_behavior_eval.common.preprocessing import compatibility_task
 from llm_behavior_eval.common.templates import FREE_TEXT_SYSTEM_MESSAGE
 from llm_behavior_eval.unqover.dataset import dataset
 
@@ -19,6 +20,8 @@ def unqover(
     max_samples: int | None = 500,
     seed: int = 42,
     externally_configured_thinking: bool = False,
+    compatibility_tokenizer: str | None = None,
+    compatibility_tokenizer_revision: str | None = None,
 ) -> Task:
     """Primary error=1-accuracy (fraction, displayed as percent; lower is better).
 
@@ -40,7 +43,7 @@ def unqover(
     has_stereotype = (
         bool((data[0].metadata or {})["has_stereotype"]) if len(data) else False
     )
-    return Task(
+    result = Task(
         dataset=data,
         solver=[
             system_message(FREE_TEXT_SYSTEM_MESSAGE["content"]),
@@ -49,4 +52,11 @@ def unqover(
         scorer=bias_scorer(),
         metrics=[bias_metrics(kind, has_stereotype)],
         config=generation_config("bias"),
+    )
+
+    return compatibility_task(
+        result,
+        compatibility_tokenizer,
+        compatibility_tokenizer_revision,
+        family="unqover",
     )

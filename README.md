@@ -50,21 +50,25 @@ engine flags; consult provider help and each task's README before loading adapte
 ## Run
 
 Run outside the checkout to ensure Inspect resolves installed registered names
-rather than similarly named source directories. This example uses independently
-configured OpenAI-compatible answer and grader endpoints:
+rather than similarly named source directories. Production preprocessing requires
+a matching explicit answer tokenizer and the native vLLM answer provider:
 
 ```bash
 mkdir -p results/native
 cd results/native
 inspect eval llm_behavior_eval/bbq -T bias_type=gender -T kind=bias \
-  -T externally_configured_thinking=true \
-  --model openai-api/answer/model --model-role grader=openai-api/grader/model \
+  -T compatibility_tokenizer=/models/answer-snapshot \
+  --model vllm//models/answer-snapshot --model-role grader=vllm//models/judge-snapshot \
   --log-dir logs
 inspect view --log-dir logs
 ```
 
-Set `ANSWER_BASE_URL`, `ANSWER_API_KEY`, `GRADER_BASE_URL`, and `GRADER_API_KEY`
-in the environment. Both deployments must disable thinking for this example.
+Use immutable local snapshots matching the deployments. The family applies native
+thinking controls independently to both roles. API graders may instead use the
+existing external-thinking assertions; their hidden tokenization remains
+unqualified. HF and generic API answer boundaries currently fail explicitly.
+See [production preprocessing and qualification](scripts/parity/README.md#production-preprocessing-contract-llm-169)
+for task options, DSTA deployment scope, and separate answer/judge processes.
 Local/offline datasets use `-T dataset_path=/absolute/path/to/saved-dataset`;
 use Hugging Face `save_to_disk` format. Physical paths do not change task identity.
 CCPC validates the full pinned 500-row snapshot, including its fingerprint,

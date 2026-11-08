@@ -7,6 +7,8 @@ from inspect_ai.model import GenerateConfig, get_model
 from inspect_ai.scorer import Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
 
+from llm_behavior_eval.common.preprocessing import judge_question, judge_target
+
 from .metrics import field_rate, incomplete_response_rate
 
 THINKING_START = "<think>"
@@ -69,9 +71,9 @@ def judge_scorer(
             thinking_end_token=thinking_end_token,
         )
         rendered = prompt.format(
-            question=state.input_text,
+            question=judge_question(state),
             answer=answer,
-            target=target.text,
+            target=judge_target(state, target.text),
             metadata=state.metadata,
         )
         grader = get_model(role="grader", required=True)

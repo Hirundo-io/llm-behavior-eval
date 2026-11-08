@@ -5,6 +5,7 @@ from inspect_ai.model import GenerateConfig, Model, get_model
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 
 from llm_behavior_eval.common.generation import generation_config, vllm_thinking_args
+from llm_behavior_eval.common.preprocessing import compatibility_task
 from llm_behavior_eval.prompt_injection.dataset import dataset
 
 
@@ -59,6 +60,8 @@ def prompt_injection(
     max_tokens: int = 128,
     externally_configured_thinking: bool = False,
     response_tokenizer: str | None = None,
+    compatibility_tokenizer: str | None = None,
+    compatibility_tokenizer_revision: str | None = None,
 ) -> Task:
     """response_tokenizer optionally names an offline/local answer tokenizer."""
     from llm_behavior_eval.prompt_injection.scorer import injection_scorer
@@ -67,7 +70,7 @@ def prompt_injection(
         raise ValueError("max_tokens must be positive")
     config = generation_config("prompt-injection")
     config.max_tokens = max_tokens
-    return Task(
+    result = Task(
         dataset=dataset(
             dataset_path=dataset_path,
             dataset_token=dataset_token,
@@ -77,4 +80,11 @@ def prompt_injection(
         solver=injection_generate(max_tokens, externally_configured_thinking),
         scorer=injection_scorer(response_tokenizer),
         config=config,
+    )
+
+    return compatibility_task(
+        result,
+        compatibility_tokenizer,
+        compatibility_tokenizer_revision,
+        family="prompt_injection",
     )

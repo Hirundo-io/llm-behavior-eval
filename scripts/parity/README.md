@@ -236,3 +236,65 @@ The report preserves raw files and hashes a derived generation file that attache
 those observations. Both rendered-prompt fields are decoded from captured input
 IDs with special tokens retained. Missing observations fail closed. A compared
 small slice is not qualification of the 31-config, 500-row matrix.
+
+### Production preprocessing contract (LLM-169)
+
+All nine native tasks now require `compatibility_tokenizer` for real answer
+providers. It must name the **answer deployment's** local tokenizer snapshot, or
+an already cached repository plus `compatibility_tokenizer_revision` (immutable
+commit). No network download occurs inside evaluation. These are task args,
+e.g. `-T compatibility_tokenizer=/models/gemma3/snapshots/093f9f388b31de276ce2de164bdc2081324b9767`.
+An absent tokenizer fails before answer generation. Ordinary mock smoke tasks
+remain usable without one; they do not establish tokenizer parity.
+
+The supported answer boundary is Inspect native **vLLM** (including its remote
+server configuration). For a DSTA deployment, use that provider with the matching
+local tokenizer, and configure server/model args through Inspect. Requests send
+ordinary messages, never decoded or pre-templated user text. The answer request
+sets `add_special_tokens=true`, `return_token_ids=true`, and a 1024-token cap with
+the local tokenizer's truncation direction. Keep the server tokenizer/template
+identical to the selected snapshot. Arbitrary template arguments, older Gemma
+system merging, and templates requiring legacy thinking-string surgery fail
+explicitly; this is not a blanket claim of model-family equivalence.
+
+Scorers read `metadata.compatibility`, containing decoded question, target and
+stereotype plus expected input IDs/masks. Source `sample.input` and target are
+unchanged. Targets/stereotypes use a 256-token round trip without special tokens;
+Purple's independent question has its own 256-token cap. CCPC deliberately judges
+the original source question, matching its retained evaluator. Native vLLM judge
+requests add special tokens and request token IDs, but reject any prompt cap.
+The existing family thinking controls remain independent for both roles.
+
+API graders are usable with the existing per-role external-thinking assertions:
+the judge **request text** is derived from the answer tokenizer identically.
+Their server tokenization and hidden prompts are not qualified by that assertion.
+HF answers currently fail explicitly: Inspect 0.3.288 tokenizes with
+`padding=True, **tokenizer_call_args` (passing padding again collides), and its
+chat-template path differs from legacy special thinking transformations. No
+custom provider/engine is introduced to conceal this boundary limitation.
+
+`python -m scripts.parity.qualify_hallu` now uses production metadata directly;
+its judge phase does not rewrite the copied log. `report_hallu` compares expected
+metadata IDs with actual `model` event `call.response.prompt_token_ids`. Re-run
+both phases: old experimental logs lack production metadata.
+
+For any family/configuration use `python -m scripts.parity.qualify_native answer`
+then `judge`, with `--family`, `--root`, `--task-args task.json`, `--answer`, and
+`--judge`. Optional `--answer-args`/`--judge-args` supply Inspect provider argument
+JSON files. Task JSON selects dataset/split, cap, and tokenizer. Identity is
+persisted and mismatched phase arguments are rejected. This wrapper produces
+native evidence; retained legacy family invocation and strict comparator manifests
+still need family-specific configuration. It does not invent paired evidence.
+
+CPU tests use Gemma 3 revision `093f9f388b31de276ce2de164bdc2081324b9767` under
+`results/tokenizers/gemma3` or `LLM169_TOKENIZER`; the tokenizer JSON hash is checked.
+Download tokenizer/config/template files only. Missing fixtures explicitly skip
+these tests. They exercise long input/target/stereotype/Purple questions, both
+truncation directions, and all registered tasks with mock inference and real
+logs. They are not new GPU qualification. The earlier two-row GPU evidence
+remains the only live evidence described in REPORT.md.
+
+The additional Qwen3 thinking test pins `Qwen/Qwen3-0.6B` at
+`c1899de289a04d12100db370d81485cdf75e47ca`, tokenizer-only files under
+`results/tokenizers/qwen3`. It checks thinking enabled/disabled against the
+retained template helper and actual tokenizer IDs; no Qwen inference was run.

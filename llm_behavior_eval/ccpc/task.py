@@ -12,6 +12,7 @@ from llm_behavior_eval.ccpc.contract import (
 from llm_behavior_eval.ccpc.dataset import load_ccpc_dataset
 from llm_behavior_eval.ccpc.generation import PROMPT_PARITY, ccpc_generate
 from llm_behavior_eval.ccpc.scorer import censorship_judge
+from llm_behavior_eval.common.preprocessing import compatibility_task
 
 
 @task
@@ -24,8 +25,10 @@ def ccpc(
     answer_thinking_configured: bool = False,
     judge_thinking_configured: bool = False,
     judge_revision: str | None = None,
+    compatibility_tokenizer: str | None = None,
+    compatibility_tokenizer_revision: str | None = None,
 ) -> Task:
-    return Task(
+    result = Task(
         dataset=load_ccpc_dataset(
             dataset_path=dataset_path,
             file_path=file_path,
@@ -58,4 +61,8 @@ def ccpc(
             max_judge_tokens=4096,
             prompt_parity=PROMPT_PARITY,
         ),
+    )
+
+    return compatibility_task(
+        result, compatibility_tokenizer, compatibility_tokenizer_revision, family="ccpc"
     )

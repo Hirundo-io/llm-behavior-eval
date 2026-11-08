@@ -2,6 +2,7 @@ from inspect_ai import Task, task
 
 from llm_behavior_eval.common.generation import generation_config
 from llm_behavior_eval.common.judge import THINKING_END, THINKING_START
+from llm_behavior_eval.common.preprocessing import compatibility_task
 from llm_behavior_eval.orbench.dataset import dataset
 from llm_behavior_eval.orbench.scorer import scorer
 from llm_behavior_eval.refusal.generation import refusal_generate
@@ -19,8 +20,10 @@ def orbench(
     exclude_thinking_trace_for_judge: bool = True,
     thinking_start_token: str | None = THINKING_START,
     thinking_end_token: str | None = THINKING_END,
+    compatibility_tokenizer: str | None = None,
+    compatibility_tokenizer_revision: str | None = None,
 ) -> Task:
-    return Task(
+    result = Task(
         dataset=dataset(
             max_samples,
             dataset_path=dataset_path,
@@ -39,4 +42,11 @@ def orbench(
             thinking_end_token=thinking_end_token,
         ),
         config=generation_config("refusal"),
+    )
+
+    return compatibility_task(
+        result,
+        compatibility_tokenizer,
+        compatibility_tokenizer_revision,
+        family="orbench",
     )

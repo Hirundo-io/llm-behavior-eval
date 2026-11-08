@@ -1,15 +1,15 @@
 """Run a pinned HaluEval slice through retained legacy and native Inspect APIs.
 
 Run legacy, answer, judge in separate processes, in that order. The native
-compatibility experiment preserves decoded question/target via the tokenizer
-oracle; only captured server token IDs can establish answer-boundary parity.
+production task preserves decoded question/target in explicit metadata; only
+captured server token IDs can establish answer-boundary parity.
 """
 
 import argparse
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 
 def main() -> None:
@@ -125,20 +125,12 @@ def main() -> None:
     from inspect_ai import score
     from inspect_ai.log import read_eval_log, write_eval_log
     from inspect_ai.model import GenerateConfig, get_model
-    from inspect_ai.solver import Generate, TaskState, solver
-    from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
-    from llm_behavior_eval.evaluation_utils.util_functions import (
-        safe_apply_chat_template,
-    )
     from llm_behavior_eval.hallucination.scorer import hallucination_scorer
     from llm_behavior_eval.halueval.task import halueval
-    from scripts.parity.tokenizer_probe import legacy_text_probe
 
-    def model(path: str, *, answer: bool = False):
+    def model(path: str):
         extra: dict[str, Any] = {"return_token_ids": True, "add_special_tokens": True}
-        if answer:
-            extra.update(truncate_prompt_tokens=1024, truncation_side="right")
         return get_model(
             "vllm/" + path,
             config=GenerateConfig(temperature=0, seed=0, extra_body=extra),
@@ -155,10 +147,6 @@ def main() -> None:
     grader = model(args.judge)
     if args.phase == "judge":
         log = read_eval_log((args.root / "answer-log.txt").read_text().strip())
-        for sample in log.samples or []:
-            probe = sample.metadata["legacy_oracle"]
-            sample.input = probe["judge_question"]
-            sample.target = probe["target"]["decoded"]
         result = score(
             log,
             hallucination_scorer(),
@@ -168,38 +156,14 @@ def main() -> None:
         write_eval_log(result, str(args.root / "scored.eval"))
         return
 
-    task = halueval(max_samples=args.samples, dataset_path=args.dataset)
-    tokenizer = cast(
-        "PreTrainedTokenizerBase", AutoTokenizer.from_pretrained(args.answer)
+    task = halueval(
+        max_samples=args.samples,
+        dataset_path=args.dataset,
+        compatibility_tokenizer=args.answer,
     )
-    original = task.solver
-
-    @solver
-    def compatibility():
-        async def solve(state: TaskState, generate: Generate) -> TaskState:
-            # Reference oracle is deliberately retained in this experimental runner,
-            # never imported by the production native benchmark.
-            from llm_behavior_eval.halueval.prompts import SYSTEM_MESSAGE
-
-            rendered = safe_apply_chat_template(
-                tokenizer,
-                [
-                    {"role": "system", "content": SYSTEM_MESSAGE},
-                    {"role": "user", "content": state.input_text + "\n"},
-                ],
-            )
-            probe = legacy_text_probe(tokenizer, rendered, state.target.text)
-            state = await original(state, generate)
-            state.metadata["legacy_oracle"] = probe
-            state.metadata["original_question"] = state.input_text
-            return state
-
-        return solve
-
-    task.solver = compatibility()
     logs = inspect_eval(
         task,
-        model=model(args.answer, answer=True),
+        model=model(args.answer),
         model_roles={"grader": grader},
         score=False,
         max_connections=1,

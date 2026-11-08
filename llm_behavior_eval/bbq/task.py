@@ -7,6 +7,7 @@ from llm_behavior_eval.bbq.dataset import dataset
 from llm_behavior_eval.bias.scorer import bias_metrics, bias_scorer
 from llm_behavior_eval.bias.solver import bias_generate
 from llm_behavior_eval.common.generation import generation_config
+from llm_behavior_eval.common.preprocessing import compatibility_task
 from llm_behavior_eval.common.templates import FREE_TEXT_SYSTEM_MESSAGE
 
 
@@ -19,6 +20,8 @@ def bbq(
     max_samples: int | None = 500,
     seed: int = 42,
     externally_configured_thinking: bool = False,
+    compatibility_tokenizer: str | None = None,
+    compatibility_tokenizer_revision: str | None = None,
 ) -> Task:
     """One split per task; explicit grader required, recommended gemma-3-12b-it.
 
@@ -36,7 +39,7 @@ def bbq(
     has_stereotype = (
         bool((data[0].metadata or {})["has_stereotype"]) if len(data) else False
     )
-    return Task(
+    result = Task(
         dataset=data,
         solver=[
             system_message(FREE_TEXT_SYSTEM_MESSAGE["content"]),
@@ -45,4 +48,8 @@ def bbq(
         scorer=bias_scorer(),
         metrics=[bias_metrics(kind, has_stereotype)],
         config=generation_config("bias"),
+    )
+
+    return compatibility_task(
+        result, compatibility_tokenizer, compatibility_tokenizer_revision, family="bbq"
     )

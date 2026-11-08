@@ -76,7 +76,7 @@ def main() -> None:
         if any(type(token) is not int for token in ids):
             raise ValueError(f"{sample.id}: invalid token ID type")
         ids = cast("list[int]", ids)
-        probe = sample.metadata["legacy_oracle"]["prompt"]
+        probe = sample.metadata["compatibility"]["prompt"]
         expected = [
             token
             for token, mask in zip(

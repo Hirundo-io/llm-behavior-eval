@@ -12,6 +12,7 @@ from inspect_ai.solver import TaskState
 
 from llm_behavior_eval.common.judge import judge_scorer, strip_thinking
 from llm_behavior_eval.common.metrics import field_rate, incomplete_response_rate
+from llm_behavior_eval.common.preprocessing import judge_config, load_tokenizer
 from llm_behavior_eval.prompt_injection.prompts import PROMPT_JUDGE_RESPONSE
 from llm_behavior_eval.prompt_injection.task import model_config
 
@@ -50,8 +51,14 @@ def injection_scorer(response_tokenizer: str | None = None) -> Scorer:
             judge=True,
             external=bool(state.metadata.get("externally_configured_thinking")),
         )
+        config = judge_config(state, config)
         answer = strip_thinking(state.output.completion)
-        answer_tokenizer = tokenizer or getattr(get_model().api, "tokenizer", None)
+        identity = state.metadata.get("compatibility_tokenizer")
+        answer_tokenizer = (
+            load_tokenizer(identity["path"], identity["revision"])
+            if identity
+            else tokenizer or getattr(get_model().api, "tokenizer", None)
+        )
         state.metadata.update(
             response_tokens=len(
                 answer_tokenizer.encode(answer, add_special_tokens=False)
@@ -62,10 +69,13 @@ def injection_scorer(response_tokenizer: str | None = None) -> Scorer:
             if answer_tokenizer
             else "unavailable: supply response_tokenizer for exact count",
             formatted_answer=answer,
-            prompt_parity="native messages; no legacy chat-template decode or 1024-token truncation; judge question has no tokenizer roundtrip",
+        )
+        state.metadata.setdefault(
+            "prompt_parity",
+            "native messages; no legacy chat-template decode or 1024-token truncation; judge question has no tokenizer roundtrip",
         )
         prompt = PROMPT_JUDGE_RESPONSE.replace("{llm_response}", "{answer}").replace(
-            "{question}", "{metadata[judge_question]}"
+            "{question}", "{question}"
         )
         result = await judge_scorer(
             prompt,

@@ -4,6 +4,7 @@ from inspect_ai import Task, task
 from inspect_ai.solver import system_message
 
 from llm_behavior_eval.common.generation import generation_config
+from llm_behavior_eval.common.preprocessing import compatibility_task
 from llm_behavior_eval.hallucination.scorer import hallucination_scorer
 from llm_behavior_eval.hallucination.solver import hallucination_generate
 from llm_behavior_eval.halueval.dataset import dataset
@@ -17,9 +18,11 @@ def halueval(
     dataset_token: str | None = None,
     thinking_disabled: bool = False,
     grader_thinking_disabled: bool = False,
+    compatibility_tokenizer: str | None = None,
+    compatibility_tokenizer_revision: str | None = None,
 ) -> Task:
     """API flags attest to externally configured thinking-off, independently per role."""
-    return Task(
+    result = Task(
         dataset=dataset(
             max_samples, dataset_path=dataset_path, dataset_token=dataset_token
         ),
@@ -32,4 +35,11 @@ def halueval(
         ],
         scorer=hallucination_scorer(thinking_disabled=grader_thinking_disabled),
         config=generation_config("hallucination"),
+    )
+
+    return compatibility_task(
+        result,
+        compatibility_tokenizer,
+        compatibility_tokenizer_revision,
+        family="halueval",
     )

@@ -267,3 +267,49 @@ utilization, 0 MiB used, no compute applications, and no containers (checked wit
 `sudo -n docker ps -q`). The original `VM_OFF_h200` contents were restored and the
 unique backup removed before requesting stop. Box and rtx2 were untouched.
 The final Nebius state query confirmed **STOPPED**.
+
+## Production preprocessing follow-up (t3-33e12a3f)
+
+The nine production task factories now wrap their existing Inspect solvers with
+shared preprocessing. Scorers consume explicit compatibility metadata; source
+input and target are not rewritten. The HaluEval qualification script no longer
+imports a preprocessing oracle into its native phase or edits copied log inputs.
+The generic native wrapper supports all nine tasks and arbitrary task JSON
+configuration, with persisted phase identity. The existing thinking-control
+merge helper remains unchanged.
+
+CPU checks use the pinned Gemma 3 tokenizer above and Qwen3-0.6B at
+`c1899de289a04d12100db370d81485cdf75e47ca`. Long 1024/256 boundaries match retained
+preprocessing in both truncation directions; registered tasks exercise actual
+preprocessing, scoring and saved logs with mock inference. CCPC retains its
+original source judge question by design. Purple uses its independent capped
+question and the production answer tokenizer for response token counts.
+
+Supported production answer transport is native vLLM. Missing explicit tokenizer
+identity, unsupported answer providers, custom template transformations and
+judge truncation controls fail clearly. HF 0.3.288 source accepts
+`tokenizer_call_args` but passes padding separately; HF compatibility is not
+implemented or qualified here. API graders can use existing external thinking
+assertions with identical judge request text, but that does not establish their
+hidden tokenization. See README for deployment and runner commands.
+
+No new GPU inference was performed, and no VM was started. The earlier two-row
+live result remains experimental evidence from its original runner, not a live
+validation of this production change. Re-run small slices using production task
+options before the expensive matrix. Other-family retained invocation/comparator
+manifests, the full matrix, HF answer support and model-specific template surgery
+remain concrete follow-up work. No tolerance or divergence is accepted. Legacy
+engines remain intact; no PR, push, merge, release or external issue update.
+
+Validation environment: Python 3.13, Inspect 0.3.288, Transformers 5.20.2. The
+checkout's editable install reused existing dependency files after a fresh
+installation exhausted local disk capacity. Generated root egg-info was moved
+out of the checkout because it shadowed editable installation metadata and
+prevented registered discovery after changing directories. Tests ran outside the
+sandbox after its async log reader stalled. These were local validation issues,
+not model access/GPU blockers.
+
+Validation: affected deterministic suite **235 passed, 1 skipped** (the optional
+`inspect_brief` package is absent in the reused validation environment). Full Ruff
+lint/format and focused production/tooling Pyrefly pass. No generated distribution
+artifacts or tokenizer downloads are committed.
