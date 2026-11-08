@@ -32,6 +32,8 @@ def test_help_explains_retirement():
 def test_native_example_selects_tasks_and_independent_grader(monkeypatch):
     from importlib import import_module
 
+    from inspect_ai import Task
+
     from examples import presets_customization
 
     selected = []
@@ -39,18 +41,29 @@ def test_native_example_selects_tasks_and_independent_grader(monkeypatch):
 
         def capture(_name=name, **kwargs):
             selected.append((f"llm_behavior_eval/{_name}", kwargs))
-            return object()
+            return Task()
 
         monkeypatch.setattr(
             import_module(f"llm_behavior_eval.{name}.task"), name, capture
         )
     calls = []
+    models = []
+
+    def model(name, **kwargs):
+        models.append((name, kwargs))
+        return name
+
+    monkeypatch.setattr(presets_customization, "get_model", model)
     monkeypatch.setattr(
         presets_customization, "inspect_eval", lambda *a, **kw: calls.append((a, kw))
     )
     presets_customization.main()
     (tasks,), options = calls[0]
     assert len(tasks) == 2
+    assert [task.name for task in tasks] == [
+        "llm_behavior_eval/bbq",
+        "llm_behavior_eval/medhallu",
+    ]
     assert selected == [
         (
             "llm_behavior_eval/bbq",
@@ -60,6 +73,16 @@ def test_native_example_selects_tasks_and_independent_grader(monkeypatch):
     ]
     assert options["model_roles"] == {"grader": "hf/google/gemma-3-12b-it"}
     assert options["model"] != options["model_roles"]["grader"]
+    assert models == [
+        (
+            options["model"],
+            {"enable_thinking": False, "do_sample": False},
+        ),
+        (
+            options["model_roles"]["grader"],
+            {"enable_thinking": False, "do_sample": False},
+        ),
+    ]
 
 
 @pytest.mark.parametrize("module", ["llm_behavior_eval", "llm_behavior_eval.evaluate"])
