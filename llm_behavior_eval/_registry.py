@@ -1,9 +1,10 @@
 """Explicit task imports for Inspect's package entry point."""
 
 from .bbq.task import bbq
+from .bloom.task import bloom
 from .inspect_template.task import inspect_template
 from .orbench.task import orbench
 from .unqover.task import unqover
 from .xstest.task import xstest
 
-__all__ = ["bbq", "inspect_template", "orbench", "unqover", "xstest"]
+__all__ = ["bbq", "bloom", "inspect_template", "orbench", "unqover", "xstest"]
