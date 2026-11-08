@@ -1,0 +1,28 @@
+{
+  "name": "halueval:small-slice",
+  "family": "halueval",
+  "status": "compared",
+  "errors": [],
+  "mismatches": [],
+  "metrics": [
+    {
+      "name": "accuracy",
+      "unit": "percent",
+      "legacy": 100.0,
+      "native": 100.0,
+      "delta": 0.0,
+      "delta_pp": 0.0
+    }
+  ],
+  "verdict_agreement_percent": 100.0,
+  "confusion": [
+    {
+      "legacy": "\"CORRECT\"",
+      "native": "\"CORRECT\"",
+      "count": 2
+    }
+  ],
+  "samples": 2,
+  "provenance_equal": false,
+  "acceptance": "pending owner decision; no tolerance approved"
+}

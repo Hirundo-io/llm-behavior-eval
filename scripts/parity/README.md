@@ -54,10 +54,10 @@ detected by this tool: retain the source snapshot/order manifest for audit.
    checkouts/environments. The retired CLI must not be restored. Use the retained
    legacy evaluator API/factory from its frozen revision. Run its existing
    generation and grading calls; do not write another evaluation engine.
-2. Provision already-authorized local weights for an owner-selected tested small
-   instruct answer model (proposed Gemma 3 4B), Gemma 3 12B judge and CCPC Gemma 4
-   26B A4B judge. Record actual weight/tokenizer revisions and hashes. No model
-   revision has been selected or accepted in this report.
+2. Provision the designated Gemma 3 4B answer, Gemma 3 12B independent judge,
+   and CCPC Gemma 4 26B A4B judge. The follow-up below pins and downloads these
+   models; no additional model-selection approval is required. Record actual
+   weight/tokenizer revisions and hashes.
 3. Freeze all 31 dataset snapshots, exact source order and stable IDs. Use
    seed 42 and cap 500 first, then full primary splits. Retain source hashes.
 4. Run each native task via Inspect with independent `grader` role and the same
@@ -195,3 +195,44 @@ separation; exact-completion disagreement need not mean different underlying
 tokens. No judge agreement, ASR or other benchmark metric is inferred. Preserve
 failed startup logs and all `.eval` files. A supported runtime, approved model
 and independent real judge are still required for the main acceptance protocol.
+
+### Pinned designated-model follow-up
+
+`provision_models.py --root /absolute/task/root` downloads the three designated
+Gemma snapshots at immutable revisions, reuses its cache, and records installed
+runtime versions without recording authentication. Install this checkout with
+`uv sync --locked --python 3.12` in a new task directory first. Check disk space
+before provisioning; the three snapshots occupy about 79 GiB.
+
+`qualify_hallu.py` is a small live HaluEval compatibility experiment using the
+retained evaluator API and public Inspect eval/score APIs. Invoke as a module
+from the repository root, with absolute pinned local snapshot paths:
+
+```sh
+python -m scripts.parity.qualify_hallu legacy --root "$EVIDENCE" --answer "$ANSWER_SNAPSHOT" --judge "$JUDGE_SNAPSHOT" --dataset "$DATASET_SOURCE" --samples 2
+python -m scripts.parity.qualify_hallu answer --root "$EVIDENCE" --answer "$ANSWER_SNAPSHOT" --judge "$JUDGE_SNAPSHOT" --dataset "$DATASET_SOURCE" --samples 2
+python -m scripts.parity.qualify_hallu judge --root "$EVIDENCE" --answer "$ANSWER_SNAPSHOT" --judge "$JUDGE_SNAPSHOT" --dataset "$DATASET_SOURCE" --samples 2
+```
+
+Run the `prepare` phase first to download the pinned HaluEval snapshot, export
+Parquet, and bind pre-shuffle source IDs to its SHA256. Use the same arguments.
+Do not reuse a populated legacy output directory for a captured-input rerun: cached
+generations contain no new API observations. Preserve old output directories.
+
+Wait for each process to exit and verify GPU release before the next. Native
+answer and judge lifecycles belong to Inspect. The answer process retains the
+original log. The judge phase adapts a copy's question and target using the
+legacy tokenizer oracle before public rescoring; this is an explicit experiment,
+not yet a production dataset migration. It requests actual vLLM prompt token IDs
+in model events, adds tokenizer-default special tokens, and applies right-side
+1024 truncation only to answer input. Legacy judge input has no such cap.
+`return_token_ids` response evidence must be inspected before asserting parity;
+the oracle alone is not sufficient. This runner currently covers HaluEval only.
+
+`python -m scripts.parity.report_hallu --root "$EVIDENCE" --source "$EVIDENCE/source.json" --provision "$TASK_ROOT/provision.json"`
+builds the manifest and invokes the strict comparator. The legacy runner observes
+input IDs passed to the existing generation API; it does not replace the engine.
+The report preserves raw files and hashes a derived generation file that attaches
+those observations. Both rendered-prompt fields are decoded from captured input
+IDs with special tokens retained. Missing observations fail closed. A compared
+small slice is not qualification of the 31-config, 500-row matrix.

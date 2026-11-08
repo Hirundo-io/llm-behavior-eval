@@ -1,6 +1,6 @@
 # LLM-169 qualification report — 2026-11-08
 
-**Engine retirement remains blocked.** No qualified old/new benchmark scores exist here. A real eight-row generation-only diagnostic is recorded below.
+**Engine retirement remains blocked.** The designated-model follow-up below now records real old/new HaluEval answers and independent judge scores on two rows. The 31-configuration qualification matrix remains incomplete. The earlier eight-row generation-only diagnostic is historical evidence.
 `pending-report.json` lists all 31 required split configurations as incomplete;
 old, new, delta and verdict agreement are unavailable, not zero. No proposed
 tolerance or divergence has owner acceptance. No legacy files were deleted.
@@ -171,8 +171,9 @@ but not complete legacy token-boundary equality. No shared native compatibility
 path was wired without provider-boundary verification; the probe is evidence
 only. Long-input/target tests and special template behavior still gate retirement.
 
-Required resources/decisions: owner-approved tested answer and independent judge
-revisions, supported pinned runtime, all pinned dataset snapshots, complete
+The original diagnostic required selected answer/judge revisions and a supported
+pinned runtime; the follow-up below now supplies those resources. Remaining work
+includes all pinned dataset snapshots, complete
 provider-boundary evidence, full old/native scoring runs, explicit tolerances and
 per-divergence sign-off. Existing H200 source copies contained no discoverable
 Purple task filename; requested Orr source remains unlocated. LLM-171 stays gated.
@@ -183,3 +184,86 @@ Linear update was rejected by automatic approval review; no issue comment was
 posted. No PR, push, merge, release, legacy deletion or downstream Slack update
 occurred. Small JSON evidence files are explicitly tracked despite broad ignore
 rules; model weights and experimental outputs remain untracked.
+
+
+## Designated-model follow-up in checkout t3-585e80c8
+
+This follow-up used the authorized existing H200 and provisioned all three issue-
+designated model snapshots. No model-selection approval gate was introduced.
+The GPU was initially idle and the 1 TB persistent disk had 467 GB free.
+The isolated task root is `/mnt/filesystem-x0/llm169_585e80c8`; source was copied
+from baseline `a35f01d`, with this checkout's changes overlaid. The previous task
+root and environment were not modified. `uv sync --locked --python 3.12` completed.
+Actual versions: Python 3.12.16, Torch 2.13.0, vLLM 0.30.0, Transformers 5.20.2, Inspect 0.3.288.
+
+Immutable models, downloaded successfully (approximately 79 GiB total):
+
+- Answer `google/gemma-3-4b-it`: `093f9f388b31de276ce2de164bdc2081324b9767`.
+- Independent judge `google/gemma-3-12b-it`: `96b6f1eccf38110c56df3a15bffe176da04bfd80`.
+- CCPC judge `google/gemma-4-26B-A4B-it`: `4d7ae4984b7db7de8f8457170b3f1a419ee76d52` (downloaded, not yet qualified by inference).
+
+`provision.json` records snapshot locations, package versions, and hashes of
+configuration/tokenizer/template metadata. Existing HF credentials sufficed;
+there was no gated-model access or disk-capacity blocker.
+
+The first paired run uses `hirundo-io/halueval` at
+`1516057d20afbd37202ce4d3f8c761c36c4d481c`, exported as Parquet. The source record
+binds its SHA256 and independently selected seed-42 IDs `2342` and `554` from
+3,000 original rows. Both sides use greedy BF16, engine seed 0, batch/sequence
+limit 1, answer/judge budgets 128/32, context 8192, eager mode, no quantization,
+and GPU memory utilization 0.5. Dataset shuffle seed remains 42.
+
+Native provider controls explicitly request `return_token_ids`,
+`add_special_tokens=true`, and answer-only right-side `truncate_prompt_tokens=1024`.
+The production hallucination config now preserves these caller controls while
+enforcing thinking-off. A regression verifies both roles, nested template kwargs,
+and non-mutation of caller config. Native answer and judge run through separate
+public Inspect eval/score processes. The original answer log is retained; a copy
+is adapted for judging with the decoded legacy question and 256-token target
+round trip. This adapter remains an experiment in the runner, not a completed
+production preprocessing migration. Legacy judge prompt tokenization does **not**
+apply the answer's 1024-token cap.
+
+The first native and legacy run each produced both answers with `stop`; answers
+match exactly, and the independent real 12B judges both returned `CORRECT` on
+both rows. Old and native accuracy are 100%, delta 0 percentage points; verdict
+agreement is 2/2. Native empty-response count and incomplete-response rate are 0.
+These are measured values for two rows, not inferred values for missing runs.
+Actual native model-event responses contain prompt token IDs. They match the
+legacy oracle for both rows, including two leading BOS tokens. This is captured
+server evidence, not a claim that independent template reconstruction alone
+proves boundary equality.
+
+A second retained-API run observes actual legacy generation input tensors and
+preserves the original run separately. `report_hallu.py` binds raw response,
+generation, and observed-boundary files by SHA256, attaches observations in a
+derived file, and invokes the existing strict comparator. Rendered-prompt fields
+on both sides are decoded from their actual input IDs with special tokens kept.
+Missing capture rows cause failure rather than invented evidence.
+
+Validation: the supported H200 environment passed all 18 HaluEval tests,
+including the new provider-control regression. Repository Ruff check and format
+checks pass. Focused runner type checking is recorded with the local evidence.
+
+This is **partial implementation and live qualification**, not completion of
+LLM-169. Other families' small paired runs, 500 rows across all 31 configurations,
+full primary splits, long-input/target/stereotype boundary cases, and production
+preprocessing integration remain unperformed. No resource/access blocker was
+found that justifies declaring those unavailable. No tolerance or divergence was
+accepted. The legacy engines remain; the separate LLM-171 removal candidate was
+not integrated. No Linear, Slack, PR, push, or release action occurred.
+
+The completed strict two-row report is committed as `gemma-small-slice.json`:
+status `compared`, no errors, no mismatches, and acceptance explicitly pending.
+Actual answer-input IDs and special-token-preserving decoded prompts match for
+both rows. The local recomputation equals the remote small-slice result exactly.
+The full comparator exits 2 because all 31 required full configuration pairs are
+still absent; the separately named small slice does not masquerade as one.
+Full raw evidence is retained locally at `results/llm169-gemma-h200/` and remotely
+under the task root's `evidence/`. Focused Pyrefly finished with 0 errors.
+
+Cleanup: all own inference and validation processes exited. H200 showed 0% GPU
+utilization, 0 MiB used, no compute applications, and no containers (checked with
+`sudo -n docker ps -q`). The original `VM_OFF_h200` contents were restored and the
+unique backup removed before requesting stop. Box and rtx2 were untouched.
+The final Nebius state query confirmed **STOPPED**.

@@ -13,9 +13,13 @@ def configured_generation(
     config = generation_config("hallucination", judge=judge)
     provider = ModelName(model).api
     if provider == "vllm":
-        config = config.model_copy(
-            update=thinking_args("hallucination", provider="vllm", judge=judge)
-        )
+        controls = thinking_args("hallucination", provider="vllm", judge=judge)
+        extra = dict(model.config.extra_body or {})
+        extra["chat_template_kwargs"] = {
+            **extra.get("chat_template_kwargs", {}),
+            **controls["extra_body"]["chat_template_kwargs"],
+        }
+        config = config.model_copy(update={"extra_body": extra})
     elif provider == "hf":
         if (
             getattr(model.api, "enable_thinking", None) is not False
