@@ -1,0 +1,985 @@
+{
+  "scope": "Real synthetic boundary probes; not production 500-row matrix completion",
+  "production_source": "f35fb814b0c99081707f81241b39ed72cd4ebcbf",
+  "backend": "vllm",
+  "cases": [
+    {
+      "case": "bbq-gender-bias",
+      "source_sha256": "c44790ab102f8127e0218a0371b9ce568b38f8a43bd2213ed4f5094d82772160",
+      "report_sha256": "f358f1157659b0532cb5a97ed9e5079e4ce9326513e3e20a821cf5cb20c8b8e0",
+      "scored_eval_sha256": "b47666ed0b95c4720326db4150befcff2c23189268401388e57960c230ff0fce",
+      "report": {
+        "name": "bbq:gender:bias:synthetic-edge",
+        "status": "compared",
+        "samples": 4,
+        "errors": [],
+        "mismatches": [],
+        "metrics": [
+          {
+            "name": "error",
+            "unit": "fraction",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          },
+          {
+            "name": "accuracy",
+            "unit": "fraction",
+            "legacy": 1.0,
+            "native": 1.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          },
+          {
+            "name": "stereotype_bias",
+            "unit": "index",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": null
+          },
+          {
+            "name": "empty_responses",
+            "unit": "count",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": null
+          },
+          {
+            "name": "incomplete_response_rate",
+            "unit": "fraction",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          }
+        ],
+        "confusion": [
+          {
+            "legacy": "true",
+            "native": "true",
+            "count": 4
+          }
+        ],
+        "verdict_agreement_percent": 100.0,
+        "boundary_lengths": {
+          "answer": {
+            "min": 42,
+            "max": 1024,
+            "at_1024": 2,
+            "at_256": 0
+          },
+          "target": {
+            "min": 256,
+            "max": 256,
+            "at_1024": 0,
+            "at_256": 4
+          },
+          "stereotype": {
+            "min": 256,
+            "max": 256,
+            "at_1024": 0,
+            "at_256": 4
+          },
+          "judge_question_reencoded": {
+            "min": 37,
+            "max": 1021,
+            "at_1024": 0,
+            "at_256": 0
+          }
+        },
+        "judge_boundary": {
+          "legacy_requests": 12,
+          "native_requests": 12,
+          "identical_sample_grouped_order": false,
+          "identical_response_order": false,
+          "ordering_note": "Response-hook insertion order records actual native completions. Both sides have one active sequence; sample-grouped event order is reported separately.",
+          "identical_raw_outputs": true,
+          "identical_multiset": true,
+          "legacy_max_tokens": 1856,
+          "native_max_tokens": 1856,
+          "legacy_sha256": "53749f907fad1d5b0be4b050602e505c6c7ec4f4ee7bab1d643166fe64bf4304",
+          "native_response_sha256": "2e4e26e9a7278294a69d99bc86e72a019d65eb4ee7d12a231b85f80764d9b7b4"
+        },
+        "execution": {
+          "native_sample_concurrency": 1,
+          "native_extra_body": {
+            "return_token_ids": true,
+            "add_special_tokens": true,
+            "cache_salt": "llm169:bbq:gender:bias"
+          },
+          "legacy_execution": "Fresh engine per case, sequential answer and judge batches of one"
+        },
+        "report_tool_sha256": "87aaf93ebe922876d4f4cd265efb807997c84a71824f6391145958f07a03f8e5"
+      },
+      "runs": {
+        "legacy": {
+          "model_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "judge_revision": "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+          "tokenizer_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "dataset_revision": "dd4488934ddef80f825a0f5f8ed82282feed3fe5+synthetic-boundary-v2",
+          "backend": "vllm",
+          "packages": {
+            "torch": "2.13.0",
+            "vllm": "0.30.0",
+            "transformers": "5.20.2",
+            "inspect-ai": "0.3.288"
+          },
+          "config": {
+            "answer_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "9059f680f4dbd1957f35cb44b9fdd6948f4792db7a7a35ee353ea42e68adf7ff",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "77f4b67de084c31c7bcd373b039908108eee6c6181607e6d53da730e5f0bc659",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "judge_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "39172c4124d3470341bbbb25f2926fd97edf68f0fe3a9fa4cde6acb9b7ed2cc6",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "788cc42a1a92835df62d9a3791f47105f63504c7c404637a73288e9b11bc7b82",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "dataset_seed": 42,
+            "cap": 4,
+            "dtype": "bfloat16",
+            "batch_size": 1,
+            "judge_batch_size": 1,
+            "max_num_seqs": 1,
+            "max_num_batched_tokens": 16384,
+            "temperature": 0,
+            "engine_seed": 0,
+            "request_seed": 42,
+            "max_model_len": 16384,
+            "enforce_eager": true,
+            "gpu_memory_utilization": 0.5,
+            "task_args": {
+              "bias_type": "gender",
+              "kind": "bias"
+            },
+            "answer_budget": 128,
+            "judge_budget": 32,
+            "thinking": false
+          },
+          "transport": "retained in-process API"
+        },
+        "native": {
+          "model_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "judge_revision": "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+          "tokenizer_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "dataset_revision": "dd4488934ddef80f825a0f5f8ed82282feed3fe5+synthetic-boundary-v2",
+          "backend": "vllm",
+          "packages": {
+            "torch": "2.13.0",
+            "vllm": "0.30.0",
+            "transformers": "5.20.2",
+            "inspect-ai": "0.3.288"
+          },
+          "config": {
+            "answer_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "9059f680f4dbd1957f35cb44b9fdd6948f4792db7a7a35ee353ea42e68adf7ff",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "77f4b67de084c31c7bcd373b039908108eee6c6181607e6d53da730e5f0bc659",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "judge_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "39172c4124d3470341bbbb25f2926fd97edf68f0fe3a9fa4cde6acb9b7ed2cc6",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "788cc42a1a92835df62d9a3791f47105f63504c7c404637a73288e9b11bc7b82",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "dataset_seed": 42,
+            "cap": 4,
+            "dtype": "bfloat16",
+            "batch_size": 1,
+            "judge_batch_size": 1,
+            "max_num_seqs": 1,
+            "max_num_batched_tokens": 16384,
+            "temperature": 0,
+            "engine_seed": 0,
+            "request_seed": 42,
+            "max_model_len": 16384,
+            "enforce_eager": true,
+            "gpu_memory_utilization": 0.5,
+            "task_args": {
+              "bias_type": "gender",
+              "kind": "bias"
+            },
+            "answer_budget": 128,
+            "judge_budget": 32,
+            "thinking": false
+          },
+          "transport": "Inspect-owned server"
+        }
+      }
+    },
+    {
+      "case": "halueval",
+      "source_sha256": "00f76bd437704135172e7966d4dcfe6eec2f9608f968c5918bf4273e79e96ad8",
+      "report_sha256": "8215bcaf2ccf41126c0ef1b373924604e8d8dfd70421a24727234d4f6d2a4eb2",
+      "scored_eval_sha256": "48bbd008b803e50d10e8688d2e1c4643146fa42df5c79927fcbaf415579afaff",
+      "report": {
+        "name": "halueval:synthetic-edge",
+        "status": "compared",
+        "samples": 4,
+        "errors": [],
+        "mismatches": [],
+        "metrics": [
+          {
+            "name": "accuracy",
+            "unit": "percent",
+            "legacy": 100.0,
+            "native": 100.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          },
+          {
+            "name": "empty_responses",
+            "unit": "count",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": null
+          },
+          {
+            "name": "incomplete_response_rate",
+            "unit": "fraction",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          }
+        ],
+        "confusion": [
+          {
+            "legacy": "\"CORRECT\"",
+            "native": "\"CORRECT\"",
+            "count": 4
+          }
+        ],
+        "verdict_agreement_percent": 100.0,
+        "boundary_lengths": {
+          "answer": {
+            "min": 42,
+            "max": 1024,
+            "at_1024": 2,
+            "at_256": 0
+          },
+          "target": {
+            "min": 256,
+            "max": 256,
+            "at_1024": 0,
+            "at_256": 4
+          },
+          "judge_question_reencoded": {
+            "min": 37,
+            "max": 1021,
+            "at_1024": 0,
+            "at_256": 0
+          }
+        },
+        "judge_boundary": {
+          "legacy_requests": 4,
+          "native_requests": 4,
+          "identical_sample_grouped_order": false,
+          "identical_response_order": false,
+          "ordering_note": "Response-hook insertion order records actual native completions. Both sides have one active sequence; sample-grouped event order is reported separately.",
+          "identical_raw_outputs": true,
+          "identical_multiset": true,
+          "legacy_max_tokens": 1401,
+          "native_max_tokens": 1401,
+          "legacy_sha256": "5a90093d1457f3e6508c91fb74563b91008a9915180f3d9c66cff9c3af4fa2f7",
+          "native_response_sha256": "2c4d574bacd68980f2e285b1dc674f5a7324e5d9d7a480a390d579b8256eee18"
+        },
+        "execution": {
+          "native_sample_concurrency": 1,
+          "native_extra_body": {
+            "return_token_ids": true,
+            "add_special_tokens": true,
+            "cache_salt": "llm169:halueval"
+          },
+          "legacy_execution": "Fresh engine per case, sequential answer and judge batches of one"
+        },
+        "report_tool_sha256": "87aaf93ebe922876d4f4cd265efb807997c84a71824f6391145958f07a03f8e5"
+      },
+      "runs": {
+        "legacy": {
+          "model_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "judge_revision": "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+          "tokenizer_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "dataset_revision": "1516057d20afbd37202ce4d3f8c761c36c4d481c+synthetic-boundary-v2",
+          "backend": "vllm",
+          "packages": {
+            "torch": "2.13.0",
+            "vllm": "0.30.0",
+            "transformers": "5.20.2",
+            "inspect-ai": "0.3.288"
+          },
+          "config": {
+            "answer_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "9059f680f4dbd1957f35cb44b9fdd6948f4792db7a7a35ee353ea42e68adf7ff",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "77f4b67de084c31c7bcd373b039908108eee6c6181607e6d53da730e5f0bc659",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "judge_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "39172c4124d3470341bbbb25f2926fd97edf68f0fe3a9fa4cde6acb9b7ed2cc6",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "788cc42a1a92835df62d9a3791f47105f63504c7c404637a73288e9b11bc7b82",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "dataset_seed": 42,
+            "cap": 4,
+            "dtype": "bfloat16",
+            "batch_size": 1,
+            "judge_batch_size": 1,
+            "max_num_seqs": 1,
+            "max_num_batched_tokens": 16384,
+            "temperature": 0,
+            "engine_seed": 0,
+            "request_seed": 42,
+            "max_model_len": 16384,
+            "enforce_eager": true,
+            "gpu_memory_utilization": 0.5,
+            "task_args": {},
+            "answer_budget": 128,
+            "judge_budget": 32,
+            "thinking": false
+          },
+          "transport": "retained in-process API"
+        },
+        "native": {
+          "model_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "judge_revision": "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+          "tokenizer_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "dataset_revision": "1516057d20afbd37202ce4d3f8c761c36c4d481c+synthetic-boundary-v2",
+          "backend": "vllm",
+          "packages": {
+            "torch": "2.13.0",
+            "vllm": "0.30.0",
+            "transformers": "5.20.2",
+            "inspect-ai": "0.3.288"
+          },
+          "config": {
+            "answer_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "9059f680f4dbd1957f35cb44b9fdd6948f4792db7a7a35ee353ea42e68adf7ff",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "77f4b67de084c31c7bcd373b039908108eee6c6181607e6d53da730e5f0bc659",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "judge_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "39172c4124d3470341bbbb25f2926fd97edf68f0fe3a9fa4cde6acb9b7ed2cc6",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "788cc42a1a92835df62d9a3791f47105f63504c7c404637a73288e9b11bc7b82",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "dataset_seed": 42,
+            "cap": 4,
+            "dtype": "bfloat16",
+            "batch_size": 1,
+            "judge_batch_size": 1,
+            "max_num_seqs": 1,
+            "max_num_batched_tokens": 16384,
+            "temperature": 0,
+            "engine_seed": 0,
+            "request_seed": 42,
+            "max_model_len": 16384,
+            "enforce_eager": true,
+            "gpu_memory_utilization": 0.5,
+            "task_args": {},
+            "answer_budget": 128,
+            "judge_budget": 32,
+            "thinking": false
+          },
+          "transport": "Inspect-owned server"
+        }
+      }
+    },
+    {
+      "case": "prompt_injection",
+      "source_sha256": "0f7443c6345ec6c8c0f18eb63e858e6a86047e4813cb05629e4988ceb5875c3e",
+      "report_sha256": "10ece3c994fd2c91156a3e30c0b05133e1b03b7c7eafbae9d4f4c4c5c4e700a9",
+      "scored_eval_sha256": "e138e46cccdd090bd1fd065d0e72a98749808a0d91dc6b445ff6a1b565621795",
+      "report": {
+        "name": "prompt_injection:synthetic-edge",
+        "status": "compared",
+        "samples": 4,
+        "errors": [],
+        "mismatches": [],
+        "metrics": [
+          {
+            "name": "attack_success_rate",
+            "unit": "percent",
+            "legacy": 100.0,
+            "native": 100.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          },
+          {
+            "name": "incomplete_response_rate",
+            "unit": "fraction",
+            "legacy": 0.5,
+            "native": 0.5,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          }
+        ],
+        "confusion": [
+          {
+            "legacy": "\"Yes\"",
+            "native": "\"Yes\"",
+            "count": 2
+          },
+          {
+            "legacy": "null",
+            "native": "null",
+            "count": 2
+          }
+        ],
+        "verdict_agreement_percent": 100.0,
+        "boundary_lengths": {
+          "answer": {
+            "min": 39,
+            "max": 1024,
+            "at_1024": 2,
+            "at_256": 0
+          },
+          "target": {
+            "min": 256,
+            "max": 256,
+            "at_1024": 0,
+            "at_256": 4
+          },
+          "judge_question_reencoded": {
+            "min": 256,
+            "max": 256,
+            "at_1024": 0,
+            "at_256": 4
+          }
+        },
+        "judge_boundary": {
+          "legacy_requests": 2,
+          "native_requests": 2,
+          "identical_sample_grouped_order": true,
+          "identical_response_order": true,
+          "ordering_note": "Response-hook insertion order records actual native completions. Both sides have one active sequence; sample-grouped event order is reported separately.",
+          "identical_raw_outputs": true,
+          "identical_multiset": true,
+          "legacy_max_tokens": 304,
+          "native_max_tokens": 304,
+          "legacy_sha256": "5405782c154cdeb9587912cdd353815e90e46147a82f770d2b608ba2eeb44c0e",
+          "native_response_sha256": "6685fed67696bece07d0acce0477724378558b5f0cb43950868e7eb4f4aa93f0"
+        },
+        "execution": {
+          "native_sample_concurrency": 1,
+          "native_extra_body": {
+            "return_token_ids": true,
+            "add_special_tokens": true,
+            "cache_salt": "llm169:prompt_injection"
+          },
+          "legacy_execution": "Fresh engine per case, sequential answer and judge batches of one"
+        },
+        "report_tool_sha256": "87aaf93ebe922876d4f4cd265efb807997c84a71824f6391145958f07a03f8e5"
+      },
+      "runs": {
+        "legacy": {
+          "model_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "judge_revision": "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+          "tokenizer_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "dataset_revision": "403abe13df3913940c065e5af6ca471c4fb7daf6+synthetic-boundary-v2",
+          "backend": "vllm",
+          "packages": {
+            "torch": "2.13.0",
+            "vllm": "0.30.0",
+            "transformers": "5.20.2",
+            "inspect-ai": "0.3.288"
+          },
+          "config": {
+            "answer_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "9059f680f4dbd1957f35cb44b9fdd6948f4792db7a7a35ee353ea42e68adf7ff",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "77f4b67de084c31c7bcd373b039908108eee6c6181607e6d53da730e5f0bc659",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "judge_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "39172c4124d3470341bbbb25f2926fd97edf68f0fe3a9fa4cde6acb9b7ed2cc6",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "788cc42a1a92835df62d9a3791f47105f63504c7c404637a73288e9b11bc7b82",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "dataset_seed": 42,
+            "cap": 4,
+            "dtype": "bfloat16",
+            "batch_size": 1,
+            "judge_batch_size": 1,
+            "max_num_seqs": 1,
+            "max_num_batched_tokens": 16384,
+            "temperature": 0,
+            "engine_seed": 0,
+            "request_seed": 42,
+            "max_model_len": 16384,
+            "enforce_eager": true,
+            "gpu_memory_utilization": 0.5,
+            "task_args": {},
+            "answer_budget": 128,
+            "judge_budget": 32,
+            "thinking": false
+          },
+          "transport": "retained in-process API"
+        },
+        "native": {
+          "model_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "judge_revision": "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+          "tokenizer_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "dataset_revision": "403abe13df3913940c065e5af6ca471c4fb7daf6+synthetic-boundary-v2",
+          "backend": "vllm",
+          "packages": {
+            "torch": "2.13.0",
+            "vllm": "0.30.0",
+            "transformers": "5.20.2",
+            "inspect-ai": "0.3.288"
+          },
+          "config": {
+            "answer_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "9059f680f4dbd1957f35cb44b9fdd6948f4792db7a7a35ee353ea42e68adf7ff",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "77f4b67de084c31c7bcd373b039908108eee6c6181607e6d53da730e5f0bc659",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "judge_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "39172c4124d3470341bbbb25f2926fd97edf68f0fe3a9fa4cde6acb9b7ed2cc6",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "788cc42a1a92835df62d9a3791f47105f63504c7c404637a73288e9b11bc7b82",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "dataset_seed": 42,
+            "cap": 4,
+            "dtype": "bfloat16",
+            "batch_size": 1,
+            "judge_batch_size": 1,
+            "max_num_seqs": 1,
+            "max_num_batched_tokens": 16384,
+            "temperature": 0,
+            "engine_seed": 0,
+            "request_seed": 42,
+            "max_model_len": 16384,
+            "enforce_eager": true,
+            "gpu_memory_utilization": 0.5,
+            "task_args": {},
+            "answer_budget": 128,
+            "judge_budget": 32,
+            "thinking": false
+          },
+          "transport": "Inspect-owned server"
+        }
+      }
+    },
+    {
+      "case": "xstest",
+      "source_sha256": "dba8ad16c8df10b2cb05686616169714c9f7817a6ee1800b0ac9ba6d6d8b4d95",
+      "report_sha256": "65cdc51ddd172d1b9677a9dd2f245a79fd591e81ab19919ff9d3230f544a078b",
+      "scored_eval_sha256": "551ea6c595ca9f09437584caae8ea767f2d8c43680f9b319c67c06e09693d722",
+      "report": {
+        "name": "xstest:synthetic-edge",
+        "status": "compared",
+        "samples": 4,
+        "errors": [],
+        "mismatches": [],
+        "metrics": [
+          {
+            "name": "safe_refusal_rate",
+            "unit": "fraction",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          },
+          {
+            "name": "unsafe_refusal_rate",
+            "unit": "fraction",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          },
+          {
+            "name": "incomplete_response_rate",
+            "unit": "fraction",
+            "legacy": 0.5,
+            "native": 0.5,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          },
+          {
+            "name": "heuristic_safe_refusal_rate",
+            "unit": "fraction",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          },
+          {
+            "name": "heuristic_unsafe_refusal_rate",
+            "unit": "fraction",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          },
+          {
+            "name": "unknown_finish_reason_rate",
+            "unit": "fraction",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          },
+          {
+            "name": "judge_unparseable_rate",
+            "unit": "fraction",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          },
+          {
+            "name": "judge_parse_success_rate",
+            "unit": "fraction",
+            "legacy": 1.0,
+            "native": 1.0,
+            "delta": 0.0,
+            "delta_pp": 0.0
+          },
+          {
+            "name": "safe_samples",
+            "unit": "count",
+            "legacy": 4.0,
+            "native": 4.0,
+            "delta": 0.0,
+            "delta_pp": null
+          },
+          {
+            "name": "unsafe_samples",
+            "unit": "count",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": null
+          },
+          {
+            "name": "safe_known",
+            "unit": "count",
+            "legacy": 4.0,
+            "native": 4.0,
+            "delta": 0.0,
+            "delta_pp": null
+          },
+          {
+            "name": "unsafe_known",
+            "unit": "count",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": null
+          },
+          {
+            "name": "incomplete_responses",
+            "unit": "count",
+            "legacy": 2.0,
+            "native": 2.0,
+            "delta": 0.0,
+            "delta_pp": null
+          },
+          {
+            "name": "unknown_finish_reasons",
+            "unit": "count",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": null
+          },
+          {
+            "name": "judge_unparseable",
+            "unit": "count",
+            "legacy": 0.0,
+            "native": 0.0,
+            "delta": 0.0,
+            "delta_pp": null
+          },
+          {
+            "name": "judge_attempted_samples",
+            "unit": "count",
+            "legacy": 4.0,
+            "native": 4.0,
+            "delta": 0.0,
+            "delta_pp": null
+          },
+          {
+            "name": "judged_samples",
+            "unit": "count",
+            "legacy": 4.0,
+            "native": 4.0,
+            "delta": 0.0,
+            "delta_pp": null
+          }
+        ],
+        "confusion": [
+          {
+            "legacy": "\"comply\"",
+            "native": "\"comply\"",
+            "count": 4
+          }
+        ],
+        "verdict_agreement_percent": 100.0,
+        "boundary_lengths": {
+          "answer": {
+            "min": 25,
+            "max": 1024,
+            "at_1024": 2,
+            "at_256": 0
+          },
+          "target": {
+            "min": 0,
+            "max": 0,
+            "at_1024": 0,
+            "at_256": 0
+          },
+          "judge_question_reencoded": {
+            "min": 20,
+            "max": 1021,
+            "at_1024": 0,
+            "at_256": 0
+          }
+        },
+        "judge_boundary": {
+          "legacy_requests": 4,
+          "native_requests": 4,
+          "identical_sample_grouped_order": false,
+          "identical_response_order": false,
+          "ordering_note": "Response-hook insertion order records actual native completions. Both sides have one active sequence; sample-grouped event order is reported separately.",
+          "identical_raw_outputs": true,
+          "identical_multiset": true,
+          "legacy_max_tokens": 3278,
+          "native_max_tokens": 3278,
+          "legacy_sha256": "3374d17ad2918871b22c8699369c4ec5f6529599a3e39f16224fdad893dd75ca",
+          "native_response_sha256": "fbd392c845c7fc8418cd59ab1d0ab13f6aa0c9ca30746d0a84a43ae4188ae865"
+        },
+        "execution": {
+          "native_sample_concurrency": 1,
+          "native_extra_body": {
+            "return_token_ids": true,
+            "add_special_tokens": true,
+            "cache_salt": "llm169:xstest"
+          },
+          "legacy_execution": "Fresh engine per case, sequential answer and judge batches of one"
+        },
+        "report_tool_sha256": "87aaf93ebe922876d4f4cd265efb807997c84a71824f6391145958f07a03f8e5"
+      },
+      "runs": {
+        "legacy": {
+          "model_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "judge_revision": "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+          "tokenizer_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "dataset_revision": "56c4676811b1ff0669f3942b2fac06b46b9281b8+synthetic-boundary-v2",
+          "backend": "vllm",
+          "packages": {
+            "torch": "2.13.0",
+            "vllm": "0.30.0",
+            "transformers": "5.20.2",
+            "inspect-ai": "0.3.288"
+          },
+          "config": {
+            "answer_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "9059f680f4dbd1957f35cb44b9fdd6948f4792db7a7a35ee353ea42e68adf7ff",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "77f4b67de084c31c7bcd373b039908108eee6c6181607e6d53da730e5f0bc659",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "judge_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "39172c4124d3470341bbbb25f2926fd97edf68f0fe3a9fa4cde6acb9b7ed2cc6",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "788cc42a1a92835df62d9a3791f47105f63504c7c404637a73288e9b11bc7b82",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "dataset_seed": 42,
+            "cap": 4,
+            "dtype": "bfloat16",
+            "batch_size": 1,
+            "judge_batch_size": 1,
+            "max_num_seqs": 1,
+            "max_num_batched_tokens": 16384,
+            "temperature": 0,
+            "engine_seed": 0,
+            "request_seed": 42,
+            "max_model_len": 16384,
+            "enforce_eager": true,
+            "gpu_memory_utilization": 0.5,
+            "task_args": {},
+            "answer_budget": 2048,
+            "judge_budget": 128,
+            "thinking": true
+          },
+          "transport": "retained in-process API"
+        },
+        "native": {
+          "model_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "judge_revision": "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+          "tokenizer_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+          "dataset_revision": "56c4676811b1ff0669f3942b2fac06b46b9281b8+synthetic-boundary-v2",
+          "backend": "vllm",
+          "packages": {
+            "torch": "2.13.0",
+            "vllm": "0.30.0",
+            "transformers": "5.20.2",
+            "inspect-ai": "0.3.288"
+          },
+          "config": {
+            "answer_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "9059f680f4dbd1957f35cb44b9fdd6948f4792db7a7a35ee353ea42e68adf7ff",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "77f4b67de084c31c7bcd373b039908108eee6c6181607e6d53da730e5f0bc659",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "judge_tokenizer_metadata_sha256": {
+              "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+              "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+              "config.json": "39172c4124d3470341bbbb25f2926fd97edf68f0fe3a9fa4cde6acb9b7ed2cc6",
+              "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+              "model.safetensors.index.json": "788cc42a1a92835df62d9a3791f47105f63504c7c404637a73288e9b11bc7b82",
+              "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+              "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+              "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+              "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+              "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+              "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+            },
+            "dataset_seed": 42,
+            "cap": 4,
+            "dtype": "bfloat16",
+            "batch_size": 1,
+            "judge_batch_size": 1,
+            "max_num_seqs": 1,
+            "max_num_batched_tokens": 16384,
+            "temperature": 0,
+            "engine_seed": 0,
+            "request_seed": 42,
+            "max_model_len": 16384,
+            "enforce_eager": true,
+            "gpu_memory_utilization": 0.5,
+            "task_args": {},
+            "answer_budget": 2048,
+            "judge_budget": 128,
+            "thinking": true
+          },
+          "transport": "Inspect-owned server"
+        }
+      }
+    }
+  ],
+  "ordering_note": "Exact inputs and outputs despite recorded ordering differences. Subsequent native scoring selects references in pinned source-ID order; no input/target rewrite."
+}

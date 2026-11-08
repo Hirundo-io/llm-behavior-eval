@@ -402,3 +402,28 @@ maximum one sequence, and explicit 16384 prefill capacity. No 500-row completion
 is asserted here. The durable controller records phase commands/status and
 runner hashes in the remote root. Raw wiring/reuse evidence is also preserved in
 ignored `results/llm169-production-h200/wiring-and-reuse-evidence.tar.gz`.
+
+The four synthetic boundary pairs completed with **16/16 identical actual answer
+input-ID sequences and answer texts**, zero compared field mismatches, and zero
+metric deltas. `production-boundary-evidence.json` binds the real reports and
+scored logs by SHA-256. BBQ and HaluEval each include two actual 1024-token answer
+inputs and four 256-token targets; BBQ also has four 256-token stereotypes.
+Actual old/new judge inputs and raw outputs match, with maximum judge lengths
+1856 (BBQ) and 1401 (HaluEval), proving those calls did not inherit the answer cap.
+Purple's independently supplied long judge question follows the retained
+256-token question round trip; two stopped answers were judged, and the other
+two length-stopped answers remain excluded from ASR. XSTest's four boundary
+answers and judge calls also match exactly. Original sample content and targets
+remain intact; random Inspect message IDs are not source content.
+
+The response-order audit found that reloaded Inspect logs arrange samples by ID.
+The initial ordered sample-provider callback therefore preserved that order
+rather than the pinned shuffled source order. This changed BBQ/HaluEval judge
+request order in the boundary run, with no observed input/output/metric effect;
+the report retains the difference explicitly. The callback now selects the
+original sample references by pinned source IDs, without changing any message,
+target, or original log. The prior runner is archived and its replacement hashes
+recorded in `qualification-ordering-fix.json`. The fix precedes larger native
+scoring; production source remains unchanged. **32 focused tests**, Ruff, and
+focused Pyrefly pass. The all-31 capped run is now executing, beginning with
+500-row HaluEval; the boundary results do not satisfy that production matrix.

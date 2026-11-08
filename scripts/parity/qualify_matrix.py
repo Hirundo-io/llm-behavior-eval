@@ -356,7 +356,7 @@ def main() -> None:
                     metrics=task.metrics,
                     model_roles={"grader": grader},
                     display="none",
-                    samples=ordered_samples(log),
+                    samples=ordered_samples(log, source["ids"]),
                     copy=False,
                 )
             )

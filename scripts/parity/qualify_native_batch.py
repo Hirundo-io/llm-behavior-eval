@@ -137,7 +137,11 @@ def main() -> None:
                         task.scorer,
                         metrics=task.metrics,
                         model_roles={"grader": grader},
-                        samples=ordered_samples(log) if args.ordered else None,
+                        samples=ordered_samples(
+                            log, json.loads((root / "source.json").read_text())["ids"]
+                        )
+                        if args.ordered
+                        else None,
                         copy=not args.ordered,
                     )
                 write_eval_log(result, str(root / "scored.eval"))

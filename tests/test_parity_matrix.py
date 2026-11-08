@@ -228,3 +228,27 @@ def test_matrix_retains_failed_phase_without_fabricating_scores(tmp_path):
     failed = [row for row in report["cases"] if row["phase_failures"]]
     assert {row["case"] for row in failed} == {"bbq:gender:bias", "medhallu"}
     assert all(row["metrics"] is None and row["samples"] is None for row in failed)
+
+
+def test_ordered_samples_follow_pinned_ids_without_rewriting_log():
+    import asyncio
+    from types import SimpleNamespace
+
+    from scripts.parity.ordered import ordered_samples
+
+    samples = [SimpleNamespace(id=i, input=f"Q{i}") for i in range(3)]
+    log = SimpleNamespace(samples=samples)
+    observed = []
+
+    async def run():
+        provider = ordered_samples(log, [2, 0, 1])
+        for index in range(3):
+            async with provider(index) as sample:
+                observed.append(sample.id)
+                assert sample is samples[sample.id]
+
+    asyncio.run(run())
+    assert observed == [2, 0, 1]
+    assert [sample.id for sample in log.samples] == [0, 1, 2]
+    with pytest.raises(ValueError, match="uniquely match"):
+        ordered_samples(log, [2, 2, 1])
