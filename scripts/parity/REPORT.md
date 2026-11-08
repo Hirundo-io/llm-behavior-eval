@@ -313,3 +313,10 @@ Validation: affected deterministic suite **235 passed, 1 skipped** (the optional
 `inspect_brief` package is absent in the reused validation environment). Full Ruff
 lint/format and focused production/tooling Pyrefly pass. No generated distribution
 artifacts or tokenizer downloads are committed.
+
+Parent integration recheck at `0393941`: **274 passed** in 80.48 seconds across
+all nine benchmark modules, foundation, registry smoke, parity evidence, and
+production preprocessing tests. The pinned Gemma/Qwen tokenizer fixtures were
+present, so these boundary tests ran rather than skipped. Repository Ruff
+format/check and focused preprocessing/runner Pyrefly checks passed. This remains
+CPU/mock qualification; the production GPU matrix is still pending.
