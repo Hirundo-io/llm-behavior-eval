@@ -343,3 +343,7 @@ Using the next models as judges:
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for more information.
+
+Native Inspect migration scaffolding is available alongside the legacy engine.
+See [Inspect migration and shared API](INSPECT_MIGRATION.md) for the reference task,
+provider mappings, air-gapped grader setup, and remaining parity limitations.
