@@ -320,3 +320,54 @@ production preprocessing tests. The pinned Gemma/Qwen tokenizer fixtures were
 present, so these boundary tests ran rather than skipped. Repository Ruff
 format/check and focused preprocessing/runner Pyrefly checks passed. This remains
 CPU/mock qualification; the production GPU matrix is still pending.
+
+## Production GPU qualification in checkout t3-f8a66042 (in progress)
+
+This run freezes production source at `f35fb814b0c99081707f81241b39ed72cd4ebcbf`.
+The later HF support change is deliberately not mixed into these vLLM pairs.
+The isolated H200 run root is `/mnt/filesystem-x0/llm169_f8a66042`, reusing the
+supported environment and three immutable model snapshots from the previous run.
+Runtime source-path verification confirms imports from the new source copy.
+Actual packages: Python 3.12.16, Torch 2.13.0, vLLM 0.30.0, Transformers 5.20.2,
+Inspect 0.3.288, Datasets 5.0.1.
+
+`production-pinned-datasets.json` records all 31 immutable revisions, complete
+export hashes, selected-ID hashes, and source sizes. The required capped matrix
+contains 13,217 rows per implementation. Eleven configurations have fewer than
+500 source rows; those runs use the full source. CCPC retains its exact revision,
+ordered 500-row validation and fingerprint. XSTest exposes only `test`; the
+runner was corrected to follow the production train-or-single-split rule.
+The failed first preparation log is preserved separately.
+
+New tooling invokes only retained EvaluateFactory and native Inspect eval/score
+APIs. `qualify_matrix.py` prepares and executes individual phases;
+`run_matrix.py --group-native` and `qualify_native_batch.py` reuse native servers
+across tasks while keeping answer and judge processes separate. Legacy boundary
+observers preserve actual answer/judge input tensors and unrounded metrics;
+`report_matrix.py` compares those with native model-event token IDs and scorer
+metadata. Original sample inputs and targets are checked unchanged. Derived
+artifacts bind the raw files by hashes. `matrix_report.py` keeps absent rows and
+scores missing and cannot substitute a small slice for a 500-row configuration.
+Synthetic long-boundary fixtures are explicitly separate, and cannot modify CCPC.
+
+The existing `qualify_native.py` separate scoring phase now forwards task metrics.
+This matters for bias, whose scorer declares no metrics itself. A real Inspect
+mock-log regression exercises answer then separate scoring; it is tooling evidence,
+not live benchmark qualification. No production preprocessing/scorer code changed.
+
+The first production HaluEval two-row pair completed: actual answer input token
+IDs (including double BOS), rendered prompts, outputs, finish reasons, judge
+questions and verdicts match. Both accuracy values are 100%. This early wiring
+pair used native request seed 0 versus retained request seed 42; engine seed was
+0 on both sides. The runner now uses request seed 42 for subsequent pairs. The
+early pair must not be represented as matched decoding provenance or a completed
+matrix row. Its legacy judge token boundary was not captured. Raw evidence lives
+locally in ignored `results/llm169-production-h200/` and under the remote run root.
+
+The nine-family small checks and subsequent full matrix are still in progress.
+No tolerance, divergence, engine retirement, or HF GPU qualification is accepted.
+The H200 was initially STOPPED and idle after starting; its original watchdog flag
+is backed up at the unique `VM_OFF_h200.llm169-f8a66042-backup` sibling path.
+GPU ownership remains with this run until all work finishes and original-state
+cleanup is verified. Box and rtx2 are untouched. No PR, push, release, Linear or
+Slack action has been taken.

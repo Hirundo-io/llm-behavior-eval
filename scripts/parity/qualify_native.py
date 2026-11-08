@@ -72,7 +72,13 @@ def main() -> None:
         log = read_eval_log((args.root / "answer-log.txt").read_text().strip())
         if not task.scorer:
             raise ValueError("Task has no scorer")
-        scored = score(log, task.scorer, model_roles={"grader": grader}, display="none")
+        scored = score(
+            log,
+            task.scorer,
+            metrics=task.metrics,
+            model_roles={"grader": grader},
+            display="none",
+        )
         write_eval_log(scored, str(args.root / "scored.eval"))
 
 
