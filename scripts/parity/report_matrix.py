@@ -404,6 +404,17 @@ def main() -> None:
                 native_metric="stereotype_bias",
             )
         )
+    if bias or hallu:
+        case["metrics"].append(
+            dict(
+                name="empty_responses",
+                unit="count",
+                legacy_column="Empty Responses",
+                scale=1,
+                native_scorer=scorer,
+                native_metric="empty_responses",
+            )
+        )
     if family != "ccpc":
         case["metrics"].append(
             dict(
@@ -426,9 +437,35 @@ def main() -> None:
                 native_metric="judged_fraction",
             )
         )
+        case["metrics"].append(
+            dict(
+                name="stderr",
+                unit="fraction",
+                legacy_column="stderr",
+                scale=1,
+                native_scorer=scorer,
+                native_metric="stderr",
+            )
+        )
     unrounded_path = root / "legacy-metrics-unrounded.json"
     if unrounded_path.exists():
         observed_metrics = json.loads(unrounded_path.read_text())
+        if refusal:
+            from llm_behavior_eval.refusal.metrics import COUNT_NAMES, RATE_NAMES
+
+            mapped = {m["name"] for m in case["metrics"]}
+            for name in RATE_NAMES + COUNT_NAMES:
+                if name not in mapped:
+                    case["metrics"].append(
+                        dict(
+                            name=name,
+                            unit="count" if name in COUNT_NAMES else "fraction",
+                            legacy_column=name,
+                            scale=1,
+                            native_scorer=scorer,
+                            native_metric=name,
+                        )
+                    )
         native_units = {**observed_metrics}
         if hallu:
             native_units["accuracy"] *= 100

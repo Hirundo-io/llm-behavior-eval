@@ -15,6 +15,11 @@ def summarize(root: Path) -> dict:
         "expected_cases"
     ]
     rows = []
+    failures = []
+    for ledger in root.glob("phases-*.json"):
+        for phase in json.loads(ledger.read_text()):
+            if phase.get("returncode"):
+                failures.append({**phase, "ledger": ledger.name})
     for name in expected:
         directory = root / name.replace(":", "-")
         report_path = directory / "strict-report.json"
@@ -24,6 +29,12 @@ def summarize(root: Path) -> dict:
             expected_samples=None,
             samples=None,
             metrics=None,
+            phase_failures=[
+                failure
+                for failure in failures
+                if name in [failure.get("case"), *failure.get("cases", [])]
+                or directory.name in [failure.get("case"), *failure.get("cases", [])]
+            ],
         )
         if (directory / "source.json").exists():
             source = json.loads((directory / "source.json").read_text())
@@ -65,6 +76,9 @@ def summarize(root: Path) -> dict:
                 judge_boundary=judge,
                 boundary_lengths=report.get("boundary_lengths"),
                 report_sha256=digest(report_path),
+                provenance_equal=old_run == new_run,
+                coverage_complete=coverage,
+                execution=report.get("execution"),
             )
         rows.append(row)
     return dict(

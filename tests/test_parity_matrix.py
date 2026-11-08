@@ -214,3 +214,17 @@ def test_ccpc_comparator_uses_documented_labels(value, expected):
     assert ccpc_verdict(value) is expected
     with pytest.raises(KeyError):
         ccpc_verdict("unrecognized")
+
+
+def test_matrix_retains_failed_phase_without_fabricating_scores(tmp_path):
+    from scripts.parity.matrix_report import summarize
+
+    (tmp_path / "phases-judge.json").write_text(
+        json.dumps(
+            [dict(cases=["bbq-gender-bias", "medhallu"], phase="judge", returncode=1)]
+        )
+    )
+    report = summarize(tmp_path)
+    failed = [row for row in report["cases"] if row["phase_failures"]]
+    assert {row["case"] for row in failed} == {"bbq:gender:bias", "medhallu"}
+    assert all(row["metrics"] is None and row["samples"] is None for row in failed)
