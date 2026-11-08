@@ -1,68 +1,30 @@
-import gc
-import logging
-from pathlib import Path
+"""Native preset expansion. Credentials belong in the provider environment."""
 
-import torch
-from transformers.trainer_utils import set_seed
+from importlib import import_module
 
-from llm_behavior_eval import (
-    DatasetConfig,
-    DatasetType,
-    EvaluateFactory,
-    EvaluationConfig,
-    PreprocessConfig,
-)
+from inspect_ai import eval as inspect_eval
+
+from llm_behavior_eval import list_dataset_presets
 
 
 def main() -> None:
-    # Customize here
-    model = "meta-llama/Llama-3.1-8B-Instruct"
-    model_token = None  # Don't forget to set this to your HuggingFace token after accepting the terms of service for the gated model
-    judge_model = "google/gemma-3-12b-it"
-    judge_token = None  # Don't forget to set this to your HuggingFace token after accepting the terms of service for the gated model
-    result_dir = Path(__file__).resolve().parents[1] / "results"
-    # Choose a specific dataset from hirundo-io datasets collections
-    dataset_id = "hirundo-io/bbq-gender-bias-free-text"
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-8s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+    catalog = {preset.name: preset for preset in list_dataset_presets()}
+    tasks = []
+    for name in ("bias:gender", "hallu-med"):
+        for mapping in catalog[name].inspect_tasks:
+            task_name = mapping.task_name.removeprefix("llm_behavior_eval/")
+            constructor = getattr(
+                import_module(f"llm_behavior_eval.{task_name}.task"), task_name
+            )
+            tasks.append(constructor(**dict(mapping.task_args), max_samples=200))
+    # Native tasks configure HF thinking independently for answer and grader.
+    # For API deployments see the per-family attestation flags in INSPECT_MIGRATION.md.
+    inspect_eval(
+        tasks,
+        model="hf/meta-llama/Llama-3.1-8B-Instruct",
+        model_roles={"grader": "hf/google/gemma-3-12b-it"},
+        log_dir="results/inspect",
     )
-
-    dataset_config = DatasetConfig(
-        file_path=dataset_id,
-        dataset_type=DatasetType.BIAS if "-bias-" in dataset_id else DatasetType.UNBIAS,
-        preprocess_config=PreprocessConfig(
-            max_length=256, gt_max_length=32, preprocess_batch_size=512
-        ),
-    )
-
-    eval_config = EvaluationConfig(
-        max_samples=200,  # set to None to run full dataset
-        batch_size=32,
-        sample=False,
-        max_answer_tokens=128,
-        model_path_or_repo_id=model,
-        model_token=model_token,
-        judge_batch_size=64,
-        max_judge_tokens=32,
-        judge_path_or_repo_id=judge_model,
-        judge_token=judge_token,
-        use_4bit_judge=False,
-        results_dir=result_dir,
-    )
-
-    if dataset_config.seed is not None:
-        set_seed(dataset_config.seed)
-    elif eval_config.sampling_config.seed is not None:
-        set_seed(eval_config.sampling_config.seed)
-    evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
-    with torch.inference_mode():
-        evaluator.evaluate()
-    del evaluator
-    gc.collect()
-    torch.cuda.empty_cache()
 
 
 if __name__ == "__main__":

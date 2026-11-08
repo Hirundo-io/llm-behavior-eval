@@ -1,7 +1,8 @@
 # Native Inspect foundation (LLM-156)
 
-Legacy CLI, evaluators, and public imports remain available. No benchmark has
-migrated yet. Inspect 0.3.288 is tested and pinned to `<0.3.289`; revalidate provider
+Native Inspect is the public execution path. The legacy CLI is retired (LLM-168);
+legacy evaluator/config imports remain deprecated for parity validation. Eight
+benchmark tasks are integrated; Purple Llama `prompt_injection` is pending. Inspect 0.3.288 is tested and pinned to `<0.3.289`; revalidate provider
 contracts before widening this range. Inspect requires Python 3.11+, so its
 mandatory dependency has a Python-version marker; Python 3.10 remains legacy-only.
 
@@ -156,3 +157,104 @@ claiming that issue fixed; mock/API sequential calls do not establish that.
 Benchmark parity, GPU/quantization/LoRA testing, Muse Glimmer support, and optional
 Inspect-brief integration remain follow-up work. Keep the legacy engine until
 benchmark-by-benchmark semantic comparisons pass.
+
+
+## LLM-168 entry-point decision and consumer migration
+
+Decision: retire the heavy CLI rather than maintain another flag/provider layer.
+`llm-behavior-eval`, `python -m llm_behavior_eval`, and the evaluate module CLI
+now print guidance and exit 2 without loading models or echoing arguments.
+No legacy options are forwarded or silently ignored; `--help` remains available.
+Use native `inspect eval` / `inspect_ai.eval` / `eval_set` directly. Mixed families
+are supported using individual task constructor arguments; see `examples/presets_customization.py`.
+The old generation/grade lifecycle and CLI orchestration have been deleted.
+Legacy evaluators/configs remain importable for parity only (LLM-171).
+
+Catalog compatibility: `DatasetPreset(name, dataset_ids)`, ordered tuple return
+from `list_dataset_presets()`, and case-insensitive `expand_dataset_preset()`
+are unchanged. `preset.inspect_tasks` returns an ordered tuple of
+`InspectTaskMapping(task_name, task_args, dataset_id)` aligned with `dataset_ids`.
+`task_args` is immutable key/value pairs; convert with `dict()` for task constructors.
+The mapping's logical ID must not be passed as an unsupported task argument.
+Local overrides use `dataset_path` while native tasks preserve logical identity.
+
+| Preset | Registered task (prefix `llm_behavior_eval/`) | Arguments |
+| --- | --- | --- |
+| `bias:<type>`, `unbias:<type>` | `bbq` | `bias_type=<type>`, `kind=bias` or `unbias` |
+| `unqover:bias:<type>` | `unqover` | `bias_type=<type>`, `kind=bias` |
+| `bloom:bias:<type>`, `bloom:unbias:<type>` | `bloom` | `bias_type=<type>`, `kind=bias` or `unbias` |
+| `bloom:bias:<type>:ambiguous` | `bloom` | `bias_type=<type>`, `kind=ambiguous` |
+| `hallu`, `hallu-med` | `halueval`, `medhallu` respectively | none |
+| `refusal:xstest`, `refusal:orbench` | `xstest`, `orbench` respectively | none |
+| `chinese_censorship` | `ccpc` | none; logical ID differs from asset |
+| `prompt-injection` | `prompt_injection` (pending integration) | none |
+
+Every `:all` expands to individual tasks in the original catalog order, including
+both tasks for `refusal:all`. UNQOVER assets use `hirundo-io/unqover-...`, matching
+actual catalog expansions, not older documentation namespaces.
+
+### Thinking and native options
+
+Do not translate old thinking booleans into a single global task argument.
+Native HF/vLLM task implementations configure each role. For externally configured
+API deployments, these task flags attest to configuration; they do not turn off
+provider reasoning themselves:
+
+| Tasks | External configuration attestations |
+| --- | --- |
+| BBQ, BLOOM, UNQOVER | `externally_configured_thinking=true` asserts thinking disabled on both roles |
+| HaluEval, Med-Hallu | `thinking_disabled=true`, `grader_thinking_disabled=true`, independently |
+| XSTest, OR-Bench | `answer_thinking_configured=true`, `judge_thinking_configured=true`; answer `thinking=true` by default |
+| CCPC | `answer_thinking_configured=true`, `judge_thinking_configured=true`; both disabled |
+| Prompt injection | Pending task integration; do not assume its flags |
+
+Use `--model-role grader=...` (or native role YAML with its own model args) for
+judge engine/model selection; no judge fallback to the answer model. Native
+`--max-tokens` configures answer generation; judge budgets are benchmark-specific
+and must be configured through supported scorer/role APIs, not a legacy
+`--max-judge-tokens` alias. Inspect owns retries and concurrency (`--max-retries`,
+`--max-connections`); there is no legacy batching loop. See provider mapping above
+for vLLM server options, HF batching and quantization. Unsupported custom HF
+thinking templates remain a parity blocker. Credentials belong in provider
+environment variables, never logged task args. `--base-output-dir` and
+`--model-output-dir` become an explicit native `--log-dir` path. There is no
+implicit platform-specific legacy results directory.
+
+### Output break and follow-up ownership
+
+Native `.eval` logs replace response JSON, `run_config.json`, `summary_full.csv`
+and `summary_brief.csv`. Use Inspect log readers for model/role configuration,
+sample metadata and scores. inspect-brief (LLM-166) emits long-form CSV; it is not
+a compatibility implementation of the old `Dataset` / `Thinking` / `Error (%)`
+or `Accuracy (%)` columns. Consumers must select metrics explicitly and respect
+the reporter's units; do not blindly apply legacy percentage scaling.
+The Notion uploader and its legacy CSV tests are removed, not adapted.
+
+LLM-167 owns MLflow integration and rewriting `examples/mlflow_example.py`.
+That example remains legacy-only and must not be presented as a native workflow;
+no MLflow callbacks or adapters are added here. LLM-166 owns reporting docs and
+optional dependencies; this change does not touch pyproject.toml.
+
+Platform/SDK notification is **pending**: communicate CLI exit-2 retirement,
+deprecated evaluator/config imports, unchanged asset tuple API plus new native
+mapping, native log metadata, removed Notion uploader, and long-form report
+schema. No Slack/email notification is authorized or sent. Keep that acceptance
+criterion open until the parent coordinates downstream migration.
+
+### LLM-168 implementation evidence
+
+- Focused CLI/catalog suite: 47 passed (all preset expansions, native constructor
+  signatures, mixed-task example and independent grader, both module entry points).
+- Existing BLOOM/UNQOVER identity/catalog subset: 11 passed, 48 deselected.
+- Repository `ruff check .`, `ruff format --check --diff`, and `git diff --check`
+  pass. Targeted pyrefly on changed native entry-point/catalog/example/tests:
+  zero diagnostics.
+- Full pyrefly was run but is not clean: 86 diagnostics in this minimal environment,
+  including missing torch/Transformers/MLflow/vLLM dependencies and existing native
+  test typing issues. Full semantic/GPU parity is not claimed. A broader benchmark
+  test attempt encountered missing legacy dependencies and runtime setup failures;
+  a follow-up broad run was interrupted after stalling. Only the passing focused
+  results above are release evidence for this change.
+- Legacy factory/config tests formerly mixed into CLI tests are preserved in
+  `tests/test_legacy_entrypoint_contracts.py`. Their full dependency environment
+  remains required. No PR, release, or downstream notification is part of this change.
