@@ -2,6 +2,7 @@
 
 from .bbq.task import bbq
 from .bloom.task import bloom
+from .ccpc.task import ccpc
 from .halueval.task import halueval
 from .inspect_template.task import inspect_template
 from .orbench.task import orbench
@@ -11,6 +12,7 @@ from .xstest.task import xstest
 __all__ = [
     "bbq",
     "bloom",
+    "ccpc",
     "halueval",
     "inspect_template",
     "orbench",
