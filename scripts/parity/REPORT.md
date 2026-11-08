@@ -111,7 +111,10 @@ alignment before comparing output. Raw evidence totals under 1 MiB, kept at:
 - Committed compact observations, hashes and runtime: `gpu-summary.json`.
 
 After both processes exited, `nvidia-smi --query-compute-apps` returned no jobs.
-GPU work is finished; parent owns stopping h200 and restoring its watchdog flag.
+The parent independently confirmed the GPU was idle, restored the original
+`VM_OFF_h200` watchdog flag, and confirmed the instance reached `STOPPED`.
+The diagnostic artifacts are also copied to the integration checkout's ignored
+`results/llm169-h200/` directory.
 
 ## Benchmark score gate
 
@@ -165,7 +168,8 @@ provider-boundary evidence, full old/native scoring runs, explicit tolerances an
 per-divergence sign-off. Existing H200 source copies contained no discoverable
 Purple task filename; requested Orr source remains unlocated. LLM-171 stays gated.
 
-Evidence remains local at the user's explicit request. The attempted detailed
+Evidence remains local under the parent's instruction following the approval
+rejection. The attempted detailed
 Linear update was rejected by automatic approval review; no issue comment was
 posted. No PR, push, merge, release, legacy deletion or downstream Slack update
 occurred. Small JSON evidence files are explicitly tracked despite broad ignore

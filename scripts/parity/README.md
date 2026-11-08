@@ -102,18 +102,27 @@ from llm_behavior_eval.evaluation_utils.enums import DatasetType
 
 EvaluateFactory.create_evaluator(
     EvaluationConfig(
-        model_path_or_repo_id=os.environ['ANSWER_SNAPSHOT'],
-        judge_path_or_repo_id=os.environ['JUDGE_SNAPSHOT'],
-        inference_engine='transformers',
-        sample=False, sample_judge=False, enable_thinking=False,
-        use_4bit=False, use_4bit_judge=False,
-        max_samples=500, batch_size=1, judge_batch_size=1,
-        max_answer_tokens=128, max_judge_tokens=32,
-        results_dir=Path('results/parity/legacy'),
+        model_path_or_repo_id=os.environ["ANSWER_SNAPSHOT"],
+        judge_path_or_repo_id=os.environ["JUDGE_SNAPSHOT"],
+        inference_engine="transformers",
+        sample=False,
+        sample_judge=False,
+        enable_thinking=False,
+        use_4bit=False,
+        use_4bit_judge=False,
+        max_samples=500,
+        batch_size=1,
+        judge_batch_size=1,
+        max_answer_tokens=128,
+        max_judge_tokens=32,
+        results_dir=Path("results/parity/legacy"),
     ),
-    DatasetConfig(file_path=os.environ['DATASET_SOURCE'],
-                  dataset_id='hirundo-io/halueval',
-                  dataset_type=DatasetType.BIAS, seed=42),
+    DatasetConfig(
+        file_path=os.environ["DATASET_SOURCE"],
+        dataset_id="hirundo-io/halueval",
+        dataset_type=DatasetType.BIAS,
+        seed=42,
+    ),
 ).evaluate()
 ```
 
@@ -124,15 +133,27 @@ from inspect_ai import eval
 from inspect_ai.model import get_model
 from llm_behavior_eval.halueval.task import halueval
 
-answer = get_model('hf/local-answer', model_path=os.environ['ANSWER_SNAPSHOT'],
-                   tokenizer_path=os.environ['ANSWER_SNAPSHOT'],
-                   enable_thinking=False, do_sample=False)
-grader = get_model('hf/local-judge', model_path=os.environ['JUDGE_SNAPSHOT'],
-                   tokenizer_path=os.environ['JUDGE_SNAPSHOT'],
-                   enable_thinking=False, do_sample=False)
-eval(halueval(dataset_path=os.environ['DATASET_SOURCE'], max_samples=500),
-     model=answer, model_roles={'grader': grader},
-     max_connections=1, log_dir='results/parity/native')
+answer = get_model(
+    "hf/local-answer",
+    model_path=os.environ["ANSWER_SNAPSHOT"],
+    tokenizer_path=os.environ["ANSWER_SNAPSHOT"],
+    enable_thinking=False,
+    do_sample=False,
+)
+grader = get_model(
+    "hf/local-judge",
+    model_path=os.environ["JUDGE_SNAPSHOT"],
+    tokenizer_path=os.environ["JUDGE_SNAPSHOT"],
+    enable_thinking=False,
+    do_sample=False,
+)
+eval(
+    halueval(dataset_path=os.environ["DATASET_SOURCE"], max_samples=500),
+    model=answer,
+    model_roles={"grader": grader},
+    max_connections=1,
+    log_dir="results/parity/native",
+)
 ```
 
 These are unexecuted resource-dependent recipes. Inspect's concurrency setting
