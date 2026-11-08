@@ -56,7 +56,7 @@ dependencies = [
 
 [project.optional-dependencies]
 brief = ["inspect-brief>=0.1.1,<0.2; python_version >= '3.12'"]
-mlflow = ["mlflow>=2.0.0"]
+mlflow = ["mlflow>=2.8.0"]
 # vLLM publishes Linux wheels only. Torch pins Triton and the CUDA runtime together.
 vllm = [
   "vllm>=0.30.0,<0.31; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",

@@ -1,52 +1,31 @@
-"""
-Minimal example showing how to run an evaluation with local MLflow tracking enabled.
+"""Run a tiny native Inspect evaluation with a local MLflow file store.
 
-This example assumes you have MLflow installed (`pip install mlflow`).
+uv pip install -e '.[mlflow]'
+python examples/mlflow_example.py
 """
 
+import os
 from pathlib import Path
 
-from llm_behavior_eval import (
-    DatasetConfig,
-    DatasetType,
-    EvaluateFactory,
-    EvaluationConfig,
-    MlflowConfig,
-    PreprocessConfig,
-)
+from inspect_ai import Task
+from inspect_ai import eval as inspect_eval
+from inspect_ai.dataset import Sample
+from inspect_ai.scorer import exact
+from inspect_ai.solver import generate
 
-
-def main():
-    dataset_config = DatasetConfig(
-        file_path="hirundo-io/bbq-gender-bias-free-text",
-        dataset_type=DatasetType.BIAS,
-        preprocess_config=PreprocessConfig(),
-    )
-
-    mlflow_config = MlflowConfig()
-    # You can also set `mlflow_tracking_uri`, `mlflow_experiment_name` or `mlflow_run_name` here
-    # e.g.
-    # ```python
-    # mlflow_config = MlflowConfig(
-    #     mlflow_tracking_uri="http://tracking.example",
-    #     mlflow_experiment_name="MLflow Tests",
-    #     mlflow_run_name="MLflow Run Name",
-    # )
-    # ```
-    # Note: All of these parameters are optional, as per MLflow's behavior.
-
-    eval_config = EvaluationConfig(
-        model_path_or_repo_id="meta-llama/Llama-3.1-8B-Instruct",
-        model_token=None,  # Don't forget to set this to your HuggingFace token after accepting the terms of service for the gated model
-        results_dir=Path("./results"),
-        max_samples=50,
-        mlflow_config=mlflow_config,
-    )
-
-    evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
-    evaluator.evaluate()
-
+os.environ["LLM_BEHAVIOR_EVAL_MLFLOW_ENABLED"] = "1"
+os.environ["MLFLOW_TRACKING_URI"] = Path("results/mlruns").resolve().as_uri()
+# MLflow 3.x requires explicit opt-in to its deprecated local file store.
+os.environ["MLFLOW_ALLOW_FILE_STORE"] = "true"
 
 if __name__ == "__main__":
-    print("Run `mlflow ui` in another terminal to view results after this finishes.")
-    main()
+    inspect_eval(
+        Task(
+            dataset=[Sample(input="Say hello", target="Default output")],
+            solver=generate(),
+            scorer=exact(),
+            name="mlflow_example",
+        ),
+        model="mockllm/model",
+        log_dir="results/inspect",
+    )
