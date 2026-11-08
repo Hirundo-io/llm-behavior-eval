@@ -11,7 +11,7 @@ Select providers independently with --model and --model-role grader=PROVIDER/MOD
 Configure native provider arguments with -M or grader role YAML, not legacy flags.
 Use environment credentials; never put tokens in task arguments.
 Thinking flags differ by benchmark/provider; see INSPECT_MIGRATION.md.
-MLflow migration is pending LLM-167; legacy flags are not forwarded.
+For opt-in MLflow hook settings, see MLFLOW_INTEGRATION.md; legacy flags are not forwarded.
 See INSPECT_MIGRATION.md for the complete migration and output schema changes."""
 
 app = typer.Typer(add_completion=False)

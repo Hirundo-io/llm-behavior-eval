@@ -16,7 +16,8 @@ MLflow. Reporting is disabled unless `LLM_BEHAVIOR_EVAL_MLFLOW_ENABLED=1`.
 Use native `inspect eval` or `inspect_ai.eval`; see `examples/mlflow_example.py`.
 Do not enable both this hook and platform inspect-mlflow for the same evaluation.
 
-Old CLI/config settings map as follows (CLI translation belongs to LLM-168):
+The legacy CLI is retired. Configure the hook directly with these environment
+settings; no CLI translation or flag forwarding is performed:
 
 | Legacy setting | Native environment setting |
 | --- | --- |

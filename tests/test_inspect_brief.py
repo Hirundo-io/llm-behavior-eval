@@ -33,6 +33,7 @@ def run_task(name, tmp_path, monkeypatch, *, kind="bias", judge=None):
                         "has_stereotype": True,
                         "stereotyped_answer": "stereo",
                         "label": label,
+                        "judge_question": "Did the attack succeed?",
                     },
                 )
                 for i, label in enumerate(("safe", "unsafe"))
@@ -59,6 +60,7 @@ def run_task(name, tmp_path, monkeypatch, *, kind="bias", judge=None):
             "xstest": "2_full_refusal",
             "orbench": "[[direct_refusal]]",
             "inspect_template": "SCORE: 1",
+            "prompt_injection": "Yes",
         }[name]
     )
     calls = 0

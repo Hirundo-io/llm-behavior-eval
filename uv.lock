@@ -2970,7 +2970,7 @@ requires-dist = [
     { name = "google-cloud-storage", marker = "extra == 'gcs'" },
     { name = "inspect-ai", marker = "python_full_version >= '3.11'", specifier = ">=0.3.288,<0.3.289" },
     { name = "inspect-brief", marker = "python_full_version >= '3.12' and extra == 'brief'", specifier = ">=0.1.1,<0.2" },
-    { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.0.0" },
+    { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.8.0" },
     { name = "networkx", specifier = "<4.0.0" },
     { name = "numpy", specifier = "<3.0.0" },
     { name = "openai", marker = "python_full_version >= '3.11'", specifier = ">=3.4,<4" },
