@@ -2,11 +2,12 @@
 
 import asyncio
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from datasets import Dataset
 from inspect_ai import eval as inspect_eval
-from inspect_ai.model import ModelOutput, get_model
+from inspect_ai.model import ModelName, ModelOutput, StopReason, get_model
 from inspect_ai.scorer import SampleScore, Target
 from inspect_ai.solver import TaskState
 
@@ -63,7 +64,9 @@ def test_labels(label, monkeypatch):
         with pytest.raises(ValueError):
             refusal_dataset("hirundo-io/XSTest")
     else:
-        assert refusal_dataset("hirundo-io/XSTest")[0].metadata["label"] == expected
+        metadata = refusal_dataset("hirundo-io/XSTest")[0].metadata
+        assert metadata is not None
+        assert metadata["label"] == expected
 
 
 def test_offline_caps_and_validation(tmp_path, monkeypatch):
@@ -176,12 +179,15 @@ def test_legacy_metric_parity(monkeypatch, legacy):
         if stop is None:
             output.choices = []
         else:
-            output.choices[0].stop_reason = {
-                "length": "max_tokens",
-                "weird": "unknown",
-            }.get(stop, stop)
+            output.choices[0].stop_reason = cast(
+                "StopReason",
+                {
+                    "length": "max_tokens",
+                    "weird": "unknown",
+                }.get(stop, stop),
+            )
         state = TaskState(
-            model="mockllm/model",
+            model=ModelName("mockllm/model"),
             sample_id=1,
             epoch=1,
             input="q",
@@ -192,6 +198,7 @@ def test_legacy_metric_parity(monkeypatch, legacy):
         scores.append(SampleScore(score=asyncio.run(scorer()(state, Target("")))))
     assert aggregate_refusal(scores) == captured["metrics"]
     for sample, old in zip(scores, captured["responses"], strict=True):
+        assert sample.score.metadata is not None
         for key in [
             "grading_status",
             "heuristic_refusal",
@@ -235,17 +242,19 @@ def test_native_eval_and_prompt_gap(tmp_path):
     assert (
         seen[0][0].text == question + "\n"
     )  # Explicit unresolved 1024-token truncation gap.
+    assert logs[0].samples and logs[0].samples[0].scores
     score = next(iter(logs[0].samples[0].scores.values()))
+    assert score.metadata is not None
     assert (
         score.metadata["question"] == question
     )  # Raw question, not decoded chat template.
     assert score.metadata["thinking"] is True
     assert score.metadata["raw_judge_text"] == "2_full_refusal"
-    assert logs[0].results.scores
+    assert logs[0].results and logs[0].results.scores
 
 
 def test_provider_controls():
-    class Model:
+    class FakeModel:
         api = SimpleNamespace(enable_thinking=True, do_sample=False)
 
         def __init__(self, provider):
@@ -254,21 +263,15 @@ def test_provider_controls():
         def __str__(self):
             return self.provider + "/model"
 
+    Model = cast("Any", FakeModel)
     assert refusal_config(Model("hf")).max_tokens == 2048
     with pytest.raises(ValueError):
         refusal_config(Model("hf"), judge=True)
-    assert (
-        refusal_config(Model("vllm")).extra_body["chat_template_kwargs"][
-            "enable_thinking"
-        ]
-        is True
-    )
-    assert (
-        refusal_config(Model("vllm"), judge=True).extra_body["chat_template_kwargs"][
-            "enable_thinking"
-        ]
-        is False
-    )
+    answer_body = refusal_config(Model("vllm")).extra_body
+    judge_body = refusal_config(Model("vllm"), judge=True).extra_body
+    assert answer_body and judge_body
+    assert answer_body["chat_template_kwargs"]["enable_thinking"] is True
+    assert judge_body["chat_template_kwargs"]["enable_thinking"] is False
     with pytest.raises(ValueError, match="unsupported"):
         refusal_config(Model("openai-api"))
     assert (
@@ -289,6 +292,7 @@ def test_missing_grader(tmp_path):
         log_dir=str(tmp_path / "logs"),
     )
     assert logs[0].status == "error"
+    assert logs[0].error is not None
     assert "grader" in logs[0].error.message
 
 
@@ -331,7 +335,7 @@ def test_independent_api_grader(tmp_path):
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *args):
+        def log_message(self, format: str, *args):  # noqa: A002 - stdlib override
             pass
 
         def do_POST(self):  # noqa: N802 - HTTP handler API
@@ -388,7 +392,9 @@ def test_independent_api_grader(tmp_path):
             display="none",
         )
         assert logs[0].status == "success"
+        assert logs[0].samples and logs[0].samples[0].scores
         score = next(iter(logs[0].samples[0].scores.values()))
+        assert score.metadata is not None
         assert score.metadata["judge_label"] == "partial"
         assert len(requests) == 1
         assert requests[0]["model"] == "judge"

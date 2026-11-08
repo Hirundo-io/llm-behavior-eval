@@ -32,15 +32,13 @@ fi
 
 VENV_PYTHON="${VENV_PATH}/bin/python"
 
-EXTRAS_REQUESTED="${LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS:-}" # e.g. "mlflow" or "mlflow,vllm"
+EXTRAS_REQUESTED="${LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS:-brief}" # e.g. "brief,mlflow" or "brief,mlflow,vllm"
 INSTALL_TARGET="."
 
 if [[ -n "${EXTRAS_REQUESTED}" ]]; then
   INSTALL_TARGET=".[${EXTRAS_REQUESTED}]"
-  if ! uv pip install --python "${VENV_PYTHON}" -e "${INSTALL_TARGET}"; then
-    echo "Warning: Failed to install requested extras (${EXTRAS_REQUESTED}); falling back to base install." >&2
-    uv pip install --python "${VENV_PYTHON}" -e .
-  fi
+  uv pip install --python "${VENV_PYTHON}" -e "${INSTALL_TARGET}"
+
 else
   uv pip install --python "${VENV_PYTHON}" -e .
 fi

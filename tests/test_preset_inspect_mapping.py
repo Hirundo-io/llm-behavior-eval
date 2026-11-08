@@ -31,11 +31,10 @@ def test_every_expansion_has_exact_native_identity_and_arguments(preset):
                 "chinese_censorship" if task == "ccpc" else asset
             )
             assert args == {}
-        if task != "prompt_injection":  # Purple Llama integration is pending.
-            constructor = getattr(
-                importlib.import_module(f"llm_behavior_eval.{task}.task"), task
-            )
-            inspect.signature(constructor).bind(**args)
+        constructor = getattr(
+            importlib.import_module(f"llm_behavior_eval.{task}.task"), task
+        )
+        inspect.signature(constructor).bind(**args)
 
 
 def test_catalog_keeps_two_argument_constructor():

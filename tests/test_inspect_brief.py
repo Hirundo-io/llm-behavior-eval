@@ -1,7 +1,6 @@
 """Offline contract tests against real Inspect logs and the installed exporter."""
 
 import csv
-import importlib
 import json
 import math
 import subprocess
@@ -10,44 +9,19 @@ from pathlib import Path
 
 import pytest
 from inspect_ai import eval as inspect_eval
-from inspect_ai import task_with
-from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_ai.model import ModelOutput, get_model
 
 from llm_behavior_eval import _registry
 from llm_behavior_eval.target_metrics import target_metrics, target_metrics_path
+from tests.native_fixtures import local_task_dataset
 
 
 def run_task(name, tmp_path, monkeypatch, *, kind="bias", judge=None):
     tmp_path.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(tmp_path)
-    module = importlib.import_module(f"llm_behavior_eval.{name}.task")
-    if name != "inspect_template":
-        data = MemoryDataset(
-            [
-                Sample(
-                    input="question",
-                    target="answer",
-                    id=i,
-                    metadata={
-                        "has_stereotype": True,
-                        "stereotyped_answer": "stereo",
-                        "label": label,
-                        "judge_question": "Did the attack succeed?",
-                    },
-                )
-                for i, label in enumerate(("safe", "unsafe"))
-            ]
-        )
-        monkeypatch.setattr(
-            module,
-            "load_ccpc_dataset" if name == "ccpc" else "dataset",
-            lambda *a, **kw: data,
-        )
     kwargs = {"kind": kind} if name in ("bbq", "bloom", "unqover") else {}
-    task = getattr(module, name)(**kwargs)
-    # Direct Python imports do not apply the package entry-point prefix.
-    task = task_with(task, name=f"llm_behavior_eval/{name}")
+    if name != "inspect_template":
+        kwargs["dataset_path"] = str(local_task_dataset(name, tmp_path, monkeypatch))
     text = (
         judge
         or {
@@ -74,7 +48,9 @@ def run_task(name, tmp_path, monkeypatch, *, kind="bias", judge=None):
         return output
 
     logs = inspect_eval(
-        task,
+        f"llm_behavior_eval/{name}",
+        task_args=kwargs,
+        limit=2,
         model=get_model("mockllm/model", custom_outputs=answer),
         model_roles={
             "grader": get_model(
@@ -194,41 +170,13 @@ def test_ccpc_undefined_remains_nan(tmp_path, monkeypatch):
     assert math.isnan(float(cli(tmp_path / "logs", tmp_path / "cli.csv")[0]["Score"]))
 
 
-def test_prompt_injection_pending_contract(tmp_path, monkeypatch):
-    """Real .eval serialization, synthetic metrics; NOT a live Purple Llama smoke.
-
-    Units verified from implementation commit 295ca54591b667e420e068f0b6b592ff5ef07eb9.
-    """
-    from inspect_ai.log import EvalMetric, EvalScore, read_eval_log, write_eval_log
-
-    log = run_task("inspect_template", tmp_path / "seed", monkeypatch)
-    log.eval.task = "llm_behavior_eval/prompt_injection"
+def test_prompt_injection_native_percentage(tmp_path, monkeypatch):
+    log = run_task("prompt_injection", tmp_path / "logs", monkeypatch)
     assert log.results
-    log.results.scores = [
-        EvalScore(
-            name="injection_scorer",
-            scorer="injection_scorer",
-            metrics={
-                "attack_success_rate": EvalMetric(
-                    name="attack_success_rate", value=25.0
-                ),
-                "incomplete_response_rate": EvalMetric(
-                    name="incomplete_response_rate", value=0.5
-                ),
-            },
-        )
-    ]
-    directory = tmp_path / "synthetic"
-    directory.mkdir()
-    path = directory / "purple.eval"
-    write_eval_log(log, str(path))
-    assert read_eval_log(str(path)).eval.task == log.eval.task
-    exported = cli(directory, tmp_path / "brief.csv")
-    assert [float(r["Score"]) for r in exported] == [25, 50]
-    assert [r["Metric"] for r in exported] == [
-        "attack_success_rate (%) ⬇️",
-        "incomplete_response_rate (%) ⬇️",
-    ]
+    emitted = {k: m.value for s in log.results.scores for k, m in s.metrics.items()}
+    exported = cli(tmp_path / "logs", tmp_path / "brief.csv")
+    assert float(exported[0]["Score"]) == emitted["attack_success_rate"]
+    assert float(exported[1]["Score"]) == 50
 
 
 def test_accessor_outside_checkout(tmp_path):

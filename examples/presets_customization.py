@@ -3,6 +3,8 @@
 from importlib import import_module
 
 from inspect_ai import eval as inspect_eval
+from inspect_ai import task_with
+from inspect_ai.model import get_model
 
 from llm_behavior_eval import list_dataset_presets
 
@@ -16,13 +18,26 @@ def main() -> None:
             constructor = getattr(
                 import_module(f"llm_behavior_eval.{task_name}.task"), task_name
             )
-            tasks.append(constructor(**dict(mapping.task_args), max_samples=200))
-    # Native tasks configure HF thinking independently for answer and grader.
+            tasks.append(
+                task_with(
+                    constructor(**dict(mapping.task_args), max_samples=200),
+                    name=mapping.task_name,
+                )
+            )
+    # Configure HF thinking independently for answer and grader.
     # For API deployments see the per-family attestation flags in INSPECT_MIGRATION.md.
     inspect_eval(
         tasks,
-        model="hf/meta-llama/Llama-3.1-8B-Instruct",
-        model_roles={"grader": "hf/google/gemma-3-12b-it"},
+        model=get_model(
+            "hf/meta-llama/Llama-3.1-8B-Instruct",
+            enable_thinking=False,
+            do_sample=False,
+        ),
+        model_roles={
+            "grader": get_model(
+                "hf/google/gemma-3-12b-it", enable_thinking=False, do_sample=False
+            )
+        },
         log_dir="results/inspect",
     )
 
