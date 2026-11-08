@@ -1,5 +1,8 @@
 """HaluEval identity and ordered, offline-capable dataset conversion."""
 
+from typing import cast
+
+from datasets import Dataset
 from inspect_ai.dataset import MemoryDataset, Sample
 
 from llm_behavior_eval.common.dataset import load_hf_dataset, to_inspect_dataset
@@ -32,6 +35,9 @@ def dataset(
                 f"HaluEval row {index} requires nonempty question and answer strings"
             )
         records.append({**row, "source_index": index})
+    if records:
+        shuffled = cast("Dataset", Dataset.from_list(records).shuffle(seed=42))
+        records = list(shuffled)
     return to_inspect_dataset(
         records,
         lambda row: Sample(

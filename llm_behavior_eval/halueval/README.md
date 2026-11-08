@@ -22,7 +22,8 @@ credentials, model arguments, and thinking attestations are independent.
 
 The logical dataset is `hirundo-io/halueval` (legacy `hallu`/`hallucination`).
 Task parameters `dataset_path` and `dataset_token` use the foundation loader,
-including offline save_to_disk snapshots. All rows are validated before slicing.
+including offline save_to_disk snapshots. All rows are validated, then shuffled
+with legacy seed 42 before slicing.
 Default cap is 500; zero, negative, or Python None means all. Sample IDs are
 `hirundo-io/halueval:<zero-based-source-row>` and are stable across caps.
 

@@ -8,4 +8,12 @@ from .orbench.task import orbench
 from .unqover.task import unqover
 from .xstest.task import xstest
 
-__all__ = ["bbq", "bloom", "halueval", "inspect_template", "orbench", "unqover", "xstest"]
+__all__ = [
+    "bbq",
+    "bloom",
+    "halueval",
+    "inspect_template",
+    "orbench",
+    "unqover",
+    "xstest",
+]

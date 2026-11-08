@@ -52,9 +52,12 @@ def test_dataset(tmp_path):
     full = dataset(0, dataset_path=str(path))
     assert len(limited) == 500
     assert len(full) == len(dataset(-1, dataset_path=str(path))) == 502
-    assert limited[0].id == full[0].id == f"{DATASET_ID}:0"
+    expected = Dataset.from_dict({"index": list(range(502))}).shuffle(seed=42)
+    order = list(expected["index"])
+    assert [s.id for s in limited] == [f"{DATASET_ID}:{i}" for i in order[:500]]
+    assert [s.id for s in full] == [f"{DATASET_ID}:{i}" for i in order]
     assert limited.name == DATASET_ID
-    assert limited[0].input == "q0"
+    assert limited[0].input == f"q{order[0]}"
     assert limited[0].metadata is not None
     assert limited[0].metadata["parity_gaps"] == PARITY_GAPS
     Dataset.from_list(
