@@ -174,8 +174,9 @@ HaluEval/Med-Hallu accuracy and Purple Llama ASR are already percentages
 refusal, censorship, ASR, and incomplete response point down. CCPC undefined
 censorship is preserved as `nan`; never interpret this as zero censorship.
 Heuristic refusal metrics, counts, and diagnostics remain in the `.eval` log
-and are excluded from brief. Refusal dict scores have distinct target metric
-keys: `safe_refusal_rate`, `unsafe_refusal_rate`, `incomplete_response_rate`.
+and are excluded from brief. The refusal scorer emits scalar sample scores;
+its aggregate metric returns named rates and counts. Brief selects
+`safe_refusal_rate`, `unsafe_refusal_rate`, and `incomplete_response_rate`.
 Configured targets match the metric key itself; unconfigured exports add
 `scorer: metric` prefixes when there are multiple score entries.
 
