@@ -1,0 +1,390 @@
+"""Deterministic legacy parity only: no live model/provider parity claim."""
+
+import asyncio
+from types import SimpleNamespace
+
+import pytest
+from datasets import Dataset
+from inspect_ai import eval as inspect_eval
+from inspect_ai.model import ModelOutput, get_model
+from inspect_ai.scorer import SampleScore, Target
+from inspect_ai.solver import TaskState
+
+from llm_behavior_eval.common.judge import strip_thinking
+from llm_behavior_eval.evaluation_utils.refusal_utils import normalize_refusal_label
+from llm_behavior_eval.refusal.dataset import refusal_dataset
+from llm_behavior_eval.refusal.generation import refusal_config
+from llm_behavior_eval.refusal.metrics import aggregate_refusal
+from llm_behavior_eval.refusal.scorer import refusal_heuristic
+from llm_behavior_eval.xstest.scorer import parse_xstest_judgment, scorer
+from llm_behavior_eval.xstest.task import xstest
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "1_full_compliance",
+        "2_FULL_REFUSAL",
+        "3_partial_refusal",
+        "nothing",
+        "x1_full_compliance",
+        "3_partial_refusal then 1_full_compliance",
+    ],
+)
+def test_parser(text, legacy):
+    assert parse_xstest_judgment(text) == legacy.parse_xstest_judgment(text).value
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "  Sorry!",
+        "I cannot do that",
+        "That is illegal",
+        "Sure, here",
+        "",
+        "<think>x</think> I will not",
+        "No.",
+    ],
+)
+def test_heuristic(answer, legacy):
+    assert refusal_heuristic(answer) == legacy.refusal_heuristic(answer)
+
+
+@pytest.mark.parametrize("label", ["safe", " SAFE ", "Unsafe", 1, None, "other"])
+def test_labels(label, monkeypatch):
+    monkeypatch.setattr(
+        "llm_behavior_eval.refusal.dataset.load_hf_dataset",
+        lambda *a, **kw: [{"prompt": "q", "label": label}],
+    )
+    try:
+        expected = normalize_refusal_label(label)
+    except ValueError:
+        with pytest.raises(ValueError):
+            refusal_dataset("hirundo-io/XSTest")
+    else:
+        assert refusal_dataset("hirundo-io/XSTest")[0].metadata["label"] == expected
+
+
+def test_offline_caps_and_validation(tmp_path, monkeypatch):
+    path = tmp_path / "data"
+    Dataset.from_dict({"question": ["q"] * 503, "label": ["safe"] * 503}).save_to_disk(
+        str(path)
+    )
+    for cap, count in [(500, 500), (0, 503), (-1, 503), (None, 503), (1, 1)]:
+        data = refusal_dataset(
+            "hirundo-io/XSTest", dataset_path=str(path), max_samples=cap
+        )
+        assert len(data) == count
+        assert data.name == "hirundo-io/XSTest"
+        assert data[0].id == "hirundo-io/XSTest:0"
+        assert data[0].target == ""
+    monkeypatch.setattr(
+        "llm_behavior_eval.refusal.dataset.load_hf_dataset",
+        lambda *a, **kw: [
+            {"question": "q", "label": "safe"},
+            {"question": "q", "label": "invalid"},
+        ],
+    )
+    with pytest.raises(ValueError):
+        refusal_dataset("hirundo-io/XSTest", max_samples=1)
+
+
+def test_legacy_metric_parity(monkeypatch, legacy):
+    labels = ["safe", "safe", "safe", "unsafe", "unsafe", "unsafe", "safe"]
+    answers = [
+        "sure",
+        "Sorry",
+        "illegal",
+        "I cannot",
+        "sure",
+        "I will not",
+        "<think>x</think> sure",
+    ]
+    stops = ["stop", "length", "weird", "stop", "length", None, "stop"]
+    raw = ["1_full_compliance", "3_partial_refusal", "2_full_refusal", "bad", "bad"]
+    captured = {}
+    evaluator = object.__new__(legacy.FreeTextRefusalEvaluator)
+    evaluator.num_samples = len(labels)
+    evaluator.eval_config = SimpleNamespace(
+        thinking_start_token="<think>",
+        thinking_end_token="</think>",
+        exclude_thinking_trace_for_judge=True,
+    )
+    monkeypatch.setattr(evaluator, "get_dataset_slug", lambda: "xstest")
+    monkeypatch.setattr(
+        evaluator,
+        "_grade_batch",
+        lambda *a: (
+            [legacy.parse_xstest_judgment(t) for t in raw],
+            raw,
+            ["stop"] * len(raw),
+        ),
+    )
+    monkeypatch.setattr(
+        evaluator,
+        "_save_refusal_results",
+        lambda responses, metrics: captured.update(
+            responses=responses, metrics=metrics
+        ),
+    )
+    evaluator._grade_impl(
+        [
+            legacy._RefusalGenerationRecord(
+                input_texts=["q"] * len(labels),
+                expected_labels=labels,
+                answers=answers,
+                finish_reasons=stops,
+            )
+        ],
+        object(),
+    )
+    outputs = iter(raw)
+    calls = []
+
+    class Grader:
+        def __str__(self):
+            return "mockllm/grader"
+
+        async def generate(self, prompt, config):
+            calls.append((prompt, config))
+            return ModelOutput.from_content("judge", next(outputs))
+
+    monkeypatch.setattr(
+        "llm_behavior_eval.refusal.scorer.get_model", lambda **kw: Grader()
+    )
+    scores = []
+    for label, answer, stop in zip(labels, answers, stops, strict=True):
+        output = ModelOutput.from_content("model", answer)
+        if stop is None:
+            output.choices = []
+        else:
+            output.choices[0].stop_reason = {
+                "length": "max_tokens",
+                "weird": "unknown",
+            }.get(stop, stop)
+        state = TaskState(
+            model="mockllm/model",
+            sample_id=1,
+            epoch=1,
+            input="q",
+            messages=[],
+            metadata={"label": label},
+            output=output,
+        )
+        scores.append(SampleScore(score=asyncio.run(scorer()(state, Target("")))))
+    assert aggregate_refusal(scores) == captured["metrics"]
+    for sample, old in zip(scores, captured["responses"], strict=True):
+        for key in [
+            "grading_status",
+            "heuristic_refusal",
+            "judge_label",
+            "judge_success",
+        ]:
+            assert sample.score.metadata[key] == old[key]
+        assert sample.score.metadata["raw_judge_text"] == old["judge_raw"]
+    assert len(calls) == 5
+    assert all(config.max_tokens == 128 for _, config in calls)
+    assert aggregate_refusal([]) == dict.fromkeys(captured["metrics"], 0.0)
+
+
+def test_native_eval_and_prompt_gap(tmp_path):
+    path = tmp_path / "data"
+    question = "a " * 1500
+    Dataset.from_dict({"question": [question], "label": ["safe"]}).save_to_disk(
+        str(path)
+    )
+    seen = []
+
+    def answer(messages, *args, **kwargs):
+        seen.append(messages)
+        return ModelOutput.from_content("mockllm/model", "Sorry")
+
+    logs = inspect_eval(
+        xstest(dataset_path=str(path)),
+        model=get_model("mockllm/model", custom_outputs=answer),
+        model_roles={
+            "grader": get_model(
+                "mockllm/grader",
+                custom_outputs=[
+                    ModelOutput.from_content("mockllm/grader", "2_full_refusal")
+                ],
+            )
+        },
+        log_dir=str(tmp_path / "logs"),
+    )
+    assert logs[0].status == "success"
+    assert [m.role for m in seen[0]] == ["user"]
+    assert (
+        seen[0][0].text == question + "\n"
+    )  # Explicit unresolved 1024-token truncation gap.
+    score = next(iter(logs[0].samples[0].scores.values()))
+    assert (
+        score.metadata["question"] == question
+    )  # Raw question, not decoded chat template.
+    assert score.metadata["thinking"] is True
+    assert score.metadata["raw_judge_text"] == "2_full_refusal"
+    assert logs[0].results.scores
+
+
+def test_provider_controls():
+    class Model:
+        api = SimpleNamespace(enable_thinking=True, do_sample=False)
+
+        def __init__(self, provider):
+            self.provider = provider
+
+        def __str__(self):
+            return self.provider + "/model"
+
+    assert refusal_config(Model("hf")).max_tokens == 2048
+    with pytest.raises(ValueError):
+        refusal_config(Model("hf"), judge=True)
+    assert (
+        refusal_config(Model("vllm")).extra_body["chat_template_kwargs"][
+            "enable_thinking"
+        ]
+        is True
+    )
+    assert (
+        refusal_config(Model("vllm"), judge=True).extra_body["chat_template_kwargs"][
+            "enable_thinking"
+        ]
+        is False
+    )
+    with pytest.raises(ValueError, match="unsupported"):
+        refusal_config(Model("openai-api"))
+    assert (
+        refusal_config(
+            Model("openai-api"), judge=True, externally_configured=True
+        ).max_tokens
+        == 128
+    )
+    assert strip_thinking("<think>unfinished") == "<think>unfinished"
+
+
+def test_missing_grader(tmp_path):
+    path = tmp_path / "data"
+    Dataset.from_dict({"question": ["q"], "label": ["safe"]}).save_to_disk(str(path))
+    logs = inspect_eval(
+        xstest(dataset_path=str(path)),
+        model="mockllm/model",
+        log_dir=str(tmp_path / "logs"),
+    )
+    assert logs[0].status == "error"
+    assert "grader" in logs[0].error.message
+
+
+def test_cli_registration(tmp_path):
+    import subprocess
+    import sys
+
+    path = tmp_path / "data"
+    Dataset.from_dict({"prompt": ["q"], "label": ["safe"]}).save_to_disk(str(path))
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "inspect_ai",
+            "eval",
+            "llm_behavior_eval/xstest",
+            "--model",
+            "mockllm/model",
+            "--model-role",
+            "grader=mockllm/grader",
+            "-T",
+            f"dataset_path={path}",
+            "--log-dir",
+            str(tmp_path / "logs"),
+            "--display",
+            "none",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_independent_api_grader(tmp_path):
+    import json
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):  # noqa: N802 - HTTP handler API
+            requests.append(
+                json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            )
+            payload = json.dumps(
+                {
+                    "id": "test",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "judge",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "3_partial_refusal",
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2,
+                    },
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        path = tmp_path / "data"
+        Dataset.from_dict({"question": ["q"], "label": ["unsafe"]}).save_to_disk(
+            str(path)
+        )
+        grader = get_model(
+            "openai-api/airgap/judge",
+            base_url=f"http://127.0.0.1:{server.server_port}/v1",
+            api_key="local-test-placeholder",
+        )
+        logs = inspect_eval(
+            xstest(dataset_path=str(path), judge_thinking_configured=True),
+            model="mockllm/model",
+            model_roles={"grader": grader},
+            log_dir=str(tmp_path / "logs"),
+            display="none",
+        )
+        assert logs[0].status == "success"
+        score = next(iter(logs[0].samples[0].scores.values()))
+        assert score.metadata["judge_label"] == "partial"
+        assert len(requests) == 1
+        assert requests[0]["model"] == "judge"
+        assert requests[0]["max_tokens"] == 128
+        assert [m["role"] for m in requests[0]["messages"]] == ["user"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+@pytest.fixture
+def legacy():
+    from llm_behavior_eval.evaluation_utils import free_text_refusal_evaluator
+
+    return free_text_refusal_evaluator
