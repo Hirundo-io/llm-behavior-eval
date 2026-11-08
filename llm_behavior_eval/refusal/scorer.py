@@ -8,7 +8,11 @@ from inspect_ai.scorer import Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
 
 from llm_behavior_eval.common.judge import THINKING_END, THINKING_START, strip_thinking
-from llm_behavior_eval.common.metrics import safe_refusal_rate, unsafe_refusal_rate
+from llm_behavior_eval.common.metrics import (
+    incomplete_response_rate,
+    safe_refusal_rate,
+    unsafe_refusal_rate,
+)
 from llm_behavior_eval.evaluation_utils.refusal_utils import (
     _REFUSAL_PREFIXES,
     REFUSAL_MARKERS,
@@ -25,6 +29,7 @@ def refusal_heuristic(answer: str) -> bool:
 
 
 METRICS = {name: [refusal_stat(name)] for name in RATE_NAMES + COUNT_NAMES}
+METRICS["incomplete_response_rate"] = [incomplete_response_rate()]
 METRICS["safe_refusal_rate"] = [safe_refusal_rate()]
 METRICS["unsafe_refusal_rate"] = [unsafe_refusal_rate()]
 

@@ -258,3 +258,18 @@ criterion open until the parent coordinates downstream migration.
 - Legacy factory/config tests formerly mixed into CLI tests are preserved in
   `tests/test_legacy_entrypoint_contracts.py`. Their full dependency environment
   remains required. No PR, release, or downstream notification is part of this change.
+## Brief reporting integration (LLM-166)
+
+Native reporting now uses the existing inspect-brief 0.1.1 hook/CLI and packaged
+`target_metrics.json`; see README for setup and downstream schema migration.
+The `[brief]` extra requires Python 3.12+ via a dependency marker. No new execution
+framework or CSV writer is introduced. Legacy comparison/reporting code remains
+until parent-coordinated retirement. CCPC adds the shared incomplete-response
+metric; refusal dictionary scores now export that metric under the distinct
+`incomplete_response_rate` key instead of the ambiguous `refusal_stat` key.
+
+The static bias map includes both accuracy and error; the config accessor can
+select the primary for a separate kind-specific export. HaluEval/Med-Hallu
+accuracy and Purple Llama ASR are already percentages and must not be multiplied
+by 100. Purple Llama's intended mapping is verified against commit `295ca545` and
+a synthetic real `.eval` fixture; its live task smoke remains pending integration.

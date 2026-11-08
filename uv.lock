@@ -2450,6 +2450,21 @@ wheels = [
 ]
 
 [[package]]
+name = "inspect-brief"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "inspect-ai" },
+    { name = "python-dotenv" },
+    { name = "tqdm" },
+    { name = "typer" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/25/da/3d806a491bf5c9afb84e2cf7077f039cb63bae4170781536d42cde2789d1/inspect_brief-0.1.1.tar.gz", hash = "sha256:999e3d867b3dbb91d20baa793323e0466e4e15c035e4f1770dffe8d5a00b751e", size = 28297, upload-time = "2026-09-07T11:09:06.92Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/da/b3/6ade912de192ebd0802b4140541ae666e36cabc0519eb2fc9e9614bd4c42/inspect_brief-0.1.1-py3-none-any.whl", hash = "sha256:9a037ac96422d02ee1d1bdc19993c611f32cbb95f78e8bb8aa440627d021573e", size = 20753, upload-time = "2026-09-07T11:09:05.633Z" },
+]
+
+[[package]]
 name = "instanttensor"
 version = "0.2.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2916,6 +2931,9 @@ azure = [
     { name = "azure-identity" },
     { name = "azure-storage-blob" },
 ]
+brief = [
+    { name = "inspect-brief", marker = "python_full_version >= '3.12'" },
+]
 gcs = [
     { name = "google-cloud-storage" },
 ]
@@ -2932,7 +2950,7 @@ vllm = [
 [package.dev-dependencies]
 dev = [
     { name = "bumpver" },
-    { name = "llm-behavior-eval", extra = ["azure", "gcs", "mlflow", "vllm"] },
+    { name = "llm-behavior-eval", extra = ["azure", "brief", "gcs", "mlflow", "vllm"] },
     { name = "pre-commit" },
     { name = "pyrefly" },
     { name = "pytest" },
@@ -2951,6 +2969,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=5.0.1,<6.0.0" },
     { name = "google-cloud-storage", marker = "extra == 'gcs'" },
     { name = "inspect-ai", marker = "python_full_version >= '3.11'", specifier = ">=0.3.288,<0.3.289" },
+    { name = "inspect-brief", marker = "python_full_version >= '3.12' and extra == 'brief'", specifier = ">=0.1.1,<0.2" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.0.0" },
     { name = "networkx", specifier = "<4.0.0" },
     { name = "numpy", specifier = "<3.0.0" },
@@ -2967,12 +2986,12 @@ requires-dist = [
     { name = "typer", specifier = ">=0.27.3,<0.28" },
     { name = "vllm", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'vllm') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'vllm')", specifier = ">=0.30.0,<0.31" },
 ]
-provides-extras = ["mlflow", "vllm", "gcs", "azure", "gpt-oss"]
+provides-extras = ["brief", "mlflow", "vllm", "gcs", "azure", "gpt-oss"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "bumpver", specifier = ">=2024.1130" },
-    { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "azure"], editable = "." },
+    { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "azure", "brief"], editable = "." },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyrefly", specifier = ">=0.63.1" },
     { name = "pytest", specifier = ">=8.3.5" },
