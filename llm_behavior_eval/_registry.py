@@ -7,6 +7,7 @@ from .halueval.task import halueval
 from .inspect_template.task import inspect_template
 from .medhallu.task import medhallu
 from .orbench.task import orbench
+from .prompt_injection.task import prompt_injection
 from .unqover.task import unqover
 from .xstest.task import xstest
 
@@ -18,6 +19,7 @@ __all__ = [
     "inspect_template",
     "medhallu",
     "orbench",
+    "prompt_injection",
     "unqover",
     "xstest",
 ]
