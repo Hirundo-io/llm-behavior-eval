@@ -15,7 +15,14 @@ from inspect_ai import Task
 from inspect_ai import eval as inspect_eval
 from inspect_ai.dataset import Sample
 from inspect_ai.log import EvalLog, list_eval_logs, read_eval_log
-from inspect_ai.model import GenerateConfig, ModelOutput, get_model
+from inspect_ai.model import (
+    ContentReasoning,
+    ContentText,
+    GenerateConfig,
+    ModelOutput,
+    StopReason,
+    get_model,
+)
 from inspect_ai.scorer import Metric, SampleScore, Score
 from inspect_ai.util import registry_info
 
@@ -212,6 +219,52 @@ def test_judge_rejects_non_finite_scores(tmp_path, judge_text):
     assert logs[0].results
     metrics = logs[0].results.scores[0].metrics
     assert math.isnan(metrics["field_rate"].value)
+
+
+def answer_output(stop: StopReason, text: str = "2") -> ModelOutput:
+    output = ModelOutput.from_content("mockllm/model", text)
+    output.choices[0].stop_reason = stop
+    return output
+
+
+def judge_output(text: str) -> ModelOutput:
+    return ModelOutput.from_content("mockllm/judge", text)
+
+
+@pytest.mark.parametrize(
+    "grader_reply",
+    [
+        judge_output("<think>A wrong answer would get SCORE: 0.</think>\nSCORE: 1"),
+        ModelOutput.from_content(
+            "mockllm/judge",
+            [
+                ContentReasoning(reasoning="A wrong answer would get SCORE: 0."),
+                ContentText(text="SCORE: 1"),
+            ],
+        ),
+    ],
+    ids=["inline", "structured"],
+)
+def test_verdict_ignores_grader_reasoning(
+    tmp_path: Path, grader_reply: ModelOutput
+) -> None:
+    logs = inspect_eval(
+        inspect_template(),
+        model=get_model("mockllm/model", custom_outputs=[answer_output("stop")]),
+        model_roles={
+            "grader": get_model("mockllm/judge", custom_outputs=[grader_reply])
+        },
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    assert logs[0].status == "success", logs[0].error
+    assert logs[0].samples
+    assert logs[0].samples[0].scores
+    score = logs[0].samples[0].scores["judge_scorer"]
+    assert score.value == 1
+    assert score.metadata
+    # The grader's full reply stays available for diagnostics.
+    assert score.metadata["raw_judge_text"] == grader_reply.completion
 
 
 def test_grader_role_is_required(tmp_path):

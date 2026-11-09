@@ -130,7 +130,9 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
   group 1 goes to `parse`. The grader role is required and never falls back to the
   model under test. **The scorer passes no GenerateConfig**: the grader uses only
   its role's config. `only_stop=True` skips answers whose stop reason is not
-  `stop`. Unmatched, unparsable and non-finite (`nan`, `inf`) grades become
+  `stop`. The verdict regex runs on the grader's final answer, after its inline
+  `<think>...</think>` trace is removed; `raw_judge_text` keeps the whole reply.
+  Unmatched, unparsable and non-finite (`nan`, `inf`) grades become
   `parse_error` scores. Skips and parse errors have placeholder value 0 and are
   excluded by `field_rate`; never average them with a plain mean. Score metadata
   holds the sample metadata, `stop_reason` and `raw_judge_text`.
@@ -292,7 +294,9 @@ Nothing turns thinking on or off for you. Set it per role if you need it:
   fields, as each provider supports.
 
 Inline `<think>...</think>` traces in answers are stripped before judging by
-`judge_scorer`, whatever the thinking setting.
+`judge_scorer`, whatever the thinking setting. The grader's own inline trace is
+always removed before its verdict is parsed, so a verdict quoted in its
+reasoning is never read as the grade.
 
 ## Parity configs
 

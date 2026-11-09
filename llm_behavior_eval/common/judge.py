@@ -32,6 +32,17 @@ def strip_thinking(
     Applies only when both markers are configured and either one appears, so an
     unclosed start marker keeps the whole answer. Structured ``ContentReasoning``
     is already excluded from ``ModelOutput.completion`` by Inspect.
+
+    Args:
+        answer: Model output text.
+        exclude_thinking_trace_for_judge: ``False`` returns ``answer`` unchanged.
+        thinking_start_token: Marker that opens the trace; ``None`` disables
+            stripping.
+        thinking_end_token: Marker that closes the trace; ``None`` disables
+            stripping.
+
+    Returns:
+        The stripped text after the last end marker, or ``answer`` unchanged.
     """
     if (
         exclude_thinking_trace_for_judge
@@ -56,15 +67,32 @@ def judge_scorer(
 ) -> Scorer:
     """Ask the ``grader`` role to judge an answer; regex group 1 feeds ``parse``.
 
-    ``prompt`` is formatted with ``{question}``, ``{answer}``, ``{target}`` and
-    ``{metadata}``. The grader role is required: it never falls back to the
-    model under test. Generation settings come only from the role's own
-    GenerateConfig; this scorer passes none.
+    The grader role is required: it never falls back to the model under test.
+    Generation settings come only from the role's own GenerateConfig; this
+    scorer passes none. The verdict regex is applied to the grader's final
+    answer: an inline ``<think>...</think>`` trace in the grader's reply is
+    removed first (structured reasoning never reaches ``completion``), and the
+    full reply stays in ``raw_judge_text``.
 
     Invalid (unmatched, unparsable or non-finite) and skipped scores have value 0
     with ``parse_error``/``skipped`` metadata, and are excluded by ``field_rate``.
-    Raw judge text and the answer's stop reason are kept in score metadata.
-    Benchmark scorers may wrap this scorer and supply their own metrics.
+    The answer's stop reason is kept in score metadata. Benchmark scorers may
+    wrap this scorer and supply their own metrics.
+
+    Args:
+        prompt: Grader prompt, formatted with ``{question}``, ``{answer}``,
+            ``{target}`` and ``{metadata}``.
+        pattern: Regex applied to the grader's final answer; group 1 is parsed.
+        parse: Converts group 1 to a score; ``ValueError`` marks a parse error.
+        only_stop: Skip answers that did not finish with ``stop``, without
+            calling the grader.
+        exclude_thinking_trace_for_judge: Strip the answer's inline thinking
+            trace before the grader sees it.
+        thinking_start_token: Marker that opens the answer's thinking trace.
+        thinking_end_token: Marker that closes the answer's thinking trace.
+
+    Returns:
+        A scorer recording ``stop_reason`` and ``raw_judge_text`` metadata.
     """
     regex = re.compile(pattern)
 
@@ -95,7 +123,7 @@ def judge_scorer(
         result = await grader.generate(rendered)
         raw = result.completion
         metadata["raw_judge_text"] = raw
-        match = regex.search(raw)
+        match = regex.search(strip_thinking(raw))
         try:
             if match is None:
                 raise ValueError("Judge response did not match pattern")
