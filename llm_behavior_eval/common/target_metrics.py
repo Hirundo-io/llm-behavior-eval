@@ -21,20 +21,71 @@ need a single file path call ``write_target_metrics(path)``, or run
 inspect-brief reads it; benchmark tests assert it returns ``[]``.
 """
 
-import argparse
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
+
+import typer
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    StrictBool,
+    StrictStr,
+    ValidationError,
+)
 
 from llm_behavior_eval.common.packages import ROOT_PACKAGE, package_dirs, subpackages
 
 TARGET_METRICS_FILE = "target_metrics.json"
-_METRIC_KEYS = {"name", "is_percentage", "is_higher_better", "is_normalized"}
 
 if TYPE_CHECKING:
     from inspect_ai.log import EvalLog
 
 TargetMetrics = dict[str, list[dict[str, Any]]]
+"""inspect-brief's wire format: task name to a list of metric objects."""
+
+
+class TargetMetric(BaseModel):
+    """One metric entry, with exactly the keys inspect-brief accepts."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: StrictStr = Field(min_length=1)
+    is_percentage: StrictBool
+    is_higher_better: StrictBool
+    is_normalized: StrictBool
+
+
+class TargetMetricsFile(RootModel[dict[str, list[TargetMetric]]]):
+    """A ``target_metrics.json`` file: task name to its non-empty metric list."""
+
+    def check(self, path: str | Path, root: str) -> None:
+        """Check the task keys and lists against ``root``'s namespace.
+
+        Args:
+            path: Source file, for error messages.
+            root: Package whose ``<root>/`` prefix every task key needs.
+
+        Raises:
+            ValueError: The mapping is empty, a key is outside ``root``'s
+                namespace, or a task maps to an empty list.
+        """
+        if not self.root:
+            raise ValueError(f"{path} must contain a non-empty JSON object")
+        for task, metrics in self.root.items():
+            if not task.startswith(f"{root}/") or task == f"{root}/":
+                raise ValueError(f"{path}: task key {task!r} must start with {root}/")
+            if not metrics:
+                raise ValueError(f"{path}: {task} must map to a non-empty list")
+
+    def wire(self) -> TargetMetrics:
+        """The mapping in inspect-brief's JSON format, metric order kept."""
+        return {
+            task: [metric.model_dump() for metric in metrics]
+            for task, metrics in self.root.items()
+        }
 
 
 def target_metrics_files(root: str = ROOT_PACKAGE) -> dict[str, Path]:
@@ -67,8 +118,20 @@ def read_target_metrics_file(
 ) -> TargetMetrics:
     """Read and validate one ``target_metrics.json``.
 
-    Keys must be task names in the ``<root>/`` namespace; each value is a list
-    of metric objects with exactly the keys inspect-brief accepts.
+    Args:
+        path: The JSON file.
+        root: Package whose ``<root>/`` prefix every task key needs.
+
+    Returns:
+        The file's mapping in inspect-brief's format, validated by
+        ``TargetMetricsFile``: task names in the ``<root>/`` namespace, each
+        mapped to a non-empty list of metric objects with exactly ``name``
+        (non-empty), ``is_percentage``, ``is_higher_better`` and
+        ``is_normalized`` (JSON booleans).
+
+    Raises:
+        ValueError: The file is not valid JSON, repeats a key, or does not
+            match the schema.
     """
     try:
         data = json.loads(
@@ -77,26 +140,14 @@ def read_target_metrics_file(
         )
     except ValueError as error:
         raise ValueError(f"{path}: {error}") from error
-    if not isinstance(data, dict) or not data:
+    if not isinstance(data, dict):
         raise ValueError(f"{path} must contain a non-empty JSON object")
-    for task, metrics in data.items():
-        if not task.startswith(f"{root}/") or task == f"{root}/":
-            raise ValueError(f"{path}: task key {task!r} must start with {root}/")
-        if not isinstance(metrics, list) or not metrics:
-            raise ValueError(f"{path}: {task} must map to a non-empty list")
-        for index, metric in enumerate(metrics):
-            if not isinstance(metric, dict) or set(metric) != _METRIC_KEYS:
-                raise ValueError(
-                    f"{path}: {task} metric {index} must have exactly the keys "
-                    f"{sorted(_METRIC_KEYS)}"
-                )
-            if not isinstance(metric["name"], str) or not metric["name"]:
-                raise ValueError(f"{path}: {task} metric {index} needs a name")
-            if any(type(metric[key]) is not bool for key in _METRIC_KEYS - {"name"}):
-                raise ValueError(
-                    f"{path}: {task} metric {index} flags must be JSON booleans"
-                )
-    return data
+    try:
+        parsed = TargetMetricsFile.model_validate(data)
+    except ValidationError as error:
+        raise ValueError(f"{path}: invalid target metrics: {error}") from error
+    parsed.check(path, root)
+    return parsed.wire()
 
 
 def load_target_metrics(root: str = ROOT_PACKAGE) -> TargetMetrics:
@@ -176,21 +227,22 @@ def write_target_metrics(path: str | Path, root: str = ROOT_PACKAGE) -> Path:
     return output
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
-        description="Print or write the merged benchmark target metrics."
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        help="Write the merged JSON to this file and print its path",
-    )
-    args = parser.parse_args(argv)
-    if args.output is None:
-        print(json.dumps(load_target_metrics(), indent=2))
+app = typer.Typer(add_completion=False)
+
+
+@app.command()
+def main(
+    output: Annotated[
+        Path | None,
+        typer.Option(help="Write the merged JSON to this file and print its path"),
+    ] = None,
+) -> None:
+    """Print or write the merged benchmark target metrics."""
+    if output is None:
+        typer.echo(json.dumps(load_target_metrics(), indent=2))
     else:
-        print(write_target_metrics(args.output))
+        typer.echo(str(write_target_metrics(output)))
 
 
 if __name__ == "__main__":
-    main()
+    app()

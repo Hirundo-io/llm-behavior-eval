@@ -150,9 +150,11 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
   `packages.subpackages(root)` lists every regular subpackage.
 * `target_metrics.load_target_metrics(root="llm_behavior_eval")` merges every
   package's `target_metrics.json` into one mapping with sorted task keys.
-  Each file is validated (keys `llm_behavior_eval/<task>`, non-empty metric
-  lists, objects with exactly `name`, `is_percentage`, `is_higher_better`,
-  `is_normalized`, booleans as JSON booleans). A task key defined twice, in one
+  Each file is validated by the Pydantic models `TargetMetricsFile` and
+  `TargetMetric` (keys `llm_behavior_eval/<task>`, non-empty metric lists,
+  objects with exactly a non-empty `name` and the JSON booleans
+  `is_percentage`, `is_higher_better` and `is_normalized`), and returned in
+  inspect-brief's JSON format. A task key defined twice, in one
   file or across packages, raises `ValueError`. `target_metrics_files(root)`
   maps packages to their files; `read_target_metrics_file(path)` validates one.
   `write_target_metrics(path)` writes the merged JSON for tools that need one

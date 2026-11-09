@@ -15,13 +15,14 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
 from llm_behavior_eval import _registry
 from llm_behavior_eval.common.packages import benchmark_packages, subpackages
 from llm_behavior_eval.common.target_metrics import (
     TARGET_METRICS_FILE,
+    app,
     load_target_metrics,
-    main,
     missing_target_metrics,
     read_target_metrics_file,
     target_metrics_files,
@@ -407,10 +408,18 @@ def test_duplicate_task_within_file_fails(tmp_path):
         ({}, "non-empty JSON object"),
         ({"other/a": [metric("m")]}, "must start with llm_behavior_eval/"),
         ({"llm_behavior_eval/a": []}, "non-empty list"),
-        ({"llm_behavior_eval/a": [{"name": "m"}]}, "exactly the keys"),
-        ({"llm_behavior_eval/a": [metric("m") | {"extra": 1}]}, "exactly the keys"),
-        ({"llm_behavior_eval/a": [metric("m") | {"is_normalized": 1}]}, "booleans"),
-        ({"llm_behavior_eval/a": [metric("")]}, "needs a name"),
+        ({"llm_behavior_eval/a": "m"}, "should be a valid list"),
+        ({"llm_behavior_eval/a": [{"name": "m"}]}, "Field required"),
+        ({"llm_behavior_eval/a": [metric("m") | {"extra": 1}]}, "Extra inputs"),
+        (
+            {"llm_behavior_eval/a": [metric("m") | {"is_normalized": 1}]},
+            "should be a valid boolean",
+        ),
+        (
+            {"llm_behavior_eval/a": [metric("m") | {"name": 1}]},
+            "should be a valid string",
+        ),
+        ({"llm_behavior_eval/a": [metric("")]}, "at least 1 character"),
     ],
 )
 def test_invalid_target_metrics_fail(tmp_path, content, message):
@@ -420,17 +429,29 @@ def test_invalid_target_metrics_fail(tmp_path, content, message):
         read_target_metrics_file(path)
 
 
-def test_write_and_cli_produce_the_merged_mapping(tmp_path, capsys):
+def test_write_and_cli_produce_the_merged_mapping(tmp_path: Path) -> None:
     expected = load_target_metrics()
     written = write_target_metrics(tmp_path / "out" / "targets.json")
     assert json.loads(written.read_text()) == expected
 
-    main(["--output", str(tmp_path / "cli.json")])
-    assert capsys.readouterr().out.strip() == str(tmp_path / "cli.json")
+    runner = CliRunner()
+    result = runner.invoke(app, ["--output", str(tmp_path / "cli.json")])
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() == str(tmp_path / "cli.json")
     assert json.loads((tmp_path / "cli.json").read_text()) == expected
 
-    main([])
-    assert json.loads(capsys.readouterr().out) == expected
+    result = runner.invoke(app, [])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == expected
+
+    # The documented module entry point runs the same Typer app.
+    printed = subprocess.run(
+        [sys.executable, "-m", "llm_behavior_eval.common.target_metrics"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert json.loads(printed.stdout) == expected
 
 
 def test_shipped_target_metrics_are_tracked():
