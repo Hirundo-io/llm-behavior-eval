@@ -6,8 +6,9 @@ Current real evidence includes exact eager-mode production HaluEval parity on
 two-row wiring across all nine families. The initial compiled CCPC judge-token
 mismatch was diagnosed and a fresh pair passes with explicit scalar content
 formatting. Purple's two-row compiled ASR is undefined, so that slice does not
-establish its score. Compiled boundary checks are active before the fresh primary
-matrix. No tolerance or divergence is accepted, and no legacy files were deleted.
+establish its score. All 16 compiled boundary rows now pass exactly, and the fresh
+31-case primary matrix is running. No tolerance or divergence is accepted, and
+no legacy files were deleted.
 
 The production source remains pinned to `f35fb81`; only qualification tooling
 changed during these runs. Parent's later HF support is outside this GPU evidence.
@@ -513,3 +514,20 @@ original single-space mismatch. Raw evidence is locally preserved in ignored
 2026-11-09 01:45 UTC; it gates a fresh uniform compiled run of all 31 primary
 configurations, totaling 13,217 samples per implementation. No 31-case primary
 completion is claimed at this checkpoint.
+
+The compiled boundary gate completed at **2026-11-09 02:08 UTC** with exact
+actual answer inputs/completions on all 16 rows, exact judge inputs/raw outputs,
+zero compared metric deltas, and identical actual judge response order in all
+four cases. It includes eight actual 1024-token answer inputs; BBQ/HaluEval each
+have four 256-token targets, BBQ has four 256-token stereotypes, and Purple has
+four independently round-tripped 256-token judge questions. Purple judges its
+two stopped responses and excludes the two length-stopped responses. Maximum
+judge input lengths are 1856 (BBQ), 1401 (HaluEval), 304 (Purple), and 1237
+(XSTest), with no answer cap inherited by judges.
+
+`production-compiled-boundaries.json` records the reports and artifact hashes;
+ignored `compiled-boundary-evidence.tar.gz` preserves raw local evidence and the
+executable controller. The paused eager controller was terminated only after
+these gates passed. The same controller then started the fresh 31-case primary
+matrix under `matrix500-qualified`, with explicit string content for CCPC's
+judge and the same compiled settings throughout. Primary results remain pending.
