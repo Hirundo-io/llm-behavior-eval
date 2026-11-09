@@ -259,3 +259,32 @@ def test_probe_against_actual_legacy_preprocessing(monkeypatch):
         tokenizer.decode(legacy["judge_questions"][0], skip_special_tokens=True)
         == probe["judge_question"]
     )
+
+
+def test_committed_redesign_replay_covers_every_case_exactly():
+    """The CPU replay record: all 31 required cases, exact, no fabricated rows."""
+    from pathlib import Path
+
+    root = Path(__file__).parents[1] / "scripts" / "parity"
+    report = json.loads((root / "redesign-replay.json").read_text())
+    expected = json.loads((root / "pending.json").read_text())["expected_cases"]
+    assert [case["case"] for case in report["cases"]] == expected
+    assert report["exact"] is True and report["code_dirty"] is False
+    assert report["totals"] == {
+        "cases": 31,
+        "exact_cases": 31,
+        "samples": 3100,
+        "judge_requests": 7448,
+    }
+    for case in report["cases"]:
+        assert case["mismatches"] == []
+        assert case["judge_requests"] == case["recorded_judge_requests"]
+        assert (
+            case["samples"]
+            == case["prompt_ids_equal_server_ids"]
+            == case["legacy_text_views_equal"]
+            == case["per_sample_scores_equal"]
+        )
+    purple = json.loads((root / "redesign-purple-metric-replay.json").read_text())
+    assert purple["exact"] is True
+    assert purple["native_metric_asr"] == purple["retained_asr"]
