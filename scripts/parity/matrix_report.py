@@ -9,11 +9,14 @@ from typing import Any
 from scripts.parity.compare import digest
 
 
-def summarize(root: Path) -> dict:
+def summarize(root: Path, case_roots: dict[str, Path] | None = None) -> dict:
     """Return a complete matrix ledger; small slices cannot satisfy the 500 gate."""
     expected = json.loads(Path(__file__).with_name("pending.json").read_text())[
         "expected_cases"
     ]
+    case_roots = case_roots or {}
+    if set(case_roots) - set(expected):
+        raise ValueError("Unknown replacement case")
     rows = []
     failures = []
     for ledger in root.glob("phases-*.json"):
@@ -21,10 +24,23 @@ def summarize(root: Path) -> dict:
             if phase.get("returncode"):
                 failures.append({**phase, "ledger": ledger.name})
     for name in expected:
-        directory = root / name.replace(":", "-")
+        primary = root / name.replace(":", "-")
+        directory = case_roots.get(name, primary)
+        if name in case_roots:
+            if not directory.is_absolute():
+                raise ValueError("Replacement evidence paths must be absolute")
+            for filename in ("source.json", "identity-config.json"):
+                if json.loads((directory / filename).read_text()) != json.loads(
+                    (primary / filename).read_text()
+                ):
+                    raise ValueError(f"{name}: replacement changes pinned {filename}")
         report_path = directory / "strict-report.json"
         row: dict[str, Any] = dict(
             case=name,
+            evidence_root=str(directory.resolve()),
+            superseded_primary_root=str(primary.resolve())
+            if name in case_roots
+            else None,
             status="missing",
             expected_samples=None,
             samples=None,
@@ -99,8 +115,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--case-roots",
+        type=Path,
+        help="JSON mapping from case name to absolute follow-up evidence directory; frozen source and generation identity must match",
+    )
     args = parser.parse_args()
-    result = summarize(args.root)
+    case_roots = (
+        {
+            name: Path(path)
+            for name, path in json.loads(args.case_roots.read_text()).items()
+        }
+        if args.case_roots
+        else None
+    )
+    result = summarize(args.root, case_roots)
     args.output.write_text(json.dumps(result, indent=2))
     if not result["complete"]:
         raise SystemExit(2)

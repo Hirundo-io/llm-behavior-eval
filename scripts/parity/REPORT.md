@@ -547,3 +547,11 @@ This local change affects only `prompt_injection/scorer.py` and its tests. It is
 The primary Purple evidence must receive an explicitly recorded metric follow-up
 before this change is described as qualified on real data. No GPU mismatch or
 GPU success is inferred from the constructed arithmetic regression.
+
+`matrix_report --case-roots followups.json` can explicitly select an absolute
+follow-up evidence directory for a named case while retaining the primary
+directory in the report. It rejects changed source manifests or generation
+identities and still requires the full actual comparison gate. This supports
+the pending Purple metric follow-up without overwriting the frozen run. No
+follow-up is selected yet. All **43 qualification tests**, Ruff, and focused
+Pyrefly pass; the 24 Purple tests passed for the arithmetic fix separately.

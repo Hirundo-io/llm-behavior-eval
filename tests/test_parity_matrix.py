@@ -99,6 +99,42 @@ def test_matrix_missing_results_are_not_zero(tmp_path):
     )
 
 
+@pytest.mark.parametrize("changed", [None, "source.json", "identity-config.json"])
+def test_followup_evidence_preserves_frozen_source_and_generation_identity(
+    tmp_path, changed
+):
+    from scripts.parity.matrix_report import summarize
+
+    primary = tmp_path / "primary" / "prompt_injection"
+    followup = tmp_path / "followup" / "prompt_injection"
+    pins = {
+        "source.json": dict(
+            rows=251, ids=["source:0", "source:1"], parquet_sha256="pinned"
+        ),
+        "identity-config.json": dict(
+            samples=500, execution_mode="compiled", answer="pinned-answer"
+        ),
+    }
+    for directory in (primary, followup):
+        directory.mkdir(parents=True)
+        for name, value in pins.items():
+            (directory / name).write_text(json.dumps(value))
+    if changed:
+        (followup / changed).write_text(json.dumps({**pins[changed], "changed": True}))
+        with pytest.raises(ValueError, match="replacement changes pinned"):
+            summarize(primary.parent, {"prompt_injection": followup})
+    else:
+        report = summarize(primary.parent, {"prompt_injection": followup})
+        row = next(row for row in report["cases"] if row["case"] == "prompt_injection")
+        assert row["evidence_root"] == str(followup)
+        assert row["superseded_primary_root"] == str(primary)
+        assert (
+            row["status"] == "missing"
+        )  # Matching pins cannot substitute for a real report.
+    with pytest.raises(ValueError, match="Unknown replacement case"):
+        summarize(primary.parent, {"not-a-case": followup})
+
+
 def test_native_response_observer_preserves_hook_and_failure_evidence(
     tmp_path, monkeypatch
 ):
