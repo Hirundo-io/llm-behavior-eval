@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import json
 import os
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -115,7 +116,7 @@ def main() -> None:
             # diagnostic task rather than an unchanged production benchmark.
             truncated = Task(
                 name="reasoning_truncation",
-                dataset=MemoryDataset([selected[0]]),
+                dataset=MemoryDataset([deepcopy(selected[0])]),
                 solver=generate(
                     max_tokens=8,
                     temperature=0,
