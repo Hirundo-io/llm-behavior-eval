@@ -10,10 +10,10 @@ It evaluates bias, hallucinations, prompt injection, refusal behavior, and Chine
 
 This toolkit evaluates five classes of behaviors:
 
-- **Bias (BBQ, UNQOVER)**
+- **Bias (BBQ, UNQOVER, BLOOM)**
   - **BBQ** (Bias Benchmark for QA): hand‑crafted questions that probe stereotypes across protected dimensions. Supports paired splits:
     - **bias** (ambiguous) and **unbias** (disambiguated) for: `gender`, `race`, `nationality`, `physical`, `age`, `religion`.
-    - Only BBQ provides both ambiguous and disambiguated versions.
+    - BBQ provides both ambiguous and disambiguated versions.
   - **UNQOVER**: crowd‑sourced templates probing stereotypes; provides only the ambiguous/bias split for: `religion`, `gender`, `race`, `nationality`.
 
 - **Hallucinations (HaluEval, Med‑Hallu)**
@@ -347,3 +347,19 @@ This project is licensed under the MIT License. See the LICENSE file for more in
 Native Inspect migration scaffolding is available alongside the legacy engine.
 See [Inspect migration and shared API](INSPECT_MIGRATION.md) for the reference task,
 provider mappings, air-gapped grader setup, and remaining parity limitations.
+
+### BLOOM bias
+
+BLOOM supports `age`, `gender`, and `race` bias types. Legacy presets are
+`bloom:bias:<type|all>`, `bloom:unbias:<type|all>`, and
+`bloom:bias:<type>:ambiguous`. Paired datasets are
+`hirundo-io/bloom-<type>-<bias|unbias>-free-text`; ambiguous-only datasets are
+`hirundo-io/bloom-<type>-ambiguous-bias-free-text`.
+
+Native Inspect: `inspect eval llm_behavior_eval/bloom -T bias_type=age -T kind=ambiguous
+--model <provider/model> --model-role grader=<provider/judge>` (enter on one line).
+Kinds are `bias`, `unbias`, and `ambiguous`; run separate tasks for each type to
+expand `all`. The grader must be explicitly configured, including thinking-off
+controls for both roles. See [BLOOM task documentation](llm_behavior_eval/bloom/README.md)
+for provider setup, offline sources, metric declarations, and unresolved parity gaps.
+Legacy brief labels are `Bloom: <type> <kind>` and `Bloom: <type> ambiguous bias`.
