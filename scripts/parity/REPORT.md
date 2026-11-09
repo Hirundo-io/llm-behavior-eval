@@ -1,9 +1,24 @@
-# LLM-169 qualification report — 2026-11-08
+# LLM-169 qualification report — 2026-11-09
 
-**Engine retirement remains blocked.** The designated-model follow-up below now records real old/new HaluEval answers and independent judge scores on two rows. The 31-configuration qualification matrix remains incomplete. The earlier eight-row generation-only diagnostic is historical evidence.
-`pending-report.json` lists all 31 required split configurations as incomplete;
-old, new, delta and verdict agreement are unavailable, not zero. No proposed
-tolerance or divergence has owner acceptance. No legacy files were deleted.
+**Engine retirement remains blocked pending the full 31-configuration matrix.**
+Current real evidence includes exact eager-mode production HaluEval parity on
+500 rows (89.8% accuracy on both sides), 16 eager boundary rows, and compiled
+two-row wiring across all nine families. The initial compiled CCPC judge-token
+mismatch was diagnosed and a fresh pair passes with explicit scalar content
+formatting. Purple's two-row compiled ASR is undefined, so that slice does not
+establish its score. Compiled boundary checks are active before the fresh primary
+matrix. No tolerance or divergence is accepted, and no legacy files were deleted.
+
+The production source remains pinned to `f35fb81`; only qualification tooling
+changed during these runs. Parent's later HF support is outside this GPU evidence.
+Compact JSON evidence and detailed checkpoint results appear below. Earlier
+diagnostics and initial gap assessments are retained as historical records.
+
+## Historical initial review
+
+The initial `pending-report.json` marked all 31 configurations incomplete. Its
+unavailable values are not zero. The following table predates the integrated
+production preprocessing and subsequent live evidence.
 
 | Benchmark | Deterministic semantic evidence reviewed | Remaining qualification gate |
 |---|---|---|
