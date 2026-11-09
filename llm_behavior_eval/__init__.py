@@ -23,6 +23,7 @@ _EXPORTS = {
     "DatasetPreset": ".presets",
     "InspectTaskMapping": ".presets",
     "expand_dataset_preset": ".presets",
+    "get_dataset_preset": ".presets",
     "list_dataset_presets": ".presets",
 }
 
@@ -70,6 +71,7 @@ __all__ = [
     "DatasetPreset",
     "InspectTaskMapping",
     "expand_dataset_preset",
+    "get_dataset_preset",
     "list_dataset_presets",
 ]
 

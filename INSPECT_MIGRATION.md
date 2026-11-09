@@ -1,14 +1,19 @@
-# Native Inspect foundation (LLM-156)
+# Native Inspect migration (LLM-155)
 
-Legacy CLI, evaluators, and public imports remain available. No benchmark has
-migrated in this layer; each benchmark arrives in its own PR. Inspect 0.3.288 is
-tested and pinned to `<0.3.289`. Every Inspect behavior described below was
-checked against that version's source and is covered by tests in
-`tests/test_inspect_foundation.py`, `tests/test_inspect_packages.py` and
-`tests/test_inspect_template.py`.
+Every benchmark runs as a native Inspect task; see the root README for the task
+list and reporting. The legacy CLI is retired (it prints a migration hint and
+exits 2). The legacy evaluator and config classes remain importable, with a
+`DeprecationWarning`, only so parity tooling can compare against them until
+LLM-171 removes them. Inspect 0.3.288 is tested and pinned to `<0.3.289`. Every
+Inspect behavior described below was checked against that version's source and
+is covered by tests in `tests/test_inspect_foundation.py`,
+`tests/test_inspect_packages.py`, `tests/test_inspect_template.py` and, for
+reporting, `tests/test_inspect_smoke.py`, `tests/test_inspect_brief.py` and
+`tests/test_inspect_mlflow.py`.
 Revalidate before widening the pin. Inspect requires Python 3.11+, so its
 dependency has a Python-version marker and Inspect tests are not collected on
-Python 3.10, which remains legacy-only.
+Python 3.10, which remains legacy-only. inspect-brief (the `[brief]` extra)
+requires Python 3.12+.
 
 ```sh
 uv venv .venv --python 3.13
@@ -211,6 +216,72 @@ egg-info hides the install metadata Inspect needs to prefix names, so the log's
 task becomes `<benchmark>` and the targets do not apply; use the `inspect`
 command or another working directory.
 
+## Reporting with inspect-brief
+
+inspect-brief reads `.eval` logs and appends one CSV row per task and target
+metric, through its Inspect hook (`INSPECT_BRIEF_CSV_PATH`,
+`INSPECT_BRIEF_TARGET_METRICS`, optional `INSPECT_BRIEF_TASKS` and
+`INSPECT_BRIEF_SKIP_EXISTING`) or its CLI (`inspect-brief --log-dir ...
+--target-metrics ... --csv-path ...`). There is no root `target_metrics.json`:
+give inspect-brief the merged per-package mapping as a **file**, written by
+`python -m llm_behavior_eval.common.target_metrics --output targets.json` or
+`write_target_metrics(path)`. inspect-brief 0.1.1 also accepts inline JSON, but
+it first checks whether the value is a file, and on Python 3.12/3.13 that check
+raises `ENAMETOOLONG` for a value as long as the merged mapping.
+
+Benchmark-specific report choices live in each package's `target_metrics.json`;
+`common/` only merges and validates. In particular the bias tasks list both
+`error` and `accuracy`: inspect-brief selects targets by `log.eval.task`, not by
+task arguments, so a report cannot pick the legacy primary metric per `kind`.
+The previous layer's `target_metrics(bias_kind=...)` filter was dropped rather
+than moved into `common/`.
+
+Known gaps a reader sees in the CSV:
+
+* BBQ, BLOOM and UNQOVER emit `stereotype_bias` only when the split has a
+  `stereotyped_answer` column (legacy behavior). Otherwise inspect-brief writes
+  `Metric 'stereotype_bias' not found` in that row's `Score`.
+* Logs whose task is not `llm_behavior_eval/<task>` get no targets; see
+  `python -m inspect_ai` under [Target metrics](#target-metrics). Use the
+  `inspect` command.
+* `ccpc` declares only `censorship_rate`; it has no `incomplete_response_rate`
+  target.
+
+`tests/test_inspect_brief.py` runs every registered task on mock models and
+checks that the hook and the CLI write the same rows, with the units and
+direction from the targets.
+
+## Presets and the retired CLI
+
+Presets select tasks and task arguments only; they carry no inference settings.
+`DatasetPreset(name, dataset_ids)`, `list_dataset_presets()` and
+`expand_dataset_preset()` keep their contract (case- and space-insensitive
+names; `hallucination` and `hallucination-med` stay aliases).
+`DatasetPreset.inspect_tasks` is a tuple of `InspectTaskMapping(task_name,
+task_args, dataset_id)` aligned with `dataset_ids`; `dict(task_args)` gives task
+keyword arguments and `cli_args` the `-T` options. `dataset_id` is the asset's
+logical identity (CCPC's is `chinese_censorship`), not a task argument.
+`presets.py` imports nothing heavy and none of the legacy engine.
+
+The root README has the full preset table. `llm-behavior-eval`,
+`python -m llm_behavior_eval` and `python -m llm_behavior_eval.evaluate` print
+the migration hint and exit 2 without loading models. When an argument names a
+preset, the hint lists its `inspect eval` commands with placeholder models; no
+other argument is echoed, because legacy invocations may carry credentials. No
+legacy flag is translated: the old answer/judge token budgets and thinking flags
+correspond to per-role Inspect settings or to a benchmark's `parity.yaml`.
+
+## MLflow reporting hook
+
+`llm_behavior_eval/hooks/mlflow.py` is an Inspect hook (`on_run_start`,
+`on_run_end`). `hooks/` has no `task` module, so discovery skips it;
+`_registry.py` imports it explicitly after discovery and before the
+registry-name check. Inspect imports every `inspect_ai` entry point when an eval
+starts, so the hook is present for any task once the package is installed. Its
+`enabled()` is false unless `LLM_BEHAVIOR_EVAL_MLFLOW_ENABLED` is set, and it
+imports MLflow only then. It reads no inference settings. See
+`MLFLOW_INTEGRATION.md`.
+
 ## Setting inference options per role
 
 Inspect keeps the two roles apart. Eval-level GenerateConfig (CLI flags,
@@ -378,6 +449,8 @@ applies to the model under test; put the same keys under the grader's
 | vLLM server-argument contract | Inspect forwards every `-M name=value` it does not recognize to the server it launches, as `--name-with-dashes value` (`true` becomes a bare flag). Inspect does not validate values; support depends on the vLLM version and model. With `base_url` no server is launched, so configure these on the prestarted server. Gemma 4 still needs GPU validation. |
 | vllm-max-lora-rank | vLLM `-M max_lora_rank=...`; native adapter model syntax `vllm/base:adapter-path` |
 | mlflow://, s3://, gs://, git:// adapters | Pre-resolve using legacy `util_functions.maybe_download_adapter` in a separate setup step, then pass the local adapter path. No URI resolver or custom provider in this foundation. HF adapter parity is unverified. |
+| `--use-mlflow`, `--mlflow-*` | `LLM_BEHAVIOR_EVAL_MLFLOW_ENABLED=1` and the other environment settings in `MLFLOW_INTEGRATION.md`. Set `LLM_BEHAVIOR_EVAL_MLFLOW_ADAPTER_REF` to the original adapter reference so the hook attaches to its run and step. |
+| `--base-output-dir`, `--model-output-dir` | `--log-dir` |
 | Muse Glimmer / custom HF chat-template thinking | Inspect's HF provider accepts only `enable_thinking` and does not implement legacy `SafeApplyChatTemplate`. Remains a parity blocker pending a provider adaptation. |
 
 ## Validation and remaining work
@@ -387,9 +460,11 @@ finish filtering, inline thinking, metrics, split selection, offline snapshots,
 per-role settings via Python, CLI flags, `--generate-config` and `--run-config`,
 the absence of code-set settings for both roles, an `openai-api` judge on
 loopback with and without a role config, parity-config loading, and HF/vLLM
-provider configuration with stub loaders. They are not GPU inference tests.
+provider configuration with stub loaders. Reporting tests run every registered
+task offline on mock models and check inspect-brief's hook and CLI, the preset
+mapping against each task's signature and dataset identity, and the MLflow hook
+against local file stores. They are not GPU inference tests.
 
 Track LLM-141 for sequential vLLM eval lifecycle: repeated real GPU evaluations
-still need a regression test. Benchmark parity, GPU/quantization/LoRA testing,
-Muse Glimmer support and optional Inspect-brief integration remain follow-up
-work. Keep the legacy engine until benchmark-by-benchmark comparisons pass.
+still need a regression test. Live-model parity (LLM-169), GPU/quantization/LoRA
+testing, Muse Glimmer support and legacy removal (LLM-171) remain follow-up work.

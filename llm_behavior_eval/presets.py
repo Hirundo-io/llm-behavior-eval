@@ -1,32 +1,57 @@
-"""Public catalog of supported behavior-evaluation dataset presets."""
+"""Public catalog of behavior presets and the Inspect tasks they select.
+
+A preset names a set of dataset assets (``DatasetPreset.dataset_ids``, the
+historical catalog contract) and the native Inspect tasks that evaluate them
+(``DatasetPreset.inspect_tasks``). A mapping holds a registered task name and
+its ``-T`` task arguments only. It carries no inference settings: generation
+options for the model under test and for the grader come from the user, through
+Inspect, and parity runs pass each benchmark's ``parity.yaml``.
+
+This module imports nothing heavy (no datasets, torch, Inspect or legacy
+engine), so release tooling can list presets cheaply.
+"""
 
 from dataclasses import dataclass
 
-from .evaluation_utils.enums import (
-    BBQ_BIAS_TYPES,
-    BIAS_KINDS,
-    BLOOM_BIAS_TYPES,
-    UNQOVER_BIAS_TYPES,
+# Bias types per source. Presets expand them in sorted order.
+BBQ_BIAS_TYPES = frozenset(
+    {"gender", "race", "nationality", "physical", "age", "religion"}
 )
+UNQOVER_BIAS_TYPES = frozenset({"religion", "gender", "race", "nationality"})
+BLOOM_BIAS_TYPES = frozenset({"age", "gender", "race"})
+BIAS_KINDS = frozenset({"bias", "unbias"})
 
-# Catalog discovery must not import datasets, torch, or the legacy engine.
 CCPC_DATASET_ID = "chinese_censorship"
 CCPC_DATASET_REPOSITORY = "hirundo-io/ccpc-500"
 OR_BENCH_DATASET = "hirundo-io/or-bench"
 XSTEST_DATASET = "hirundo-io/XSTest"
 
+TASK_PREFIX = "llm_behavior_eval/"
+
+# Legacy CLI spellings that name the same preset.
+_ALIASES = {"hallucination": "hallu", "hallucination-med": "hallu-med"}
+
 
 @dataclass(frozen=True)
 class InspectTaskMapping:
-    """One native task invocation; logical identity is separate from its asset.
+    """One native task invocation for one dataset asset of a preset.
 
-    task_args is an immutable sequence of key/value pairs; use dict(task_args)
-    for Inspect task constructor kwargs. dataset_id is metadata, not a task argument.
+    ``task_args`` is an immutable sequence of key/value pairs: ``dict(task_args)``
+    gives task constructor keyword arguments, and ``cli_args`` the equivalent
+    ``-T`` options. ``dataset_id`` is the asset's logical identity (metadata,
+    not a task argument).
     """
 
     task_name: str
     task_args: tuple[tuple[str, str], ...]
     dataset_id: str
+
+    @property
+    def cli_args(self) -> tuple[str, ...]:
+        """``-T name=value`` options for ``inspect eval``, in argument order."""
+        return tuple(
+            part for key, value in self.task_args for part in ("-T", f"{key}={value}")
+        )
 
 
 def _inspect_mapping(dataset_id: str) -> InspectTaskMapping:
@@ -38,7 +63,7 @@ def _inspect_mapping(dataset_id: str) -> InspectTaskMapping:
             if kind == "ambiguous-bias":
                 kind = "ambiguous"
             return InspectTaskMapping(
-                f"llm_behavior_eval/{family}",
+                f"{TASK_PREFIX}{family}",
                 (("bias_type", bias_type), ("kind", kind)),
                 dataset_id,
             )
@@ -53,7 +78,7 @@ def _inspect_mapping(dataset_id: str) -> InspectTaskMapping:
         XSTEST_DATASET: ("xstest", XSTEST_DATASET),
         OR_BENCH_DATASET: ("orbench", OR_BENCH_DATASET),
     }[dataset_id]
-    return InspectTaskMapping(f"llm_behavior_eval/{task}", (), logical_id)
+    return InspectTaskMapping(f"{TASK_PREFIX}{task}", (), logical_id)
 
 
 @dataclass(frozen=True)
@@ -88,7 +113,7 @@ def build_bias_dataset_id(prefix: str, bias_type: str, kind: str) -> str:
 
 
 def _bias_ids(
-    prefix: str, kinds: set[str], bias_types: set[str]
+    prefix: str, kinds: frozenset[str], bias_types: frozenset[str]
 ) -> list[DatasetPreset]:
     presets: list[DatasetPreset] = []
     for kind in sorted(kinds):
@@ -111,7 +136,7 @@ def _bias_ids(
 
 _PRESETS = (
     *_bias_ids("bbq", BIAS_KINDS, BBQ_BIAS_TYPES),
-    *_bias_ids("unqover", {"bias"}, UNQOVER_BIAS_TYPES),
+    *_bias_ids("unqover", frozenset({"bias"}), UNQOVER_BIAS_TYPES),
     *_bias_ids("bloom", BIAS_KINDS, BLOOM_BIAS_TYPES),
     *(
         DatasetPreset(
@@ -141,8 +166,30 @@ def list_dataset_presets() -> tuple[DatasetPreset, ...]:
     return _PRESETS
 
 
+def normalize_preset_name(name: str) -> str:
+    """Canonical spelling of a preset name: lower case, no spaces around ``:``.
+
+    Legacy aliases (``hallucination``, ``hallucination-med``) map to their
+    catalog names. The result may still be unknown; see ``get_dataset_preset``.
+    """
+    normalized = ":".join(part.strip() for part in name.strip().lower().split(":"))
+    return _ALIASES.get(normalized, normalized)
+
+
+def get_dataset_preset(name: str) -> DatasetPreset:
+    """Look up a preset by (case- and space-insensitive) name.
+
+    Raises:
+        ValueError: If ``name`` is not a supported preset key.
+    """
+    try:
+        return _PRESETS_BY_NAME[normalize_preset_name(name)]
+    except KeyError as exc:
+        raise ValueError(f"Unknown behavior preset: {name}") from exc
+
+
 def expand_dataset_preset(name: str) -> list[str]:
-    """Expand a supported CLI preset into canonical dataset identifiers.
+    """Expand a supported preset into canonical dataset identifiers.
 
     Args:
         name: Case-insensitive supported preset key, such as
@@ -154,7 +201,4 @@ def expand_dataset_preset(name: str) -> list[str]:
     Raises:
         ValueError: If ``name`` is not a supported preset key.
     """
-    try:
-        return list(_PRESETS_BY_NAME[name.lower()].dataset_ids)
-    except KeyError as exc:
-        raise ValueError(f"Unknown behavior preset: {name}") from exc
+    return list(get_dataset_preset(name).dataset_ids)
