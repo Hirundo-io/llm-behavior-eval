@@ -13,6 +13,7 @@ import textwrap
 import zipfile
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -64,7 +65,9 @@ def write_package(root: Path, name: str, files: dict[str, str]) -> Path:
 
 
 @pytest.fixture
-def fake_root(tmp_path, monkeypatch) -> Iterator[tuple[str, Path]]:
+def fake_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[tuple[str, Path]]:
     """An importable throwaway root package standing in for llm_behavior_eval."""
     name = "lbe_fake_root"
     root = tmp_path / name
@@ -76,7 +79,9 @@ def fake_root(tmp_path, monkeypatch) -> Iterator[tuple[str, Path]]:
         del sys.modules[module]
 
 
-def test_benchmark_packages_are_task_packages_in_sorted_order(fake_root):
+def test_benchmark_packages_are_task_packages_in_sorted_order(
+    fake_root: tuple[str, Path],
+) -> None:
     name, root = fake_root
     # Created out of order; discovery must not depend on filesystem order.
     write_package(root, "zeta", {"__init__.py": "", "task.py": ""})
@@ -99,7 +104,7 @@ def test_benchmark_packages_are_task_packages_in_sorted_order(fake_root):
     assert not [m for m in sys.modules if m.startswith(f"{name}.")]
 
 
-def test_shipped_benchmarks_are_discovered():
+def test_shipped_benchmarks_are_discovered() -> None:
     packages = benchmark_packages()
     assert "llm_behavior_eval.inspect_template" in packages
     assert "llm_behavior_eval.common" not in packages
@@ -152,7 +157,9 @@ def run_registry_with_extra_packages(
     )
 
 
-def test_registry_registers_a_new_benchmark_package_without_edits(tmp_path):
+def test_registry_registers_a_new_benchmark_package_without_edits(
+    tmp_path: Path,
+) -> None:
     result = run_registry_with_extra_packages(
         tmp_path, {"zz_fake_bench": "zz_fake_bench", "aa_fake_bench": "aa_fake_bench"}
     )
@@ -167,7 +174,7 @@ def test_registry_registers_a_new_benchmark_package_without_edits(tmp_path):
     ]
 
 
-def test_registry_rejects_duplicate_task_names(tmp_path):
+def test_registry_rejects_duplicate_task_names(tmp_path: Path) -> None:
     result = run_registry_with_extra_packages(
         tmp_path, {"zz_fake_bench": "inspect_template"}
     )
@@ -213,7 +220,9 @@ def {name}():
 
 
 @pytest.mark.parametrize("kind", sorted(REGISTERED_SOURCES))
-def test_registry_rejects_a_name_defined_by_two_packages(tmp_path, kind):
+def test_registry_rejects_a_name_defined_by_two_packages(
+    tmp_path: Path, kind: str
+) -> None:
     # Inspect's registry keeps the last object registered under a name, so a
     # second benchmark reusing a metric, scorer or solver name would silently
     # replace the first one's when a log is rescored.
@@ -234,7 +243,7 @@ def test_registry_rejects_a_name_defined_by_two_packages(tmp_path, kind):
     ) in result.stderr
 
 
-def test_registry_accepts_package_specific_names(tmp_path):
+def test_registry_accepts_package_specific_names(tmp_path: Path) -> None:
     result = run_registry_with_extra_packages(
         tmp_path,
         {"aa_fake_bench": "aa_fake_bench", "zz_fake_bench": "zz_fake_bench"},
@@ -252,7 +261,7 @@ def test_registry_accepts_package_specific_names(tmp_path):
     assert {"aa_fake_bench", "zz_fake_bench"} <= set(json.loads(result.stdout)["all"])
 
 
-def test_shipped_registry_names_are_defined_once():
+def test_shipped_registry_names_are_defined_once() -> None:
     definitions = _registry.registry_definitions()
     assert definitions[("task", "llm_behavior_eval/inspect_template")] == [
         "llm_behavior_eval.inspect_template.task"
@@ -270,20 +279,20 @@ def test_shipped_registry_names_are_defined_once():
     _registry.check_unique_registry_names()
 
 
-def test_registry_exports_sorted_task_names():
+def test_registry_exports_sorted_task_names() -> None:
     assert "inspect_template" in _registry.__all__
     assert _registry.__all__ == sorted(_registry.__all__)
     for name in _registry.__all__:
         assert callable(getattr(_registry, name))
 
 
-def test_every_registered_task_has_target_metrics_and_vice_versa():
+def test_every_registered_task_has_target_metrics_and_vice_versa() -> None:
     registered = {f"llm_behavior_eval/{name}" for name in _registry.__all__}
     assert set(load_target_metrics()) == registered
 
 
 @pytest.fixture(scope="module")
-def template_log_path(tmp_path_factory) -> Path:
+def template_log_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A real ``.eval`` log of the registered template task, as written to disk."""
     from inspect_ai import eval as inspect_eval
 
@@ -298,12 +307,16 @@ def template_log_path(tmp_path_factory) -> Path:
     return Path(log.location)
 
 
-def test_missing_target_metrics_finds_the_template_targets(template_log_path):
+def test_missing_target_metrics_finds_the_template_targets(
+    template_log_path: Path,
+) -> None:
     assert missing_target_metrics(template_log_path) == []
     assert missing_target_metrics(str(template_log_path)) == []
 
 
-def test_missing_target_metrics_reads_metric_keys_not_names(template_log_path):
+def test_missing_target_metrics_reads_metric_keys_not_names(
+    template_log_path: Path,
+) -> None:
     from inspect_ai.log import read_eval_log
 
     log = read_eval_log(str(template_log_path))
@@ -326,7 +339,9 @@ def test_missing_target_metrics_reads_metric_keys_not_names(template_log_path):
     ]
 
 
-def test_missing_target_metrics_rejects_logs_brief_would_not_match(template_log_path):
+def test_missing_target_metrics_rejects_logs_brief_would_not_match(
+    template_log_path: Path,
+) -> None:
     from inspect_ai.log import read_eval_log
 
     log = read_eval_log(str(template_log_path))
@@ -339,12 +354,12 @@ def test_missing_target_metrics_rejects_logs_brief_would_not_match(template_log_
         missing_target_metrics(log.model_copy(update={"status": "error"}))
 
 
-def test_no_root_target_metrics_file():
+def test_no_root_target_metrics_file() -> None:
     # Benchmarks own their entries; a root file would bring back add/add conflicts.
     assert not (PACKAGE_DIR / TARGET_METRICS_FILE).exists()
 
 
-def test_merge_is_sorted_and_keeps_metric_order(fake_root):
+def test_merge_is_sorted_and_keeps_metric_order(fake_root: tuple[str, Path]) -> None:
     name, root = fake_root
     write_package(
         root,
@@ -376,7 +391,7 @@ def test_merge_is_sorted_and_keeps_metric_order(fake_root):
     assert not [m for m in sys.modules if m.startswith(f"{name}.")]
 
 
-def test_duplicate_task_across_packages_fails(fake_root):
+def test_duplicate_task_across_packages_fails(fake_root: tuple[str, Path]) -> None:
     name, root = fake_root
     for package in ("one", "two"):
         write_package(
@@ -391,7 +406,7 @@ def test_duplicate_task_across_packages_fails(fake_root):
         load_target_metrics(name)
 
 
-def test_duplicate_task_within_file_fails(tmp_path):
+def test_duplicate_task_within_file_fails(tmp_path: Path) -> None:
     path = tmp_path / TARGET_METRICS_FILE
     entry = json.dumps([metric("m")])
     path.write_text(
@@ -422,7 +437,9 @@ def test_duplicate_task_within_file_fails(tmp_path):
         ({"llm_behavior_eval/a": [metric("")]}, "at least 1 character"),
     ],
 )
-def test_invalid_target_metrics_fail(tmp_path, content, message):
+def test_invalid_target_metrics_fail(
+    tmp_path: Path, content: Any, message: str
+) -> None:
     path = tmp_path / TARGET_METRICS_FILE
     path.write_text(json.dumps(content))
     with pytest.raises(ValueError, match=message):
@@ -454,7 +471,7 @@ def test_write_and_cli_produce_the_merged_mapping(tmp_path: Path) -> None:
     assert json.loads(printed.stdout) == expected
 
 
-def test_shipped_target_metrics_are_tracked():
+def test_shipped_target_metrics_are_tracked() -> None:
     """Package target metrics must not be swallowed by the ``*.json`` ignore rule."""
     if shutil.which("git") is None or not (REPO / ".git").exists():
         pytest.skip("not a git checkout")
@@ -466,7 +483,7 @@ def test_shipped_target_metrics_are_tracked():
 
 
 @pytest.fixture(scope="module")
-def built_wheel(tmp_path_factory) -> Path:
+def built_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Build the wheel offline from a copy of the source tree."""
     pytest.importorskip("setuptools")
     pytest.importorskip("wheel")
@@ -496,7 +513,7 @@ def built_wheel(tmp_path_factory) -> Path:
     return wheel
 
 
-def test_wheel_ships_benchmark_package_files(built_wheel):
+def test_wheel_ships_benchmark_package_files(built_wheel: Path) -> None:
     names = set(zipfile.ZipFile(built_wheel).namelist())
     for package_file in ("target_metrics.json", "parity.yaml", "README.md", "task.py"):
         assert f"llm_behavior_eval/inspect_template/{package_file}" in names
@@ -505,7 +522,9 @@ def test_wheel_ships_benchmark_package_files(built_wheel):
     assert "llm_behavior_eval/target_metrics.json" not in names
 
 
-def test_installed_wheel_discovers_the_same_tasks_and_metrics(built_wheel, tmp_path):
+def test_installed_wheel_discovers_the_same_tasks_and_metrics(
+    built_wheel: Path, tmp_path: Path
+) -> None:
     installed = tmp_path / "site"
     zipfile.ZipFile(built_wheel).extractall(installed)
     script = textwrap.dedent(

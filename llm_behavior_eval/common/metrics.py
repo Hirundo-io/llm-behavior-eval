@@ -12,7 +12,19 @@ def field_rate(
     metadata_key: str | None = None,
     metadata_value: Any = None,
 ) -> Metric:
-    """Mean scalar/dict score, excluding skipped/unparsed scores and other subgroups."""
+    """Mean scalar/dict score, excluding skipped/unparsed scores and other subgroups.
+
+    Args:
+        field: Key to read when a score value is a dict. ``None`` reads scalar
+            values.
+        metadata_key: When set, only scores whose metadata maps this key to
+            ``metadata_value`` count.
+        metadata_value: The subgroup value ``metadata_key`` must have.
+
+    Returns:
+        A metric that averages the eligible numeric values, or NaN when none
+        remain.
+    """
 
     def compute(scores: list[SampleScore]) -> float:
         values = []
@@ -37,7 +49,12 @@ def field_rate(
 
 @metric
 def incomplete_response_rate() -> Metric:
-    """Share of all scored samples whose answer ended at max_tokens."""
+    """Share of all scored samples whose answer ended at max_tokens.
+
+    Returns:
+        A metric over the ``stop_reason`` score metadata, NaN when there are no
+        scores.
+    """
 
     def compute(scores: list[SampleScore]) -> float:
         return (

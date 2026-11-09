@@ -26,6 +26,15 @@ def parity_config_path(package: str) -> Path:
     """Path of ``parity.yaml`` in an installed benchmark package.
 
     Example: ``parity_config_path("llm_behavior_eval.inspect_template")``.
+
+    Args:
+        package: Fully qualified benchmark package name.
+
+    Returns:
+        The path of the package's ``parity.yaml``.
+
+    Raises:
+        FileNotFoundError: The package ships no ``parity.yaml``.
     """
     path = Path(str(files(package) / PARITY_CONFIG_FILE))
     if not path.is_file():
@@ -39,6 +48,18 @@ def read_parity_config(path: str | Path) -> dict[str, Any]:
     Parsing is delegated to Inspect's own ``--run-config`` reader, so Python and
     CLI runs resolve the file identically. Like the CLI, this constructs the
     grader model, which may load its weights.
+
+    Args:
+        path: A YAML run-config file.
+
+    Returns:
+        ``inspect_ai.eval()`` keyword arguments, such as ``model_roles``,
+        generation settings and ``limit``.
+
+    Raises:
+        ValueError: The file is not a YAML mapping, or it sets ``task``,
+            ``model`` or ``solver``.
+        PrerequisiteError: Inspect rejects the run config.
     """
     import yaml
 

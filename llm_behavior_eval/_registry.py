@@ -108,6 +108,12 @@ def registry_definitions(root: str = _ROOT) -> dict[tuple[str, str], list[str]]:
     top level defines an object registered under it. Objects a module merely
     imports are attributed to the module that defines them. Only modules that
     are already imported are inspected.
+
+    Args:
+        root: Package whose imported modules are inspected.
+
+    Returns:
+        ``(type, registry name)`` to the sorted defining module names.
     """
     definitions: dict[tuple[str, str], set[str]] = {}
     for module_name, module in list(sys.modules.items()):
@@ -122,7 +128,14 @@ def registry_definitions(root: str = _ROOT) -> dict[tuple[str, str], list[str]]:
 
 
 def check_unique_registry_names(root: str = _ROOT) -> None:
-    """Raise ``RuntimeError`` if two modules define the same registry name."""
+    """Fail when two modules define the same registry name.
+
+    Args:
+        root: Package whose imported modules are inspected.
+
+    Raises:
+        RuntimeError: Some ``(type, name)`` is defined by more than one module.
+    """
     duplicates = [
         f"{kind} {name!r} is defined by {', '.join(modules)}"
         for (kind, name), modules in registry_definitions(root).items()

@@ -93,6 +93,13 @@ def target_metrics_files(root: str = ROOT_PACKAGE) -> dict[str, Path]:
 
     Packages are located without being imported, so reading target metrics
     never pulls in benchmark or legacy-engine dependencies.
+
+    Args:
+        root: Package whose direct subpackages are searched.
+
+    Returns:
+        Package name to its ``target_metrics.json`` path, for packages that
+        ship one.
     """
     found: dict[str, Path] = {}
     for package in subpackages(root):
@@ -153,8 +160,14 @@ def read_target_metrics_file(
 def load_target_metrics(root: str = ROOT_PACKAGE) -> TargetMetrics:
     """All packages' target metrics merged into one mapping with sorted keys.
 
-    Raises ``ValueError`` when a file is invalid or two files define the same
-    task key.
+    Args:
+        root: Package whose subpackages' files are merged.
+
+    Returns:
+        Task name to metric list, in inspect-brief's format, sorted by task.
+
+    Raises:
+        ValueError: A file is invalid, or two files define the same task key.
     """
     merged: TargetMetrics = {}
     sources: dict[str, Path] = {}
@@ -189,12 +202,20 @@ def missing_target_metrics(
 
     Inspect keys a single-value metric by its unqualified registry name and
     each entry of a mapping-valued metric by the mapping key; it drops mapping
-    entries whose value is ``None``. Returns the missing names in target
-    order, so a passing check is ``== []``.
+    entries whose value is ``None``.
 
-    Raises ``ValueError`` when inspect-brief would not look the names up at
-    all: the log did not succeed, or its task has no target metrics (then
-    inspect-brief reports every metric instead of the targets).
+    Args:
+        log: An ``EvalLog`` or the path of a ``.eval`` file.
+        targets: Target metrics to check against; defaults to
+            ``load_target_metrics()``.
+
+    Returns:
+        The missing names in target order, so a passing check is ``== []``.
+
+    Raises:
+        ValueError: inspect-brief would not look the names up at all: the log
+            did not succeed, or its task has no target metrics (then
+            inspect-brief reports every metric instead of the targets).
     """
     if not isinstance(log, (str, Path)):
         eval_log = log
@@ -218,7 +239,18 @@ def missing_target_metrics(
 
 
 def write_target_metrics(path: str | Path, root: str = ROOT_PACKAGE) -> Path:
-    """Write the merged mapping as JSON to ``path`` and return the path."""
+    """Write the merged mapping as JSON to ``path`` and return the path.
+
+    Args:
+        path: Output file; missing parent directories are created.
+        root: Package whose subpackages' files are merged.
+
+    Returns:
+        ``path`` as a ``Path``.
+
+    Raises:
+        ValueError: As ``load_target_metrics``.
+    """
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(

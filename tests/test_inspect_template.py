@@ -21,12 +21,12 @@ from llm_behavior_eval.inspect_template.task import inspect_template
 TEMPLATE = "llm_behavior_eval.inspect_template"
 
 
-def test_template_sets_no_inference_settings():
+def test_template_sets_no_inference_settings() -> None:
     task = inspect_template()
     assert task.config == GenerateConfig()
 
 
-def test_shipped_parity_config_holds_only_inference_settings():
+def test_shipped_parity_config_holds_only_inference_settings() -> None:
     path = parity_config_path(TEMPLATE)
     assert path.parent == Path(__file__).parents[1] / "llm_behavior_eval" / (
         "inspect_template"
@@ -42,7 +42,7 @@ def test_shipped_parity_config_holds_only_inference_settings():
 
 
 @pytest.fixture
-def mock_parity_config(tmp_path) -> Path:
+def mock_parity_config(tmp_path: Path) -> Path:
     """The shipped parity config with only the grader model swapped for a mock."""
     config = yaml.safe_load(parity_config_path(TEMPLATE).read_text())
     config["model_roles"]["grader"]["model"] = "mockllm/model"
@@ -62,7 +62,7 @@ def assert_parity_recorded(spec: EvalSpec) -> None:
     assert (grader.config.temperature, grader.config.max_tokens) == (0.0, 32)
 
 
-def test_parity_config_cli(tmp_path, mock_parity_config):
+def test_parity_config_cli(tmp_path: Path, mock_parity_config: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,
@@ -94,7 +94,7 @@ def test_parity_config_cli(tmp_path, mock_parity_config):
     assert missing_target_metrics(log) == []
 
 
-def test_parity_config_python(tmp_path, mock_parity_config):
+def test_parity_config_python(tmp_path: Path, mock_parity_config: Path) -> None:
     logs = inspect_eval(
         inspect_template(),
         model="mockllm/model",
@@ -110,19 +110,21 @@ def test_parity_config_python(tmp_path, mock_parity_config):
     "extra",
     [{"model": "hf/org/repo"}, {"task": "x"}, {"solver": "generate"}],
 )
-def test_parity_config_rejects_non_settings(tmp_path, extra: dict[str, Any]):
+def test_parity_config_rejects_non_settings(
+    tmp_path: Path, extra: dict[str, Any]
+) -> None:
     path = tmp_path / "parity.yaml"
     path.write_text(yaml.safe_dump({"generate_config": {"temperature": 0.0}} | extra))
     with pytest.raises(ValueError, match="only inference settings"):
         read_parity_config(path)
 
 
-def test_missing_parity_config():
+def test_missing_parity_config() -> None:
     with pytest.raises(FileNotFoundError):
         parity_config_path("llm_behavior_eval.common")
 
 
-def test_template_target_metrics_match_eval_metric_names(tmp_path):
+def test_template_target_metrics_match_eval_metric_names(tmp_path: Path) -> None:
     path = parity_config_path(TEMPLATE).with_name(TARGET_METRICS_FILE)
     targets = read_target_metrics_file(path)
     assert list(targets) == ["llm_behavior_eval/inspect_template"]

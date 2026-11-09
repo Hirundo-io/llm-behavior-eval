@@ -16,6 +16,7 @@ from inspect_ai import eval as inspect_eval
 from inspect_ai.dataset import Sample
 from inspect_ai.log import EvalLog, list_eval_logs, read_eval_log
 from inspect_ai.model import (
+    ChatMessage,
     ContentReasoning,
     ContentText,
     GenerateConfig,
@@ -24,6 +25,7 @@ from inspect_ai.model import (
     get_model,
 )
 from inspect_ai.scorer import Metric, SampleScore, Score
+from inspect_ai.tool import ToolChoice, ToolInfo
 from inspect_ai.util import registry_info
 
 from llm_behavior_eval.common.dataset import (
@@ -86,17 +88,18 @@ def only_log(log_dir: Path) -> EvalLog:
         ("<think>unfinished", "<think>unfinished"),
     ],
 )
-def test_thinking(answer, expected):
+def test_thinking(answer: str, expected: str) -> None:
     assert strip_thinking(answer) == expected
     assert strip_thinking(answer, exclude_thinking_trace_for_judge=False) == answer
     assert strip_thinking(answer, thinking_start_token=None) == answer
 
 
 def rate(metric: Metric) -> Callable[[list[SampleScore]], float]:
+    # Metric returns Inspect's Value union; these rates always return a float.
     return cast("Callable[[list[SampleScore]], float]", metric)
 
 
-def test_rates():
+def test_rates() -> None:
     scores = [
         SampleScore(
             score=Score(value=1, metadata={"group": "safe", "stop_reason": "stop"})
@@ -123,7 +126,7 @@ def test_rates():
     assert rate(field_rate("a"))([SampleScore(score=Score(value={"a": 0.5}))]) == 0.5
 
 
-def test_dataset(tmp_path, monkeypatch):
+def test_dataset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ds = Dataset.from_list(
         [{"id": str(i), "question": "q", "answer": "a"} for i in range(502)]
     )
@@ -139,8 +142,9 @@ def test_dataset(tmp_path, monkeypatch):
 
     calls = []
 
-    def load(source, **kwargs):
+    def load(source: str, **kwargs: Any) -> DatasetDict:
         calls.append((source, kwargs))
+        # datasets types select() loosely; selecting rows of a Dataset is one.
         return DatasetDict({"train": ds, "test": cast("Dataset", ds.select([0]))})
 
     monkeypatch.setattr(datasets, "load_dataset", load)
@@ -186,12 +190,19 @@ def test_legacy_order_matches_legacy_shuffle(num_rows: int) -> None:
         ("stop", "SCORE: 0", 0),
     ],
 )
-def test_judge(tmp_path, stop, judge_text, expected):
+def test_judge(
+    tmp_path: Path, stop: StopReason, judge_text: str, expected: int
+) -> None:
     answer = ModelOutput.from_content("mockllm/model", "<think>secret</think>2")
     answer.choices[0].stop_reason = stop
     requests = []
 
-    def grade(messages, tools, choice, config):
+    def grade(
+        messages: list[ChatMessage],
+        tools: list[ToolInfo],
+        choice: ToolChoice,
+        config: GenerateConfig,
+    ) -> ModelOutput:
         requests.append(messages)
         assert "secret" not in str(messages)
         return ModelOutput.from_content("mockllm/judge", judge_text)
@@ -215,7 +226,7 @@ def test_judge(tmp_path, stop, judge_text, expected):
 
 
 @pytest.mark.parametrize("judge_text", ["SCORE: nan", "SCORE: inf", "SCORE: -inf"])
-def test_judge_rejects_non_finite_scores(tmp_path, judge_text):
+def test_judge_rejects_non_finite_scores(tmp_path: Path, judge_text: str) -> None:
     logs = inspect_eval(
         Task(
             dataset=[Sample(input="question", target="answer")],
@@ -289,7 +300,7 @@ def test_verdict_ignores_grader_reasoning(
     assert score.metadata["raw_judge_text"] == grader_reply.completion
 
 
-def test_grader_role_is_required(tmp_path):
+def test_grader_role_is_required(tmp_path: Path) -> None:
     logs = inspect_eval(
         Task(
             dataset=[Sample(input="question", target="answer")],
@@ -305,14 +316,26 @@ def test_grader_role_is_required(tmp_path):
 
 
 @pytest.mark.parametrize("user_settings", [False, True])
-def test_settings_are_user_supplied_per_role(tmp_path, user_settings):
+def test_settings_are_user_supplied_per_role(
+    tmp_path: Path, user_settings: bool
+) -> None:
     seen: dict[str, GenerateConfig] = {}
 
-    def answer(messages, tools, choice, config):
+    def answer(
+        messages: list[ChatMessage],
+        tools: list[ToolInfo],
+        choice: ToolChoice,
+        config: GenerateConfig,
+    ) -> ModelOutput:
         seen["answer"] = config
         return ModelOutput.from_content("mockllm/model", "2")
 
-    def grade(messages, tools, choice, config):
+    def grade(
+        messages: list[ChatMessage],
+        tools: list[ToolInfo],
+        choice: ToolChoice,
+        config: GenerateConfig,
+    ) -> ModelOutput:
         seen["grader"] = config
         return ModelOutput.from_content("mockllm/judge", "SCORE: 1")
 
@@ -356,7 +379,7 @@ def test_settings_are_user_supplied_per_role(tmp_path, user_settings):
 
 
 @pytest.mark.parametrize("source", ["flags", "generate_config_file"])
-def test_cli_per_role_settings(tmp_path, source):
+def test_cli_per_role_settings(tmp_path: Path, source: str) -> None:
     if source == "flags":
         answer_args = ["--temperature", "0.3", "--max-tokens", "99"]
     else:
@@ -391,7 +414,7 @@ def openai_judge() -> Iterator[tuple[str, list[tuple[str, dict[str, Any]]]]]:
 
     # BaseHTTPRequestHandler logs each request to stderr, which pytest captures.
     class Handler(BaseHTTPRequestHandler):
-        def do_POST(self):
+        def do_POST(self) -> None:
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             requests.append((self.path, body))
             payload = json.dumps(
@@ -431,7 +454,9 @@ def openai_judge() -> Iterator[tuple[str, list[tuple[str, dict[str, Any]]]]]:
         thread.join()
 
 
-def test_openai_compatible_grader_defaults(tmp_path, openai_judge):
+def test_openai_compatible_grader_defaults(
+    tmp_path: Path, openai_judge: tuple[str, list[tuple[str, dict[str, Any]]]]
+) -> None:
     base_url, requests = openai_judge
     grader = get_model(
         "openai-api/airgap/judge",
@@ -459,7 +484,9 @@ def test_openai_compatible_grader_defaults(tmp_path, openai_judge):
         assert key not in body
 
 
-def test_openai_compatible_grader_cli_role_config(tmp_path, openai_judge):
+def test_openai_compatible_grader_cli_role_config(
+    tmp_path: Path, openai_judge: tuple[str, list[tuple[str, dict[str, Any]]]]
+) -> None:
     base_url, requests = openai_judge
     role = json.dumps(
         {
@@ -491,7 +518,7 @@ def test_openai_compatible_grader_cli_role_config(tmp_path, openai_judge):
     assert log.samples[0].scores["judge_scorer"].value == 0
 
 
-def test_registration_and_lazy_import(tmp_path):
+def test_registration_and_lazy_import(tmp_path: Path) -> None:
     assert any(e.name == "llm_behavior_eval" for e in entry_points(group="inspect_ai"))
     result = subprocess.run(
         [
@@ -530,7 +557,7 @@ def test_registration_and_lazy_import(tmp_path):
     assert "inspect_template" in listed.stdout
 
 
-def test_in_process_registry_names_are_namespaced():
+def test_in_process_registry_names_are_namespaced() -> None:
     # Inspect adds the package namespace only when the package's metadata shows
     # an install. If the source-tree egg-info comes before site-packages on
     # sys.path, as in pytest's prepend import mode, it hides the editable
@@ -544,7 +571,7 @@ def test_in_process_registry_names_are_namespaced():
 
 
 class _Loaded:
-    def __init__(self, kind: str, source: str, kwargs: dict[str, Any]):
+    def __init__(self, kind: str, source: str, kwargs: dict[str, Any]) -> None:
         self.kind = kind
         self.source = source
         self.kwargs = kwargs
@@ -552,12 +579,12 @@ class _Loaded:
 
 
 @pytest.fixture
-def hf_stub(monkeypatch) -> Iterator[tuple[Any, list[_Loaded]]]:
+def hf_stub(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Any, list[_Loaded]]]:
     # Configure the real HF provider with stub loaders: no weights, no GPU.
     hf = pytest.importorskip("inspect_ai.model._providers.hf")
     calls: list[_Loaded] = []
 
-    def loader(kind: str):
+    def loader(kind: str) -> type:
         def from_pretrained(source: str, **kwargs: Any) -> _Loaded:
             loaded = _Loaded(kind, source, kwargs)
             calls.append(loaded)
@@ -584,8 +611,12 @@ def hf_stub(monkeypatch) -> Iterator[tuple[Any, list[_Loaded]]]:
     ],
 )
 def test_hf_provider_configuration(
-    hf_stub, name, model_args, model_source, tokenizer_source
-):
+    hf_stub: tuple[Any, list[_Loaded]],
+    name: str,
+    model_args: dict[str, Any],
+    model_source: str,
+    tokenizer_source: str | None,
+) -> None:
     hf, calls = hf_stub
     model = get_model(
         name,
@@ -607,7 +638,7 @@ def test_hf_provider_configuration(
     assert api.batch_size == 4
 
 
-def test_hf_provider_documented_defaults(hf_stub):
+def test_hf_provider_documented_defaults(hf_stub: tuple[Any, list[_Loaded]]) -> None:
     # Pins the HF caveats in INSPECT_MIGRATION.md; recheck them on Inspect upgrades.
     hf, _ = hf_stub
     default = get_model("hf/org/repo", memoize=False, device="cpu").api
@@ -619,7 +650,7 @@ def test_hf_provider_documented_defaults(hf_stub):
     assert greedy.do_sample is False
 
 
-def test_vllm_provider_configuration():
+def test_vllm_provider_configuration() -> None:
     for name in ("vllm/org/repo", "vllm/local"):
         model = get_model(name)
         assert model.api.model_name == name.removeprefix("vllm/")
@@ -655,7 +686,7 @@ def test_vllm_provider_configuration():
     }
 
 
-def test_structured_reasoning():
+def test_structured_reasoning() -> None:
     from inspect_ai.model import (
         ChatCompletionChoice,
         ChatMessageAssistant,

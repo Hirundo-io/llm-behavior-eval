@@ -86,6 +86,7 @@ def legacy_order(num_rows: int, seed: int = LEGACY_SHUFFLE_SEED) -> list[int]:
     from datasets import Dataset
 
     rows = Dataset.from_dict({"index": list(range(num_rows))})
+    # datasets types a column as Any; "index" holds the ints written above.
     return cast("list[int]", list(rows.shuffle(seed=seed)["index"]))
 
 
