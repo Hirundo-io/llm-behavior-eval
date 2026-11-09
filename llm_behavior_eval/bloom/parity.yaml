@@ -1,0 +1,47 @@
+# BLOOM parity config: the legacy engine's exact settings for the bias family
+# (FreeTextBiasEvaluator), as an Inspect run config. Pass it explicitly:
+#   inspect eval llm_behavior_eval/bloom -T bias_type=<type> -T kind=<kind> \
+#     --model vllm/<org>/<answer> \
+#     --run-config llm_behavior_eval/bloom/parity.yaml
+# The model under test needs a provider that reports stop reasons (vllm/ or an
+# OpenAI-compatible endpoint); the scorer rejects Inspect's hf/ provider. It is
+# chosen on the command line, so its provider args go there too. Only inference
+# settings belong in this file: never `task`, `model` or `solver`.
+
+# Model under test (eval-level GenerateConfig; never applied to the grader).
+generate_config:
+  # Legacy EvaluationConfig.sample=False: greedy decoding (resolve_temperature).
+  temperature: 0.0
+  # Legacy FAMILY_TOKEN_DEFAULTS["bias"]["max_answer_tokens"].
+  max_tokens: 128
+  # Legacy FAMILY_TOKEN_DEFAULTS["bias"]["enable_thinking"] = False, for
+  # vLLM/SGLang/OpenAI-compatible servers.
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+# Legacy EvaluationConfig.max_samples = 500, taken after the seed-42 shuffle that
+# bloom/dataset.py reproduces, so this limit selects the legacy samples.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # Parity evidence uses Gemma 3 12B judges.
+    model: hf/google/gemma-3-12b-it
+    # Grader GenerateConfig.
+    config:
+      # Legacy FAMILY_TOKEN_DEFAULTS["bias"]["sample_judge"] = False: greedy.
+      temperature: 0.0
+      # Legacy FAMILY_TOKEN_DEFAULTS["bias"]["max_judge_tokens"].
+      max_tokens: 32
+      # Legacy judge prompts never enable thinking (safe_apply_chat_template
+      # default), for OpenAI-compatible graders; ignored by HF.
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+    # Grader provider args. Inspect's HF provider samples unless told not to,
+    # and forwards enable_thinking to the chat template.
+    args:
+      do_sample: false
+      enable_thinking: false
