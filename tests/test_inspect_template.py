@@ -108,7 +108,15 @@ def test_parity_config_python(tmp_path: Path, mock_parity_config: Path) -> None:
 
 @pytest.mark.parametrize(
     "extra",
-    [{"model": "hf/org/repo"}, {"task": "x"}, {"solver": "generate"}],
+    [
+        {"model": "hf/org/repo"},
+        {"task": "x"},
+        {"solver": "generate"},
+        {"tags": ["parity"]},
+        {"metadata": {"run": "parity"}},
+        {"sandbox": "docker"},
+    ],
+    ids=["model", "task", "solver", "tags", "metadata", "sandbox"],
 )
 def test_parity_config_rejects_non_settings(
     tmp_path: Path, extra: dict[str, Any]

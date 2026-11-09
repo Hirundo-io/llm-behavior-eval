@@ -10,8 +10,9 @@ reproducible:
   its ``args`` (provider model args).
 * ``eval_config``: optional eval options such as ``limit``.
 
-It must not choose the task, the model under test, or the solver. Nothing in
-this package reads it unless the user passes it.
+It must not choose the task, the model under test or the solver, and it must
+not set ``tags``, ``metadata`` or ``sandbox``, which are not inference
+settings. Nothing in this package reads it unless the user passes it.
 """
 
 from importlib.resources import files
@@ -19,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 PARITY_CONFIG_FILE = "parity.yaml"
-_FORBIDDEN = {"task", "model", "solver"}
+_FORBIDDEN = {"task", "model", "solver", "tags", "metadata", "sandbox"}
 
 
 def parity_config_path(package: str) -> Path:
@@ -58,7 +59,7 @@ def read_parity_config(path: str | Path) -> dict[str, Any]:
 
     Raises:
         ValueError: The file is not a YAML mapping, or it sets ``task``,
-            ``model`` or ``solver``.
+            ``model``, ``solver``, ``tags``, ``metadata`` or ``sandbox``.
         PrerequisiteError: Inspect rejects the run config.
     """
     import yaml

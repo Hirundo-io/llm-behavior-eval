@@ -22,6 +22,9 @@ inspect eval llm_behavior_eval/inspect_template --model mockllm/model
 The template is a wiring demonstration: its **default grader is a mock that always
 returns SCORE: 1**. Real benchmarks bind no grader and fail unless one is passed.
 
+This layer writes `.eval` logs only. MLflow tracking of Inspect runs arrives with
+the reporting PR ([#207](https://github.com/Hirundo-io/llm-behavior-eval/pull/207)).
+
 ## Design rules
 
 1. **Benchmark code sets no inference settings**, for the model under test or for
@@ -169,7 +172,7 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
 * `parity.parity_config_path(package)` returns the installed path of a benchmark's
   `parity.yaml`. `parity.read_parity_config(path)` returns `inspect_ai.eval()`
   keyword arguments, parsed by Inspect's own `--run-config` reader. It rejects
-  files that set `task`, `model` or `solver`.
+  files that set `task`, `model`, `solver`, `tags`, `metadata` or `sandbox`.
 
 Sample limits are Inspect's: `--limit N`, `eval(limit=N)`, or `eval_config.limit`
 in a run config. There is no task-level sample cap.
@@ -311,7 +314,8 @@ A benchmark's `parity.yaml` is an ordinary Inspect run config holding only
 inference settings: `generate_config` (model under test), `model_roles.grader`
 (judge model, `config`, `args`) and optionally `eval_config` (for example
 `limit: 500`, the legacy sample cap). It never sets `task`, `model` or `solver`,
-so the model under test is still chosen on the command line.
+so the model under test is still chosen on the command line, and never `tags`,
+`metadata` or `sandbox`; `read_parity_config` rejects all six.
 
 ```sh
 inspect eval llm_behavior_eval/<benchmark> --model hf/org/answer -M do_sample=false \
