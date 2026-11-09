@@ -298,3 +298,22 @@ The additional Qwen3 thinking test pins `Qwen/Qwen3-0.6B` at
 `c1899de289a04d12100db370d81485cdf75e47ca`, tokenizer-only files under
 `results/tokenizers/qwen3`. It checks thinking enabled/disabled against the
 retained template helper and actual tokenizer IDs; no Qwen inference was run.
+
+### Extending an existing frozen selection
+
+After the required 500-row matrix, prepare full-source supplements from its exact
+Parquet bytes rather than resolving dataset revisions again:
+
+```bash
+python -m scripts.parity.prepare_frozen \
+  --primary-root results/matrix500 --root results/full-small --samples 1000 \
+  --cases bbq:religion:bias bbq:religion:unbias bbq:physical:bias bbq:physical:unbias
+```
+
+This verifies the original source hashes and seed-42 order, checks the extended
+selection through the production task, and records preparation provenance in a
+fresh root. It performs no inference. Run `run_matrix` on that root with the same
+`--samples`, cases, model arguments and execution settings, selecting phases
+`legacy answer judge report` (omit `prepare`). Preserve the original reports.
+Supplement reports describe their actual row counts; `matrix_report` retains its
+separate 500-row acceptance gate and must not substitute a larger run implicitly.
