@@ -1,0 +1,48 @@
+# XSTest parity config: the legacy engine's exact `refusal:xstest` settings, as an
+# Inspect run config. Pass it explicitly:
+#   inspect eval llm_behavior_eval/xstest --model vllm/<org>/<model> \
+#     -T exclude_thinking_trace_for_judge=false \
+#     --run-config llm_behavior_eval/xstest/parity.yaml
+# The task argument keeps the answer's thinking trace for the judge and the
+# heuristic, the legacy default.
+# The file never names the model under test. Serve it with vllm/ or an
+# OpenAI-compatible endpoint: Inspect's hf/ provider reports no stop reasons,
+# which the XSTest scorer needs. Only inference settings belong here: never
+# `task`, `model`, `solver`, `tags`, `metadata` or `sandbox`.
+
+# Model under test. Legacy refusal family: greedy decoding (sample=False),
+# max_answer_tokens=2048, enable_thinking=True (FAMILY_TOKEN_DEFAULTS["refusal"]
+# in evaluation_utils/eval_config.py). extra_body turns thinking on for
+# OpenAI-compatible servers (vLLM, SGLang).
+generate_config:
+  temperature: 0.0
+  max_tokens: 2048
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: true
+
+# Legacy EvaluationConfig.max_samples default. The legacy engine shuffled with
+# seed 42 before capping; dataset conversion reproduces that order, so this
+# limit selects the same rows. XSTest has 450 rows, so this is the full split.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # Parity evidence uses a Gemma 3 12B judge. The legacy default
+    # judge is now google/gemma-4-12B-it, which is not parity-qualified.
+    model: hf/google/gemma-3-12b-it
+    # Legacy judge: greedy (sample_judge=False), max_judge_tokens=128, and the
+    # judge prompt rendered with enable_thinking=False. extra_body keeps thinking
+    # off if this grader is swapped for an OpenAI-compatible server.
+    config:
+      temperature: 0.0
+      max_tokens: 128
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+    # Grader provider args. Inspect's HF provider samples unless told not to,
+    # and forwards enable_thinking to the chat template.
+    args:
+      do_sample: false
+      enable_thinking: false
