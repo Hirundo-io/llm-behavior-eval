@@ -18,7 +18,6 @@ def load_hf_dataset(
     dataset_id: str,
     *,
     dataset_path: str | None = None,
-    dataset_token: str | None = None,
     revision: str | None = None,
 ) -> Any:
     """Load the full split of an HF dataset or a ``save_to_disk`` snapshot.
@@ -30,7 +29,6 @@ def load_hf_dataset(
             directory (detected by ``dataset_dict.json`` or ``state.json``) or
             any source ``datasets.load_dataset`` accepts. It does not change the
             logical ``dataset_id``.
-        dataset_token: HF token, passed only to ``load_dataset``.
         revision: Dataset revision (branch, tag or commit) passed only to
             ``load_dataset``; a snapshot directory is already fixed.
 
@@ -40,6 +38,11 @@ def load_hf_dataset(
     Raises:
         ValueError: The source is neither a ``Dataset`` nor a ``DatasetDict``,
             or it has several splits and none is ``train``.
+
+    There is no token parameter. Benchmarks call this with their task
+    arguments, and Inspect records every task argument in the ``.eval`` log, so
+    gated Hub datasets authenticate through the ``HF_TOKEN`` environment
+    variable (or a cached ``huggingface-cli login``), which ``datasets`` reads itself.
     """
     from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
 
@@ -50,7 +53,7 @@ def load_hf_dataset(
     ):
         raw = load_from_disk(source)
     else:
-        options: dict[str, Any] = {"token": dataset_token}
+        options: dict[str, Any] = {}
         if revision is not None:
             options["revision"] = revision
         raw = load_dataset(source, **options)

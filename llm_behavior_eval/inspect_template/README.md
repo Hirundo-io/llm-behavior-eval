@@ -19,7 +19,7 @@ inspect eval llm_behavior_eval/inspect_template --model mockllm/model
 | `target_metrics.json` | Example report metrics for `llm_behavior_eval/inspect_template`. |
 
 Tests live in `tests/test_inspect_template.py` (task, parity config, target
-metrics checked against a real `.eval` log).
+metrics checked against a real `.eval` log, no credential in the log).
 
 A benchmark copied from this directory registers itself: `_registry.py` imports
 the `task` module of every subpackage, and `common.target_metrics` merges every
@@ -47,6 +47,12 @@ Task arguments (every benchmark exposes these, with the same defaults):
 | `exclude_thinking_trace_for_judge` | `true` | Strip the answer's inline thinking trace before judging; `false` matches the legacy default. |
 | `thinking_start_token` | `<think>` | Marker that opens the trace. |
 | `thinking_end_token` | `</think>` | Marker that closes the trace. |
+
+Never add a credential task argument (a token, key, secret or password):
+Inspect writes every task argument into the `.eval` log. A benchmark that loads
+a gated Hub dataset authenticates through `HF_TOKEN` in the environment;
+`load_hf_dataset` takes no token. `tests/test_inspect_packages.py` rejects
+credential-like parameter names on every registered task.
 
 The scorer uses `only_stop=True`, so a model under test served by Inspect's
 `hf/` provider, which reports no stop reasons, fails with

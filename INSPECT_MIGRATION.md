@@ -38,6 +38,10 @@ the reporting PR ([#207](https://github.com/Hirundo-io/llm-behavior-eval/pull/20
    with the legacy engine's exact settings. It applies only when passed.
 3. **Benchmarks are self-contained.** `common/` holds benchmark-agnostic
    mechanics only. Share mechanics, not semantics.
+4. **No credentials in task arguments.** Inspect writes every task argument
+   into the `.eval` log, so no task takes a token, key, secret or password.
+   Credentials come only from environment variables (see
+   [Credentials](#credentials)).
 
 ## Benchmark layout
 
@@ -122,12 +126,12 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
 
 ## Shared API (`llm_behavior_eval.common`)
 
-* `dataset.load_hf_dataset(dataset_id, *, dataset_path=None, dataset_token=None,
-  revision=None)` loads the complete split of an HF dataset or a `save_to_disk`
-  snapshot. `revision` pins the Hub dataset revision.
-  `dataset_path` changes where data is read from, not the logical id. Selects
-  `train` when present, otherwise requires exactly one split. The token is passed
-  only to HF Hub loading.
+* `dataset.load_hf_dataset(dataset_id, *, dataset_path=None, revision=None)`
+  loads the complete split of an HF dataset or a `save_to_disk` snapshot.
+  `revision` pins the Hub dataset revision. `dataset_path` changes where data is
+  read from, not the logical id. Selects `train` when present, otherwise
+  requires exactly one split. It takes no token: gated Hub datasets
+  authenticate through `HF_TOKEN` (see [Credentials](#credentials)).
 * `dataset.legacy_order(num_rows, seed=LEGACY_SHUFFLE_SEED)` returns source row
   positions in the legacy engine's `Dataset.shuffle(seed=42)` order. Convert
   records in that order so `--limit N` keeps the rows the legacy `max_samples`
@@ -462,6 +466,22 @@ such as `-M do_sample=false` stay on the command line because the file does not
 name that model. `inspect_template/parity.yaml` shows the format with
 illustrative values.
 
+## Credentials
+
+Inspect records every task argument (`-T`, `task_args`) in the `.eval` log, and
+logs are shared. No task argument carries a credential:
+
+* Gated Hub datasets authenticate through `HF_TOKEN` (or a cached
+  `huggingface-cli login`), which `datasets` and `huggingface_hub` read
+  themselves. `load_hf_dataset` passes no token.
+* Model and grader providers read their own environment variables
+  (`HF_TOKEN`, `OPENAI_API_KEY`, `<SERVICE>_API_KEY`, ...).
+
+`tests/test_inspect_packages.py` fails if any registered task has a parameter
+whose name contains the word `token`, `key`, `secret` or `password` (the
+thinking-trace markers are not credentials), and each benchmark's tests assert
+that a dummy `HF_TOKEN` never appears in its `.eval` log.
+
 ## Caveats
 
 * **Inspect's HF provider samples by default.** It passes `do_sample=True` to
@@ -502,7 +522,8 @@ applies to the model under test; put the same keys under the grader's
 | `--judge-model` | `--model-role grader=...` with any provider. The grader is never implied, so always pass it. |
 | Answer/judge temperature, token budgets, thinking | No defaults. Pass them per role as above, or use the benchmark's `parity.yaml`. |
 | `--exclude-thinking-trace-for-judge` / `--include-thinking-trace-for-judge`, `--thinking-start-token`, `--thinking-end-token` | `-T exclude_thinking_trace_for_judge=true/false`, `-T thinking_start_token=...`, `-T thinking_end_token=...`. Stripping defaults to **on** with `<think>`/`</think>`; legacy defaulted to off. |
-| dataset path/token | Benchmark task parameters `-T dataset_path=... -T dataset_token=...`. HF_TOKEN keeps credentials out of CLI history and logged task arguments. |
+| `--dataset-path` | Benchmark task parameter `-T dataset_path=...`. |
+| `--dataset-token` | No task parameter. Set `HF_TOKEN` in the environment (or `huggingface-cli login`); see [Credentials](#credentials). |
 | max_samples | `--limit N` / `eval(limit=N)`, or `eval_config.limit` in a parity config. Without a limit, Inspect runs the full split. |
 | use-4bit / use-4bit-judge | HF forwards remaining model args to Transformers. Use Python `quantization_config=BitsAndBytesConfig(load_in_4bit=True)`; no portable boolean CLI alias is implemented. Requires compatible bitsandbytes/GPU. Not vLLM. |
 | device_map | HF `-M device=auto` (Inspect supplies this as device_map); don't pass device_map again |

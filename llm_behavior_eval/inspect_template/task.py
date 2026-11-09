@@ -20,6 +20,9 @@ def inspect_template(
             trace before the grader sees it (``common.judge.THINKING_TASK_ARGS``).
         thinking_start_token: Marker that opens the trace.
         thinking_end_token: Marker that closes the trace.
+
+    Takes no credential argument: Inspect records every task argument in the
+    ``.eval`` log, so credentials come only from environment variables.
     """
     # Wiring demo only: a mock grader that always answers SCORE: 1. Real
     # benchmarks bind no grader and require --model-role grader=...

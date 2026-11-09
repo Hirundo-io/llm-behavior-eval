@@ -12,7 +12,7 @@ import subprocess
 import sys
 import textwrap
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -338,6 +338,58 @@ def test_every_task_exposes_the_thinking_task_args() -> None:
             if arg in parameters
         }
         assert exposed == dict(THINKING_TASK_ARGS), name
+
+
+CREDENTIAL_WORDS = frozenset(
+    {"token", "tokens", "key", "keys", "apikey", "secret", "secrets", "password"}
+    | {"passwd", "credential", "credentials"}
+)
+"""Parameter-name words that mark a credential (``dataset_token``, ``api_key``)."""
+
+
+def credential_parameters(task_function: Callable[..., Any]) -> list[str]:
+    """Parameters whose name has a credential word, other than the thinking args.
+
+    Words are the parts of a ``snake_case`` name, so ``response_tokenizer`` is
+    not a credential while ``hf_token`` is. The thinking-trace task arguments
+    name text markers, not credentials.
+    """
+    return [
+        name
+        for name in inspect.signature(task_function).parameters
+        if name not in THINKING_TASK_ARGS
+        and CREDENTIAL_WORDS & set(name.lower().split("_"))
+    ]
+
+
+def test_credential_parameters_are_detected() -> None:
+    def task_function(
+        dataset_token: str,
+        api_key: str,
+        client_secret: str,
+        db_password: str,
+        response_tokenizer: str,
+        keyword: str,
+        thinking_start_token: str,
+        thinking_end_token: str,
+    ) -> None: ...
+
+    assert credential_parameters(task_function) == [
+        "dataset_token",
+        "api_key",
+        "client_secret",
+        "db_password",
+    ]
+
+
+def test_no_registered_task_takes_a_credential() -> None:
+    # Inspect writes every task argument into the .eval log, so credentials
+    # come only from environment variables (INSPECT_MIGRATION.md, "Credentials").
+    assert {
+        name: credential_parameters(getattr(_registry, name))
+        for name in _registry.__all__
+        if credential_parameters(getattr(_registry, name))
+    } == {}
 
 
 def test_every_registered_task_has_target_metrics_and_vice_versa() -> None:

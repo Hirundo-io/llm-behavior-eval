@@ -246,17 +246,11 @@ def test_dataset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         return DatasetDict({"train": ds, "test": cast("Dataset", ds.select([0]))})
 
     monkeypatch.setattr(datasets, "load_dataset", load)
-    assert (
-        len(
-            load_hf_dataset(
-                "logical", dataset_path="override", dataset_token="test-token"
-            )
-        )
-        == 502
-    )
-    assert calls == [("override", {"token": "test-token"})]
+    assert len(load_hf_dataset("logical", dataset_path="override")) == 502
+    # No token is passed: datasets reads HF_TOKEN itself.
+    assert calls == [("override", {})]
     load_hf_dataset("logical", revision="abc123")
-    assert calls[-1] == ("logical", {"token": None, "revision": "abc123"})
+    assert calls[-1] == ("logical", {"revision": "abc123"})
     monkeypatch.setattr(
         datasets, "load_dataset", lambda *a, **kw: DatasetDict({"a": ds, "b": ds})
     )
