@@ -1,8 +1,10 @@
 """Native answer/score wrapper for all nine production tasks; no alternate evaluator.
 
-Supply local dataset and compatibility tokenizer via --task-args JSON. Provider
-model arguments (including server resource limits) are JSON objects per role.
-Run answer then judge in separate processes to release GPU resources between roles.
+Supply the local dataset and ``legacy_tokenizer`` (the opt-in legacy text
+preprocessing) via --task-args JSON. Both roles' GenerateConfig comes only from
+the benchmark's parity.yaml; provider model arguments (including server
+resource limits) are JSON objects per role, the equivalent of ``-M``. Run
+answer then judge in separate processes to release GPU resources between roles.
 """
 
 import argparse
@@ -13,9 +15,10 @@ from pathlib import Path
 from inspect_ai import eval as inspect_eval
 from inspect_ai import score
 from inspect_ai.log import read_eval_log, write_eval_log
-from inspect_ai.model import GenerateConfig, get_model
+from inspect_ai.model import get_model
 
 from llm_behavior_eval import _registry
+from scripts.parity.parity_models import answer_settings, grader_settings
 
 
 def main() -> None:
@@ -52,18 +55,18 @@ def main() -> None:
     if identity_path.exists() and json.loads(identity_path.read_text()) != identity:
         raise ValueError("Run identity differs from existing output directory")
     identity_path.write_text(json.dumps(identity, indent=2))
-    grader = get_model(args.judge, config=GenerateConfig(seed=0), **model_args["judge"])
+    grader = get_model(
+        args.judge, config=grader_settings(args.family), **model_args["judge"]
+    )
     if args.phase == "answer":
         logs = inspect_eval(
             task,
-            model=get_model(
-                args.answer, config=GenerateConfig(seed=0), **model_args["answer"]
-            ),
+            model=get_model(args.answer, **model_args["answer"]),
             model_roles={"grader": grader},
             score=False,
-            max_connections=1,
             log_dir=str(args.root / "native"),
             display="none",
+            **answer_settings(args.family),
         )
         if logs[0].status != "success":
             raise RuntimeError(str(logs[0].error))

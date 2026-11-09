@@ -2,6 +2,10 @@
 
 Each phase is a separate process. Outputs are never reused under changed identity.
 No successful phase alone constitutes a parity result; compare captured evidence.
+
+Native phases configure both roles only from the benchmark's ``parity.yaml``
+(see ``parity_models``) and turn on the benchmark's opt-in legacy text
+preprocessing with ``legacy_tokenizer`` set to the answer snapshot.
 """
 
 import argparse
@@ -119,9 +123,7 @@ def main() -> None:
             "test.parquet" if family == "ccpc" else "train.parquet"
         )
         source.to_parquet(str(parquet))
-        task = getattr(_registry, family)(
-            dataset_path=str(dataset_path), max_samples=args.samples, **task_args
-        )
+        task = getattr(_registry, family)(dataset_path=str(dataset_path), **task_args)
         selected = source.add_column(
             "qualification_source_index", list(range(len(source)))
         )
@@ -138,7 +140,7 @@ def main() -> None:
                 for index in selected["qualification_source_index"]
             ]
         )
-        if ids != [sample.id for sample in task.dataset]:
+        if ids != [sample.id for sample in task.dataset][: args.samples]:
             raise ValueError(
                 "Independent source selection disagrees with native selection"
             )
@@ -308,19 +310,22 @@ def main() -> None:
     from inspect_ai import eval as inspect_eval
     from inspect_ai import score_async
     from inspect_ai.log import read_eval_log, write_eval_log
-    from inspect_ai.model import GenerateConfig, get_model
+    from inspect_ai.model import get_model
 
     from llm_behavior_eval import _registry
+    from scripts.parity.parity_models import (
+        answer_settings,
+        check_judge,
+        grader_settings,
+    )
+
+    check_judge(family, args.judge)
 
     def model(path: str, *, judge: bool = False):
+        # Provider/server arguments only; GenerateConfig comes from parity.yaml.
         return get_model(
             "vllm/" + path,
-            config=GenerateConfig(
-                temperature=0,
-                seed=42,
-                max_connections=1,
-                extra_body={"return_token_ids": True, "add_special_tokens": True},
-            ),
+            config=grader_settings(family) if judge else None,
             max_model_len=16384,
             gpu_memory_utilization=0.5,
             enforce_eager=not args.compiled,
@@ -339,12 +344,9 @@ def main() -> None:
         )
 
     task = getattr(_registry, family)(
-        dataset_path=str(dataset_path),
-        max_samples=args.samples,
-        compatibility_tokenizer=args.answer,
-        **task_args,
+        dataset_path=str(dataset_path), legacy_tokenizer=args.answer, **task_args
     )
-    if [sample.id for sample in task.dataset] != source["ids"]:
+    if [sample.id for sample in task.dataset][: args.samples] != source["ids"]:
         raise ValueError("Native selection changed from pinned source manifest")
     grader = model(args.judge, judge=True)
     if args.phase == "answer":
@@ -353,10 +355,11 @@ def main() -> None:
             model=model(args.answer),
             model_roles={"grader": grader},
             score=False,
-            max_connections=1,
+            limit=args.samples,
             max_samples=1,
             log_dir=str(root / "native"),
             display="none",
+            **answer_settings(family),
         )
         if logs[0].status != "success":
             raise RuntimeError(str(logs[0].error))

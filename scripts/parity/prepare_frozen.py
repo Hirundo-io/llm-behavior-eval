@@ -50,12 +50,11 @@ def prepare_frozen(primary: Path, output: Path, samples: int) -> dict:
         raise ValueError("Original selection does not match frozen source order")
     expected = ids[: min(samples, len(ids))]
     # Construct through the actual production task before copying any artifacts.
+    # The task keeps every row; runs select the prefix with Inspect's limit.
     task = getattr(_registry, family)(
-        dataset_path=str((primary / "dataset").resolve()),
-        max_samples=samples,
-        **task_args,
+        dataset_path=str((primary / "dataset").resolve()), **task_args
     )
-    if [sample.id for sample in task.dataset] != expected:
+    if [sample.id for sample in task.dataset][: len(expected)] != expected:
         raise ValueError("Production task selection differs from independent selection")
     output.mkdir(parents=True, exist_ok=False)
     shutil.copytree(primary / "dataset", output / "dataset")

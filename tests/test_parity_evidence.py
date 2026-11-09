@@ -168,45 +168,6 @@ def test_real_binary_eval_readback(tmp_path):
     assert restored["status"] == "success"
     assert restored["samples"][0]["id"] == "stable:0"
 
-    from scripts.parity.generation_report import generation_report
-
-    native_dir = tmp_path / "native"
-    native_dir.mkdir()
-    __import__("pathlib").Path(log.location).rename(native_dir / "fixture.eval")
-    legacy_dir = tmp_path / "legacy"
-    legacy_dir.mkdir()
-    output = restored["samples"][0]["output"]
-    (legacy_dir / "generations.jsonl").write_text(
-        json.dumps(
-            {
-                "answers": [output["completion"]],
-                "finish_reasons": ["stop"],
-                "input_texts": ["decoded Q"],
-                "judge_questions": ["Q"],
-            }
-        )
-        + "\n"
-    )
-    (tmp_path / "selection.json").write_text(json.dumps({"ids": ["stable:0"]}))
-    (tmp_path / "tokenizer-audit.json").write_text(
-        json.dumps(
-            {
-                "rows": [
-                    {
-                        "id": "stable:0",
-                        "legacy_decoded_input": "decoded Q",
-                        "legacy_judge_question": "Q",
-                    }
-                ]
-            }
-        )
-    )
-    report = generation_report(tmp_path)
-    assert report["exact_answer_matches"] == 1
-    assert report["judge_question_matches"] == 0
-    assert "no judge" in report["scope"]
-    assert len(report["artifacts"]) == 4
-
 
 def test_generation_batches_are_hash_bound(evidence):
     root, case, _ = evidence

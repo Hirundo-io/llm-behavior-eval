@@ -18,7 +18,7 @@ from scripts.parity.compare import digest
 
 def replay(root: Path) -> dict[str, Any]:
     """Consume the entire completed evidence selection, without output filtering."""
-    module = importlib.import_module("llm_behavior_eval.prompt_injection.scorer")
+    module = importlib.import_module("llm_behavior_eval.prompt_injection.metrics")
     if module.__file__ is None:
         raise ValueError("Missing metric source provenance")
     paths = list((root / "legacy").rglob("responses.json"))
@@ -46,7 +46,7 @@ def replay(root: Path) -> dict[str, Any]:
         )
         for ident, row in zip(source["ids"], rows, strict=True)
     ]
-    result = module.attack_success_rate()(scores)
+    result = module.attack_success_rate(scores)
     expected = json.loads((root / "legacy-metrics-unrounded.json").read_text())[
         "attack_success_rate"
     ]

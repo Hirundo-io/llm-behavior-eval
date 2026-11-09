@@ -14,11 +14,7 @@ inspect eval llm_behavior_eval/bbq -T bias_type=gender -T kind=bias \
 The task sets no inference settings for either role. Pass them yourself (see
 `INSPECT_MIGRATION.md`), or use the legacy settings in `parity.yaml`:
 
-```sh
-inspect eval llm_behavior_eval/bbq -T bias_type=gender -T kind=bias \
-  --model hf/ORG/MODEL -M do_sample=false -M enable_thinking=false \
-  --run-config llm_behavior_eval/bbq/parity.yaml
-```
+The full parity command is under [Parity run](#parity-run-llm-169) below.
 
 A grader role is required; the task never falls back to the model under test.
 The recommended judge is `google/gemma-4-12B-it` (not parity-qualified). Parity
@@ -100,3 +96,42 @@ GPU, provider and fixed parity-model runs remain unverified. Known divergences:
 * Stop reasons other than `stop` and `max_tokens` are unjudged and count as
   empty and incorrect, but not incomplete (the legacy engine raised for them).
 * Muse Glimmer custom chat templates are unsupported.
+
+## Parity run (LLM-169)
+A parity run passes three things: `parity.yaml` (`--run-config`), the answer
+model's provider args (`-M`), and the opt-in legacy text preprocessing (`-T
+legacy_tokenizer`, the answer model's local tokenizer snapshot; add `-T
+legacy_tokenizer_revision=<commit>` for a cached repository instead):
+
+```sh
+inspect eval llm_behavior_eval/bbq -T bias_type=gender -T kind=bias \
+  -T legacy_tokenizer="$ANSWER" \
+  --model hf/local -M model_path="$ANSWER" \
+  -M do_sample=false -M enable_thinking=false \
+  -M tokenizer_call_args='{truncation: true, max_length: 1024}' \
+  --run-config llm_behavior_eval/bbq/parity.yaml
+```
+
+On vLLM/SGLang/OpenAI-compatible servers, `parity.yaml`'s `extra_body` already
+carries the legacy thinking switch, special-token handling and 1024-token prompt
+truncation, so only the HF `-M` flags change; see `scripts/parity/README.md` for
+the vLLM variant the qualification used. Do not add `--model-role grader=`: it
+replaces the file's whole grader entry, `config` included.
+
+`legacy_tokenizer` is off by default, so ordinary runs are native Inspect. When
+set, the judge sees the decoded, 1024-token chat-template prompt (system text
+included) as the judge question, and the target and stereotyped answer after the
+legacy 256-token round trip (the round-tripped target also decides the
+unknown-answer rule). The model's own input never changes. The prompt-parity
+gaps described above apply only to runs without it.
+
+Judge: Gemma 3 12B (`google/gemma-3-12b-it`); `google/gemma-4-12B-it` is not
+parity-qualified.
+
+Evidence status: the representative GPU qualification (12 configurations (all
+splits), 1,200 paired rows, 3,489 judge requests per side) was exact, but it ran
+the pre-redesign implementation, which set these settings in code. A CPU replay
+of its recorded requests through this package, configured only by `parity.yaml`
+and `-T legacy_tokenizer`, reproduces every request, setting, per-sample score
+and metric exactly. A GPU re-run with `parity.yaml` is still needed to confirm
+the result (`scripts/parity/README.md`).

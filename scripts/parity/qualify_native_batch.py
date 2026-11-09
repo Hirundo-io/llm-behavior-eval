@@ -2,6 +2,8 @@
 
 All roots must already be prepared by qualify_matrix and share model identities.
 Run answer and judge in separate processes; CCPC judge gets a separate group.
+GenerateConfig for both roles comes only from each benchmark's parity.yaml
+(``parity_models``); tasks run with their opt-in legacy text preprocessing.
 """
 
 import argparse
@@ -13,12 +15,13 @@ from typing import Any
 
 from inspect_ai import eval_async, score_async
 from inspect_ai.log import read_eval_log, write_eval_log
-from inspect_ai.model import GenerateConfig, get_model
+from inspect_ai.model import get_model
 
 from llm_behavior_eval import _registry
 from scripts.parity.capture import capture_judge_responses
 from scripts.parity.compare import digest
 from scripts.parity.ordered import ordered_samples
+from scripts.parity.parity_models import answer_settings, check_judge, grader_settings
 from scripts.parity.qualify_matrix import case_identity
 
 
@@ -44,26 +47,20 @@ def main() -> None:
     if len(formats) != 1 or not formats <= {"auto", "string"}:
         raise ValueError("Batch requires one supported judge content format")
 
-    def model(path: str, case: str, content_format: str = "auto"):
+    def salt(case: str) -> str | None:
+        return "llm169:" + case if args.isolate_cache else None
+
+    def model(path: str, case: str, content_format: str = "auto", judge: bool = False):
         content_args: dict[str, Any] = (
             {"chat_template_content_format": content_format}
             if content_format != "auto"
             else {}
         )
-        extra_body: dict[str, Any] = {
-            "return_token_ids": True,
-            "add_special_tokens": True,
-        }
-        if args.isolate_cache:
-            extra_body["cache_salt"] = "llm169:" + case
+        family = case_identity(case)[0]
+        # Provider/server arguments only; GenerateConfig comes from parity.yaml.
         return get_model(
             "vllm/" + path,
-            config=GenerateConfig(
-                temperature=0,
-                seed=42,
-                max_connections=1,
-                extra_body=extra_body,
-            ),
+            config=grader_settings(family, cache_salt=salt(case)) if judge else None,
             max_model_len=16384,
             gpu_memory_utilization=0.5,
             enforce_eager=modes == {"eager"},
@@ -89,20 +86,20 @@ def main() -> None:
         ):
             raise ValueError("Pinned source bytes changed")
         family, _, task_args = case_identity(identity["case"])
+        check_judge(family, identity["judge"])
         task = getattr(_registry, family)(
             dataset_path=str((root / "dataset").resolve()),
-            max_samples=identity["samples"],
-            compatibility_tokenizer=identity["answer"],
+            legacy_tokenizer=identity["answer"],
             **task_args,
         )
-        if [sample.id for sample in task.dataset] != json.loads(
+        if [sample.id for sample in task.dataset][: identity["samples"]] != json.loads(
             (root / "source.json").read_text()
         )["ids"]:
             raise ValueError("Source sample order differs")
         tasks.append(task)
     # Keep wrappers alive while the provider shares its server by model identity.
     graders = [
-        model(i["judge"], i["case"], i.get("judge_content_format", "auto"))
+        model(i["judge"], i["case"], i.get("judge_content_format", "auto"), judge=True)
         for i in identities
     ]
     if args.phase == "answer":
@@ -110,18 +107,20 @@ def main() -> None:
 
         async def answer_all():
             failed = []
-            for root, task, answer, grader in zip(
-                args.roots, tasks, answers, graders, strict=True
+            for root, identity, task, answer, grader in zip(
+                args.roots, identities, tasks, answers, graders, strict=True
             ):
+                family = case_identity(identity["case"])[0]
                 logs = await eval_async(
                     task,
                     model=answer,
                     model_roles={"grader": grader},
                     score=False,
-                    max_connections=1,
+                    limit=identity["samples"],
                     max_tasks=1,
                     max_samples=1 if args.ordered else None,
                     log_dir=str(args.log_dir),
+                    **answer_settings(family, cache_salt=salt(identity["case"])),
                 )
                 if len(logs) != 1:
                     raise ValueError("Missing or ambiguous task log")

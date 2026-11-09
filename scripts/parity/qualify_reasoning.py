@@ -19,10 +19,11 @@ from inspect_ai.log import read_eval_log, write_eval_log
 from inspect_ai.model import GenerateConfig, get_model
 from inspect_ai.solver import generate
 
-from llm_behavior_eval.xstest.scorer import scorer
+from llm_behavior_eval.xstest.scorer import xstest_scorer as scorer
 from llm_behavior_eval.xstest.task import xstest
 from scripts.parity.capture import capture_judge_responses
 from scripts.parity.compare import digest
+from scripts.parity.parity_models import answer_settings, grader_settings
 
 
 def is_unsupported_effort(rejection: dict[str, Any]) -> bool:
@@ -78,19 +79,20 @@ def main() -> None:
     elif json.loads(settings_path.read_text()) != settings:
         raise ValueError("Probe configuration changed between phases")
 
+    # XSTest parity.yaml settings per role, plus the operator's reasoning effort
+    # for the answer model (a provider input, like the parser).
+    production = answer_settings("xstest")
+    production["extra_body"] = {
+        **production["extra_body"],
+        "reasoning_effort": args.reasoning_effort,
+    }
+
     def model(path: str, *, answer: bool = False):
         return get_model(
             "vllm/" + path,
-            config=GenerateConfig(
-                temperature=0,
-                seed=42,
-                max_connections=1,
-                extra_body=dict(
-                    return_token_ids=True,
-                    add_special_tokens=True,
-                    **({"reasoning_effort": args.reasoning_effort} if answer else {}),
-                ),
-            ),
+            config=GenerateConfig(**production)
+            if answer
+            else grader_settings("xstest"),
             **({"reasoning_parser": args.reasoning_parser} if answer else {}),
             max_model_len=16384,
             gpu_memory_utilization=0.5,
@@ -109,11 +111,7 @@ def main() -> None:
         async def answers() -> None:
             answer = model(args.answer, answer=True)
             grader = model(args.judge)
-            task = xstest(
-                dataset_path=str(args.dataset),
-                max_samples=100,
-                compatibility_tokenizer=args.answer,
-            )
+            task = xstest(dataset_path=str(args.dataset), legacy_tokenizer=args.answer)
             selected = [
                 next(
                     s
@@ -204,7 +202,7 @@ def main() -> None:
                     raw_message.get("reasoning", raw_message.get("reasoning_content"))
                     or ""
                 )
-                score = sample.scores["refusal_scorer"] if sample.scores else None
+                score = sample.scores["xstest_scorer"] if sample.scores else None
                 if score is None or score.metadata is None:
                     raise ValueError("Missing production scorer observation")
                 meta = score.metadata
@@ -251,18 +249,11 @@ def main() -> None:
                     has_final=bool(raw_final),
                     has_reasoning=bool(raw_reasoning),
                 )
-                probe = sample.metadata.get("compatibility", {}).get("prompt")
+                probe = sample.metadata.get("legacy_text", {}).get("prompt")
                 if probe:
-                    expected_ids = [
-                        token
-                        for token, keep in zip(
-                            probe["input_ids"], probe["attention_mask"], strict=True
-                        )
-                        if keep
-                    ]
-                    row["production_metadata_matches_actual_prompt_ids"] = (
-                        expected_ids == raw.get("prompt_token_ids")
-                    )
+                    row["production_metadata_matches_actual_prompt_ids"] = probe[
+                        "input_ids"
+                    ] == raw.get("prompt_token_ids")
                 rows.append(row)
         rejection = json.loads((root / "unsupported-effort.json").read_text())
         result = dict(

@@ -336,6 +336,10 @@ def test_ordered_samples_follow_pinned_ids_without_rewriting_log():
         ordered_samples(cast("Any", log), [2, 2, 1])
 
 
+# A judge snapshot of the repository parity.yaml names (HF cache layout).
+JUDGE = "/models/models--google--gemma-3-12b-it/snapshots/fixture"
+
+
 def test_batch_checkpoints_completed_task_before_later_failure(tmp_path, monkeypatch):
     from inspect_ai import Task
     from inspect_ai.dataset import Sample
@@ -360,7 +364,7 @@ def test_batch_checkpoints_completed_task_before_later_failure(tmp_path, monkeyp
                 dict(
                     case=family,
                     answer="answer",
-                    judge="judge",
+                    judge=JUDGE,
                     samples=1,
                     judge_content_format="string",
                 )
@@ -411,7 +415,7 @@ def test_batch_checkpoints_completed_task_before_later_failure(tmp_path, monkeyp
     assert [
         kwargs.get("chat_template_content_format")
         for name, kwargs in model_calls
-        if name == "vllm/judge"
+        if name == f"vllm/{JUDGE}"
     ] == ["string", "string"]
     assert all(
         "chat_template_content_format" not in kwargs
@@ -423,10 +427,11 @@ def test_batch_checkpoints_completed_task_before_later_failure(tmp_path, monkeyp
 @pytest.mark.parametrize(
     "family,scorer",
     [
-        ("bbq", "bias_scorer"),
-        ("halueval", "hallucination_scorer"),
-        ("xstest", "refusal_scorer"),
-        ("prompt_injection", "injection_scorer"),
+        ("bbq", "bbq_scorer"),
+        ("halueval", "halueval_scorer"),
+        ("xstest", "xstest_scorer"),
+        ("orbench", "orbench_scorer"),
+        ("prompt_injection", "prompt_injection_scorer"),
     ],
 )
 def test_report_distinguishes_completion_from_scorer_text(family, scorer):
@@ -449,3 +454,99 @@ def test_report_distinguishes_completion_from_scorer_text(family, scorer):
     assert field(sample, "output.completion") == raw
     assert field(sample, formatted_answer_field(family, scorer)) == formatted
     assert raw != formatted
+
+
+@pytest.mark.parametrize(
+    "judge",
+    [
+        "google/gemma-3-12b-it",
+        "/m/models--google--gemma-3-12b-it/snapshots/96b6f1eccf38110c56df3a15bffe176da04bfd80",
+        "/models/gemma-3-12b-it",
+    ],
+)
+def test_runners_accept_the_parity_judge(judge):
+    from scripts.parity.parity_models import check_judge
+
+    check_judge("bbq", judge)
+
+
+@pytest.mark.parametrize(
+    "family,judge",
+    [
+        ("bbq", "/m/models--google--gemma-4-12B-it/snapshots/x"),
+        ("bbq", "google/gemma-4-12B-it"),
+        ("ccpc", "google/gemma-3-12b-it"),
+    ],
+)
+def test_runners_reject_unqualified_judges(family, judge):
+    from scripts.parity.parity_models import check_judge
+
+    with pytest.raises(ValueError, match="qualified with"):
+        check_judge(family, judge)
+
+
+@pytest.mark.parametrize("family", ["bbq", "ccpc", "xstest"])
+def test_runner_settings_come_only_from_parity_yaml(family):
+    import yaml
+
+    from llm_behavior_eval.common.parity import parity_config_path
+    from scripts.parity.parity_models import (
+        CAPTURE_BODY,
+        answer_settings,
+        grader_settings,
+    )
+
+    raw = yaml.safe_load(parity_config_path(f"llm_behavior_eval.{family}").read_text())
+    answer = answer_settings(family, cache_salt="llm169:case")
+    body = answer.pop("extra_body")
+    assert answer.pop("max_connections") == 1
+    assert answer == {
+        k: v for k, v in raw["generate_config"].items() if k != "extra_body"
+    }
+    assert body == {
+        **raw["generate_config"]["extra_body"],
+        **CAPTURE_BODY,
+        "cache_salt": "llm169:case",
+    }
+    grader = grader_settings(family).model_dump(exclude_none=True)
+    assert grader.pop("max_connections") == 1
+    grader_body = grader.pop("extra_body")
+    expected = dict(raw["model_roles"]["grader"]["config"])
+    assert grader_body == {**expected.pop("extra_body"), **CAPTURE_BODY}
+    assert grader == expected
+
+
+def test_replay_ignores_only_capture_fields_and_concurrency():
+    from inspect_ai.model import GenerateConfig
+
+    from scripts.parity.replay_redesign import settings
+
+    recorded = GenerateConfig(
+        max_tokens=32,
+        temperature=0,
+        seed=42,
+        max_connections=1,
+        extra_body={
+            "return_token_ids": True,
+            "cache_salt": "llm169:bbq:gender:bias",
+            "add_special_tokens": True,
+        },
+    )
+    current = GenerateConfig(
+        max_tokens=32, temperature=0, seed=42, extra_body={"add_special_tokens": True}
+    )
+    assert settings(recorded) == settings(current)
+    assert settings(recorded) != settings(current.model_copy(update={"seed": 0}))
+
+
+def test_replay_request_identity_is_exact_and_ordered():
+    from inspect_ai.model import ChatMessageSystem, ChatMessageUser
+
+    from scripts.parity.replay_redesign import request_key
+
+    system, user = ChatMessageSystem(content="S"), ChatMessageUser(content="Q\n")
+    assert request_key([system, user]) == request_key(
+        [ChatMessageSystem(content="S"), ChatMessageUser(content="Q\n")]
+    )
+    assert request_key([system, user]) != request_key([user, system])
+    assert request_key([user]) != request_key([ChatMessageUser(content="Q")])

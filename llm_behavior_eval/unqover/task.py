@@ -13,6 +13,8 @@ def unqover(
     dataset_path: str | None = None,
     dataset_token: str | None = None,
     seed: int = LEGACY_SEED,
+    legacy_tokenizer: str | None = None,
+    legacy_tokenizer_revision: str | None = None,
 ) -> Task:
     """UNQOVER stereotype probing on one ambiguous (bias) split.
 
@@ -20,6 +22,12 @@ def unqover(
     ``--model-role grader=...``. Sets no inference settings for either role;
     pass ``--run-config llm_behavior_eval/unqover/parity.yaml`` for the legacy
     engine's settings and 500-sample cap.
+
+    ``legacy_tokenizer`` (off by default) opts in to the legacy engine's text
+    preprocessing for parity runs: it names the answer model's local tokenizer
+    snapshot (or a cached repository with an immutable
+    ``legacy_tokenizer_revision``), and the judge then sees the legacy decoded
+    prompt, target and stereotype. The model's input is unchanged.
     """
     data = dataset(
         bias_type,
@@ -35,7 +43,7 @@ def unqover(
     # always come from the user.
     return Task(
         dataset=data,
-        solver=unqover_solver(),
+        solver=unqover_solver(legacy_tokenizer, legacy_tokenizer_revision),
         scorer=unqover_scorer(),
         metrics=[unqover_metrics(has_stereotype)],
     )

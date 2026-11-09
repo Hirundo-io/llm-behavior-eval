@@ -522,6 +522,21 @@ def test_metric_registry_names_are_benchmark_specific(tmp_path):
 # --- Parity config -----------------------------------------------------------
 
 
+# parity.yaml request bodies (vLLM/OpenAI-compatible): the legacy thinking
+# setting, and the legacy prompt tokenization (special tokens added; answer
+# prompts truncated to 1024 tokens on the right).
+ANSWER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+    "truncate_prompt_tokens": 1024,
+    "truncation_side": "right",
+}
+GRADER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+}
+
+
 def test_shipped_parity_config_holds_legacy_settings():
     from llm_behavior_eval.evaluation_utils.eval_config import (
         FAMILY_TOKEN_DEFAULTS,
@@ -539,13 +554,16 @@ def test_shipped_parity_config_holds_legacy_settings():
     assert defaults["sample"].default is False and answer.temperature == 0.0
     assert answer.max_tokens == legacy["max_answer_tokens"]
     assert legacy["enable_thinking"] is False
-    assert answer.extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert answer.seed == 42
+    assert answer.extra_body == ANSWER_BODY
     assert config["eval_config"] == {"limit": defaults["max_samples"].default}
 
     grader = config["model_roles"]["grader"]
     judge = GenerateConfig.model_validate(grader["config"])
     assert legacy["sample_judge"] is False and judge.temperature == 0.0
     assert judge.max_tokens == legacy["max_judge_tokens"]
+    assert judge.seed == 42
+    assert judge.extra_body == GRADER_BODY
     assert grader["model"] == "hf/google/gemma-3-12b-it"
     assert grader["args"] == {"do_sample": False, "enable_thinking": False}
 

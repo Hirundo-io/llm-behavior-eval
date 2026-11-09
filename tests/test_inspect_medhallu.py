@@ -546,6 +546,21 @@ def test_metric_registry_names_are_benchmark_specific(tmp_path):
     assert {k: m.value for k, m in log.results.scores[0].metrics.items()} == reported
 
 
+# parity.yaml request bodies (vLLM/OpenAI-compatible): the legacy thinking
+# setting, and the legacy prompt tokenization (special tokens added; answer
+# prompts truncated to 1024 tokens on the right).
+ANSWER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+    "truncate_prompt_tokens": 1024,
+    "truncation_side": "right",
+}
+GRADER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+}
+
+
 def test_shipped_parity_config_holds_legacy_settings():
     from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
     from llm_behavior_eval.evaluation_utils.eval_config import (
@@ -565,7 +580,7 @@ def test_shipped_parity_config_holds_legacy_settings():
     assert answer.max_tokens == legacy["max_answer_tokens"] == 128
     assert answer.seed == seed == 42
     assert legacy["enable_thinking"] is False
-    assert answer.extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert answer.extra_body == ANSWER_BODY
     assert (
         config["eval_config"]["limit"]
         == EvaluationConfig.model_fields["max_samples"].default

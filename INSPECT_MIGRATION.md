@@ -165,6 +165,19 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
   `parity.yaml`. `parity.read_parity_config(path)` returns `inspect_ai.eval()`
   keyword arguments, parsed by Inspect's own `--run-config` reader. It rejects
   files that set `task`, `model` or `solver`.
+* `preprocessing` is the **opt-in** legacy text preprocessing for parity runs
+  (LLM-169). `legacy_text_preprocessing(tokenizer, revision=None, *,
+  legacy_thinking, target=False, metadata_fields=())` is a solver step a
+  benchmark places just before `generate()`. It renders the current messages
+  with the answer model's tokenizer as the legacy engine did, and records under
+  `metadata["legacy_text"]` the decoded 1024-token prompt and its token IDs,
+  plus 256-token round trips of the target and of the named metadata fields.
+  `legacy_prompt(state, default)` and `legacy_text(state, name, default)` return
+  those views, or `default` when the step did not run. It changes no message,
+  sets no GenerateConfig and inspects no provider, so every provider works.
+  `load_tokenizer`, `render_chat` and `roundtrip` are the tokenizer mechanics.
+  Templates the legacy engine rewrote (Nemotron `/no_think`, Muse Glimmer, the
+  Gemma v1 system merge) raise instead of rendering a wrong prompt.
 
 Sample limits are Inspect's: `--limit N`, `eval(limit=N)`, or `eval_config.limit`
 in a run config. There is no task-level sample cap.
@@ -372,10 +385,47 @@ inference settings: `generate_config` (model under test), `model_roles.grader`
 `limit: 500`, the legacy sample cap). It never sets `task`, `model` or `solver`,
 so the model under test is still chosen on the command line.
 
+A parity run combines three things, and only parity runs use them:
+
+1. **`--run-config <benchmark>/parity.yaml`**: the legacy engine's greedy
+   decoding, token budgets, seed 42 and thinking settings for both roles, and,
+   for vLLM/SGLang/OpenAI-compatible servers, the legacy prompt tokenization:
+   special tokens added to the rendered template (`add_special_tokens: true`)
+   and answer prompts truncated to 1024 tokens on the right
+   (`truncate_prompt_tokens`, `truncation_side`). Inspect's HF provider ignores
+   `extra_body`.
+2. **`-M` provider args for the model under test**, which the file cannot carry
+   because it does not name that model. On HF: `-M do_sample=false`,
+   `-M enable_thinking=<legacy value>` and
+   `-M tokenizer_call_args='{truncation: true, max_length: 1024}'`.
+3. **`-T legacy_tokenizer=<answer snapshot>`**, the benchmark's opt-in legacy
+   text preprocessing (shared mechanics in `common/preprocessing.py`). The
+   legacy judge did not see raw sample text: it saw the decoded, truncated chat
+   template as the question, and targets and stereotypes after a 256-token
+   round trip. With this task argument each benchmark shows its judge those
+   views; without it (the default) the task is native Inspect. Pass
+   `-T legacy_tokenizer_revision=<40-hex commit>` when the tokenizer is a cached
+   repository rather than a local directory. Inspect's run config can only set
+   task arguments inside a `task:` block that also names the task, which
+   `parity.yaml` must not do, so the flag stays on the command line.
+
 ```sh
-inspect eval llm_behavior_eval/<benchmark> --model hf/org/answer -M do_sample=false \
+inspect eval llm_behavior_eval/<benchmark> \
+  -T legacy_tokenizer="$ANSWER" \
+  --model hf/local -M model_path="$ANSWER" \
+  -M do_sample=false -M enable_thinking=false \
+  -M tokenizer_call_args='{truncation: true, max_length: 1024}' \
   --run-config llm_behavior_eval/<benchmark>/parity.yaml
 ```
+
+The header of each `parity.yaml` and each benchmark README give that
+benchmark's exact command (XSTest and OR-Bench use `enable_thinking=true`; BBQ,
+UNQOVER and BLOOM add their split arguments). Do not add `--model-role grader=`:
+a command-line role replaces the file's whole grader entry, its `config`
+included. To serve the judge another way (the qualification served it with
+vLLM), copy the file and change only the grader's `model` and `args`.
+`scripts/parity/README.md` has the vLLM variant, the runners and the evidence
+status per benchmark.
 
 From an installed package, find the file with
 `python -c 'from llm_behavior_eval.common.parity import parity_config_path; print(parity_config_path("llm_behavior_eval.<benchmark>"))'`.
@@ -465,6 +515,16 @@ task offline on mock models and check inspect-brief's hook and CLI, the preset
 mapping against each task's signature and dataset identity, and the MLflow hook
 against local file stores. They are not GPU inference tests.
 
+Parity tooling (LLM-169) lives in `scripts/parity/`. The representative GPU
+qualification (31 configurations x 100 samples, exact) ran the pre-redesign
+implementation, which set inference settings in code. A CPU replay of its
+recorded requests through the current tasks, configured only by `parity.yaml`
+and the opt-in preprocessing, reproduces every request, setting, score and
+metric exactly; a GPU re-run with `parity.yaml` is still required to confirm
+it (`scripts/parity/README.md`). The judge for parity is Gemma 3 12B (CCPC:
+its pinned Gemma 4 26B-A4B); `google/gemma-4-12B-it` is not qualified.
+
 Track LLM-141 for sequential vLLM eval lifecycle: repeated real GPU evaluations
-still need a regression test. Live-model parity (LLM-169), GPU/quantization/LoRA
-testing, Muse Glimmer support and legacy removal (LLM-171) remain follow-up work.
+still need a regression test. A GPU parity re-run with `parity.yaml`,
+GPU/quantization/LoRA testing, Muse Glimmer support and legacy removal (LLM-171)
+remain follow-up work.

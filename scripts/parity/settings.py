@@ -1,4 +1,8 @@
-"""Validate recorded production settings without inferring them from scores."""
+"""Validate recorded production settings without inferring them from scores.
+
+Expected settings are read from each benchmark's parity.yaml, the only place
+parity inference settings live.
+"""
 
 import argparse
 import json
@@ -9,6 +13,19 @@ from inspect_ai.log import read_eval_log
 from inspect_ai.model import GenerateConfig
 
 from scripts.parity.compare import digest
+from scripts.parity.parity_models import expected_request_settings
+
+FAMILIES = {
+    "bbq",
+    "bloom",
+    "unqover",
+    "halueval",
+    "medhallu",
+    "prompt_injection",
+    "ccpc",
+    "xstest",
+    "orbench",
+}
 
 
 def audit_settings(
@@ -16,74 +33,72 @@ def audit_settings(
     legacy: dict[str, Any],
     native: list[tuple[str, GenerateConfig]],
 ) -> dict[str, Any]:
-    """Check retained configuration and every recorded native model request."""
-    if family not in {
-        "bbq",
-        "bloom",
-        "unqover",
-        "halueval",
-        "medhallu",
-        "prompt_injection",
-        "ccpc",
-        "xstest",
-        "orbench",
-    }:
+    """Check retained configuration and every recorded native model request.
+
+    Expected values come from the benchmark's parity.yaml: the retained legacy
+    run must have used its budgets and thinking setting, and every native
+    request must carry exactly its per-role settings plus the capture fields.
+    """
+    if family not in FAMILIES:
         raise ValueError("Unknown production family")
-    refusal = family in {"xstest", "orbench"}
-    answer_budget = 2048 if refusal else 8192 if family == "ccpc" else 128
-    judge_budget = 128 if refusal else 4096 if family == "ccpc" else 32
+    expected_native = expected_request_settings(family)
+    answer = expected_native["answer"]
+    judge = expected_native["judge"]
+    thinking = answer["extra_body"]["chat_template_kwargs"]["enable_thinking"]
     expected_legacy = dict(
-        max_answer_tokens=answer_budget,
-        max_judge_tokens=judge_budget,
+        max_answer_tokens=answer["max_tokens"],
+        max_judge_tokens=judge["max_tokens"],
         batch_size=1,
         judge_batch_size=1,
         sample=False,
         sample_judge=False,
         use_4bit=False,
         use_4bit_judge=False,
-        enable_thinking=refusal,
+        enable_thinking=thinking,
         inference_engine="vllm",
     )
     for key, expected in expected_legacy.items():
         if legacy.get(key) != expected:
             raise ValueError(f"Retained production setting differs: {key}")
-    if legacy.get("sampling_config", {}).get("seed") != 42:
+    if legacy.get("sampling_config", {}).get("seed") != answer["seed"]:
         raise ValueError("Retained request seed differs")
     counts = dict(answer=0, judge=0)
     for role, config in native:
         if role not in counts:
             raise ValueError("Unknown model-event role")
-        expected = dict(
-            max_tokens=answer_budget if role == "answer" else judge_budget,
-            temperature=0,
-            seed=42,
-            max_connections=1,
-        )
-        for key, value in expected.items():
-            if getattr(config, key) != value:
-                raise ValueError(f"Native {role} setting differs: {key}")
-        body = config.extra_body or {}
-        thinking = body.get("chat_template_kwargs", {}).get("enable_thinking")
-        if thinking is not (refusal if role == "answer" else False):
-            raise ValueError(f"Native {role} thinking setting differs")
-        if body.get("return_token_ids") is not True:
+        if config.max_connections != 1:
+            raise ValueError(f"Native {role} setting differs: max_connections")
+        body = dict(config.extra_body or {})
+        if body.pop("return_token_ids", None) is not True:
             raise ValueError(f"Native {role} does not request observed token IDs")
-        if body.get("add_special_tokens") is not True:
-            raise ValueError(f"Native {role} special-token setting differs")
-        if role == "answer" and body.get("truncate_prompt_tokens") != 1024:
-            raise ValueError("Native answer prompt cap differs")
+        body.pop("cache_salt", None)
         if role == "judge" and "truncate_prompt_tokens" in body:
             raise ValueError("Native judge must not carry an answer prompt cap")
+        expected = expected_native[role]
+        kwargs = body.get("chat_template_kwargs", {})
+        if kwargs != expected["extra_body"]["chat_template_kwargs"]:
+            raise ValueError(f"Native {role} thinking setting differs")
+        actual = config.model_dump(exclude_none=True)
+        actual.pop("max_connections", None)
+        actual["extra_body"] = body
+        for key in sorted(set(actual) | set(expected)):
+            if key == "extra_body":
+                for name in sorted(set(body) | set(expected["extra_body"])):
+                    if body.get(name) != expected["extra_body"].get(name):
+                        raise ValueError(f"Native {role} setting differs: {name}")
+            elif actual.get(key) != expected.get(key):
+                raise ValueError(f"Native {role} setting differs: {key}")
         counts[role] += 1
     if not counts["answer"]:
         raise ValueError("No recorded answer requests")
     return dict(
         legacy=expected_legacy,
-        request_seed=42,
+        request_seed=answer["seed"],
         native_requests_checked=counts,
-        answer_prompt_cap=1024,
+        answer_prompt_cap=answer["extra_body"]["truncate_prompt_tokens"],
         judge_prompt_cap=None,
         judge_thinking=False,
+        parity_config=f"llm_behavior_eval/{family}/parity.yaml",
         scope="Retained run configuration and actual native model-event configs",
     )
 

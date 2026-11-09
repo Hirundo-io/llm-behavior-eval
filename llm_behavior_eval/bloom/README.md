@@ -89,11 +89,7 @@ tokens and thinking off, the judge greedy with 32 tokens and thinking off, and
 a 500-sample limit. Its grader is `hf/google/gemma-3-12b-it`, the judge used for
 parity evidence.
 
-```sh
-inspect eval llm_behavior_eval/bloom -T bias_type=gender -T kind=bias \
-  --model hf/<org>/<answer> -M do_sample=false -M enable_thinking=false \
-  --run-config llm_behavior_eval/bloom/parity.yaml
-```
+The full parity command is under [Parity run](#parity-run-llm-169) below.
 
 The answer model's HF provider args stay on the command line because the file
 does not name that model. `extra_body.chat_template_kwargs.enable_thinking: false`
@@ -106,3 +102,42 @@ prompt; the native judge receives the raw question. Non-stop reasons other than
 `max_tokens` (legacy `length`) count as empty but not incomplete. Tests compare
 native scoring against the legacy `_grade_impl` with deterministic answers and
 judgments; this is fixture parity, not live-model parity.
+
+## Parity run (LLM-169)
+A parity run passes three things: `parity.yaml` (`--run-config`), the answer
+model's provider args (`-M`), and the opt-in legacy text preprocessing (`-T
+legacy_tokenizer`, the answer model's local tokenizer snapshot; add `-T
+legacy_tokenizer_revision=<commit>` for a cached repository instead):
+
+```sh
+inspect eval llm_behavior_eval/bloom -T bias_type=gender -T kind=bias \
+  -T legacy_tokenizer="$ANSWER" \
+  --model hf/local -M model_path="$ANSWER" \
+  -M do_sample=false -M enable_thinking=false \
+  -M tokenizer_call_args='{truncation: true, max_length: 1024}' \
+  --run-config llm_behavior_eval/bloom/parity.yaml
+```
+
+On vLLM/SGLang/OpenAI-compatible servers, `parity.yaml`'s `extra_body` already
+carries the legacy thinking switch, special-token handling and 1024-token prompt
+truncation, so only the HF `-M` flags change; see `scripts/parity/README.md` for
+the vLLM variant the qualification used. Do not add `--model-role grader=`: it
+replaces the file's whole grader entry, `config` included.
+
+`legacy_tokenizer` is off by default, so ordinary runs are native Inspect. When
+set, the judge sees the decoded, 1024-token chat-template prompt (system text
+included) as the judge question, and the target and stereotyped answer after the
+legacy 256-token round trip. The model's own input never changes. The
+prompt-parity gaps described above apply only to runs without it.
+
+Judge: Gemma 3 12B (`google/gemma-3-12b-it`); `google/gemma-4-12B-it` is not
+parity-qualified.
+
+Evidence status: the representative GPU qualification (9 configurations (bias,
+unbias and ambiguous for each type), 900 paired rows, 2,700 judge requests per
+side) was exact, but it ran the pre-redesign implementation, which set these
+settings in code. A CPU replay of its recorded requests through this package,
+configured only by `parity.yaml` and `-T legacy_tokenizer`, reproduces every
+request, setting, per-sample score and metric exactly. A GPU re-run with
+`parity.yaml` is still needed to confirm the result
+(`scripts/parity/README.md`).

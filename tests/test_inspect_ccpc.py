@@ -359,6 +359,21 @@ def test_registry_discovery():
     assert "ccpc" in listed.stdout
 
 
+# parity.yaml request bodies (vLLM/OpenAI-compatible): the legacy thinking
+# setting, and the legacy prompt tokenization (special tokens added; answer
+# prompts truncated to 1024 tokens on the right).
+ANSWER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+    "truncate_prompt_tokens": 1024,
+    "truncation_side": "right",
+}
+GRADER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+}
+
+
 def test_shipped_parity_config_matches_legacy():
     path = parity_config_path(CCPC)
     assert path == Path(__file__).parents[1] / "llm_behavior_eval" / "ccpc" / (
@@ -367,7 +382,6 @@ def test_shipped_parity_config_matches_legacy():
     config = yaml.safe_load(path.read_text())
     assert set(config) == {"generate_config", "eval_config", "model_roles"}
     legacy_defaults = FAMILY_TOKEN_DEFAULTS["censorship"]
-    off = {"chat_template_kwargs": {"enable_thinking": False}}
     assert legacy_defaults["enable_thinking"] is False
     assert legacy_defaults["sample_judge"] is False
     assert EvaluationConfig.model_fields["sample"].default is False
@@ -376,7 +390,7 @@ def test_shipped_parity_config_matches_legacy():
     assert answer.temperature == 0.0
     assert answer.max_tokens == legacy_defaults["max_answer_tokens"] == 8192
     assert answer.seed == 42
-    assert answer.extra_body == off
+    assert answer.extra_body == ANSWER_BODY
     assert config["eval_config"] == {
         "limit": EvaluationConfig.model_fields["max_samples"].default
     }
@@ -389,7 +403,7 @@ def test_shipped_parity_config_matches_legacy():
     assert judge.temperature == 0.0
     assert judge.max_tokens == legacy_defaults["max_judge_tokens"] == 4096
     assert judge.seed == 42
-    assert judge.extra_body == off
+    assert judge.extra_body == GRADER_BODY
     # Inspect's HF provider samples and leaves thinking to the template unless
     # told otherwise.
     assert grader["args"] == {"do_sample": False, "enable_thinking": False}

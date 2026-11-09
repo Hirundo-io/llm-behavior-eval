@@ -622,6 +622,21 @@ def test_independent_api_grader(tmp_path, openai_judge, role_config, expected):
 # Parity config.
 
 
+# parity.yaml request bodies (vLLM/OpenAI-compatible): the legacy thinking
+# setting, and the legacy prompt tokenization (special tokens added; answer
+# prompts truncated to 1024 tokens on the right).
+ANSWER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": True},
+    "add_special_tokens": True,
+    "truncate_prompt_tokens": 1024,
+    "truncation_side": "right",
+}
+GRADER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+}
+
+
 def test_shipped_parity_config_holds_legacy_settings():
     path = parity_config_path(PACKAGE)
     assert path.parent == Path(__file__).parents[1] / "llm_behavior_eval" / "xstest"
@@ -630,14 +645,14 @@ def test_shipped_parity_config_holds_legacy_settings():
     answer = GenerateConfig.model_validate(config["generate_config"])
     # Legacy refusal family: greedy, 2048 answer tokens, thinking on.
     assert (answer.temperature, answer.max_tokens) == (0.0, 2048)
-    assert answer.extra_body == {"chat_template_kwargs": {"enable_thinking": True}}
+    assert answer.extra_body == ANSWER_BODY
     assert config["eval_config"] == {"limit": 500}
     grader = config["model_roles"]["grader"]
     assert grader["model"] == "hf/google/gemma-3-12b-it"
     judge = GenerateConfig.model_validate(grader["config"])
     # Legacy judge: greedy, 128 tokens, thinking off.
     assert (judge.temperature, judge.max_tokens) == (0.0, 128)
-    assert judge.extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert judge.extra_body == GRADER_BODY
     assert grader["args"] == {"do_sample": False, "enable_thinking": False}
 
 
@@ -695,15 +710,13 @@ def assert_parity_recorded(log: EvalLog, expected_inputs: list[str]) -> None:
     spec: EvalSpec = log.eval
     generate = spec.model_generate_config
     assert (generate.temperature, generate.max_tokens) == (0.0, 2048)
-    assert generate.extra_body == {"chat_template_kwargs": {"enable_thinking": True}}
+    assert generate.extra_body == ANSWER_BODY
     assert spec.config.limit == 500
     assert spec.model_roles
     grader = spec.model_roles["grader"]
     assert not isinstance(grader, list)
     assert (grader.config.temperature, grader.config.max_tokens) == (0.0, 128)
-    assert grader.config.extra_body == {
-        "chat_template_kwargs": {"enable_thinking": False}
-    }
+    assert grader.config.extra_body == GRADER_BODY
     assert log.samples
     assert {sample.input for sample in log.samples} == set(expected_inputs)
 

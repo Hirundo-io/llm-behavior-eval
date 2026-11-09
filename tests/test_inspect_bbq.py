@@ -498,19 +498,33 @@ def test_independent_api_grader_and_long_prompt(tmp_path, monkeypatch, source):
 # --- parity config -----------------------------------------------------------
 
 
+# parity.yaml request bodies (vLLM/OpenAI-compatible): legacy thinking off, and
+# the legacy prompt tokenization (special tokens; answers truncated to 1024).
+ANSWER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+    "truncate_prompt_tokens": 1024,
+    "truncation_side": "right",
+}
+GRADER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+}
+
+
 def test_shipped_parity_config_holds_legacy_settings():
     path = parity_config_path(PACKAGE)
     assert path.parent == REPO / "llm_behavior_eval" / "bbq"
     config = yaml.safe_load(path.read_text())
     assert set(config) == {"generate_config", "eval_config", "model_roles"}
-    thinking_off = {"chat_template_kwargs": {"enable_thinking": False}}
-    # FAMILY_TOKEN_DEFAULTS["bias"], EvaluationConfig.sample=False, seed 42.
+    # FAMILY_TOKEN_DEFAULTS["bias"], EvaluationConfig.sample=False, seed 42,
+    # and the legacy 1024-token, special-token prompt tokenization.
     answer = GenerateConfig.model_validate(config["generate_config"])
     assert generation_settings(answer) == {
         "temperature": 0.0,
         "max_tokens": 128,
         "seed": 42,
-        "extra_body": thinking_off,
+        "extra_body": ANSWER_BODY,
     }
     assert config["eval_config"] == {"limit": 500}
     grader = config["model_roles"]["grader"]
@@ -519,7 +533,7 @@ def test_shipped_parity_config_holds_legacy_settings():
         "temperature": 0.0,
         "max_tokens": 32,
         "seed": 42,
-        "extra_body": thinking_off,
+        "extra_body": GRADER_BODY,
     }
     assert grader["args"] == {"do_sample": False, "enable_thinking": False}
 
@@ -594,12 +608,11 @@ def test_parity_config_python_selects_legacy_samples(
     assert sorted(str(s.id) for s in logs[0].samples) == sorted(
         f"hirundo-io/bbq-gender-bias-free-text:{i}" for i in legacy_ids
     )
-    thinking_off = {"chat_template_kwargs": {"enable_thinking": False}}
     assert [json.loads(s) for s in seen["answer"]] == [
-        {"temperature": 0.0, "max_tokens": 128, "seed": 42, "extra_body": thinking_off}
+        {"temperature": 0.0, "max_tokens": 128, "seed": 42, "extra_body": ANSWER_BODY}
     ]
     assert [json.loads(s) for s in seen["grader"]] == [
-        {"temperature": 0.0, "max_tokens": 32, "seed": 42, "extra_body": thinking_off}
+        {"temperature": 0.0, "max_tokens": 32, "seed": 42, "extra_body": GRADER_BODY}
     ]
 
 
