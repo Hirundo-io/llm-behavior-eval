@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Any
 
@@ -7,7 +8,13 @@ from inspect_ai import eval as inspect_eval
 from inspect_ai.log import EvalSpec
 from inspect_ai.model import GenerateConfig
 
-from llm_behavior_eval.common.parity import parity_config_path, read_parity_config
+from llm_behavior_eval.common.parity import (
+    PARITY_CONFIG_FILE,
+    DuplicateKeyError,
+    load_run_config,
+    parity_config_path,
+    read_parity_config,
+)
 from llm_behavior_eval.common.target_metrics import (
     TARGET_METRICS_FILE,
     load_target_metrics,
@@ -32,7 +39,7 @@ def test_shipped_parity_config_holds_only_inference_settings() -> None:
     assert path.parent == Path(__file__).parents[1] / "llm_behavior_eval" / (
         "inspect_template"
     )
-    config = yaml.safe_load(path.read_text())
+    config = load_run_config(path)
     assert set(config) <= {"generate_config", "eval_config", "model_roles"}
     GenerateConfig.model_validate(config["generate_config"])
     grader = config["model_roles"]["grader"]
@@ -105,6 +112,130 @@ def test_parity_config_rejects_non_settings(
     path.write_text(yaml.safe_dump({"generate_config": {"temperature": 0.0}} | extra))
     with pytest.raises(ValueError, match="only inference settings"):
         read_parity_config(path)
+
+
+SHIPPED_PARITY_CONFIGS = sorted(
+    (Path(__file__).parents[1] / "llm_behavior_eval").rglob(PARITY_CONFIG_FILE)
+)
+
+
+def test_parity_configs_are_shipped() -> None:
+    assert parity_config_path(TEMPLATE) in SHIPPED_PARITY_CONFIGS
+
+
+@pytest.mark.parametrize(
+    "path",
+    SHIPPED_PARITY_CONFIGS,
+    ids=[path.parent.name for path in SHIPPED_PARITY_CONFIGS],
+)
+def test_shipped_parity_config_has_unique_keys(path: Path) -> None:
+    # load_run_config rejects repeated keys; it must agree with plain YAML.
+    config = load_run_config(path)
+    assert isinstance(config, dict)
+    assert config == yaml.safe_load(path.read_text())
+
+
+VALID_PARITY_YAML = """\
+generate_config:
+  temperature: 0.0
+  max_tokens: 128
+model_roles:
+  grader:
+    model: mockllm/model
+    config:
+      temperature: 0.0
+      max_tokens: 32
+"""
+
+
+@pytest.mark.parametrize(
+    ("text", "key", "line", "first_line"),
+    [
+        (
+            VALID_PARITY_YAML + "generate_config:\n  temperature: 1.0\n",
+            "generate_config",
+            10,
+            1,
+        ),
+        (
+            VALID_PARITY_YAML.replace(
+                "  max_tokens: 128\n", "  max_tokens: 128\n  temperature: 1.0\n"
+            ),
+            "temperature",
+            4,
+            2,
+        ),
+        (
+            VALID_PARITY_YAML + "      max_tokens: 64\n",
+            "max_tokens",
+            10,
+            9,
+        ),
+    ],
+    ids=["top_level", "generate_config", "grader_config"],
+)
+def test_parity_config_rejects_duplicate_yaml_keys(
+    tmp_path: Path, text: str, key: str, line: int, first_line: int
+) -> None:
+    path = tmp_path / "parity.yaml"
+    path.write_text(text)
+    # Plain YAML would silently keep the last value.
+    assert yaml.safe_load(text)
+    message = (
+        f"{path}: duplicate key '{key}' at line {line} (first set at line {first_line})"
+    )
+    with pytest.raises(DuplicateKeyError) as error:
+        read_parity_config(path)
+    assert str(error.value) == message
+
+
+@pytest.mark.parametrize(
+    ("text", "key"),
+    [
+        ('{"generate_config": {}, "generate_config": {}}', "generate_config"),
+        (
+            '{"generate_config": {"temperature": 0.0, "temperature": 1.0}}',
+            "temperature",
+        ),
+        (
+            '{"model_roles": {"grader": {"model": "mockllm/model",'
+            ' "config": {"max_tokens": 32, "max_tokens": 64}}}}',
+            "max_tokens",
+        ),
+    ],
+    ids=["top_level", "generate_config", "grader_config"],
+)
+def test_parity_config_rejects_duplicate_json_keys(
+    tmp_path: Path, text: str, key: str
+) -> None:
+    path = tmp_path / "parity.json"
+    path.write_text(text)
+    with pytest.raises(DuplicateKeyError, match=f"^{path}: duplicate key '{key}'$"):
+        read_parity_config(path)
+
+
+def test_duplicate_key_error_is_value_error() -> None:
+    assert issubclass(DuplicateKeyError, ValueError)
+
+
+@pytest.mark.parametrize("suffix", ["yaml", "json"])
+def test_parity_config_without_duplicates_loads(tmp_path: Path, suffix: str) -> None:
+    config = yaml.safe_load(VALID_PARITY_YAML)
+    path = tmp_path / f"parity.{suffix}"
+    path.write_text(json.dumps(config) if suffix == "json" else VALID_PARITY_YAML)
+    assert load_run_config(path) == config
+    params = read_parity_config(path)
+    assert params["model_roles"]["grader"].config.max_tokens == 32
+
+
+def test_yaml_merge_keys_may_be_overridden(tmp_path: Path) -> None:
+    path = tmp_path / "parity.yaml"
+    path.write_text(
+        "base: &base\n  temperature: 0.0\n  max_tokens: 8\n"
+        "generate_config:\n  <<: *base\n  max_tokens: 128\n"
+    )
+    config = load_run_config(path)
+    assert config["generate_config"] == {"temperature": 0.0, "max_tokens": 128}
 
 
 def test_missing_parity_config() -> None:

@@ -28,7 +28,7 @@ from inspect_ai.log import EvalLog, list_eval_logs, read_eval_log
 from inspect_ai.model import GenerateConfig, Model, ModelOutput, get_model
 from inspect_ai.scorer import Metric, SampleScore, Score
 
-from llm_behavior_eval.common.parity import parity_config_path
+from llm_behavior_eval.common.parity import load_run_config, parity_config_path
 
 GENERATION_FIELDS = (
     "temperature",
@@ -162,7 +162,7 @@ def mock_parity_config(
     Returns:
         The written file.
     """
-    config = yaml.safe_load(parity_config_path(package).read_text())
+    config = load_run_config(parity_config_path(package))
     config["model_roles"]["grader"]["model"] = grader
     config["model_roles"]["grader"]["args"] = {}
     path = directory / "parity.yaml"

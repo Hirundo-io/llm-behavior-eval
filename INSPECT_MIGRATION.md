@@ -465,7 +465,10 @@ inference settings: `generate_config` (model under test), `model_roles.grader`
 (judge model, `config`, `args`) and optionally `eval_config` (for example
 `limit: 500`, the legacy sample cap). It never sets `task`, `model` or `solver`,
 so the model under test is still chosen on the command line, and never `tags`,
-`metadata` or `sandbox`; `read_parity_config` rejects all six.
+`metadata` or `sandbox`; `read_parity_config` rejects all six. It also rejects
+a key repeated within any mapping, YAML or JSON, which plain YAML and Inspect's
+CLI reader would silently resolve to the last value; the error names the key
+and, for YAML, its line. Every shipped `parity.yaml` is checked by the tests.
 
 ```sh
 inspect eval llm_behavior_eval/<benchmark> --model hf/org/answer -M do_sample=false \
