@@ -1,4 +1,9 @@
+import sys
+
 import pytest
+
+# inspect-ai is only installed on Python >= 3.11 (see pyproject.toml markers).
+collect_ignore_glob = ["test_inspect_*.py"] if sys.version_info < (3, 11) else []
 
 
 def pytest_configure(config: pytest.Config) -> None:
