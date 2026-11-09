@@ -253,7 +253,7 @@ def main(
     judge_model: Annotated[
         str,
         typer.Option("--judge-model", help="Judge repo id or path (optional)"),
-    ] = "google/gemma-3-12b-it",
+    ] = "google/gemma-4-12B-it",
     use_mlflow: Annotated[
         bool,
         typer.Option(

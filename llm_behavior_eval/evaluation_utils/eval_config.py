@@ -104,7 +104,7 @@ class EvaluationConfig(BaseModel):
     dataset_token: str | None = Field(default=None, exclude=True, repr=False)
     judge_batch_size: None | int = None
     max_judge_tokens: int | None = None
-    judge_path_or_repo_id: str = "google/gemma-3-12b-it"
+    judge_path_or_repo_id: str = "google/gemma-4-12B-it"
     judge_token: str | None = None
     sample_judge: bool | None = None
     use_4bit_judge: bool = False

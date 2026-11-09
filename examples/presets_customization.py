@@ -18,7 +18,7 @@ def main() -> None:
     # Customize here
     model = "meta-llama/Llama-3.1-8B-Instruct"
     model_token = None  # Don't forget to set this to your HuggingFace token after accepting the terms of service for the gated model
-    judge_model = "google/gemma-3-12b-it"
+    judge_model = "google/gemma-4-12B-it"
     judge_token = None  # Don't forget to set this to your HuggingFace token after accepting the terms of service for the gated model
     result_dir = Path(__file__).resolve().parents[1] / "results"
     # Choose a specific dataset from hirundo-io datasets collections
