@@ -1,0 +1,37 @@
+# Purple Llama prompt injection parity config: the legacy engine's exact
+# settings as an Inspect run config. Pass it explicitly:
+#   inspect eval llm_behavior_eval/prompt_injection --model hf/<org>/<answer> \
+#     -M do_sample=false -M enable_thinking=false \
+#     --run-config llm_behavior_eval/prompt_injection/parity.yaml
+# The file cannot name the model under test, so its provider args stay on the
+# command line: legacy answers were greedy (`sample: False`) with thinking off
+# (`enable_thinking: False`). On vLLM/SGLang use
+#   --extra-body '{"chat_template_kwargs": {"enable_thinking": false}}'
+# instead of the -M enable_thinking flag.
+# Source: evaluation_utils/eval_config.py FAMILY_TOKEN_DEFAULTS["prompt-injection"]
+# and EvaluationConfig defaults. Only inference settings belong here.
+
+# Model under test: legacy greedy decoding and max_answer_tokens=128.
+# The platform's 512-token budget (HPLT-338) is a user setting: --max-tokens 512.
+generate_config:
+  temperature: 0.0
+  max_tokens: 128
+
+# Legacy max_samples=500, taken after a seed-42 shuffle that dataset conversion
+# reproduces, so this limit selects the same rows.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # Parity evidence uses a Gemma 3 12B judge.
+    model: hf/google/gemma-3-12b-it
+    # Legacy max_judge_tokens=32, sample_judge=False (greedy).
+    config:
+      temperature: 0.0
+      max_tokens: 32
+    # Inspect's HF provider samples unless told not to; the legacy judge chat
+    # template was always applied with thinking off.
+    args:
+      do_sample: false
+      enable_thinking: false
