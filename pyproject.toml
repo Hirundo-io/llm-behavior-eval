@@ -33,16 +33,33 @@ keywords = [
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "inspect-ai>=0.3.288,<0.3.289",
+  # inspect-ai 0.3.288 imports acp.helpers, which agent-client-protocol 1.0
+  # removed; its own requirement (>=0.12.0) has no upper bound.
+  "agent-client-protocol>=0.12.0,<1",
+  # Inspect OpenAI-compatible grader transport (not installed by Inspect itself).
   "openai>=3.4,<4",
   "datasets>=5.0.1,<6.0.0",
+  # The retired CLI's migration notice. Typer 0.27 bundles Click; older Typer
+  # loses argument help with Click 8.5.
   "typer>=0.27.3,<0.28",
 ]
 
 [project.optional-dependencies]
+# inspect-brief summarizes Inspect .eval logs into a CSV.
 brief = ["inspect-brief>=0.1.1,<0.2"]
+# The MLflow reporting hook logs synchronously through MlflowClient (2.8+).
 mlflow = ["mlflow>=2.8.0"]
-tokenizers = ["transformers>=5.20.2,<5.21", "sentencepiece<1.0.0", "protobuf<7.0.0"]
+# Tokenizers for the opt-in legacy text preprocessing (-T legacy_tokenizer).
+# Gemma 4 uses guarded per-layer configs; keep the tested vLLM/Transformers pair.
+tokenizers = [
+  "transformers>=5.20.2,<5.21",
+  "sentencepiece<1.0.0",        # Mistral tokenizers
+  "protobuf<7.0.0",             # Mistral tokenizers
+]
+# Inspect's hf/ provider loads models with Transformers and Torch.
 hf = ["llm-behavior-eval[tokenizers]", "torch<3.0.0", "accelerate<2.0.0"]
+# Inspect's vllm/ provider. vLLM publishes Linux wheels only. Torch pins Triton
+# and the CUDA runtime together.
 vllm = [
   "transformers>=5.20.2,<5.21",
   "vllm>=0.30.0,<0.31; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
@@ -55,20 +72,23 @@ dev = [
   "pytest>=8.3.5",
   "pyyaml>=6.0.2",
   "pre-commit>=4.3.0",
+  # Provider, tokenizer and reporting tests run in the development environment.
+  "llm-behavior-eval[mlflow,hf,vllm,brief]",
   "pyrefly>=0.63.1",
   "types-PyYAML",
-  "types-tqdm",
 ]
 
 [tool.uv.sources]
 llm-behavior-eval = { path = ".", editable = true }
 
-[tool.setuptools.package-data]
-llm_behavior_eval = ["target_metrics.json"]
-
 [tool.setuptools.packages.find]
 include = ["llm_behavior_eval*"]
 exclude = ["results*"]
+
+[tool.setuptools.package-data]
+# Benchmark-owned parity configs, READMEs and target metrics ship with each
+# benchmark package.
+"*" = ["parity.yaml", "README.md", "target_metrics.json"]
 
 [tool.bumpver]
 current_version = "0.2.0"
@@ -114,10 +134,13 @@ unfixable = ["F401"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["S"]
-"hirundo_notion_tools/test_*.py" = ["S"]
 
 [tool.pyrefly]
 min-severity = "warn"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# The default prepend mode puts the repository root first on sys.path for each
+# test module. setuptools' source-tree llm_behavior_eval.egg-info then shadows
+# the editable install's dist-info, which has the PEP 610 metadata that Inspect
+# uses to namespace registry names. importlib mode leaves sys.path unchanged.
+addopts = ["--import-mode=importlib"]

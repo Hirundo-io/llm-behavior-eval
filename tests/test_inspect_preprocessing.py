@@ -1,129 +1,230 @@
-"""CPU production boundary tests; never substitute log input before scoring."""
+"""Opt-in legacy text preprocessing: legacy equivalence, opt-in wiring, parity configs.
+
+Legacy values are frozen outputs of the removed engine (tests/golden/).
+
+CPU only. The tiny tokenizer runs everywhere; the pinned Gemma 3 and Qwen3
+snapshots are optional and skip when absent. None of this is GPU evidence.
+"""
 
 import hashlib
+import importlib
+import inspect
 import json
-import os
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
+import yaml
 from inspect_ai import eval as inspect_eval
 from inspect_ai.log import read_eval_log
-from inspect_ai.model import ModelOutput, get_model
+from inspect_ai.model import GenerateConfig, ModelOutput, get_model
 
 from llm_behavior_eval import _registry
-from llm_behavior_eval.common.preprocessing import load_tokenizer, preprocess
+from llm_behavior_eval.common.parity import parity_config_path
+from llm_behavior_eval.common.preprocessing import (
+    LEGACY_PROMPT_MAX_LENGTH,
+    LEGACY_TEXT_MAX_LENGTH,
+    METADATA_KEY,
+    load_tokenizer,
+    render_chat,
+    roundtrip,
+)
+from tests.golden import golden
+from tests.legacy_tokenizers import pinned_tokenizer, tiny_tokenizer
 from tests.native_fixtures import local_task_dataset
+
+BENCHMARKS = {
+    # name: legacy FAMILY_TOKEN_DEFAULTS key
+    "bbq": "bias",
+    "unqover": "bias",
+    "bloom": "bias",
+    "halueval": "hallucination",
+    "medhallu": "hallucination",
+    "prompt_injection": "prompt-injection",
+    "ccpc": "censorship",
+    "xstest": "refusal",
+    "orbench": "refusal",
+}
+GRADER_REPLY = (
+    "A Yes gt_agree: yes candidate_uncertain: no True 2_full_refusal [[direct_refusal]]"
+)
+
+
+@pytest.fixture(params=["tiny", "gemma3", "qwen3"])
+def tokenizer_path(request, tmp_path) -> Path:
+    if request.param == "tiny":
+        return tiny_tokenizer(tmp_path)
+    return pinned_tokenizer(request.param)
 
 
 @pytest.fixture
-def tokenizer():
-    pytest.importorskip("transformers")
-    path = Path(
-        os.environ.get("LLM169_TOKENIZER", "results/tokenizers/gemma3")
-    ).resolve()
-    if not path.is_dir():
-        pytest.skip(
-            "Set LLM169_TOKENIZER to pinned Gemma 3 snapshot (see parity README)"
-        )
-    assert (
-        hashlib.sha256((path / "tokenizer.json").read_bytes()).hexdigest()
-        == "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795"
-    )
-    return load_tokenizer(str(path), None)
+def tiny(tmp_path) -> Path:
+    return tiny_tokenizer(tmp_path)
+
+
+def legacy_views(tokenizer: str, side: str, thinking: bool, long: bool):
+    """Frozen legacy free_text_preprocess_function ids for this case (non-pad).
+
+    Captured from the legacy engine (tests/golden/preprocessing.json; see
+    tests/golden/README.md) for the same tokenizer and row.
+    """
+    key = f"{tokenizer}-{side}-{str(thinking).lower()}-{'long' if long else 'short'}"
+    return golden("preprocessing")["views"][key]
+
+
+def row_digest(row: dict[str, str]) -> str:
+    return hashlib.sha256(json.dumps(row, sort_keys=True).encode()).hexdigest()
 
 
 @pytest.mark.parametrize("side", ["left", "right"])
 @pytest.mark.parametrize("thinking", [False, True])
-def test_long_legacy_roundtrips(tokenizer, side, thinking):
+@pytest.mark.parametrize("long", [False, True])
+def test_views_equal_legacy_preprocessing(
+    request, tokenizer_path, side, thinking, long
+):
+    tokenizer = load_tokenizer(str(tokenizer_path))
     previous = tokenizer.truncation_side
     tokenizer.truncation_side = side
     try:
-        question = " First  question\n" + "long input " * 1400
-        target = " target " * 500
-        stereo = " stereotype " * 500
-        independent = " Independent question " * 500
-        system = "You are helpful.\n"
-        legacy = json.loads(
-            (Path(__file__).parent / "golden/preprocessing_baseline.json").read_text()
-        )["long"][f"{side}-{thinking}"]
-        result = preprocess(
+        repeat = 1400 if long else 1
+        row = dict(
+            question=" First  question\n" + "long input " * repeat,
+            answer=" target " * (500 if long else 1),
+            stereotyped_answer=" stereotype " * (500 if long else 1),
+            system_prompt="You are helpful.\n",
+            judge_question=" Independent question " * (500 if long else 1),
+        )
+        name = request.node.callspec.params["tokenizer_path"]
+        legacy = legacy_views(name, side, thinking, long)
+        assert row_digest(row) == legacy["row_sha256"]
+        rendered = render_chat(
             tokenizer,
             [
-                dict(role="system", content=system),
-                dict(role="user", content=question + "\n"),
+                {"role": "system", "content": row["system_prompt"]},
+                {"role": "user", "content": row["question"] + "\n"},
             ],
-            target,
-            stereotype=stereo,
-            question=independent,
-            thinking=thinking,
+            legacy_thinking=thinking,
         )
-        for key, old in [
-            ("prompt", "test_input_ids"),
-            ("target", "gt_answers"),
-            ("stereotype", "stereotyped_answers"),
+        prompt = roundtrip(
+            tokenizer,
+            rendered,
+            max_length=LEGACY_PROMPT_MAX_LENGTH,
+            add_special_tokens=True,
+        )
+        assert prompt["input_ids"] == legacy["test_input_ids"]
+        assert prompt["decoded"] == tokenizer.decode(
+            legacy["test_input_ids"], skip_special_tokens=True
+        )
+        if long:
+            assert len(prompt["input_ids"]) == LEGACY_PROMPT_MAX_LENGTH
+        for key, legacy_key in [
+            ("answer", "gt_answers"),
+            ("stereotyped_answer", "stereotyped_answers"),
+            ("judge_question", "judge_questions"),
         ]:
-            assert result[key]["input_ids"] == legacy[old][0]
-            assert result[key]["decoded"] == tokenizer.decode(
-                legacy[old][0], skip_special_tokens=True
+            view = roundtrip(
+                tokenizer,
+                row[key],
+                max_length=LEGACY_TEXT_MAX_LENGTH,
+                add_special_tokens=False,
             )
-        assert result["judge_question"] == tokenizer.decode(
-            legacy["judge_questions"][0], skip_special_tokens=True
-        )
+            assert view["decoded"] == tokenizer.decode(
+                legacy[legacy_key], skip_special_tokens=True
+            )
     finally:
         tokenizer.truncation_side = previous
 
 
 @pytest.mark.parametrize(
-    "name",
-    [
-        "bbq",
-        "bloom",
-        "unqover",
-        "halueval",
-        "medhallu",
-        "orbench",
-        "xstest",
-        "ccpc",
-        "prompt_injection",
-    ],
+    "marker",
+    ["/no_think", "to=self", "reasoning_strength", "System role not supported"],
 )
-def test_registered_production_metadata(name, tmp_path, monkeypatch, tokenizer):
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    monkeypatch.setenv("INSPECT_BRIEF_ENABLED", "false")
-    dataset = local_task_dataset(name, tmp_path, monkeypatch)
-    calls = []
+def test_unsupported_legacy_templates_fail_before_rendering(marker):
+    class Tokenizer:
+        def get_chat_template(self):
+            return marker
 
-    def grade(messages, tools, choice, config):
-        calls.append(messages)
-        return ModelOutput.from_content(
-            "mockllm/grader",
-            "A Yes gt_agree: yes candidate_uncertain: no True 2_full_refusal [[direct_refusal]]",
+        def apply_chat_template(self, *args, **kwargs):
+            pytest.fail("Unsupported template reached rendering")
+
+    with pytest.raises(ValueError, match="Unsupported legacy chat template"):
+        render_chat(
+            Tokenizer(), [{"role": "user", "content": "q"}], legacy_thinking=False
         )
 
+
+def test_open_think_with_thinking_off_is_rejected():
+    class Tokenizer:
+        def get_chat_template(self):
+            return "template"
+
+        def apply_chat_template(self, *args, **kwargs):
+            return "<bos>user<think>\n"
+
+    with pytest.raises(ValueError, match="open <think>"):
+        render_chat(
+            Tokenizer(), [{"role": "user", "content": "q"}], legacy_thinking=False
+        )
+
+
+def test_tokenizer_must_be_local_or_pinned(tmp_path):
+    with pytest.raises(ValueError, match="local snapshot"):
+        load_tokenizer("google/gemma-3-4b-it")
+    with pytest.raises(ValueError, match="immutable"):
+        load_tokenizer("google/gemma-3-4b-it", "main")
+
+
+@pytest.mark.parametrize("name", list(BENCHMARKS))
+def test_opt_in_is_a_task_argument_and_off_by_default(name):
+    parameters = inspect.signature(getattr(_registry, name)).parameters
+    assert parameters["legacy_tokenizer"].default is None
+    assert parameters["legacy_tokenizer_revision"].default is None
+
+
+@pytest.mark.parametrize("name", list(BENCHMARKS))
+def test_default_runs_record_no_legacy_views(name, tmp_path, monkeypatch):
+    monkeypatch.setenv("INSPECT_BRIEF_ENABLED", "false")
+    dataset = local_task_dataset(name, tmp_path, monkeypatch)
+    log = inspect_eval(
+        f"llm_behavior_eval/{name}",
+        task_args={"dataset_path": str(dataset)},
+        model="mockllm/answer",
+        model_roles={
+            "grader": get_model(
+                "mockllm/grader",
+                custom_outputs=lambda *a: ModelOutput.from_content("m", GRADER_REPLY),
+            )
+        },
+        limit=1,
+        display="none",
+        log_dir=str(tmp_path / "logs"),
+    )[0]
+    assert log.status == "success", log.error
+    assert log.samples is not None
+    assert METADATA_KEY not in log.samples[0].metadata
+
+
+@pytest.mark.parametrize("name", list(BENCHMARKS))
+def test_opt_in_records_views_without_settings_or_input_changes(
+    name, tiny, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("INSPECT_BRIEF_ENABLED", "false")
+    dataset = local_task_dataset(name, tmp_path, monkeypatch)
+    calls: list[list[str]] = []
+
+    def grade(messages, tools, choice, config):
+        assert config == GenerateConfig()
+        calls.append([message.text for message in messages])
+        return ModelOutput.from_content("mockllm/grader", GRADER_REPLY)
+
     def answer(messages, tools, choice, config):
-        assert set(config.extra_body) == {
-            "truncate_prompt_tokens",
-            "truncation_side",
-            "add_special_tokens",
-            "return_token_ids",
-        }
-        assert config.extra_body["truncate_prompt_tokens"] == 1024
-        assert config.extra_body["truncation_side"] == tokenizer.truncation_side
-        assert config.extra_body["add_special_tokens"] is True
-        assert config.extra_body["return_token_ids"] is True
-        assert not messages[-1].text.startswith("<bos>")
+        # The opt-in step sets no inference setting for the model under test.
+        assert config == GenerateConfig()
         return ModelOutput.from_content("mockllm/answer", "answer")
 
     log = inspect_eval(
         f"llm_behavior_eval/{name}",
-        task_args=dict(
-            dataset_path=str(dataset), compatibility_tokenizer=tokenizer.name_or_path
-        ),
-        model=get_model(
-            "mockllm/answer",
-            custom_outputs=answer,
-        ),
+        task_args={"dataset_path": str(dataset), "legacy_tokenizer": str(tiny)},
+        model=get_model("mockllm/answer", custom_outputs=answer),
         model_roles={"grader": get_model("mockllm/grader", custom_outputs=grade)},
         limit=1,
         display="none",
@@ -133,8 +234,10 @@ def test_registered_production_metadata(name, tmp_path, monkeypatch, tokenizer):
     saved = read_eval_log(log.location)
     assert saved.samples is not None
     sample = saved.samples[0]
-    meta = sample.metadata["compatibility"]
-    assert meta["schema"] == "legacy-text-v1"
+    views = sample.metadata[METADATA_KEY]
+    assert views["schema"] == "legacy-text-v1"
+    assert views["legacy_thinking"] is (BENCHMARKS[name] == "refusal")
+    assert views["tokenizer"]["truncation_side"] == "right"
     original = next(
         row
         for row in getattr(_registry, name)(dataset_path=str(dataset)).dataset
@@ -147,93 +250,98 @@ def test_registered_production_metadata(name, tmp_path, monkeypatch, tokenizer):
         ]
     else:
         assert sample.input == original.input
-    assert any(
-        meta["judge_question"] in message.text for call in calls for message in call
+    judged = "\n".join(text for call in calls for text in call)
+    if name == "ccpc":
+        # CCPC's legacy judge saw the original question.
+        assert isinstance(sample.input, str)
+        assert sample.input in judged
+        assert views["prompt"]["decoded"] not in judged
+    elif name == "prompt_injection":
+        assert views["texts"]["judge_question"]["decoded"] in judged
+    else:
+        assert views["prompt"]["decoded"] in judged
+        assert views["prompt"]["decoded"] != sample.input
+
+
+def test_hallucination_judge_prompt_matches_legacy(tiny, tmp_path, monkeypatch):
+    # Frozen legacy free_text_hallu_evaluator.GRADER_TEMPLATE.
+    grader_template = golden("preprocessing")["hallucination_grader_template"]
+    monkeypatch.setenv("INSPECT_BRIEF_ENABLED", "false")
+    dataset = local_task_dataset("halueval", tmp_path, monkeypatch)
+    calls = []
+
+    def grade(messages, tools, choice, config):
+        calls.append(messages[0].text)
+        return ModelOutput.from_content("mockllm/grader", "A")
+
+    log = inspect_eval(
+        "llm_behavior_eval/halueval",
+        task_args={"dataset_path": str(dataset), "legacy_tokenizer": str(tiny)},
+        model="mockllm/answer",
+        model_roles={"grader": get_model("mockllm/grader", custom_outputs=grade)},
+        limit=1,
+        display="none",
+        log_dir=str(tmp_path / "logs"),
+    )[0]
+    assert log.status == "success", log.error
+    assert log.samples is not None
+    views = log.samples[0].metadata[METADATA_KEY]
+    completion = log.samples[0].output.completion
+    assert calls == [
+        grader_template.format(
+            question=views["prompt"]["decoded"],
+            target=views["texts"]["target"]["decoded"],
+            predicted_answer=completion,
+        )
+    ]
+
+
+@pytest.mark.parametrize("name", list(BENCHMARKS))
+def test_parity_config_matches_package_and_legacy_thinking(name):
+    # Frozen legacy eval_config.FAMILY_TOKEN_DEFAULTS.
+    family_defaults = golden("preprocessing")["family_token_defaults"]
+    path = parity_config_path(f"llm_behavior_eval.{name}")
+    config = yaml.safe_load(path.read_text())
+    thinking = config["generate_config"]["extra_body"]["chat_template_kwargs"][
+        "enable_thinking"
+    ]
+    solver = importlib.import_module(f"llm_behavior_eval.{name}.solver")
+    assert thinking is solver.LEGACY_THINKING
+    family = BENCHMARKS[name]
+    assert thinking is family_defaults[family]["enable_thinking"]
+    header = path.read_text().split("\n\n")[0]
+    # One parity command: run config, -M provider args and the -T opt-in.
+    assert f"--run-config llm_behavior_eval/{name}/parity.yaml" in header
+    assert "-T legacy_tokenizer=" in header
+    assert f"-M enable_thinking={str(thinking).lower()}" in header
+    assert "-M do_sample=false" in header
+    assert "tokenizer_call_args='{truncation: true, max_length: 1024}'" in header
+
+
+def test_run_config_cannot_carry_task_args_without_naming_the_task(tmp_path):
+    """Why parity.yaml cannot turn the preprocessing on: -T is required."""
+    from inspect_ai._cli.eval import RunConfigInput
+    from pydantic import ValidationError
+
+    from llm_behavior_eval.common.parity import read_parity_config
+
+    with pytest.raises(ValidationError):
+        RunConfigInput.model_validate({"task": {"args": {"legacy_tokenizer": "x"}}})
+    named = tmp_path / "parity.yaml"
+    named.write_text(
+        json.dumps({"task": {"task": "llm_behavior_eval/bbq", "args": {}}})
     )
-    if isinstance(sample.input, str) and name != "ccpc":
-        assert sample.input != meta["judge_question"]
-    assert saved.results is not None
-    assert saved.results.total_samples == 1
-
-    if name in {"halueval", "medhallu"}:
-        from llm_behavior_eval.hallucination.prompts import (
-            GRADER_TEMPLATE,
-        )
-
-        assert calls[0][0].text == GRADER_TEMPLATE.format(
-            question=meta["judge_question"],
-            target=meta["target"]["decoded"],
-            predicted_answer="answer",
-        )
+    with pytest.raises(ValueError, match="task"):
+        read_parity_config(named)
 
 
 @pytest.mark.parametrize("thinking", [False, True])
-def test_qwen_thinking_roundtrip(thinking):
-    pytest.importorskip("transformers")
-    path = Path("results/tokenizers/qwen3").resolve()
-    if not path.is_dir():
-        pytest.skip("Pinned Qwen3 tokenizer fixture absent; see parity README")
-    assert (
-        hashlib.sha256((path / "tokenizer.json").read_bytes()).hexdigest()
-        == "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
-    )
-    tokenizer = load_tokenizer(str(path), None)
+def test_qwen3_thinking_render_matches_legacy(thinking):
+    # Frozen legacy util_functions.safe_apply_chat_template renders.
+    legacy = golden("preprocessing")["qwen3_render"][str(thinking).lower()]
+    tokenizer = load_tokenizer(str(pinned_tokenizer("qwen3")))
     messages = [
-        dict(role="system", content="Be helpful."),
-        dict(role="user", content="question\n"),
+        {"role": "system", "content": "Be helpful."},
+        {"role": "user", "content": "question\n"},
     ]
-    expected = json.loads(
-        (Path(__file__).parent / "golden/preprocessing_baseline.json").read_text()
-    )["qwen"][str(thinking)]
-    actual = preprocess(tokenizer, messages, "target", thinking=thinking)
-    assert actual["prompt"]["input_ids"] == expected["input_ids"][0]
-    assert actual["judge_question"] == tokenizer.decode(
-        expected["input_ids"][0], skip_special_tokens=True
-    )
-
-
-def test_judge_controls_never_apply_answer_cap(monkeypatch):
-    from types import SimpleNamespace
-
-    from inspect_ai.model import GenerateConfig
-
-    import llm_behavior_eval.common.preprocessing as module
-
-    class Vllm:
-        def __str__(self):
-            return "vllm/fixture"
-
-    monkeypatch.setattr(module, "get_model", lambda **kwargs: Vllm())
-    state = SimpleNamespace(metadata={"compatibility": {}})
-    original = GenerateConfig(
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}, "custom": 1}
-    )
-    config = module.judge_config(cast("Any", state), original)
-    assert config.extra_body == {
-        "chat_template_kwargs": {"enable_thinking": False},
-        "custom": 1,
-        "add_special_tokens": True,
-        "return_token_ids": True,
-    }
-    assert original.extra_body == {
-        "chat_template_kwargs": {"enable_thinking": False},
-        "custom": 1,
-    }
-    with pytest.raises(ValueError, match="must not"):
-        module.judge_config(
-            cast("Any", state),
-            GenerateConfig(extra_body={"truncate_prompt_tokens": 1024}),
-        )
-
-
-def test_gemma_system_role_demotion_is_template_equivalent(tokenizer):
-    messages = [
-        dict(role="system", content="Policy\n"),
-        dict(role="user", content="Question\n"),
-    ]
-    demoted = [dict(role="user", content="Policy\n\n\nQuestion\n")]
-    assert tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    ) == tokenizer.apply_chat_template(
-        demoted, tokenize=False, add_generation_prompt=True
-    )
+    assert render_chat(tokenizer, messages, legacy_thinking=thinking) == legacy

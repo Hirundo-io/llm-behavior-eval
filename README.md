@@ -1,202 +1,316 @@
-# LLM Behavior Eval
+# [llm-behavior-eval](https://github.com/Hirundo-io/llm-behavior-eval) &middot; [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/hirundo-io/llm-behavior-eval/blob/main/LICENSE) [![pypi version](https://img.shields.io/pypi/v/llm-behavior-eval)](https://pypi.org/project/llm-behavior-eval/)
 
-Evaluate LLM behavior with native [Inspect](https://inspect.aisi.org.uk/) tasks,
-independent answer and grader models, and Inspect `.eval` logs.
+[![pyrefly](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/pyrefly.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/pyrefly.yaml) [![ruff](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/ruff.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/ruff.yaml) [![Unit tests](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/tests.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/tests.yaml) [![Vulnerability scan](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/vulnerability-scan.yaml/badge.svg)](https://github.com/hirundo-io/llm-behavior-eval/actions/workflows/vulnerability-scan.yaml)
 
-## Benchmarks
+Measure undesirable LLM behaviors (bias, hallucination, prompt injection,
+over-refusal and Chinese political censorship) with native
+[Inspect](https://inspect.aisi.org.uk/) tasks. The model under test and the judge
+(Inspect's `grader` role) are configured independently, on any Inspect provider:
+`hf/`, `vllm/`, `sglang/`, hosted APIs, and OpenAI-compatible `openai-api/`
+endpoints. Results are Inspect `.eval` logs; [inspect-brief](https://github.com/Hirundo-io/inspect-brief)
+summarizes them into a CSV, and an optional hook reports them to MLflow.
 
-Task names below have the prefix `llm_behavior_eval/`. Bias families accept
-`bias_type` and `kind`; see their package README for supported splits.
+## What it evaluates
 
-| Task | Hugging Face dataset | Primary metrics |
-| --- | --- | --- |
-| `bbq` | `hirundo-io/bbq-<type>-<kind>-free-text` | error, accuracy, stereotype bias |
-| `bloom` | `hirundo-io/bloom-<type>-<kind>-free-text` (ambiguous uses `ambiguous-bias`) | error, accuracy, stereotype bias |
-| `unqover` | `hirundo-io/unqover-<type>-bias-free-text` | error, accuracy, stereotype bias |
-| `halueval` | `hirundo-io/halueval` | accuracy (%) |
-| `medhallu` | `hirundo-io/medhallu` | accuracy (%) |
-| `ccpc` | `hirundo-io/ccpc-500` | censorship rate, judged fraction |
-| `xstest` | `hirundo-io/XSTest` | safe/unsafe refusal rates |
-| `orbench` | `hirundo-io/or-bench` | safe/unsafe refusal rates |
-| `prompt_injection` | `hirundo-io/prompt-injection-purple-llama` | attack success rate (%) |
+Task names have the prefix `llm_behavior_eval/`. Each benchmark is a
+self-contained package with its own README (`llm_behavior_eval/<task>/README.md`)
+listing its task arguments, metrics, judge prompt and parity status.
+`inspect list tasks llm_behavior_eval` lists what is installed.
 
-Incomplete-response diagnostics are retained in logs. `inspect_template` is a
-small wiring demonstration, not a tenth benchmark.
+| Task | Hugging Face dataset | `-T` arguments | Report metrics |
+| --- | --- | --- | --- |
+| `bbq` | `hirundo-io/bbq-<type>-<bias\|unbias>-free-text` | `bias_type` (gender, race, nationality, physical, age, religion), `kind` (bias, unbias) | error, accuracy, stereotype_bias |
+| `unqover` | `hirundo-io/unqover-<type>-bias-free-text` | `bias_type` (religion, gender, race, nationality); bias split only | error, accuracy, stereotype_bias |
+| `bloom` | `hirundo-io/bloom-<type>-<bias\|unbias\|ambiguous-bias>-free-text` | `bias_type` (age, gender, race), `kind` (bias, unbias, ambiguous) | error, accuracy, stereotype_bias |
+| `halueval` | `hirundo-io/halueval` | none | accuracy |
+| `medhallu` | `hirundo-io/medhallu` | none | accuracy, empty_responses |
+| `prompt_injection` | `hirundo-io/prompt-injection-purple-llama` | none | attack_success_rate |
+| `ccpc` | `hirundo-io/ccpc-500` (pinned revision, 500 rows) | none | censorship_rate |
+| `xstest` | `hirundo-io/XSTest` | none | safe_refusal_rate, unsafe_refusal_rate |
+| `orbench` | `hirundo-io/or-bench` | none | safe_refusal_rate, unsafe_refusal_rate, judge_unparseable_rate |
 
-## Install
+Every task except `ccpc` also reports `incomplete_response_rate`, the share of
+answers that stopped at the token limit. Every task takes `-T dataset_path=...`
+(a local copy saved with `save_to_disk`, for offline runs) and
+`-T dataset_token=...` (prefer `HF_TOKEN`, which keeps the token out of logged
+task arguments). `llm_behavior_eval/inspect_template` is a wiring demonstration
+with a mock grader, not a benchmark.
 
-Python 3.12–3.13 is supported for the package and all reporting extras.
+## Installation
+
+Requires Python 3.12 or 3.13.
 
 ```bash
 uv venv --python 3.12 .venv
 source .venv/bin/activate
-uv pip install -e '.[brief]'
+uv pip install 'llm-behavior-eval[brief]'        # or -e '.[brief]' from a checkout
 ```
 
-For CPU development/reporting, use `uv sync --locked --extra brief --extra mlflow`.
-Optional `[tokenizers]`, `[hf]`, and `[vllm]` extras enable local tokenization or
-Inspect providers. The base and dev group do not install model runtimes.
-Optional extras include `vllm`, `mlflow`, and `brief`. The devcontainer uses Python
-3.12 and defaults to brief; select extras with
-`LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS=brief,mlflow bash .devcontainer/setup.sh`.
+The base package installs Inspect, its OpenAI-compatible client and Hugging Face
+`datasets`, and no model runtime. Extras: `brief` (inspect-brief CSV summaries),
+`mlflow` (MLflow reporting hook), `hf` (Inspect's `hf/` provider: Transformers,
+Torch, Accelerate), `vllm` (Inspect's vLLM provider on Linux) and `tokenizers`
+(Transformers only, for the opt-in `-T legacy_tokenizer` parity preprocessing).
+Hosted and `openai-api/` providers need no extra. For development, `uv sync
+--locked --extra brief --extra mlflow` installs the pinned environment CI uses.
 
-The historical Gemma 4 GPU stack pins vLLM 0.30 with Transformers 5.20.2;
-do not downgrade Transformers to bypass its guarded per-layer configuration.
-Install the locked stack together, with compatible NVIDIA drivers, CUDA toolkit,
-and Python development headers for JIT compilation. This prior engine validation
-is not a claim of native task GPU parity. Inspect model arguments replace old
-engine flags; consult provider help and each task's README before loading adapters.
+Version 0.2.0 removed the legacy evaluation engine; see
+[CHANGELOG.md](CHANGELOG.md).
 
-## Run
+### vLLM and Gemma 4
 
-Run outside the checkout to ensure Inspect resolves installed registered names
-rather than similarly named source directories. Production preprocessing requires
-a matching explicit answer tokenizer and a native vLLM or HF answer provider:
+The `vllm` extra selects `vllm>=0.30.0,<0.31` on Linux x86_64/aarch64 with
+Transformers `>=5.20.2,<5.21`. vLLM 0.30 resolves Gemma 4 attention parameters
+from each layer config; older vLLM with Transformers 5.20.2 raises
+`AmbiguousGlobalPerLayerAttributeError` instead. Do not disable that guard or
+downgrade Transformers to work around it. Install the locked stack together:
+vLLM 0.30 requires Torch 2.13.0 (CUDA 13.0.3 and Triton 3.7.1 wheels), NVIDIA
+driver 580 or newer, and, for FlashInfer JIT compilation, a CUDA toolkit with
+`nvcc`, C++ build tools and Python development headers matching the interpreter
+(for example `python3.12-dev`). vLLM 0.30 does not support bitsandbytes
+quantization.
 
 ```bash
-mkdir -p results/native
-cd results/native
+uv venv --python /usr/bin/python3.12 .venv-gemma4
+UV_PROJECT_ENVIRONMENT=.venv-gemma4 uv sync --locked --no-dev --extra vllm --extra brief
+```
+
+Inspect launches the vLLM server itself (`--model vllm/<repo-or-path>`) and
+forwards unrecognized `-M name=value` options to it as server flags, for example
+`-M max_model_len=8192 -M gpu_memory_utilization=0.85 -M language_model_only=true`.
+See the [legacy flag mapping](INSPECT_MIGRATION.md#legacy-flag-mapping).
+
+## Running a benchmark
+
+```bash
 inspect eval llm_behavior_eval/bbq -T bias_type=gender -T kind=bias \
-  -T compatibility_tokenizer=/models/answer-snapshot \
-  --model vllm//models/answer-snapshot --model-role grader=vllm//models/judge-snapshot \
+  --model hf/meta-llama/Llama-3.1-8B-Instruct \
+  --model-role grader=hf/google/gemma-4-12B-it \
   --log-dir logs
 inspect view --log-dir logs
 ```
 
-Use immutable local snapshots matching the deployments. The family applies native
-thinking controls independently to both roles. API graders may instead use the
-existing external-thinking assertions; their hidden tokenization remains
-unqualified. HF configuration is shown in [the migration reference](INSPECT_MIGRATION.md#native-hf-preprocessing). Generic API answers remain unsupported.
-See [production preprocessing and qualification](scripts/parity/README.md#production-preprocessing-contract-llm-169)
-for task options, DSTA deployment scope, and separate answer/judge processes.
-Local/offline datasets use `-T dataset_path=/absolute/path/to/saved-dataset`;
-use Hugging Face `save_to_disk` format. Physical paths do not change task identity.
-CCPC validates the full pinned 500-row snapshot, including its fingerprint,
-before applying sample caps. `--limit 2` controls Inspect sample execution.
+The grader is never implied: always pass `--model-role grader=...`. The
+recommended judge is `google/gemma-4-12B-it` (the legacy `--judge-model`
+default; not yet parity-qualified). CCPC pins `google/gemma-4-26B-A4B-it`; see
+its README. `--limit N` caps the number of samples (the legacy `--max-samples`);
+each benchmark orders its samples like the legacy engine did, so the same rows
+are selected.
 
-Thinking policies differ by benchmark; they are assertions about deployments,
-not a universal switch. Bias and Purple Llama expose
-`externally_configured_thinking`; HaluEval/Med-Hallu expose `thinking_disabled`
-and `grader_thinking_disabled`; CCPC and refusal tasks expose
-`answer_thinking_configured` and `judge_thinking_configured`. Refusal tasks also
-have `thinking` (default true). HF model objects must receive the appropriate
-`enable_thinking` and `do_sample` arguments independently for each role.
-See each benchmark's README and [migration reference](INSPECT_MIGRATION.md).
+Run the `inspect` command, or run Python from a directory other than the
+repository root. `python -m inspect_ai eval ...` started **from the repository
+root** puts the source tree first on `sys.path`, where setuptools' egg-info hides
+the install metadata Inspect uses to prefix task names. The log's task is then
+`bbq` instead of `llm_behavior_eval/bbq`, and inspect-brief applies no target
+metrics to it.
 
-The grader is always configured explicitly; no judge is loaded by default.
-Gemma 4 12B (`google/gemma-4-12B-it`, the old CLI's `--judge-model` default) is
-the recommended grader, for example `--model-role grader=hf/google/gemma-4-12B-it`.
-CCPC instead expects its pinned `google/gemma-4-26B-A4B-it` judge; see its README.
-The parity evidence in `scripts/parity` was collected with Gemma 3 12B judges;
-Gemma 4 12B has not been parity-qualified yet.
+### Inference settings
 
-[The preset example](examples/presets_customization.py) expands catalog mappings
-into native tasks. `list_dataset_presets()` and `expand_dataset_preset()` retain
-ordered asset identities; `preset.inspect_tasks` supplies task names and arguments.
+Benchmarks set **no** inference settings for either role: no temperature,
+top_p, top_k, token budgets, or thinking switches. Unset values fall through to
+the serving stack's defaults (the model's `generation_config.json`, the vLLM or
+SGLang server, the chat template, or the hosted API). Set them through Inspect,
+separately for each role:
 
-## Migrating from the old CLI
+```bash
+inspect eval llm_behavior_eval/halueval \
+  --model hf/org/answer -M do_sample=false --temperature 0 --max-tokens 512 \
+  --model-role 'grader={model: hf/google/gemma-4-12B-it, temperature: 0.0, max_tokens: 64, model_args: {do_sample: false}}'
+```
 
-`llm-behavior-eval <model> <preset>` is retired. Use Inspect CLI or Python `eval`.
-Native outputs are `.eval` logs and optional brief CSV; old wide summary files,
-response JSON directories, and old CLI engine flags are no longer the public flow.
-Version 0.2.0 removes all legacy evaluator/configuration/engine imports. Mock tests verify wiring and scoring,
-not real-model parity; tokenizer truncation, chat rendering, and generation
-backend differences remain documented per task. See
-[MLflow integration](MLFLOW_INTEGRATION.md) for the optional hook.
+Eval-level flags (`--temperature`, `--max-tokens`, `--top-p`, `--top-k`,
+`--reasoning-effort`, `--reasoning-tokens`, `--generate-config FILE`) and `-M`
+provider arguments apply **only to the model under test**. The grader uses only
+its role's own settings, given inline as above or in a `--run-config` file.
+Thinking is a per-role provider argument too: `-M enable_thinking=false` on HF,
+or `--extra-body '{"chat_template_kwargs": {"enable_thinking": false}}'` for
+vLLM/SGLang.
 
-## Native Inspect summaries
+Caveats: Inspect's HF provider samples unless you pass `-M do_sample=false`
+(`do_sample: false` in the grader's `model_args`), and caps output at 2048 tokens
+when `--max-tokens` is unset. Model-recommended judge defaults often sample, so
+grading is non-deterministic unless you set the grader's temperature. The `.eval`
+log records only settings you passed, so pin and record model revisions.
 
-For native tasks, `.eval` logs are the source of truth and
-[inspect-brief](https://github.com/Hirundo-io/inspect-brief) replaces the legacy
-`summary_brief.csv` / `summary_full.csv` reporting flow. Native tasks do not write per-dataset `metrics.csv`/`responses.json`.
-The old evaluator and CSV writers are removed.
+An OpenAI-compatible judge endpoint (for example an air-gapped server) is just
+another provider:
 
-Use Python **3.12 or 3.13** for the package and optional brief integration.
+```bash
+export AIRGAP_BASE_URL=http://judge.internal:8000/v1
+export AIRGAP_API_KEY=...   # or a placeholder for a no-auth server
+inspect eval llm_behavior_eval/xstest --model hf/org/answer \
+  --model-role 'grader={model: openai-api/airgap/judge, temperature: 0.0, max_tokens: 64}'
+```
 
-```sh
-uv pip install --python .venv/bin/python -e '.[brief]'
-source .venv/bin/activate
-mkdir -p results/native
-cd results/native
-export INSPECT_BRIEF_TARGET_METRICS="$(python -m llm_behavior_eval.target_metrics --path)"
-export INSPECT_BRIEF_CSV_PATH=brief_results.csv
-export INSPECT_BRIEF_TASKS=llm_behavior_eval/halueval,llm_behavior_eval/medhallu
+[INSPECT_MIGRATION.md](INSPECT_MIGRATION.md) has the full per-role reference
+(CLI, run-config and Python forms), provider caveats and the legacy flag mapping.
+
+### Reproducing legacy results
+
+Each benchmark ships a `parity.yaml`, an Inspect run config with the legacy
+engine's exact settings for both roles (greedy decoding, its token budgets and
+thinking settings, the parity judge, and the legacy sample cap). It applies only
+when you pass it:
+
+```bash
+inspect eval llm_behavior_eval/bbq -T bias_type=gender -T kind=bias \
+  --model hf/org/answer -M do_sample=false \
+  --run-config "$(python -c 'from llm_behavior_eval.common.parity import parity_config_path; print(parity_config_path("llm_behavior_eval.bbq"))')"
+```
+
+The parity judge is `google/gemma-3-12b-it` (CCPC: its pinned
+`google/gemma-4-26B-A4B-it`); copy the file and change the grader's `model` to
+keep the parity settings with another judge.
+
+## Summaries with inspect-brief
+
+`.eval` logs are the source of truth. inspect-brief appends one CSV row per task
+and metric. Each benchmark package declares the metrics a report shows, and
+their units and direction, in its `target_metrics.json`;
+`llm_behavior_eval.common.target_metrics` merges them. Write the merged mapping
+to a file and point inspect-brief at it:
+
+```bash
+python -m llm_behavior_eval.common.target_metrics --output targets.json
+```
+
+Pass the file path, not its contents: inspect-brief 0.1.1 first treats the value
+as a path, and on Python 3.12/3.13 a value as long as the merged mapping makes
+that check fail.
+
+**During evaluation** (the hook, which inspect-brief registers with Inspect):
+
+```bash
+export INSPECT_BRIEF_TARGET_METRICS="$PWD/targets.json"
+export INSPECT_BRIEF_CSV_PATH="$PWD/brief.csv"
 export INSPECT_BRIEF_SKIP_EXISTING=true
-inspect eval llm_behavior_eval/halueval --model mockllm/model \
-  --model-role grader=mockllm/grader --log-dir logs
+# Optional: export INSPECT_BRIEF_TASKS=llm_behavior_eval/bbq,llm_behavior_eval/halueval
+inspect eval llm_behavior_eval/halueval --model hf/org/answer \
+  --model-role grader=hf/google/gemma-4-12B-it --log-dir logs
 ```
 
-Run from this separate directory: a checkout-relative task directory can be
-interpreted by Inspect as a source path and produce unqualified names, which do
-not match the packaged mapping. For direct Python task construction, use
-`task_with(task, name="llm_behavior_eval/bbq")` (from `inspect_ai`) to set the
-canonical reporting name.
+**After evaluation** (the CLI, over a log directory):
 
-The mock command demonstrates wiring only; configure real answer/grader models
-and their thinking policies as described in each benchmark section. All nine benchmark tasks in the table above are integrated; `inspect_template`
-is a wiring demonstration. Remove `INSPECT_BRIEF_TASKS` to include all tasks,
-or set a comma-separated list (not a wildcard). Purple Llama ASR is already 0–100.
-
-To summarize existing logs without the hook:
-
-```sh
-unset INSPECT_BRIEF_CSV_PATH
-inspect-brief --log-dir logs \
-  --target-metrics "$(python -m llm_behavior_eval.target_metrics --path)" \
-  --csv-path brief_results.csv --skip-existing
+```bash
+inspect-brief --log-dir logs --target-metrics targets.json \
+  --csv-path brief.csv --skip-existing
 ```
 
-Both flows append rows; `--skip-existing` / `INSPECT_BRIEF_SKIP_EXISTING=true`
-prevents repeat task IDs. Use a fresh CSV when changing target metrics, otherwise
-skip-existing also skips those changed targets. Only Inspect `.eval` input is
-supported, not JSON logs. **Each output CSV must have a single writer process**:
-Inspect-brief has no cross-process locking. Export concurrent runs to separate
-files, or run one CLI export after evaluations finish.
+Both append rows; `--skip-existing` (`INSPECT_BRIEF_SKIP_EXISTING=true`) skips
+tasks already in the CSV. Use a fresh CSV when the target metrics change. A CSV
+must have a single writer process: inspect-brief does not lock it across
+processes. Only `.eval` logs are read, not JSON logs.
 
-### Metric selection and units
+Things to know when reading the CSV:
 
-The installed JSON includes accuracy and error for bias tasks. Inspect-brief
-selects by task name, not task parameters. To retain the legacy primary metric,
-generate a small configuration for each kind and export each kind's logs
-separately (do not mix kinds under one task name in that export):
+* **Units and direction come from each package's `target_metrics.json`.**
+  `is_normalized: true` metrics are fractions that inspect-brief multiplies by
+  100 when `is_percentage` is set. HaluEval and Med-Hallu `accuracy` and Purple
+  Llama `attack_success_rate` are already on a 0–100 scale. The metric column
+  carries the unit and direction, for example `accuracy (%) ⬆️`.
+* **BBQ, BLOOM and UNQOVER report `stereotype_bias` only on splits with a
+  `stereotyped_answer` column**, as the legacy engine did. On other splits the
+  CSV row reads `Metric 'stereotype_bias' not found`; that is expected, not a
+  zero. `stereotype_bias` is a signed index (0 is neutral) without a percent
+  sign.
+* **Both `error` and `accuracy` are listed for the bias tasks.** The legacy
+  summaries showed `error` for bias/ambiguous splits and `accuracy` for unbias
+  splits; inspect-brief selects targets by task name, not task arguments, so it
+  reports both. Read the one that matches the split (`kind` is in the log).
+* **Targets apply only to logs named `llm_behavior_eval/<task>`.** A log run by
+  `python -m inspect_ai` from the repository root (see above) gets raw metric
+  values without the target conventions.
 
-```sh
-python -m llm_behavior_eval.target_metrics --bias-kind bias > bias-metrics.json
-python -m llm_behavior_eval.target_metrics --bias-kind unbias > unbias-metrics.json
-# Set INSPECT_BRIEF_TARGET_METRICS or --target-metrics to the corresponding file.
+The CSV is long-form (`Created, Run ID, Benchmark, Metric, Score, Runtime (sec)`),
+not the legacy wide `summary_brief.csv`/`summary_full.csv`. `Benchmark` is the
+registered task name, so the split (`bias_type`, `kind`), the models and their
+settings come from the `.eval` log matched by `Run ID`.
+
+## MLflow reporting (optional)
+
+Install the `mlflow` extra and set `LLM_BEHAVIOR_EVAL_MLFLOW_ENABLED=1`. A hook
+registered with Inspect then logs each run's aggregate metrics and uploads its
+`.eval` files, attaching to an explicit, active or LoRA-adapter-inferred run.
+It is configured only through environment variables and reads or sets no
+inference settings. See [MLFLOW_INTEGRATION.md](MLFLOW_INTEGRATION.md) and
+[`examples/mlflow_example.py`](examples/mlflow_example.py). Do not enable it
+together with the platform's own Inspect-MLflow integration for the same run.
+
+## Migrating from the legacy CLI
+
+`llm-behavior-eval <model> <preset>` is retired: it runs nothing, prints how to
+run the preset with `inspect eval`, and exits with status 2. Presets map to
+tasks and `-T` arguments only; they carry no inference settings.
+
+| Legacy preset | Inspect task (prefix `llm_behavior_eval/`) | `-T` arguments |
+| --- | --- | --- |
+| `bias:<type>`, `unbias:<type>` | `bbq` | `bias_type=<type> kind=bias` or `kind=unbias` |
+| `unqover:bias:<type>` | `unqover` | `bias_type=<type> kind=bias` |
+| `bloom:bias:<type>`, `bloom:unbias:<type>` | `bloom` | `bias_type=<type> kind=bias` or `kind=unbias` |
+| `bloom:bias:<type>:ambiguous` | `bloom` | `bias_type=<type> kind=ambiguous` |
+| `hallu` (`hallucination`) | `halueval` | none |
+| `hallu-med` (`hallucination-med`) | `medhallu` | none |
+| `prompt-injection` | `prompt_injection` | none |
+| `chinese_censorship` | `ccpc` | none |
+| `refusal:xstest`, `refusal:orbench` | `xstest`, `orbench` | none |
+
+`<preset>:all` expands to one task per type, and `refusal:all` to both refusal
+tasks, in catalog order. From Python, `list_dataset_presets()` and
+`get_dataset_preset(name)` return each preset's `dataset_ids` (unchanged) and
+`inspect_tasks`, a tuple of `InspectTaskMapping(task_name, task_args,
+dataset_id)` with `cli_args` for the `-T` options;
+[`examples/presets_customization.py`](examples/presets_customization.py) runs
+presets as Inspect tasks with per-role settings. Inspect runs tasks from
+different legacy families in one `eval()`.
+
+| Legacy option | Inspect |
+| --- | --- |
+| `<model>` | `--model <provider>/<model>` (`hf/`, `vllm/`, `openai-api/<service>/`, ...) |
+| `--judge-model`, judge engine | `--model-role grader=<provider>/<model>` |
+| `--max-samples N` | `--limit N` |
+| answer/judge temperature, token budgets, thinking | per-role Inspect settings (above), or `--run-config <benchmark>/parity.yaml` |
+| `--base-output-dir`, `--model-output-dir` | `--log-dir` |
+| `--use-mlflow`, `--mlflow-*` | `LLM_BEHAVIOR_EVAL_MLFLOW_*` environment variables |
+| vLLM and HF loading flags | `-M` provider arguments; see [INSPECT_MIGRATION.md](INSPECT_MIGRATION.md#legacy-flag-mapping) |
+
+Outputs changed: `.eval` logs replace `responses.json`, `generations.jsonl`,
+`run_config.json` and per-dataset `metrics.csv`; inspect-brief's CSV replaces
+`summary_brief.csv` and `summary_full.csv`. The Notion uploader, which read the
+legacy summaries, is removed (see `hirundo_notion_tools/README.md`). Version
+0.2.0 removed the legacy evaluator and config classes (`EvaluateFactory`,
+`EvaluationConfig`, `DatasetConfig`, `VllmConfig`, ...) with the engine; the
+package exports only the preset catalog. Reproducing a historical legacy run
+needs the frozen pre-removal checkout described in
+[scripts/parity/README.md](scripts/parity/README.md).
+
+## Development
+
+```bash
+uv venv --python 3.12 .venv && source .venv/bin/activate
+uv sync --locked --extra brief --extra mlflow
+pytest                       # pyproject.toml sets --import-mode=importlib
+ruff format --check --diff . && ruff check . && pyrefly check
 ```
 
-Bias and BLOOM ambiguous use `error` (lower better); unbias uses `accuracy`
-(higher better). UNQOVER is bias-only. The static default exposes both explicitly.
-`stereotype_bias` is a signed dimensionless index, displayed without percent,
-with the legacy downward direction; zero is neutrality, so a more negative
-value is not necessarily a less biased model. It is only emitted when the source
-has a stereotype column; otherwise brief reports a missing metric, not zero.
+`tests/test_inspect_smoke.py` and `tests/test_inspect_brief.py` run every
+registered task offline on local datasets with mock answer and grader models,
+and check inspect-brief's hook and CLI on the real `.eval` logs. The dev
+container (`.devcontainer/`) uses Python 3.12 and installs the `brief` and
+`mlflow` extras; set `LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS` (for example
+`brief,mlflow,vllm`, or empty for the base package) before running
+`.devcontainer/setup.sh` to change that. See [AGENTS.md](AGENTS.md) for
+contributor conventions and [INSPECT_MIGRATION.md](INSPECT_MIGRATION.md) for
+how to add a benchmark.
 
-Bias accuracy/error, safe/unsafe refusal, censorship, and incomplete-response
-rates are fractions (`is_normalized=true`) displayed as percentages.
-HaluEval/Med-Hallu accuracy and Purple Llama ASR are already percentages
-(`is_normalized=false`). Accuracy and unsafe refusal point up; error, safe
-refusal, censorship, ASR, and incomplete response point down. CCPC undefined
-censorship is preserved as `nan`; never interpret this as zero censorship.
-Heuristic refusal metrics, counts, and diagnostics remain in the `.eval` log
-and are excluded from brief. The refusal scorer emits scalar sample scores;
-its aggregate metric returns named rates and counts. Brief selects
-`safe_refusal_rate`, `unsafe_refusal_rate`, and `incomplete_response_rate`.
-Configured targets match the metric key itself; unconfigured exports add
-`scorer: metric` prefixes when there are multiple score entries.
+## Tested on
 
-### Downstream schema migration
-
-The new CSV is long-form: `Created,Run ID,Benchmark,Metric,Score,Runtime (sec)`.
-Each task/metric produces one row; there are no wide metric columns, `Dataset`
-or `Thinking` columns, or empty-column dropping. `Benchmark` uses the registered
-name (for example `llm_behavior_eval/bbq`), not `BBQ: gender bias`. `Metric` uses
-snake-case keys with percentage/direction suffixes, such as `accuracy (%) ⬆️`.
-Use the task ID in `Run ID` to join back to `.eval` logs for model, task parameters
-(kind/bias_type), thinking configuration, sample responses and diagnostics.
-Consumers must migrate explicitly rather than rename the old wide CSV file.
+The legacy engine (removed in 0.2.0) was validated with these evaluated models:
+`google/gemma-3-12b-it`, `meta-llama/Meta-Llama-3.1-8B-Instruct`,
+`meta-llama/Llama-3.2-3B-Instruct`, `google/gemma-7b-it`, `google/gemma-2b-it`
+and `google/gemma-3-4b-it`, with `google/gemma-3-12b-it` and
+`meta-llama/Llama-3.3-70B-Instruct` judges. Native-task parity with the legacy
+engine is tracked per benchmark in each package README.
 
 ## License
 
-See [LICENSE](LICENSE).
+This project is licensed under the MIT License. See the LICENSE file for more information.

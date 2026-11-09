@@ -1,14 +1,11 @@
-"""Native BBQ; select each of the twelve splits explicitly."""
+"""Native BBQ; one parameterized task selects one of the twelve splits."""
 
 from inspect_ai import Task, task
-from inspect_ai.solver import system_message
 
-from llm_behavior_eval.bbq.dataset import dataset
-from llm_behavior_eval.bias.scorer import bias_metrics, bias_scorer
-from llm_behavior_eval.bias.solver import bias_generate
-from llm_behavior_eval.common.generation import generation_config
-from llm_behavior_eval.common.preprocessing import compatibility_task
-from llm_behavior_eval.common.templates import FREE_TEXT_SYSTEM_MESSAGE
+from llm_behavior_eval.bbq.dataset import LEGACY_SHUFFLE_SEED, dataset
+from llm_behavior_eval.bbq.metrics import bbq_metrics
+from llm_behavior_eval.bbq.scorer import bbq_scorer
+from llm_behavior_eval.bbq.solver import bbq_solver
 
 
 @task
@@ -17,39 +14,36 @@ def bbq(
     kind: str = "bias",
     dataset_path: str | None = None,
     dataset_token: str | None = None,
-    max_samples: int | None = 500,
-    seed: int = 42,
-    externally_configured_thinking: bool = False,
-    compatibility_tokenizer: str | None = None,
-    compatibility_tokenizer_revision: str | None = None,
+    seed: int = LEGACY_SHUFFLE_SEED,
+    legacy_tokenizer: str | None = None,
+    legacy_tokenizer_revision: str | None = None,
 ) -> Task:
-    """One split per task; explicit grader required, recommended gemma-4-12B-it.
+    """BBQ split ``hirundo-io/bbq-{bias_type}-{kind}-free-text``.
 
-    externally_configured_thinking asserts BOTH deployments disable thinking;
-    use it for independently configured OpenAI-compatible endpoints.
+    Requires ``--model-role grader=...``; no grader is bound or implied. No
+    inference settings are set here (no ``config=``): pass them per role, or
+    pass ``parity.yaml`` with ``--run-config`` for the legacy settings.
+    ``seed`` only orders the samples (the legacy shuffle).
+
+    ``legacy_tokenizer`` (off by default) opts in to the legacy engine's text
+    preprocessing for parity runs: it names the answer model's local tokenizer
+    snapshot (or a cached repository with an immutable
+    ``legacy_tokenizer_revision``), and the judge then sees the legacy decoded
+    prompt, target and stereotype. The model's input is unchanged.
     """
     data = dataset(
         bias_type,
         kind,
         dataset_path=dataset_path,
         dataset_token=dataset_token,
-        max_samples=max_samples,
         seed=seed,
     )
     has_stereotype = (
         bool((data[0].metadata or {})["has_stereotype"]) if len(data) else False
     )
-    result = Task(
+    return Task(
         dataset=data,
-        solver=[
-            system_message(FREE_TEXT_SYSTEM_MESSAGE["content"]),
-            bias_generate(externally_configured_thinking),
-        ],
-        scorer=bias_scorer(),
-        metrics=[bias_metrics(kind, has_stereotype)],
-        config=generation_config("bias"),
-    )
-
-    return compatibility_task(
-        result, compatibility_tokenizer, compatibility_tokenizer_revision, family="bbq"
+        solver=bbq_solver(legacy_tokenizer, legacy_tokenizer_revision),
+        scorer=bbq_scorer(),
+        metrics=[bbq_metrics(kind, has_stereotype)],
     )

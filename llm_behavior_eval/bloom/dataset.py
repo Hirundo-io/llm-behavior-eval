@@ -1,10 +1,27 @@
-"""BLOOM split identity and validated, stable conversion."""
+"""BLOOM split identity, full-source validation and legacy-ordered conversion."""
+
+from typing import Any
 
 from inspect_ai.dataset import MemoryDataset, Sample
 
 from llm_behavior_eval.common.dataset import load_hf_dataset, to_inspect_dataset
 
 BIAS_TYPES = ("age", "gender", "race")
+KINDS = ("bias", "unbias", "ambiguous")
+SOURCE_INDEX = "__bloom_source_index"
+# Legacy DatasetConfig.seed: the split is shuffled with it before the sample cap.
+LEGACY_SHUFFLE_SEED = 42
+
+
+def dataset_id(bias_type: str, kind: str) -> str:
+    """Logical HF identity of one BLOOM split, as built by the legacy presets."""
+    if bias_type not in BIAS_TYPES or kind not in KINDS:
+        raise ValueError(
+            "Expected a BLOOM bias type (age, gender, race) and kind "
+            "bias, unbias or ambiguous"
+        )
+    split = "ambiguous-bias" if kind == "ambiguous" else kind
+    return f"hirundo-io/bloom-{bias_type}-{split}-free-text"
 
 
 def dataset(
@@ -13,15 +30,17 @@ def dataset(
     *,
     dataset_path: str | None = None,
     dataset_token: str | None = None,
-    max_samples: int | None = 500,
-    seed: int = 42,
+    seed: int = LEGACY_SHUFFLE_SEED,
 ) -> MemoryDataset:
-    if bias_type not in BIAS_TYPES or kind not in ("bias", "unbias", "ambiguous"):
-        raise ValueError(
-            "Expected a BLOOM bias type and kind bias, unbias or ambiguous"
-        )
-    split = "ambiguous-bias" if kind == "ambiguous" else kind
-    identity = f"hirundo-io/bloom-{bias_type}-{split}-free-text"
+    """Every row of the split, in the legacy engine's shuffled order.
+
+    The legacy engine shuffled the whole split with ``seed`` and then kept the
+    first ``max_samples`` rows. Applying the same shuffle here, and keeping every
+    row, lets Inspect's ``--limit`` (or ``eval_config.limit`` in ``parity.yaml``)
+    select exactly the legacy samples. Sample IDs carry the original source row
+    index, so they do not depend on the order or the limit.
+    """
+    identity = dataset_id(bias_type, kind)
     records = load_hf_dataset(
         identity, dataset_path=dataset_path, dataset_token=dataset_token
     )
@@ -30,16 +49,15 @@ def dataset(
     for row in records:
         if any(not isinstance(row.get(key), str) for key in fields):
             raise ValueError(f"{identity}: required text columns: {fields}")
-    # Legacy shuffles before capping; retain original source indices as IDs.
-    indexed = records.add_column(
-        "__bloom_source_index", list(range(len(records)))
-    ).shuffle(seed=seed)
+    shuffled = records.add_column(SOURCE_INDEX, list(range(len(records)))).shuffle(
+        seed=seed
+    )
 
-    def convert(row: dict) -> Sample:
+    def record_to_sample(row: dict[str, Any]) -> Sample:
         return Sample(
             input=row["question"],
             target=row["answer"],
-            id=f"{identity}:{row['__bloom_source_index']}",
+            id=f"{identity}:{row[SOURCE_INDEX]}",
             metadata={
                 "dataset_id": identity,
                 "bias_type": bias_type,
@@ -49,6 +67,4 @@ def dataset(
             },
         )
 
-    return to_inspect_dataset(
-        indexed, convert, dataset_id=identity, max_samples=max_samples
-    )
+    return to_inspect_dataset(shuffled, record_to_sample, dataset_id=identity)

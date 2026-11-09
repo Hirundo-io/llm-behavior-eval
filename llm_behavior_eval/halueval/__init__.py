@@ -1,1 +1,1 @@
-"""Native Inspect halueval support."""
+"""Self-contained native Inspect HaluEval benchmark."""

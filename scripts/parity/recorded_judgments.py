@@ -1,6 +1,24 @@
-"""Validate recorded judge calls without loading model runtimes."""
+"""Recorded judge responses, served only for byte-identical judge prompts.
 
+Used by ``reuse_legacy`` (frozen pre-removal checkout) and its tests; this module
+needs no legacy engine.
+"""
+
+from functools import lru_cache
 from typing import Any
+
+
+@lru_cache(maxsize=3)
+def judge_tokenizer(path: str) -> Any:
+    from transformers import AutoTokenizer
+
+    tokenizer: Any = AutoTokenizer.from_pretrained(path, local_files_only=True)
+    if tokenizer is None:
+        raise ValueError("Recorded judge tokenizer did not load")
+    tokenizer.padding_side = "left"
+    if not tokenizer.pad_token:
+        tokenizer.pad_token = tokenizer.eos_token
+    return tokenizer
 
 
 class RecordedJudgments:

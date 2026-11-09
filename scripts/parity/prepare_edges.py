@@ -54,16 +54,14 @@ def main() -> None:
             )
         rows.append(row)
     Dataset.from_list(rows).to_parquet(str(parquet))
-    task = getattr(_registry, family)(
-        dataset_path=str(root / "dataset"), max_samples=4, **task_args
-    )
+    task = getattr(_registry, family)(dataset_path=str(root / "dataset"), **task_args)
     (root / "original-source.json").write_text(json.dumps(source, indent=2))
     source.update(
         synthetic_edge=True,
         original_rows=source["rows"],
         rows=4,
         revision=source["revision"] + "+synthetic-boundary-v2",
-        ids=[sample.id for sample in task.dataset],
+        ids=[sample.id for sample in task.dataset][:4],
         parquet_sha256=hashlib.sha256(parquet.read_bytes()).hexdigest(),
     )
     source_path.write_text(json.dumps(source, indent=2))

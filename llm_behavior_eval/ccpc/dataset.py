@@ -1,4 +1,9 @@
-"""Validated CCPC source order and stable IDs; cap only after validation."""
+"""Validated CCPC source order and stable IDs.
+
+The complete 500-row source is validated before conversion. Sample caps are
+Inspect's (``--limit`` or ``eval_config.limit`` in ``parity.yaml``), which take a
+prefix in published order; the legacy engine also capped by prefix, unshuffled.
+"""
 
 import hashlib
 import json
@@ -37,7 +42,6 @@ def load_ccpc_dataset(
     dataset_path: str | None = None,
     file_path: str | None = None,
     dataset_token: str | None = None,
-    max_samples: int | None = 500,
 ) -> MemoryDataset:
     if dataset_path and file_path and dataset_path != file_path:
         raise ValueError("dataset_path and file_path disagree")
@@ -93,9 +97,7 @@ def load_ccpc_dataset(
             "CCPC-Bench rows do not match the pinned published order and contents; "
             f"expected fingerprint {CCPC_DATASET_FINGERPRINT}, found {fingerprint}."
         )
-    return to_inspect_dataset(
-        dataset, record_to_sample, dataset_id=CCPC_DATASET_ID, max_samples=max_samples
-    )
+    return to_inspect_dataset(dataset, record_to_sample, dataset_id=CCPC_DATASET_ID)
 
 
 def record_to_sample(record: dict) -> Sample:

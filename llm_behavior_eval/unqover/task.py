@@ -1,62 +1,49 @@
-"""Native UNQOVER; select each of the four ambiguous splits explicitly."""
-
 from inspect_ai import Task, task
-from inspect_ai.solver import system_message
 
-from llm_behavior_eval.bias.scorer import bias_metrics, bias_scorer
-from llm_behavior_eval.bias.solver import bias_generate
-from llm_behavior_eval.common.generation import generation_config
-from llm_behavior_eval.common.preprocessing import compatibility_task
-from llm_behavior_eval.common.templates import FREE_TEXT_SYSTEM_MESSAGE
-from llm_behavior_eval.unqover.dataset import dataset
+from llm_behavior_eval.unqover.dataset import KIND, LEGACY_SEED, dataset
+from llm_behavior_eval.unqover.metrics import unqover_metrics
+from llm_behavior_eval.unqover.scorer import unqover_scorer
+from llm_behavior_eval.unqover.solver import unqover_solver
 
 
 @task
 def unqover(
     bias_type: str = "gender",
-    kind: str = "bias",
+    kind: str = KIND,
     dataset_path: str | None = None,
     dataset_token: str | None = None,
-    max_samples: int | None = 500,
-    seed: int = 42,
-    externally_configured_thinking: bool = False,
-    compatibility_tokenizer: str | None = None,
-    compatibility_tokenizer_revision: str | None = None,
+    seed: int = LEGACY_SEED,
+    legacy_tokenizer: str | None = None,
+    legacy_tokenizer_revision: str | None = None,
 ) -> Task:
-    """Primary error=1-accuracy (fraction, displayed as percent; lower is better).
+    """UNQOVER stereotype probing on one ambiguous (bias) split.
 
-    Other metrics: accuracy/incomplete_response_rate (fractions),
-    empty_responses (count), stereotype_bias (signed index, optional column).
-    One split per task; explicit grader required, recommended gemma-4-12B-it.
+    Primary metric ``error`` = 1 - accuracy (lower is better). Requires
+    ``--model-role grader=...``. Sets no inference settings for either role;
+    pass ``--run-config llm_behavior_eval/unqover/parity.yaml`` for the legacy
+    engine's settings and 500-sample cap.
 
-    externally_configured_thinking asserts BOTH deployments disable thinking;
-    use it for independently configured OpenAI-compatible endpoints.
+    ``legacy_tokenizer`` (off by default) opts in to the legacy engine's text
+    preprocessing for parity runs: it names the answer model's local tokenizer
+    snapshot (or a cached repository with an immutable
+    ``legacy_tokenizer_revision``), and the judge then sees the legacy decoded
+    prompt, target and stereotype. The model's input is unchanged.
     """
     data = dataset(
         bias_type,
         kind,
         dataset_path=dataset_path,
         dataset_token=dataset_token,
-        max_samples=max_samples,
         seed=seed,
     )
     has_stereotype = (
         bool((data[0].metadata or {})["has_stereotype"]) if len(data) else False
     )
-    result = Task(
+    # No `config=` and no grader binding: inference settings and the judge
+    # always come from the user.
+    return Task(
         dataset=data,
-        solver=[
-            system_message(FREE_TEXT_SYSTEM_MESSAGE["content"]),
-            bias_generate(externally_configured_thinking),
-        ],
-        scorer=bias_scorer(),
-        metrics=[bias_metrics(kind, has_stereotype)],
-        config=generation_config("bias"),
-    )
-
-    return compatibility_task(
-        result,
-        compatibility_tokenizer,
-        compatibility_tokenizer_revision,
-        family="unqover",
+        solver=unqover_solver(legacy_tokenizer, legacy_tokenizer_revision),
+        scorer=unqover_scorer(),
+        metrics=[unqover_metrics(has_stereotype)],
     )

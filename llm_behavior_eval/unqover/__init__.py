@@ -1,1 +1,1 @@
-"""Native Inspect UNQOVER benchmark."""
+"""Native Inspect UNQOVER benchmark (self-contained)."""

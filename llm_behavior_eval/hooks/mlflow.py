@@ -1,4 +1,12 @@
-"""Opt-in, bounded MLflow reporting for finalized native Inspect runs."""
+"""Opt-in, bounded MLflow reporting for finalized native Inspect runs.
+
+The hook is registered by ``llm_behavior_eval._registry`` (Inspect's entry
+point), so it is available to every ``inspect eval`` in an environment where
+this package is installed. It does nothing, and never imports MLflow, unless
+``LLM_BEHAVIOR_EVAL_MLFLOW_ENABLED`` is set. It reports aggregate metrics from
+``EvalLog.results`` and uploads the finalized ``.eval`` files; it reads and
+sets no inference settings. See ``MLFLOW_INTEGRATION.md``.
+"""
 
 import asyncio
 import hashlib
@@ -122,8 +130,12 @@ class MlflowHook(Hooks):
     def __init__(self) -> None:
         self._runs: dict[str, dict[str, Any]] = {}
 
+    def enabled(self) -> bool:
+        """Opt-in: report only when ``LLM_BEHAVIOR_EVAL_MLFLOW_ENABLED`` is set."""
+        return os.getenv(PREFIX + "ENABLED", "").lower() in {"1", "true", "yes"}
+
     async def on_run_start(self, data: RunStart) -> None:
-        if os.getenv(PREFIX + "ENABLED", "").lower() not in {"1", "true", "yes"}:
+        if not self.enabled():
             return
         try:
             import mlflow

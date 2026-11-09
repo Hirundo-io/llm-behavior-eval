@@ -1,23 +1,41 @@
 import importlib
-import json
+import subprocess
+import sys
+from math import isnan
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
+import yaml
 from datasets import Dataset
 from inspect_ai import eval as _inspect_eval
-from inspect_ai.model import ModelOutput, get_model
+from inspect_ai.log import list_eval_logs, read_eval_log
+from inspect_ai.model import GenerateConfig, Model, ModelOutput, get_model
 
+from llm_behavior_eval.common.parity import parity_config_path, read_parity_config
+from llm_behavior_eval.common.target_metrics import (
+    TARGET_METRICS_FILE,
+    load_target_metrics,
+    missing_target_metrics,
+    read_target_metrics_file,
+)
 from llm_behavior_eval.prompt_injection.dataset import DATASET_ID, dataset
 from llm_behavior_eval.prompt_injection.scorer import parse_yes_no
 from llm_behavior_eval.prompt_injection.task import prompt_injection
-from tests.golden import BASELINE as GOLDEN
+from tests.golden import golden
+
+# Frozen outputs of the removed legacy engine (FreeTextPromptInjectionEvaluator,
+# custom_dataset, prompts, eval_config); see tests/golden/README.md.
+LEGACY = golden("prompt_injection")
+
+PACKAGE = "llm_behavior_eval.prompt_injection"
+TASK = "llm_behavior_eval/prompt_injection"
+REPO = Path(__file__).parents[1]
 
 
 def inspect_eval(*args, **kwargs) -> Any:
-    # JSON avoids lazy binary-log loading hangs in this sandbox.
-    return _inspect_eval(*args, log_format="json", **kwargs)
+    # JSON avoids lazy binary-log loading hangs in some sandboxes.
+    return _inspect_eval(*args, log_format="json", display="none", **kwargs)
 
 
 @pytest.fixture
@@ -32,38 +50,188 @@ def source(monkeypatch):
     return install
 
 
-@pytest.mark.parametrize(
-    "raw", ["Yes", "NO!", "yesterday", "", "No then yes", "YES/no"]
-)
-def test_parser_parity(raw):
-    expected = {
-        "Yes": "Yes",
-        "NO!": "No",
-        "yesterday": "No",
-        "": "No",
-        "No then yes": "No",
-        "YES/no": "Yes",
+@pytest.fixture
+def mock_parity_config(tmp_path) -> Path:
+    """The shipped parity config with only the grader model swapped for a mock."""
+    config = yaml.safe_load(parity_config_path(PACKAGE).read_text())
+    config["model_roles"]["grader"]["model"] = "mockllm/judge"
+    config["model_roles"]["grader"]["args"] = {}
+    path = tmp_path / "parity.yaml"
+    path.write_text(yaml.safe_dump(config))
+    return path
+
+
+def _metrics(log) -> dict[str, float]:
+    return {
+        name: metric.value for name, metric in log.results.scores[0].metrics.items()
     }
-    assert parse_yes_no(raw) == expected[raw]
 
 
-@pytest.mark.parametrize("yes,total", [(1, 5), (2, 5), (1, 10), (3, 7), (0, 5), (5, 5)])
-def test_asr_preserves_exact_legacy_arithmetic(monkeypatch, yes, total):
-    from inspect_ai.scorer import SampleScore, Score
+# --- Registry and settings ---------------------------------------------------
 
-    from llm_behavior_eval.prompt_injection.scorer import attack_success_rate
 
-    labels = ["Yes"] * yes + ["No"] * (total - yes)
-    golden = json.loads(
-        (Path(__file__).parent / "golden/purple_baseline.json").read_text()
+def test_registry_discovery():
+    from llm_behavior_eval import _registry
+
+    assert "prompt_injection" in _registry.__all__
+    assert vars(_registry)["prompt_injection"] is prompt_injection
+    listed = subprocess.run(
+        [sys.executable, "-m", "inspect_ai", "list", "tasks", "llm_behavior_eval"],
+        capture_output=True,
+        text=True,
     )
-    scores = [SampleScore(score=Score(value=int(label == "Yes"))) for label in labels]
-    scores.append(SampleScore(score=Score(value=0, metadata={"skipped": True})))
-    actual = cast("Any", attack_success_rate())(scores)
-    assert actual == golden[f"{yes}/{total}"]
+    assert listed.returncode == 0, listed.stderr
+    assert "prompt_injection" in listed.stdout
 
 
-def test_dataset(source):
+def test_task_sets_no_inference_settings(source):
+    source([dict(question="q", answer="a")])
+    task = prompt_injection()
+    assert task.config == GenerateConfig()
+    assert not task.model_roles
+
+
+# parity.yaml request bodies (vLLM/OpenAI-compatible): the legacy thinking
+# setting, and the legacy prompt tokenization (special tokens added; answer
+# prompts truncated to 1024 tokens on the right).
+ANSWER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+    "truncate_prompt_tokens": 1024,
+    "truncation_side": "right",
+}
+GRADER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+}
+
+
+def test_shipped_parity_config_holds_legacy_settings():
+    path = parity_config_path(PACKAGE)
+    assert path == REPO / "llm_behavior_eval" / "prompt_injection" / "parity.yaml"
+    config = yaml.safe_load(path.read_text())
+    assert set(config) == {"generate_config", "eval_config", "model_roles"}
+    legacy = LEGACY["family_token_defaults"]
+    legacy_defaults = LEGACY["evaluation_config_defaults"]
+    assert config["generate_config"] == {
+        "temperature": 0.0,
+        "max_tokens": legacy["max_answer_tokens"],
+        "seed": 42,
+        "extra_body": ANSWER_BODY,
+    }
+    assert legacy_defaults["sample"] is False
+    assert config["eval_config"] == {"limit": legacy_defaults["max_samples"]}
+    grader = config["model_roles"]["grader"]
+    assert grader["model"] == "hf/google/gemma-3-12b-it"
+    assert grader["config"] == {
+        "temperature": 0.0,
+        "max_tokens": legacy["max_judge_tokens"],
+        "seed": 42,
+        "extra_body": GRADER_BODY,
+    }
+    assert legacy["sample_judge"] is False and legacy["enable_thinking"] is False
+    assert grader["args"] == {"do_sample": False, "enable_thinking": False}
+    assert config["generate_config"]["max_tokens"] == 128  # not HPLT-338's 512
+
+
+def _assert_parity_recorded(log) -> None:
+    spec = log.eval
+    # Eval-level GenerateConfig (the model under test) is recorded in the plan.
+    generate = log.plan.config
+    assert (generate.temperature, generate.max_tokens) == (0.0, 128)
+    assert spec.config.limit == 500
+    grader = spec.model_roles["grader"]
+    assert (grader.config.temperature, grader.config.max_tokens) == (0.0, 32)
+
+
+def test_parity_config_python(tmp_path, source, mock_parity_config):
+    source([dict(question=f"q{i}", answer="a") for i in range(3)])
+    seen = []
+
+    def answer(messages, tools, choice, config):
+        assert (config.temperature, config.max_tokens) == (0.0, 128)
+        seen.append(config)
+        return ModelOutput.from_content("mockllm/answer", "No way.")
+
+    log = inspect_eval(
+        prompt_injection(),
+        model=get_model("mockllm/answer", custom_outputs=answer),
+        log_dir=str(tmp_path),
+        **read_parity_config(mock_parity_config),
+    )[0]
+    assert log.status == "success", log.error
+    _assert_parity_recorded(log)
+    assert len(seen) == 3
+
+
+def test_cli_parity_run_and_target_metrics(tmp_path, mock_parity_config):
+    """Registered CLI run on a local snapshot; metric names match target_metrics."""
+    data = tmp_path / "data"
+    Dataset.from_list([dict(question="q", answer="a")]).save_to_disk(str(data))
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "inspect_ai",
+            "eval",
+            TASK,
+            "--model",
+            "mockllm/answer",
+            "-T",
+            f"dataset_path={data}",
+            "--run-config",
+            str(mock_parity_config),
+            "--log-dir",
+            str(tmp_path / "logs"),
+            "--display",
+            "none",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    logs = list_eval_logs(str(tmp_path / "logs"))
+    assert len(logs) == 1
+    log = read_eval_log(logs[0])
+    assert log.status == "success", log.error
+    _assert_parity_recorded(log)
+    path = parity_config_path(PACKAGE).with_name(TARGET_METRICS_FILE)
+    assert (
+        path == REPO / "llm_behavior_eval" / "prompt_injection" / "target_metrics.json"
+    )
+    targets = read_target_metrics_file(path)
+    assert list(targets) == [TASK]
+    assert load_target_metrics()[TASK] == targets[TASK]
+    declared = [entry["name"] for entry in targets[TASK]]
+    assert declared == list(_metrics(log))
+    # inspect-brief finds every target in the written log.
+    assert missing_target_metrics(log) == []
+
+
+def test_registry_names_are_package_specific():
+    # Inspect's registry keeps the last object registered under a name, so a
+    # generic name (`attack_success_rate`) reused by another benchmark would
+    # replace this package's when a log is rescored; see
+    # _registry.check_unique_registry_names.
+    from llm_behavior_eval import _registry
+
+    names = {
+        name
+        for (_, name), modules in _registry.registry_definitions().items()
+        if any(module.startswith(f"{PACKAGE}.") for module in modules)
+    }
+    assert names == {
+        "llm_behavior_eval/prompt_injection",
+        "llm_behavior_eval/prompt_injection_metrics",
+        "llm_behavior_eval/prompt_injection_scorer",
+    }
+
+
+# --- Dataset conversion ------------------------------------------------------
+
+
+def test_dataset_legacy_order_and_overrides(source):
     rows = [
         dict(
             question=f"q{i}",
@@ -75,31 +243,110 @@ def test_dataset(source):
     ]
     source(rows)
     data: Any = dataset()
-    assert len(data) == 500
+    assert len(data) == 503  # the cap is Inspect's limit, not conversion's
     expected = (
         Dataset.from_list(rows).add_column("idx", list(range(503))).shuffle(seed=42)
     )
-    assert [s.id for s in data] == [f"{DATASET_ID}:{i}" for i in expected["idx"][:500]]
-    assert len(dataset(max_samples=0)) == len(dataset(max_samples=-1)) == 503
-    first: Any = next(
-        s for s in dataset(max_samples=0) if (s.metadata or {})["source_index"] == 0
-    )
+    assert [s.id for s in data] == [f"{DATASET_ID}:{i}" for i in expected["idx"]]
+    first: Any = next(s for s in data if s.metadata["source_index"] == 0)
     assert first.input[0].text == "override"
     assert first.input[1].text == "q0\n"
     assert first.metadata["judge_question"] == "j"
-    assert data[0].metadata["judge_question"] == data[0].metadata["question"]
+    assert first.metadata["judge_question_source"] == "override"
+    other: Any = next(s for s in data if s.metadata["source_index"] == 1)
+    assert other.metadata["judge_question"] == "q1"
+    assert other.metadata["judge_question_source"] == "question"
     source(rows + [dict(question="", answer="a")])
-    with pytest.raises(ValueError):
-        dataset(max_samples=1)
+    with pytest.raises(ValueError, match="required nonempty text question"):
+        dataset()
+    source([dict(question="q", answer="a", judge_question=3)])
+    with pytest.raises(ValueError, match="optional text judge_question"):
+        dataset()
 
 
-def test_native_legacy_grade_parity(source, tmp_path, monkeypatch):
+def test_limit_selects_legacy_rows(tmp_path, source):
+    """Inspect's limit after conversion equals legacy shuffle(seed=42).select(500)."""
+    rows = [dict(question=f"q{i}", answer="a") for i in range(503)]
+    source(rows)
+    log = inspect_eval(
+        prompt_injection(),
+        model="mockllm/answer",
+        model_roles={"grader": get_model("mockllm/judge")},
+        log_dir=str(tmp_path),
+        limit=500,
+    )[0]
+    assert log.status == "success", log.error
+    legacy = Dataset.from_list(rows).shuffle(seed=42)[:500]
+    assert sorted(s.metadata["question"] for s in log.samples) == sorted(
+        legacy["question"]
+    )
+
+
+def test_default_system_prompt_matches_legacy(source):
+    source([dict(question="q", answer="a", system_prompt=None)])
+    sample: Any = dataset()[0]
+    assert sample.input[0].text == LEGACY["default_system_prompt"]
+
+
+def test_offline_snapshot(tmp_path):
+    Dataset.from_list([dict(question="offline", answer="target")]).save_to_disk(
+        str(tmp_path / "data")
+    )
+    loaded: Any = dataset(dataset_path=str(tmp_path / "data"))
+    assert loaded[0].id == DATASET_ID + ":0"
+    assert loaded[0].metadata["question"] == "offline"
+
+
+def test_current_preprocessor_and_explicit_truncation_gap(source):
+    # Frozen: legacy free_text_preprocess_function on this row with a stub chat
+    # template ("CHAT:" + last message) and a character tokenizer that truncates
+    # to max_length; the chat messages and tokenizer calls it made, and widths.
+    legacy = LEGACY["preprocessing"]
+    question = "q" * 1100
+    assert legacy["question"] == question
+    source([dict(question=question, answer="a")])
+    native: Any = dataset()[0]
+    captured = [legacy["chat_messages"]]
+    calls = [(call["texts"], call["kwargs"]) for call in legacy["tokenizer_calls"]]
+    assert captured[0] == [
+        {"role": "system", "content": native.input[0].text},
+        {"role": "user", "content": native.input[1].text},
+    ]
+    assert calls[2][0] == [native.metadata["judge_question"]] == [question]
+    assert legacy["test_input_ids_width"] == 1024
+    assert legacy["judge_questions_width"] == 128
+    assert len(native.input[1].text) == 1101  # Unresolved native truncation difference.
+
+
+# --- Scoring -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw", ["Yes", "NO!", "yesterday", "", "No then yes", "YES/no", "  yes  "]
+)
+def test_parser_parity(raw):
+    # Frozen FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no outputs.
+    assert parse_yes_no(raw) == LEGACY["parser"][raw]
+
+
+def test_prompt_matches_legacy():
+    from llm_behavior_eval.prompt_injection.prompts import (
+        JUDGE_PROMPT,
+        PROMPT_JUDGE_RESPONSE,
+    )
+
+    assert PROMPT_JUDGE_RESPONSE == LEGACY["prompt_judge_response"]
+    assert JUDGE_PROMPT.format(
+        answer="A", metadata={"judge_question": "Q"}
+    ) == PROMPT_JUDGE_RESPONSE.format(llm_response="A", question="Q")
+
+
+def test_native_legacy_grade_parity(source, tmp_path):
     raw = ["Yes", "malformed", "No", "unused"]
     answers = ["<think>secret</think>a0", "a1", "a2", "a3"]
     source([dict(question=f"q{i}", answer="a") for i in range(4)])
 
     def answer(messages, tools, choice, config):
-        assert config.max_tokens == 128 and config.temperature == 0
         i = int(messages[-1].text.strip()[1:])
         output = ModelOutput.from_content("mockllm/answer", answers[i])
         if i == 3:
@@ -107,7 +354,6 @@ def test_native_legacy_grade_parity(source, tmp_path, monkeypatch):
         return output
 
     def judge(messages, tools, choice, config):
-        assert config.max_tokens == 32 and config.temperature == 0
         text = messages[-1].text
         assert "secret" not in text
         i = next(i for i in range(3) if f'"a{i}"' in text)
@@ -119,16 +365,20 @@ def test_native_legacy_grade_parity(source, tmp_path, monkeypatch):
         model=get_model("mockllm/answer", custom_outputs=answer),
         model_roles={"grader": get_model("mockllm/judge", custom_outputs=judge)},
         log_dir=str(tmp_path),
-        display="none",
     )[0]
     assert log.status == "success", log.error
-    saved = GOLDEN["injection_aggregate"]
-    metrics = log.results.scores[0].metrics
-    assert metrics["attack_success_rate"].value == 100 * (1 - saved["accuracy"])
+    # Frozen: legacy _grade_impl on the same answers (the last truncated, finish
+    # reason "length"), thinking traces stripped, judge labels Yes/No/No.
+    saved = LEGACY["grade"]
+    assert saved["answers"] == answers
+    assert saved["finish_reasons"] == ["stop"] * 3 + ["length"]
+    assert saved["judge_labels"] == ["Yes", "No", "No"]
+    metrics = _metrics(log)
+    assert metrics["attack_success_rate"] == pytest.approx(
+        100 * (1 - saved["accuracy"])
+    )
     assert (
-        metrics["incomplete_response_rate"].value
-        == saved["incomplete_response_rate"]
-        == 0.25
+        metrics["incomplete_response_rate"] == saved["incomplete_response_rate"] == 0.25
     )
     scores = [next(iter(s.scores.values())) for s in log.samples]
     assert sum(bool(s.metadata.get("skipped")) for s in scores) == 1
@@ -137,6 +387,11 @@ def test_native_legacy_grade_parity(source, tmp_path, monkeypatch):
         "No",
         "Yes",
         "malformed",
+    ]
+    assert sorted(s.answer for s in scores if not s.metadata.get("skipped")) == [
+        "No",
+        "No",
+        "Yes",
     ]
     assert all(s.metadata["response_tokens"] is None for s in scores)
     assert all("1024-token" in s.metadata["prompt_parity"] for s in scores)
@@ -148,52 +403,23 @@ def test_requires_grader(source, tmp_path):
         prompt_injection(),
         model="mockllm/answer",
         log_dir=str(tmp_path),
-        display="none",
     )[0]
     assert log.status == "error"
     assert "grader" in log.error.message
-
-
-def test_prompt_matches_legacy():
-    from llm_behavior_eval.prompt_injection.prompts import PROMPT_JUDGE_RESPONSE
-
-    assert PROMPT_JUDGE_RESPONSE == GOLDEN["prompts"]["PROMPT_JUDGE_RESPONSE"]
-
-
-def test_policy_and_budget(source):
-    from llm_behavior_eval.prompt_injection.task import model_config
-
-    source([dict(question="q", answer="a")])
-    assert prompt_injection(max_tokens=512).config.max_tokens == 512
-    with pytest.raises(ValueError):
-        prompt_injection(max_tokens=0)
-    fake: Any = SimpleNamespace(api=SimpleNamespace())
-    with pytest.raises(ValueError, match="thinking disabled"):
-        model_config(fake)
-    assert model_config(fake, external=True).max_tokens == 128
-    assert model_config(fake, external=True, judge=True).max_tokens == 32
 
 
 @pytest.mark.parametrize(
     "stop", ["max_tokens", "model_length", "unknown", "content_filter"]
 )
 def test_token_count_and_all_skipped(source, tmp_path, monkeypatch, stop):
-    from math import isnan
-
-    module = importlib.import_module("llm_behavior_eval.prompt_injection.scorer")
+    from transformers import AutoTokenizer
 
     class Tokenizer:
         def encode(self, text, add_special_tokens):
             assert text == "formatted" and add_special_tokens is False
             return [1, 2, 3]
 
-    monkeypatch.setattr(
-        module,
-        "import_module",
-        lambda name: SimpleNamespace(
-            AutoTokenizer=SimpleNamespace(from_pretrained=lambda *a, **kw: Tokenizer())
-        ),
-    )
+    monkeypatch.setattr(AutoTokenizer, "from_pretrained", lambda *a, **kw: Tokenizer())
     source([dict(question="q", answer="a")])
     output = ModelOutput.from_content(
         "mockllm/answer", "<think>reason</think>formatted"
@@ -208,47 +434,18 @@ def test_token_count_and_all_skipped(source, tmp_path, monkeypatch, stop):
         model=get_model("mockllm/answer", custom_outputs=[output]),
         model_roles={"grader": get_model("mockllm/judge", custom_outputs=no_judge)},
         log_dir=str(tmp_path),
-        display="none",
     )[0]
     assert log.status == "success", log.error
     score = next(iter(log.samples[0].scores.values()))
     assert score.metadata["response_tokens"] == 3
-    assert isnan(log.results.scores[0].metrics["attack_success_rate"].value)
-    assert log.results.scores[0].metrics["incomplete_response_rate"].value == int(
-        stop == "max_tokens"
-    )
+    assert score.metadata["formatted_answer"] == "formatted"
+    metrics = _metrics(log)
+    assert isnan(metrics["attack_success_rate"])
+    assert metrics["incomplete_response_rate"] == int(stop == "max_tokens")
 
 
-def test_offline_snapshot(tmp_path):
-    Dataset.from_list([dict(question="offline", answer="target")]).save_to_disk(
-        str(tmp_path / "data")
-    )
-    loaded: Any = dataset(dataset_path=str(tmp_path / "data"))
-    assert loaded[0].id == DATASET_ID + ":0"
-    assert loaded[0].metadata["question"] == "offline"
-
-
-def test_current_preprocessor_and_explicit_truncation_gap(source, monkeypatch):
-    question = "q" * 1100
-    source([dict(question=question, answer="a")])
-    native: Any = dataset()[0]
-    assert native.metadata["judge_question"] == question
-    # Baseline fake-tokenizer widths: input=1024, judge_question=128.
-    assert (
-        len(question)
-        > GOLDEN["preprocessor_widths"]["prompt_injection"]["judge_question"]
-    )
-    assert (
-        len(native.input[1].text)
-        > GOLDEN["preprocessor_widths"]["prompt_injection"]["input"]
-    )
-    assert len(native.input[1].text) == 1101
-
-
-def test_independent_api_role(tmp_path, monkeypatch, source):
+def test_independent_api_role_without_code_settings(tmp_path, monkeypatch, source):
     """Role routing fixture, not HTTP/provider inference parity."""
-    from inspect_ai.model import Model
-
     source([dict(question="q", answer="a", judge_question="override?")])
     grader = get_model(
         "openai-api/airgap/judge",
@@ -261,18 +458,17 @@ def test_independent_api_role(tmp_path, monkeypatch, source):
     async def generate(self, input, *args, **kwargs):  # noqa: A002 - Inspect signature
         if self.name == grader.name:
             calls.append(input)
-            assert kwargs["config"].max_tokens == 32
+            assert "config" not in kwargs or kwargs["config"] == GenerateConfig()
             return ModelOutput.from_content("judge", "Yes")
         return await original(self, input, *args, **kwargs)
 
     monkeypatch.setattr(Model, "generate", generate)
     log = inspect_eval(
-        prompt_injection(externally_configured_thinking=True),
+        prompt_injection(),
         model="mockllm/answer",
         model_roles={"grader": grader},
-        display="none",
         log_dir=str(tmp_path),
     )[0]
     assert log.status == "success", log.error
     assert len(calls) == 1 and "Question: override?" in calls[0]
-    assert log.results.scores[0].metrics["attack_success_rate"].value == 100
+    assert _metrics(log)["attack_success_rate"] == 100

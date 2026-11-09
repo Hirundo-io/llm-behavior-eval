@@ -32,13 +32,13 @@ fi
 
 VENV_PYTHON="${VENV_PATH}/bin/python"
 
-EXTRAS_REQUESTED="${LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS:-brief,mlflow}" # e.g. "brief,mlflow" or "brief,mlflow,vllm"
+# Defaults to the reporting extras; e.g. "brief,mlflow,vllm" adds the vLLM stack.
+EXTRAS_REQUESTED="${LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS-brief,mlflow}"
 INSTALL_TARGET="."
 
 if [[ -n "${EXTRAS_REQUESTED}" ]]; then
   INSTALL_TARGET=".[${EXTRAS_REQUESTED}]"
   uv pip install --python "${VENV_PYTHON}" -e "${INSTALL_TARGET}"
-
 else
   uv pip install --python "${VENV_PYTHON}" -e .
 fi

@@ -1,4 +1,9 @@
-"""Audit corruption checks; constructed settings are not model evidence."""
+"""Audit corruption checks; constructed settings are not model evidence.
+
+The audit reads expected values from each benchmark's parity.yaml; the
+parametrized budgets below are the legacy engine's, so these tests also tie
+every parity.yaml to the legacy settings the qualification recorded.
+"""
 
 from typing import Any
 
@@ -36,6 +41,7 @@ def settings(
         )
         if role == "answer":
             body["truncate_prompt_tokens"] = 1024
+            body["truncation_side"] = "right"
         native.append(
             (
                 role,
@@ -119,6 +125,18 @@ def test_reject_changed_thinking_policy():
     native[0][1].extra_body["chat_template_kwargs"]["enable_thinking"] = False
     with pytest.raises(ValueError, match="answer thinking"):
         audit_settings("xstest", legacy, native)
+
+
+def test_capture_fields_are_ignored_and_unknown_body_fields_rejected():
+    legacy, native = settings(128, 32)
+    assert native[0][1].extra_body is not None
+    native[0][1].extra_body["cache_salt"] = "llm169:bbq:gender:bias"
+    assert audit_settings("bbq", legacy, native)["parity_config"].endswith(
+        "bbq/parity.yaml"
+    )
+    native[0][1].extra_body["truncation_side"] = "left"
+    with pytest.raises(ValueError, match="truncation_side"):
+        audit_settings("bbq", legacy, native)
 
 
 def test_zero_judges_are_reported_without_inventing_coverage():

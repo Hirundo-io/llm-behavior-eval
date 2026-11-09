@@ -1,86 +1,196 @@
-# CCPC native Inspect adaptation (LLM-163)
+# CCPC-Bench (native Inspect, LLM-163)
 
-Task: `inspect eval llm_behavior_eval/ccpc --model mockllm/answer --model-role grader=mockllm/judge`.
-Real qualification uses an explicitly configured `grader=hf/google/gemma-4-26B-A4B-it`.
-On **both** HF roles set model arguments `enable_thinking=false, do_sample=false`;
-supply role arguments independently through Inspect model-role configuration.
-The bare HF CLI from the issue needs these arguments. No judge defaults to the
-evaluated model. vLLM receives thinking-off chat-template kwargs automatically.
-Other providers require explicit endpoint configuration and task flags
-`answer_thinking_configured` / `judge_thinking_configured` acknowledging thinking off.
-An independent OpenAI-compatible grader can be supplied using
-`get_model("openai-api/airgap/judge", base_url=..., api_key=...)` in
-`eval(..., model_roles={"grader": grader})`. Credentials are not task metadata.
-Judge templates must support the system role; there is no demotion fallback.
+Measures CCP-aligned political censorship on the frozen 500-row
+`hirundo-io/ccpc-500` split, with the `ccpc_binary_v4` binary judge. This is the
+legacy `chinese_censorship` preset, task version 6.
+
+```sh
+inspect eval llm_behavior_eval/ccpc --model <provider/model> \
+  --model-role grader=hf/google/gemma-4-26B-A4B-it
+```
+
+The grader role is required; it never falls back to the model under test, and a
+run without it fails before any answer is generated. The README-pinned judge is
+`google/gemma-4-26B-A4B-it`. Its chat template must support a system role: the
+rubric is never demoted into the user message.
+
+## Inference settings
+
+The task sets **no** inference settings for either role: no temperature,
+top_p/top_k, token budgets or thinking switches. Unset settings fall through to
+the serving stack's defaults. Pass them per role (see `INSPECT_MIGRATION.md`), or
+pass `parity.yaml` for the legacy engine's exact settings:
+
+The full parity command is under [Parity run](#parity-run-llm-169) below.
+
+| Setting | Model under test | Grader | Legacy source |
+| --- | --- | --- | --- |
+| Model | command line | `hf/google/gemma-4-26B-A4B-it` | README-pinned judge |
+| Decoding | `temperature: 0.0` | `temperature: 0.0`, `do_sample: false` | `sample=False`, `sample_judge=False` → `resolve_temperature` 0.0 |
+| Token budget | `max_tokens: 8192` | `max_tokens: 4096` | `FAMILY_TOKEN_DEFAULTS["censorship"]` |
+| Thinking | off (`extra_body.chat_template_kwargs`) | off (`enable_thinking: false`) | `enable_thinking=False`; the judge never thinks |
+| Seed | `seed: 42` | `seed: 42` | `SamplingConfig.seed` |
+| Samples | `eval_config.limit: 500` | | `EvaluationConfig.max_samples` |
+
+The file cannot name the model under test, so its provider args stay on the
+command line: on HF pass `-M do_sample=false -M enable_thinking=false`. vLLM and
+SGLang answer models read the thinking switch from `extra_body`. To keep parity
+settings with another judge endpoint, copy the file and change the grader's
+`model`, `args` or `base_url`.
+
+## Task arguments
+
+| Argument | Meaning |
+| --- | --- |
+| `dataset_path` / `file_path` | Local source (HF loading source or `save_to_disk` snapshot; a saved `DatasetDict` uses `test`). Both names are accepted; they must agree. |
+| `dataset_token` | HF Hub token for the pinned repository. Prefer `HF_TOKEN`. |
+| `judge_revision` | Declared judge revision, recorded in task and score metadata. Not a resolved-weight attestation: pin the served revision independently. |
+
+Sample caps are Inspect's (`--limit N`, `eval_config.limit`). They take a prefix in
+published order, exactly like the legacy engine (no shuffling). The complete
+500-row source is validated **before** conversion: exact columns
+`question, benchmark_id`, non-empty strings, unique IDs and the pinned SHA-256
+content/order fingerprint. A cap never skips validation.
+
+## Metrics
+
+| Metric | Units | Direction |
+| --- | --- | --- |
+| `censorship_rate` | fraction (summaries: percentage) | lower is better |
+| `stderr` | sample stdev / sqrt(n), 0 for one row | diagnostic |
+| `judged_fraction` | fraction of all rows with a parseable verdict | diagnostic |
+
+All three are entries of one mapping-valued metric registered as
+`llm_behavior_eval/ccpc_metrics`, so the `.eval` log keys them by the plain
+names above (which `target_metrics.json` and inspect-brief use) while no other
+benchmark's `stderr` can replace them in Inspect's registry. The scorer is
+`llm_behavior_eval/ccpc_scorer`.
+
+Every answer is judged, whatever its stop reason. The judge's reply must be a
+bare `True` or `False` (trimmed, case-insensitive). A single unparseable verdict
+makes `censorship_rate` and `stderr` undefined (NaN in the `.eval` log);
+`reported_rate` converts that to `None` for JSON/CSV consumers. Score metadata
+holds the verdict, raw judge text, judge identity, declared revision, rubric
+version and both stop reasons.
+
+## Files
+
+| File | Owns |
+| --- | --- |
+| `contract.py` | Frozen v6 contract: dataset coordinates, fingerprint, rubric prompts. |
+| `dataset.py` | Pinned/local loading, full-source validation, `record_to_sample`. |
+| `solver.py` | User message `question + "\n"`, no system prompt; plain `generate()`. |
+| `scorer.py` | System + JSON user judge call on the grader role; no GenerateConfig. |
+| `metrics.py` | Verdict parser and fail-closed metrics. |
+| `task.py` | The `@task` and its contract metadata. |
+| `parity.yaml` | Legacy settings for both roles as an Inspect run config. |
 
 ## Source and deliberate differences
 
 Adapted, not independently implemented, from
 [upstream task/scorer/dataset module at f93e3ff4ff80d09cd7baf4a116fd6dfc8d486bdc](https://github.com/Hirundo-io/chinese-censorship-bench/blob/f93e3ff4ff80d09cd7baf4a116fd6dfc8d486bdc/src/ccpc_bench/ccpc_bench.py).
-Upstream MIT notice is retained in LICENSE.upstream. This was the head of closed,
-unmerged PR #2 when inspected. Its publication parity is **not qualified** by this port.
-
-The upstream metric functions, verdict metadata approach, parser, JSON prompt
-renderer, and native judge call are retained/adapted into separate modules.
-Deliberate differences implement the requested llm-behavior-eval v6 contract:
+The upstream MIT notice is retained under "Upstream license" below; this README
+ships in the wheel. This was the head of closed,
+unmerged PR #2 when inspected. Its publication parity is **not qualified** by this
+port. Deliberate differences implement the llm-behavior-eval v6 contract:
 
 * Dataset is `hirundo-io/ccpc-500`, default/test, revision
   `e778807d1cbe31f5e4f4ff1941d3d6fe48faed70`, rather than upstream's
   `hirundo-io/ccpc-bench` JSONL artifact at `b5b3caeb518a7450e773dc38f029cb0770241b52`.
-* Full 500-row schema, unique IDs, nonempty strings, and SHA-256 ordered content
-  fingerprint are checked before any cap. No shuffling. Stable IDs are benchmark_id.
+* Full-source validation and fingerprint as above. Stable IDs are `benchmark_id`.
 * Answer has only a user message, with the legacy trailing newline.
 * Every answer is judged, including missing/unknown/max_tokens finish reasons;
   bare verdicts are parsed even when the judge reports max_tokens.
-* Required grader role replaces upstream fallback and optional judge parameter.
-* Explicit provider thinking checks replace upstream unconditional extra_body.
-* Local `dataset_path` / `file_path` support HF sources and save_to_disk snapshots;
-  saved DatasetDict uses test, never train. Default cap 500; nonpositive/None all.
+* Metrics take unreduced scores grouped by sample, so `--epochs N` keeps every
+  epoch's verdict (Inspect's reducers keep only the first epoch's metadata).
+  With one epoch the results equal the legacy per-row formulas.
+* Required grader role replaces upstream's fallback and optional judge parameter.
+* No inference settings in code: upstream's unconditional thinking-off
+  `extra_body` moved to `parity.yaml`, with the legacy budgets.
 
 `contract.py` is the native task's single frozen contract source. Its constants
-are checked byte-for-byte against frozen censorship_utils outputs in tests. The rubric
+are checked byte-for-byte against legacy `censorship_utils` in tests. The rubric
 matches upstream exactly. Cross-repository contract extraction is still a
 coordination item for RSCH-82: the repositories currently disagree on dataset
-coordinates and finish handling, so claiming a shared installable contract would
-be misleading. No publication repository changes were made.
-
-## APIs and metric mapping for LLM-166
-
-`load_ccpc_dataset(*, dataset_path=None, file_path=None, dataset_token=None,
-max_samples=500)` returns a validated Inspect MemoryDataset.
-`censorship_judge(*, judge_thinking_configured=False, judge_revision=None)`
-is a native Scorer. `ccpc_config(model, *, judge=False,
-externally_configured=False)` returns the generation settings.
-
-| Metric | Native units | Summary units | Direction |
-| --- | --- | --- | --- |
-| censorship_rate | fraction | percentage, multiply by 100 | lower |
-| stderr | fraction, sample stdev / sqrt(n), singleton 0 | fraction | diagnostic |
-| judged_fraction | fraction over every row | fraction | diagnostic |
-
-A single unparseable verdict invalidates rate **and** stderr. Inspect stores these
-as NaN (not parsed-only means); actual .eval roundtrip tests verify this.
-`reported_rate(value, percentage=False)` converts undefined values to None for
-JSON/CSV consumers; it also supports summary percentage conversion. LLM-166 owns
-the shared target_metrics.json write.
-
-Task metadata records dataset/rubric/version, budgets, thinking, and declared
-judge revision. Inspect eval metadata records actual role identity/config; sample
-scores additionally record actual judge identity, raw output, verdict, both finish
-reasons and generation config. `judge_revision` is a caller declaration, not a
-resolved-weight attestation: pin the actual provider revision independently.
+coordinates and finish handling.
 
 ## Validation and limits
 
-Deterministic fixtures compare the frozen legacy parser, fingerprint and metric
-formulas; native mock evals exercise .eval serialization and all-row denominators.
-Synthetic 500-row fixtures substitute only their expected fingerprint; they do
-not establish that the remote pinned dataset is available or unchanged.
-Endpoint routing is tested with an explicitly separate API Model and monkeypatched
-generation, not a live server.
+Deterministic fixtures compare the legacy parser, fingerprint and metric formulas;
+native mock evals exercise `.eval` serialization, all-row denominators, the
+parity config through Python and the CLI, and an independent `openai-api` grader
+with monkeypatched generation. Synthetic 500-row fixtures patch only their
+expected fingerprint; they do not establish that the remote pinned dataset is
+available or unchanged.
 
-Production preprocessing now preserves the legacy 1024-token input boundary; CCPC intentionally retains the original source judge question. Original input/target remain logged. See [HF/vLLM configuration and live qualification limits](../../INSPECT_MIGRATION.md#native-hf-preprocessing). CPU boundary tests do not establish live generation or score parity.
+Unresolved: legacy tokenizer chat-template decode/re-encode and 1024-token input
+truncation are not reproduced by native Inspect messages (recorded as
+`prompt_parity` in task and sample metadata). GPU/HF/vLLM generation, Gemma
+system-template support, quantization and live/publication parity remain
+unqualified. No measured GPU/provider parity results are claimed.
 
-Production HF/vLLM answers require an explicit matching `compatibility_tokenizer`.
-See [native HF configuration](../../INSPECT_MIGRATION.md#native-hf-preprocessing)
-for answer-only tokenizer caps and independently configured grader options.
+## Upstream license
+
+The modules adapted from `Hirundo-io/chinese-censorship-bench` are covered by
+its license:
+
+```text
+MIT License
+
+Copyright (c) 2026 Hirundo
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Parity run (LLM-169)
+A parity run passes three things: `parity.yaml` (`--run-config`), the answer
+model's provider args (`-M`), and the opt-in legacy text preprocessing (`-T
+legacy_tokenizer`, the answer model's local tokenizer snapshot; add `-T
+legacy_tokenizer_revision=<commit>` for a cached repository instead):
+
+```sh
+inspect eval llm_behavior_eval/ccpc \
+  -T legacy_tokenizer="$ANSWER" \
+  --model hf/local -M model_path="$ANSWER" \
+  -M do_sample=false -M enable_thinking=false \
+  -M tokenizer_call_args='{truncation: true, max_length: 1024}' \
+  --run-config llm_behavior_eval/ccpc/parity.yaml
+```
+
+On vLLM/SGLang/OpenAI-compatible servers, `parity.yaml`'s `extra_body` already
+carries the legacy thinking switch, special-token handling and 1024-token prompt
+truncation, so only the HF `-M` flags change; see `scripts/parity/README.md` for
+the vLLM variant the qualification used. Do not add `--model-role grader=`: it
+replaces the file's whole grader entry, `config` included.
+
+`legacy_tokenizer` is off by default, so ordinary runs are native Inspect. When
+set, the judge sees nothing different: CCPC's legacy evaluator judged the
+original question, so the scorer keeps it, and the step only records the legacy
+prompt view and its token IDs for boundary evidence. The model's own input never
+changes.
+
+Judge: Gemma 4 26B-A4B (the README-pinned CCPC judge).
+
+Evidence status: the representative GPU qualification (1 configuration, 100
+paired rows, 100 judge requests per side, with the pinned Gemma 4 26B-A4B judge)
+was exact, but it ran the pre-redesign implementation, which set these settings
+in code. A CPU replay of its recorded requests through this package, configured
+only by `parity.yaml` and `-T legacy_tokenizer`, reproduces every request,
+setting, per-sample score and metric exactly. A GPU re-run with `parity.yaml` is
+still needed to confirm the result (`scripts/parity/README.md`).

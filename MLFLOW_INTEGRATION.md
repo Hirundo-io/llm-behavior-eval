@@ -6,15 +6,24 @@ passes a source run ID and checkpoint artifact subfolder. The platform's
 inspect-mlflow integration is not proven to preserve that contract. Its reporting
 queue stall is documented in [INFRA-321](https://linear.app/hirundo/issue/INFRA-321).
 This implementation is only an Inspect hook, with no evaluation engine or model
-loading. Legacy classes and runtime are removed in 0.2.0.
+loading. The legacy engine's own MLflow logging was removed with it in 0.2.0.
 
 ## Enable
 
 Install with `uv pip install -e '.[mlflow]'` in your activated `.venv`.
-The package's Inspect entry point registers the hook; importing it does not import
-MLflow. Reporting is disabled unless `LLM_BEHAVIOR_EVAL_MLFLOW_ENABLED=1`.
-Use native `inspect eval` or `inspect_ai.eval`; see `examples/mlflow_example.py`.
-Do not enable both this hook and platform inspect-mlflow for the same evaluation.
+The package's Inspect entry point (`llm_behavior_eval._registry`) imports
+`llm_behavior_eval.hooks.mlflow` explicitly, because `hooks/` is not a benchmark
+package and task discovery skips it. Inspect loads every entry point when an
+eval starts, so the hook is present for any task, ours or not. Importing it does
+not import MLflow, and its `enabled()` is false unless
+`LLM_BEHAVIOR_EVAL_MLFLOW_ENABLED=1` (or `true`/`yes`), so Inspect never calls
+it otherwise. Use native `inspect eval` or `inspect_ai.eval`; see
+`examples/mlflow_example.py`. Do not enable both this hook and platform
+inspect-mlflow for the same evaluation.
+
+The hook reports; it does not configure evaluation. Inference settings for the
+model under test and the grader are passed to Inspect per role (see
+`INSPECT_MIGRATION.md`), and are recorded in the uploaded `.eval` logs.
 
 The legacy CLI is retired. Configure the hook directly with these environment
 settings; no CLI translation or flag forwarding is performed:
@@ -50,8 +59,12 @@ Metrics come directly from `EvalLog.results`, with no multiplication or inversio
 
 `TASK/IDENTITY/SCORER/REDUCER/METRIC`
 
-IDENTITY is a stable 16-character SHA-256 prefix over dataset specification, task
-arguments and model identity. This separates task variants, datasets and models.
+TASK is the log's task name, made key-safe: characters other than letters,
+digits, `_`, `.` and `-` become `_`, a component longer than 32 characters is
+truncated, and any changed component gets a hash suffix, so
+`llm_behavior_eval/bbq` becomes `llm_behavior_eval_bbq-<hash>`. IDENTITY is a
+stable 16-character SHA-256 prefix over dataset specification, task arguments
+and model identity. This separates task variants, datasets and models.
 SCORER is Inspect's score name, REDUCER defaults to `default`. Unsafe/long name
 components are sanitized and receive a hash suffix to avoid collisions. Raw task
 arguments, adapter URLs and model parameters are not emitted as MLflow parameters.

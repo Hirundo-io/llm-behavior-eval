@@ -1,5 +1,27 @@
 # LLM-169 qualification report — 2026-11-09
 
+> **Status after the self-contained redesign (LLM-155 Design rules).** Everything
+> below was produced by the **pre-redesign implementation** (production source
+> `f35fb814`, Purple fix `b9a5b28`), which set inference settings in code and
+> always wrapped tasks in its preprocessing. Its numbers and evidence files are
+> unchanged. In the current code, those settings live only in each benchmark's
+> `parity.yaml`, and the preprocessing is opt-in (`-T legacy_tokenizer`).
+>
+> A CPU replay of the raw archive through the current tasks
+> ([redesign-replay.json](redesign-replay.json)) reproduces all 31 cases
+> exactly: every answer and judge request with its settings, the legacy prompt
+> token IDs (equal to the IDs the vLLM server received), every judge text,
+> per-sample score and recorded metric (3,100 samples, 7,448 judge requests).
+> The current Purple metric matches the legacy ASR on all 251 recorded rows
+> ([redesign-purple-metric-replay.json](redesign-purple-metric-replay.json)).
+> This is not a GPU re-run: a run with `parity.yaml` must still confirm that the
+> server applies the file's settings as it applied the code-set ones, so prompt
+> IDs, raw answers and judge outputs match again. See [README.md](README.md).
+> Mentions below of `compatibility_tokenizer`, `compatibility` metadata, old
+> scorer names (`bias_scorer`, ...) and of the removed scripts (`qualify_hallu`,
+> `report_hallu`, `live_generation`, `tokenizer_audit`, `generation_report`)
+> describe that implementation.
+
 **All 31 representative paired configurations pass exactly: 100 rows each,
 3,100 rows total, with 7,448 actual judge requests per side.** The final selection
 includes the real Purple rescore under the arithmetic fix. Every compared field,

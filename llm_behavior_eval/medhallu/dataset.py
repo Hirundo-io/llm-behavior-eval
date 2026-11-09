@@ -1,13 +1,15 @@
 """Med-Hallu identity and ordered, offline-capable dataset conversion."""
 
-from typing import cast
+from typing import Any
 
-from datasets import Dataset
 from inspect_ai.dataset import MemoryDataset, Sample
 
 from llm_behavior_eval.common.dataset import load_hf_dataset, to_inspect_dataset
 
 DATASET_ID = "hirundo-io/medhallu"
+# Legacy BaseEvaluator.prepare_dataloader shuffles with DatasetConfig.seed (42)
+# before capping at max_samples.
+LEGACY_SHUFFLE_SEED = 42
 PARITY_GAPS = [
     "Question is raw text, not decoded chat-templated input",
     "Input is not legacy-tokenizer truncated to 1024 tokens",
@@ -15,13 +17,28 @@ PARITY_GAPS = [
 ]
 
 
+def record_to_sample(record: dict[str, Any]) -> Sample:
+    return Sample(
+        id=f"{DATASET_ID}:{record['source_index']}",
+        input=record["question"],
+        target=record["answer"],
+        metadata={
+            "dataset_id": DATASET_ID,
+            "source_index": record["source_index"],
+            "parity_gaps": PARITY_GAPS,
+        },
+    )
+
+
 def dataset(
-    max_samples: int | None = 500,
-    *,
-    dataset_path: str | None = None,
-    dataset_token: str | None = None,
+    *, dataset_path: str | None = None, dataset_token: str | None = None
 ) -> MemoryDataset:
-    """Validate the full source before capping; IDs are stable source row positions."""
+    """Validate every row, then order samples exactly as the legacy shuffle did.
+
+    Sample IDs are stable zero-based source row positions. The returned dataset
+    holds the full split in legacy order, so Inspect's ``limit`` (for example
+    ``eval_config.limit`` in ``parity.yaml``) selects the legacy samples.
+    """
     source = load_hf_dataset(
         DATASET_ID, dataset_path=dataset_path, dataset_token=dataset_token
     )
@@ -36,20 +53,8 @@ def dataset(
             )
         records.append({**row, "source_index": index})
     if records:
-        shuffled = cast("Dataset", Dataset.from_list(records).shuffle(seed=42))
+        from datasets import Dataset
+
+        shuffled = Dataset.from_list(records).shuffle(seed=LEGACY_SHUFFLE_SEED)
         records = list(shuffled)
-    return to_inspect_dataset(
-        records,
-        lambda row: Sample(
-            id=f"{DATASET_ID}:{row['source_index']}",
-            input=row["question"],
-            target=row["answer"],
-            metadata={
-                "dataset_id": DATASET_ID,
-                "source_index": row["source_index"],
-                "parity_gaps": PARITY_GAPS,
-            },
-        ),
-        dataset_id=DATASET_ID,
-        max_samples=max_samples,
-    )
+    return to_inspect_dataset(records, record_to_sample, dataset_id=DATASET_ID)

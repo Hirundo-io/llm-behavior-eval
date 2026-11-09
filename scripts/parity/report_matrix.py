@@ -1,7 +1,12 @@
-"""Compare captured production matrix evidence without editing inputs or targets."""
+"""Compare captured production matrix evidence without editing inputs or targets.
+
+Native runs use the benchmark's parity.yaml settings and its opt-in legacy text
+preprocessing, whose views are in each sample's ``metadata.legacy_text``.
+"""
 
 import argparse
 import csv
+import importlib
 import json
 from collections import Counter
 from pathlib import Path
@@ -11,8 +16,22 @@ from inspect_ai.model import ChatMessage
 from inspect_ai.scorer import CORRECT, INCORRECT, NOANSWER
 
 from scripts.parity.compare import compare_case, digest
+from scripts.parity.parity_models import expected_request_settings
 from scripts.parity.qualify_matrix import case_identity
 from scripts.parity.settings import audit_settings
+
+# Per-benchmark scorer names in native logs.
+SCORERS = {
+    "bbq": "bbq_scorer",
+    "bloom": "bloom_scorer",
+    "unqover": "unqover_scorer",
+    "halueval": "halueval_scorer",
+    "medhallu": "medhallu_scorer",
+    "xstest": "xstest_scorer",
+    "orbench": "orbench_scorer",
+    "prompt_injection": "prompt_injection_scorer",
+    "ccpc": "ccpc_scorer",
+}
 
 
 def input_content(value: str | list[ChatMessage]) -> str | list[dict]:
@@ -43,7 +62,7 @@ def formatted_answer_field(family: str, scorer: str) -> str:
 
 def main() -> None:
     from inspect_ai.log import read_eval_log, write_eval_log
-    from transformers import AutoTokenizer  # type: ignore[missing-import]
+    from transformers import AutoTokenizer
 
     from llm_behavior_eval import _registry
 
@@ -98,17 +117,7 @@ def main() -> None:
     bias = family in {"bbq", "bloom", "unqover"}
     hallu = family in {"halueval", "medhallu"}
     refusal = family in {"xstest", "orbench"}
-    scorer = (
-        "bias_scorer"
-        if bias
-        else "hallucination_scorer"
-        if hallu
-        else "refusal_scorer"
-        if refusal
-        else "injection_scorer"
-        if family == "prompt_injection"
-        else "censorship_judge"
-    )
+    scorer = SCORERS[family]
     verdict_key = (
         "flagged_as_correct"
         if bias
@@ -140,9 +149,7 @@ def main() -> None:
     derived = root / "responses-observed.json"
     derived.write_text(json.dumps(old, indent=2))
     log = read_eval_log(str(root / "scored.eval"))
-    task = getattr(_registry, family)(
-        dataset_path=str(root / "dataset"), max_samples=identity["samples"], **task_args
-    )
+    task = getattr(_registry, family)(dataset_path=str(root / "dataset"), **task_args)
     originals = {sample.id: sample for sample in task.dataset}
     tokenizer = AutoTokenizer.from_pretrained(
         args.tokenizer_path or identity["answer"], local_files_only=True
@@ -199,31 +206,28 @@ def main() -> None:
         meta = score.metadata
         if meta is None:
             raise ValueError("Missing production score metadata")
-        compatibility = sample.metadata["compatibility"]
-        probe = compatibility["prompt"]
-        expected_tokens = [
-            token
-            for token, keep in zip(
-                probe["input_ids"], probe["attention_mask"], strict=True
-            )
-            if keep
-        ]
+        legacy_views = sample.metadata["legacy_text"]
+        expected_tokens = legacy_views["prompt"]["input_ids"]
         if expected_tokens != tokens:
             raise ValueError(
                 f"{sample.id}: production metadata differs from actual answer boundary"
             )
         lengths["answer"].append(len(tokens))
-        for component in ("target", "stereotype"):
-            if component in compatibility:
-                lengths[component].append(
-                    sum(compatibility[component]["attention_mask"])
-                )
+        for component, name in (
+            ("target", "target"),
+            ("stereotype", "stereotyped_answer"),
+        ):
+            if name in legacy_views["texts"]:
+                lengths[component].append(len(legacy_views["texts"][name]["input_ids"]))
+        judge_text = (
+            legacy_views["texts"]["judge_question"]["decoded"]
+            if family == "prompt_injection"
+            else sample.input
+            if family == "ccpc" and isinstance(sample.input, str)
+            else legacy_views["prompt"]["decoded"]
+        )
         lengths["judge_question_reencoded"].append(
-            len(
-                tokenizer.encode(
-                    compatibility["judge_question"], add_special_tokens=False
-                )
-            )
+            len(tokenizer.encode(judge_text, add_special_tokens=False))
         )
         verdict = (
             bool(meta["correct"])
@@ -243,7 +247,7 @@ def main() -> None:
             if bias
             else meta["question"]
             if hallu or refusal
-            else compatibility["judge_question"]
+            else meta["legacy_judge_question"]
             if family == "prompt_injection"
             else sample.input
         )
@@ -266,6 +270,7 @@ def main() -> None:
         raw_generations_sha256={str(path): digest(path) for path in generations},
     )
     (root / "comparison-identity.json").write_text(json.dumps(sidecar, indent=2))
+    parity = expected_request_settings(family)
     config = dict(
         answer_tokenizer_metadata_sha256=provisioned[identity["answer"]][
             "metadata_sha256"
@@ -287,9 +292,12 @@ def main() -> None:
         enforce_eager=identity.get("execution_mode", "eager") == "eager",
         gpu_memory_utilization=0.5,
         task_args=task_args,
-        answer_budget=2048 if refusal else 8192 if family == "ccpc" else 128,
-        judge_budget=128 if refusal else 4096 if family == "ccpc" else 32,
-        thinking=refusal,
+        answer_budget=parity["answer"]["max_tokens"],
+        judge_budget=parity["judge"]["max_tokens"],
+        thinking=parity["answer"]["extra_body"]["chat_template_kwargs"][
+            "enable_thinking"
+        ],
+        parity_config=f"llm_behavior_eval/{family}/parity.yaml",
     )
     if identity.get("execution_mode") == "compiled":
         config.update(cudagraph_specialize_lora=False, vllm_use_aot_compile=0)
@@ -391,11 +399,14 @@ def main() -> None:
             f"scores.{scorer}.metadata.response_tokens",
         )
     if bias or hallu:
-        fields["target"] = ("observed.target", "metadata.compatibility.target.decoded")
+        fields["target"] = (
+            "observed.target",
+            "metadata.legacy_text.texts.target.decoded",
+        )
     if stereotypes:
         fields["stereotype"] = (
             "observed.stereotype",
-            "metadata.compatibility.stereotype.decoded",
+            "metadata.legacy_text.texts.stereotyped_answer.decoded",
         )
     if bias:
         fields.update(
@@ -523,7 +534,11 @@ def main() -> None:
     if unrounded_path.exists():
         observed_metrics = json.loads(unrounded_path.read_text())
         if refusal:
-            from llm_behavior_eval.refusal.metrics import COUNT_NAMES, RATE_NAMES
+            metrics_module = importlib.import_module(
+                f"llm_behavior_eval.{family}.metrics"
+            )
+            COUNT_NAMES = metrics_module.COUNT_NAMES
+            RATE_NAMES = metrics_module.RATE_NAMES
 
             mapped = {m["name"] for m in case["metrics"]}
             for name in RATE_NAMES + COUNT_NAMES:

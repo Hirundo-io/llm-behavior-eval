@@ -1,1 +1,1 @@
-"""Native BLOOM bias tasks."""
+"""Native BLOOM bias tasks (self-contained; imports only ``common`` mechanics)."""

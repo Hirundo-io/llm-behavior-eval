@@ -1998,6 +1998,7 @@ name = "llm-behavior-eval"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
+    { name = "agent-client-protocol" },
     { name = "datasets" },
     { name = "inspect-ai" },
     { name = "openai" },
@@ -2031,18 +2032,19 @@ vllm = [
 [package.dev-dependencies]
 dev = [
     { name = "bumpver" },
+    { name = "llm-behavior-eval", extra = ["brief", "hf", "mlflow", "vllm"] },
     { name = "pre-commit" },
     { name = "pyrefly" },
     { name = "pytest" },
     { name = "pyyaml" },
     { name = "ruff" },
     { name = "types-pyyaml" },
-    { name = "types-tqdm" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'hf'", specifier = "<2.0.0" },
+    { name = "agent-client-protocol", specifier = ">=0.12.0,<1" },
     { name = "datasets", specifier = ">=5.0.1,<6.0.0" },
     { name = "inspect-ai", specifier = ">=0.3.288,<0.3.289" },
     { name = "inspect-brief", marker = "extra == 'brief'", specifier = ">=0.1.1,<0.2" },
@@ -2062,13 +2064,13 @@ provides-extras = ["brief", "mlflow", "tokenizers", "hf", "vllm"]
 [package.metadata.requires-dev]
 dev = [
     { name = "bumpver", specifier = ">=2024.1130" },
+    { name = "llm-behavior-eval", extras = ["mlflow", "hf", "vllm", "brief"], editable = "." },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyrefly", specifier = ">=0.63.1" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "ruff", specifier = ">=0.11.11,<1.0.0" },
     { name = "types-pyyaml" },
-    { name = "types-tqdm" },
 ]
 
 [[package]]
@@ -4873,30 +4875,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b8/83/4a1afc3fbfcf5b8d46fc390cd95ed6b0dc9010a265f4e9f46314efffa37a/types_pyyaml-6.0.12.20260518.tar.gz", hash = "sha256:d917f83fb38462550338c1297faedd860b3ec83912b96b1e3d73255f7473e466", size = 17850, upload-time = "2026-05-18T06:01:58.675Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/06/a2/c01db32be2ae7d6a1689972f3c492b149ee4e164b12fdfd9f64b50888215/types_pyyaml-6.0.12.20260518-py3-none-any.whl", hash = "sha256:d2150f75a231c9fe9c7463bd29487d93e60bac90400287351384bc2284eba7cd", size = 20312, upload-time = "2026-05-18T06:01:57.368Z" },
-]
-
-[[package]]
-name = "types-requests"
-version = "2.33.0.20260503"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "urllib3" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a1/b8/57e94268c0d82ac3eaa2fc35aa8ca7bbc2542f726b67dcf90b0b00a3b14d/types_requests-2.33.0.20260503.tar.gz", hash = "sha256:9721b2d9dbee7131f2fb39f20f0ebb1999c18cef4b512c9a7932f3722de7c5f4", size = 23931, upload-time = "2026-05-03T05:20:08.882Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/82/959113a6351f3ca046cd0a8cd2cee071d7ea47473560557a01eeae9a6fe2/types_requests-2.33.0.20260503-py3-none-any.whl", hash = "sha256:02aaa7e3577a13471715bb1bddb693cc985ea514f754b503bf033e6a09a3e528", size = 20736, upload-time = "2026-05-03T05:20:07.858Z" },
-]
-
-[[package]]
-name = "types-tqdm"
-version = "4.67.3.20260408"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "types-requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/43/42/2e2968e68a694d3dac3a47aa0df06e46be1a6eef498e5bd15f4c54674eb9/types_tqdm-4.67.3.20260408.tar.gz", hash = "sha256:fd849a79891ae7136ed47541aface15c35bd9a13160fa8a93e42e10f60cf4c8d", size = 18119, upload-time = "2026-04-08T04:36:52.488Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/14/5d/7dedddc32ab7bc2344ece772b5e0f03ec63a1d47ad259696689713c1cf50/types_tqdm-4.67.3.20260408-py3-none-any.whl", hash = "sha256:3b9ed74ebef04df8f53d470ffdc84348e93496d8acafa08bf79fafce0f2f5b5d", size = 24561, upload-time = "2026-04-08T04:36:51.538Z" },
 ]
 
 [[package]]

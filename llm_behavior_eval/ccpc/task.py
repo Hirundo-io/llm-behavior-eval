@@ -6,13 +6,15 @@ from llm_behavior_eval.ccpc.contract import (
     CCPC_DATASET_FINGERPRINT,
     CCPC_DATASET_REPOSITORY,
     CCPC_DATASET_REVISION,
+    CCPC_EXPECTED_ROWS,
     CCPC_RUBRIC_VERSION,
     CCPC_TASK_VERSION,
 )
 from llm_behavior_eval.ccpc.dataset import load_ccpc_dataset
-from llm_behavior_eval.ccpc.generation import PROMPT_PARITY, ccpc_generate
-from llm_behavior_eval.ccpc.scorer import censorship_judge
-from llm_behavior_eval.common.preprocessing import compatibility_task
+from llm_behavior_eval.ccpc.scorer import ccpc_scorer
+from llm_behavior_eval.ccpc.solver import LEGACY_PROMPT_PARITY, PROMPT_PARITY, solver
+
+CCPC_REFERENCE_JUDGE = "google/gemma-4-26B-A4B-it"
 
 
 @task
@@ -21,28 +23,25 @@ def ccpc(
     dataset_path: str | None = None,
     file_path: str | None = None,
     dataset_token: str | None = None,
-    max_samples: int | None = 500,
-    answer_thinking_configured: bool = False,
-    judge_thinking_configured: bool = False,
     judge_revision: str | None = None,
-    compatibility_tokenizer: str | None = None,
-    compatibility_tokenizer_revision: str | None = None,
+    legacy_tokenizer: str | None = None,
+    legacy_tokenizer_revision: str | None = None,
 ) -> Task:
-    result = Task(
+    """CCPC v6. Requires ``--model-role grader=...``.
+
+    No ``config=`` and no default grader: inference settings for both roles
+    come from the user or from parity.yaml. ``legacy_tokenizer`` (off by
+    default) opts in to recording the legacy engine's prompt view for parity
+    runs; the judge keeps the original question either way.
+    """
+    return Task(
         dataset=load_ccpc_dataset(
             dataset_path=dataset_path,
             file_path=file_path,
             dataset_token=dataset_token,
-            max_samples=max_samples,
         ),
-        solver=ccpc_generate(
-            answer_thinking_configured=answer_thinking_configured,
-            judge_thinking_configured=judge_thinking_configured,
-        ),
-        scorer=censorship_judge(
-            judge_thinking_configured=judge_thinking_configured,
-            judge_revision=judge_revision,
-        ),
+        solver=solver(legacy_tokenizer, legacy_tokenizer_revision),
+        scorer=ccpc_scorer(judge_revision=judge_revision),
         version=CCPC_TASK_VERSION,
         metadata=dict(
             task_version=CCPC_TASK_VERSION,
@@ -50,19 +49,9 @@ def ccpc(
             dataset_revision=CCPC_DATASET_REVISION,
             dataset_fingerprint=CCPC_DATASET_FINGERPRINT,
             rubric_version=CCPC_RUBRIC_VERSION,
-            canonical_rows=500,
-            judge_reference_model="google/gemma-4-26B-A4B-it",
+            canonical_rows=CCPC_EXPECTED_ROWS,
+            judge_reference_model=CCPC_REFERENCE_JUDGE,
             judge_model_revision=judge_revision,
-            enable_thinking=False,
-            judge_thinking=False,
-            answer_sampling=False,
-            judge_sampling=False,
-            max_answer_tokens=8192,
-            max_judge_tokens=4096,
-            prompt_parity=PROMPT_PARITY,
+            prompt_parity=LEGACY_PROMPT_PARITY if legacy_tokenizer else PROMPT_PARITY,
         ),
-    )
-
-    return compatibility_task(
-        result, compatibility_tokenizer, compatibility_tokenizer_revision, family="ccpc"
     )

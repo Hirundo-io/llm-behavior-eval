@@ -1,4 +1,9 @@
-"""CPU-only registered-task discovery, source conversion, scoring and log smoke."""
+"""CPU-only smoke run of every registered task on local data and mock models.
+
+Each task runs by its registered name, offline, with a mock answer model and a
+mock grader. The written ``.eval`` log must carry the registered task name and
+every target metric inspect-brief will look for.
+"""
 
 import socket
 
@@ -8,17 +13,32 @@ from inspect_ai.log import read_eval_log
 from inspect_ai.model import ModelOutput, ModelUsage, get_model
 
 from llm_behavior_eval import _registry, list_dataset_presets
-from llm_behavior_eval.target_metrics import target_metrics
-from tests.native_fixtures import local_task_dataset
+from llm_behavior_eval.common.target_metrics import (
+    load_target_metrics,
+    missing_target_metrics,
+)
+from tests.native_fixtures import GRADER_VERDICTS, local_task_dataset, require_fixture
+
+TEMPLATE = "inspect_template"
+
+
+def mock_output(model: str, content: str) -> ModelOutput:
+    output = ModelOutput.from_content(model, content)
+    # Otherwise MockLLM estimates usage with tiktoken, which downloads its
+    # vocabulary on a cold machine. This smoke tests task wiring, not usage.
+    output.usage = ModelUsage(input_tokens=1, output_tokens=1, total_tokens=2)
+    return output
 
 
 @pytest.mark.parametrize("name", _registry.__all__)
 def test_registered_task(name, tmp_path, monkeypatch):
+    require_fixture(name)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setenv("HF_DATASETS_OFFLINE", "1")
     monkeypatch.setenv("INSPECT_BRIEF_ENABLED", "false")
-    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", str(tmp_path / "token-cache"))
+    monkeypatch.delenv("LLM_BEHAVIOR_EVAL_MLFLOW_ENABLED", raising=False)
 
     def no_network(*args, **kwargs):
         raise AssertionError("Smoke attempted network access")
@@ -26,36 +46,17 @@ def test_registered_task(name, tmp_path, monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", no_network)
     args = (
         {}
-        if name == "inspect_template"
+        if name == TEMPLATE
         else {"dataset_path": str(local_task_dataset(name, tmp_path, monkeypatch))}
     )
-    verdict = {
-        "bbq": "gt_agree: yes candidate_uncertain: no",
-        "bloom": "gt_agree: yes candidate_uncertain: no",
-        "unqover": "gt_agree: yes candidate_uncertain: no",
-        "halueval": "A",
-        "medhallu": "A",
-        "prompt_injection": "Yes",
-        "ccpc": "True",
-        "xstest": "2_full_refusal",
-        "orbench": "[[direct_refusal]]",
-        "inspect_template": "SCORE: 1",
-    }[name]
     calls = []
-
-    def mock_output(model: str, content: str) -> ModelOutput:
-        output = ModelOutput.from_content(model, content)
-        # Otherwise MockLLM estimates usage with tiktoken, which downloads its
-        # vocabulary on a cold machine. This smoke tests task wiring, not usage.
-        output.usage = ModelUsage(input_tokens=1, output_tokens=1, total_tokens=2)
-        return output
 
     def grade(messages, tools, choice, config):
         calls.append(messages)
         assert "secret-reasoning" not in str(messages)
-        return mock_output("mockllm/grader", verdict)
+        return mock_output("mockllm/grader", GRADER_VERDICTS[name])
 
-    log = inspect_eval(
+    [log] = inspect_eval(
         f"llm_behavior_eval/{name}",
         task_args=args,
         limit=2,
@@ -66,38 +67,44 @@ def test_registered_task(name, tmp_path, monkeypatch):
                 for _ in range(2)
             ],
         ),
+        # Every task gets this grader, the template included: its own mock
+        # grader reports no usage, so MockLLM would fetch a tiktoken vocabulary.
         model_roles={"grader": get_model("mockllm/grader", custom_outputs=grade)},
         log_dir=str(tmp_path / "logs"),
         display="none",
-    )[0]
+    )
     assert log.status == "success", log.error.traceback if log.error else None
     assert calls
-    saved = read_eval_log(str(next((tmp_path / "logs").glob("*.eval"))))
+    saved = read_eval_log(log.location)
     assert saved.eval.task == f"llm_behavior_eval/{name}"
     assert saved.samples and saved.results
-    emitted = {key for score in saved.results.scores for key in score.metrics}
-    assert {m["name"] for m in target_metrics()[saved.eval.task]} <= emitted
+    assert missing_target_metrics(saved) == []
 
 
-def test_registry_presets_and_target_schema():
-    registered = {f"llm_behavior_eval/{n}" for n in _registry.__all__}
-    assert set(target_metrics()) == registered
-    assert {
+def test_every_preset_maps_to_a_registered_task():
+    registered = {f"llm_behavior_eval/{name}" for name in _registry.__all__}
+    assert set(load_target_metrics()) == registered
+    mapped = {
         mapping.task_name
         for preset in list_dataset_presets()
         for mapping in preset.inspect_tasks
-    } == registered - {"llm_behavior_eval/inspect_template"}
-    for metrics in target_metrics().values():
-        assert len({m["name"] for m in metrics}) == len(metrics)
-        for metric in metrics:
-            assert set(metric) == {
-                "name",
-                "is_percentage",
-                "is_normalized",
-                "is_higher_better",
-            }
-            assert isinstance(metric["name"], str)
-            assert all(type(metric[k]) is bool for k in metric if k != "name")
+    }
+    # Each legacy benchmark is reachable; new benchmarks need no legacy preset.
+    assert mapped <= registered
+    assert mapped == {
+        f"llm_behavior_eval/{name}"
+        for name in (
+            "bbq",
+            "bloom",
+            "ccpc",
+            "halueval",
+            "medhallu",
+            "orbench",
+            "prompt_injection",
+            "unqover",
+            "xstest",
+        )
+    }
 
 
 def test_ccpc_fixture_requires_explicit_fingerprint_override(tmp_path, monkeypatch):
@@ -106,4 +113,4 @@ def test_ccpc_fixture_requires_explicit_fingerprint_override(tmp_path, monkeypat
     with monkeypatch.context() as fixture_patch:
         path = local_task_dataset("ccpc", tmp_path, fixture_patch)
     with pytest.raises(ValueError, match="fingerprint"):
-        load_ccpc_dataset(dataset_path=str(path), max_samples=1)
+        load_ccpc_dataset(dataset_path=str(path))

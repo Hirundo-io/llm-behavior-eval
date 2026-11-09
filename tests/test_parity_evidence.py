@@ -1,10 +1,10 @@
 import json
-from pathlib import Path
 
 import pytest
 
 from scripts.parity import compare as comparator
 from scripts.parity.tokenizer_probe import legacy_text_probe
+from tests.golden import golden
 
 
 @pytest.fixture
@@ -165,45 +165,6 @@ def test_real_binary_eval_readback(tmp_path):
     assert restored["status"] == "success"
     assert restored["samples"][0]["id"] == "stable:0"
 
-    from scripts.parity.generation_report import generation_report
-
-    native_dir = tmp_path / "native"
-    native_dir.mkdir()
-    __import__("pathlib").Path(log.location).rename(native_dir / "fixture.eval")
-    legacy_dir = tmp_path / "legacy"
-    legacy_dir.mkdir()
-    output = restored["samples"][0]["output"]
-    (legacy_dir / "generations.jsonl").write_text(
-        json.dumps(
-            {
-                "answers": [output["completion"]],
-                "finish_reasons": ["stop"],
-                "input_texts": ["decoded Q"],
-                "judge_questions": ["Q"],
-            }
-        )
-        + "\n"
-    )
-    (tmp_path / "selection.json").write_text(json.dumps({"ids": ["stable:0"]}))
-    (tmp_path / "tokenizer-audit.json").write_text(
-        json.dumps(
-            {
-                "rows": [
-                    {
-                        "id": "stable:0",
-                        "legacy_decoded_input": "decoded Q",
-                        "legacy_judge_question": "Q",
-                    }
-                ]
-            }
-        )
-    )
-    report = generation_report(tmp_path)
-    assert report["exact_answer_matches"] == 1
-    assert report["judge_question_matches"] == 0
-    assert "no judge" in report["scope"]
-    assert len(report["artifacts"]) == 4
-
 
 def test_generation_batches_are_hash_bound(evidence):
     root, case, _ = evidence
@@ -245,7 +206,11 @@ def test_empty_manifest_still_reports_all_required_splits(tmp_path):
     assert all(row["status"] == "incomplete" for row in report["rows"])
 
 
-def test_probe_against_frozen_legacy_preprocessing():
+def test_probe_against_actual_legacy_preprocessing():
+    # Frozen legacy free_text_preprocess_function outputs for this tokenizer and
+    # render (tests/golden/probe.json; see tests/golden/README.md).
+    legacy = golden("probe")
+
     class Tokenizer:
         def __call__(self, texts, **kwargs):
             rows, masks = [], []
@@ -265,9 +230,6 @@ def test_probe_against_frozen_legacy_preprocessing():
 
     tokenizer = Tokenizer()
     rendered = "system:user:" + "Q" * 1100
-    legacy = json.loads(
-        (Path(__file__).parent / "golden/probe_baseline.json").read_text()
-    )
     probe = legacy_text_probe(
         tokenizer, rendered, "A" * 300, stereotype="S" * 300, judge_question="J" * 300
     )
@@ -276,8 +238,37 @@ def test_probe_against_frozen_legacy_preprocessing():
         ("gt_answers", "target"),
         ("stereotyped_answers", "stereotype"),
     ]:
-        assert legacy[key][0] == probe[native_key]["input_ids"]
+        assert legacy[key] == probe[native_key]["input_ids"]
     assert (
-        tokenizer.decode(legacy["judge_questions"][0], skip_special_tokens=True)
+        tokenizer.decode(legacy["judge_questions"], skip_special_tokens=True)
         == probe["judge_question"]
     )
+
+
+def test_committed_redesign_replay_covers_every_case_exactly():
+    """The CPU replay record: all 31 required cases, exact, no fabricated rows."""
+    from pathlib import Path
+
+    root = Path(__file__).parents[1] / "scripts" / "parity"
+    report = json.loads((root / "redesign-replay.json").read_text())
+    expected = json.loads((root / "pending.json").read_text())["expected_cases"]
+    assert [case["case"] for case in report["cases"]] == expected
+    assert report["exact"] is True and report["code_dirty"] is False
+    assert report["totals"] == {
+        "cases": 31,
+        "exact_cases": 31,
+        "samples": 3100,
+        "judge_requests": 7448,
+    }
+    for case in report["cases"]:
+        assert case["mismatches"] == []
+        assert case["judge_requests"] == case["recorded_judge_requests"]
+        assert (
+            case["samples"]
+            == case["prompt_ids_equal_server_ids"]
+            == case["legacy_text_views_equal"]
+            == case["per_sample_scores_equal"]
+        )
+    purple = json.loads((root / "redesign-purple-metric-replay.json").read_text())
+    assert purple["exact"] is True
+    assert purple["native_metric_asr"] == purple["retained_asr"]

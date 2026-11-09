@@ -3,6 +3,10 @@
 This is an evidence replay, not a model implementation. Existing retained graders
 parse the recorded raw judgments and aggregate the selected generation records.
 Every replayed judge prompt must match its original observed token IDs exactly.
+
+The retained graders are the legacy engine's, which llm-behavior-eval 0.2.0
+removed: run this from the frozen pre-removal checkout
+(``scripts.parity.historical.FROZEN_COMMIT``; see scripts/parity/README.md).
 """
 
 import argparse
@@ -10,69 +14,12 @@ import csv
 import json
 import shutil
 from dataclasses import fields
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from scripts.parity.compare import digest
-from scripts.parity.historical import legacy_module
-from scripts.parity.recorded_judgments import RecordedJudgments
-
-calculate_censorship_metrics = legacy_module(
-    "llm_behavior_eval.evaluation_utils.censorship_utils"
-).calculate_censorship_metrics
-DatasetConfig = legacy_module(
-    "llm_behavior_eval.evaluation_utils.dataset_config"
-).DatasetConfig
-EvaluationConfig = legacy_module(
-    "llm_behavior_eval.evaluation_utils.eval_config"
-).EvaluationConfig
-EvaluateFactory = legacy_module(
-    "llm_behavior_eval.evaluation_utils.evaluate_factory"
-).EvaluateFactory
-FreeTextBiasEvaluator = legacy_module(
-    "llm_behavior_eval.evaluation_utils.free_text_bias_evaluator"
-).FreeTextBiasEvaluator
-_BiasGenerationRecord = legacy_module(
-    "llm_behavior_eval.evaluation_utils.free_text_bias_evaluator"
-)._BiasGenerationRecord
-FreeTextCensorshipEvaluator = legacy_module(
-    "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator"
-).FreeTextCensorshipEvaluator
-_CensorshipGenerationRecord = legacy_module(
-    "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator"
-)._CensorshipGenerationRecord
-FreeTextHaluEvaluator = legacy_module(
-    "llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator"
-).FreeTextHaluEvaluator
-_HalluGenerationRecord = legacy_module(
-    "llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator"
-)._HalluGenerationRecord
-FreeTextPromptInjectionEvaluator = legacy_module(
-    "llm_behavior_eval.evaluation_utils.free_text_injection_evaluator"
-).FreeTextPromptInjectionEvaluator
-_InjectionGenerationRecord = legacy_module(
-    "llm_behavior_eval.evaluation_utils.free_text_injection_evaluator"
-)._InjectionGenerationRecord
-FreeTextRefusalEvaluator = legacy_module(
-    "llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator"
-).FreeTextRefusalEvaluator
-_RefusalGenerationRecord = legacy_module(
-    "llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator"
-)._RefusalGenerationRecord
-
-
-@lru_cache(maxsize=3)
-def judge_tokenizer(path: str) -> Any:
-    from transformers import AutoTokenizer  # type: ignore[missing-import]
-
-    tokenizer: Any = AutoTokenizer.from_pretrained(path, local_files_only=True)
-    if tokenizer is None:
-        raise ValueError("Recorded judge tokenizer did not load")
-    tokenizer.padding_side = "left"
-    if not tokenizer.pad_token:
-        tokenizer.pad_token = tokenizer.eos_token
-    return tokenizer
+from scripts.parity.historical import legacy_module, require_frozen_checkout
+from scripts.parity.recorded_judgments import RecordedJudgments, judge_tokenizer
 
 
 def reuse_legacy(primary: Path, output: Path) -> dict[str, Any]:
@@ -100,18 +47,36 @@ def reuse_legacy(primary: Path, output: Path) -> dict[str, Any]:
     if not len(original) == len(boundaries) == len(source["ids"]):
         raise ValueError("Original retained evidence is incomplete")
     config = json.loads(config_paths[0].read_text())
+    legacy = "llm_behavior_eval.evaluation_utils"
+    EvaluateFactory = legacy_module(f"{legacy}.evaluate_factory").EvaluateFactory
+    EvaluationConfig = legacy_module(f"{legacy}.eval_config").EvaluationConfig
+    DatasetConfig = legacy_module(f"{legacy}.dataset_config").DatasetConfig
+    calculate_censorship_metrics = legacy_module(
+        f"{legacy}.censorship_utils"
+    ).calculate_censorship_metrics
+    bias = legacy_module(f"{legacy}.free_text_bias_evaluator")
+    hallu = legacy_module(f"{legacy}.free_text_hallu_evaluator")
+    injection = legacy_module(f"{legacy}.free_text_injection_evaluator")
+    refusal_module = legacy_module(f"{legacy}.free_text_refusal_evaluator")
+    censorship_module = legacy_module(f"{legacy}.free_text_censorship_evaluator")
     family = EvaluateFactory.get_evaluator_family(
         config["dataset_config"]["dataset_id"]
     )
     classes: dict[str, Any] = {
-        "bias": (FreeTextBiasEvaluator, _BiasGenerationRecord),
-        "hallucination": (FreeTextHaluEvaluator, _HalluGenerationRecord),
+        "bias": (bias.FreeTextBiasEvaluator, bias._BiasGenerationRecord),
+        "hallucination": (hallu.FreeTextHaluEvaluator, hallu._HalluGenerationRecord),
         "prompt-injection": (
-            FreeTextPromptInjectionEvaluator,
-            _InjectionGenerationRecord,
+            injection.FreeTextPromptInjectionEvaluator,
+            injection._InjectionGenerationRecord,
         ),
-        "refusal": (FreeTextRefusalEvaluator, _RefusalGenerationRecord),
-        "censorship": (FreeTextCensorshipEvaluator, _CensorshipGenerationRecord),
+        "refusal": (
+            refusal_module.FreeTextRefusalEvaluator,
+            refusal_module._RefusalGenerationRecord,
+        ),
+        "censorship": (
+            censorship_module.FreeTextCensorshipEvaluator,
+            censorship_module._CensorshipGenerationRecord,
+        ),
     }
     evaluator_class, record_class = classes[family]
     generation_paths = list((primary / "legacy").rglob("generations.jsonl"))
@@ -244,6 +209,7 @@ def main() -> None:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--cases", nargs="+", required=True)
     args = parser.parse_args()
+    require_frozen_checkout()
     for case in args.cases:
         name = case.replace(":", "-")
         reuse_legacy(args.primary_root / name, args.root / name)

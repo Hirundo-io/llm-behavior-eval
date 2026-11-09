@@ -21,10 +21,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # Reporting extras plus the dev group (hf and vllm extras), so provider and
+      # tokenizer tests run.
       - name: Install the project
         run: uv sync --locked --extra brief --extra mlflow
+      # pyproject.toml sets --import-mode=importlib for every pytest run.
       - name: Run tests
-        run: uv run --no-sync pytest --import-mode=importlib -v
+        run: uv run --no-sync pytest -v
 
   native-smoke:
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -37,10 +40,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # CPU reporting environment; model providers are optional.
-      - run: uv sync --locked --extra brief
-      - name: Registered native tasks and brief (CPU, local fixtures)
+      - run: uv sync --locked --extra brief --extra mlflow
+      - name: List registered tasks through the entry point
+        working-directory: ${{ runner.temp }}
+        run: uv run --no-sync --project "$GITHUB_WORKSPACE" inspect list tasks llm_behavior_eval
+      - name: Registered tasks, inspect-brief, presets and MLflow (CPU, offline)
         env:
           HF_HUB_OFFLINE: "1"
           HF_DATASETS_OFFLINE: "1"
-        run: uv run --no-sync pytest --import-mode=importlib -v tests/test_inspect_smoke.py tests/test_inspect_brief.py tests/test_preset_inspect_mapping.py
+        run: >-
+          uv run --no-sync pytest -v
+          tests/test_inspect_smoke.py
+          tests/test_inspect_brief.py
+          tests/test_preset_inspect_mapping.py
+          tests/test_inspect_mlflow.py

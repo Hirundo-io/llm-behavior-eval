@@ -1,0 +1,79 @@
+# BLOOM parity config: the legacy engine's exact settings, as an Inspect run
+# config. It applies only when passed explicitly. One parity command (HF answer
+# model; $ANSWER is its local snapshot directory):
+#
+#   inspect eval llm_behavior_eval/bloom -T bias_type=gender -T kind=bias \
+#     -T legacy_tokenizer="$ANSWER" \
+#     --model hf/local -M model_path="$ANSWER" \
+#     -M do_sample=false -M enable_thinking=false \
+#     -M tokenizer_call_args='{truncation: true, max_length: 1024}' \
+#     --run-config llm_behavior_eval/bloom/parity.yaml
+#
+# This file never names the model under test, so its provider args stay on the
+# command line: Inspect's HF provider samples unless given do_sample=false,
+# reads enable_thinking itself (it ignores extra_body), and truncates the
+# prompt only through tokenizer_call_args. -T legacy_tokenizer turns on the
+# benchmark's opt-in legacy text preprocessing; a run config cannot set task
+# arguments without naming the task, which this file must not do. See
+# scripts/parity/README.md for the vLLM variant used by the qualification runs.
+#
+# Sources (the legacy engine's llm_behavior_eval/evaluation_utils/, removed in
+# 0.2.0; read them at the frozen commit d8c8015, scripts/parity/README.md):
+# eval_config.py
+# FAMILY_TOKEN_DEFAULTS["bias"] (token budgets, sample_judge, enable_thinking)
+# and EvaluationConfig (sample=False, max_samples=500); sampling_config.py
+# SamplingConfig.seed=42, passed to every legacy vLLM request; custom_dataset.py
+# (prompts tokenized with special tokens and truncated to 1024 tokens). Only
+# inference settings belong here: never `task`, `model` or `solver`.
+
+# Model under test (eval-level GenerateConfig; never applied to the grader).
+generate_config:
+  # sample=False: greedy decoding.
+  temperature: 0.0
+  # max_answer_tokens.
+  max_tokens: 128
+  # SamplingConfig.seed.
+  seed: 42
+  # Read by vLLM/SGLang/OpenAI-compatible servers; Inspect's HF provider
+  # ignores extra_body (see the -M flags above).
+  extra_body:
+    # Legacy enable_thinking=False, passed to the chat template.
+    chat_template_kwargs:
+      enable_thinking: false
+    # The legacy engine tokenized the rendered chat template with the
+    # tokenizer's special tokens added (for Gemma, a second <bos>).
+    add_special_tokens: true
+    # Legacy prompts were truncated to 1024 tokens on the tokenizer's
+    # truncation side, which must be "right" for the answer tokenizer (the
+    # transformers default and the qualified Gemma 3 4B tokenizer).
+    truncate_prompt_tokens: 1024
+    truncation_side: right
+
+# Legacy max_samples=500, taken after the seed-42 shuffle that bloom/dataset.py reproduces.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # Parity evidence used Gemma 3 12B judges. google/gemma-4-12B-it is not
+    # parity-qualified.
+    model: hf/google/gemma-3-12b-it
+    # Grader GenerateConfig.
+    config:
+      # sample_judge=False: greedy.
+      temperature: 0.0
+      # max_judge_tokens.
+      max_tokens: 32
+      seed: 42
+      # Read by vLLM/SGLang/OpenAI-compatible graders; ignored by HF (see args).
+      extra_body:
+        # The legacy judge was never run with thinking on.
+        chat_template_kwargs:
+          enable_thinking: false
+        # Judge prompts were tokenized with special tokens and not truncated.
+        add_special_tokens: true
+    # Grader HF provider args: greedy decoding and thinking off. Drop them if
+    # the grader is swapped for a non-HF provider.
+    args:
+      do_sample: false
+      enable_thinking: false

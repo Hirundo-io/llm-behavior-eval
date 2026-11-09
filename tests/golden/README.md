@@ -1,41 +1,55 @@
-# Removal baseline
+# Frozen legacy expectations
 
-Source: `bae7a508649f48f2755ce831822b2fcb91d2ba71` (LLM-171 candidate base).
+Version 0.2.0 removed the legacy engine (`llm_behavior_eval/evaluation_utils/`).
+Tests that used to compare native code with it live now compare with the values
+in these JSON files. They are data, never an executable legacy implementation.
 
-`removal_baseline.json` is data, never an executable legacy implementation.
-The parser/prompt vectors were evaluated against that revision's evaluator
-functions/constants before removal. Aggregate `saved`/`captured` payloads were
-recorded from the existing native-vs-legacy tests while they still executed the
-legacy `_grade_impl` with deterministic judge stubs. The selected baseline run
-reported **90 passed, 2 skipped, 134 deselected**. Binary logs were replaced by
-JSON for that local capture to avoid lazy log access hanging in this environment;
-the answers, scorer inputs and legacy grading calls were unchanged.
+## Provenance
 
-Fixtures cover BBQ bias/unbias, BLOOM bias/unbias/ambiguous and UNQOVER with and
-without stereotype columns; HaluEval grades/skips; injection Yes/No/skips;
-XSTest and ORBench response records plus every refusal diagnostic/count.
-The MedHallu order freezes the baseline loader's seed-42 shuffle of 502 rows,
-then cap at 500. CCPC freezes the deterministic 500-row test-source fingerprint,
-boolean rubric constants and fail-closed metric cases. Preprocessor widths record
-the baseline fake-character-tokenizer truncation assertions; the native tests
-explicitly retain the longer raw strings, documenting unresolved divergence.
-Parser tests inline the same frozen vectors for readable parametrized failures.
-`test_semantic_regressions.py` retains the additional old free-text utility vectors.
+Every file was captured from the legacy engine in the frozen pre-removal checkout
+**`d8c80154c1e6ae90e2896811685d7c1a9bf89e68`** (the last commit with the engine;
+`FROZEN_COMMIT` in `scripts/parity/historical.py`) by
 
-Do not regenerate expectations from the native scorer under test. An intended
-semantic change requires a reviewed new reference and provenance. These fixtures
-are deterministic regression evidence, not live provider/tokenizer parity or
-approval of LLM-169.
+```sh
+python -m scripts.parity.removal_baseline <name>
+```
 
-`preprocessing_baseline.json` and `probe_baseline.json` were captured from actual
-legacy preprocessing at `5cce36cba76a99271f234973853216cbb511a709` before removal,
-using the pinned Gemma3/Qwen3 tokenizer fixtures (hashes asserted in tests).
-They preserve left/right 1024-token prompts, 256-token targets/stereotypes,
-independent judge questions, special tokens, thinking flags and mixed batches.
-The probe uses the deterministic character tokenizer from test_parity_evidence.
-These are data fixtures, not a second implementation of the retired engine.
+which runs `scripts/parity/removal_baseline/<name>.py`. Each file records:
 
-`purple_baseline.json` captures the actual `_grade_impl` saved accuracy converted
-with `100 * (1 - accuracy)` at the same 5cce36c parent, including its b9a5b28 fix.
-Assertions use exact float equality, including 19.999999999999996 and
-9.999999999999998; one truncated response is excluded in every vector.
+* `provenance.commit`: the checkout's `HEAD` at capture (the runner refuses a
+  modified `llm_behavior_eval/`);
+* `provenance.capture`: the command;
+* `provenance.sources`: the legacy symbols read (`module:symbol`);
+* `values`: what those symbols returned on the tests' own deterministic inputs.
+
+Where a test fed native-built inputs into legacy code (judge stubs, finish
+reasons, synthetic rows, tokenizer rows), the inputs or their digest are stored
+too and the test asserts they are unchanged, so a drifting fixture fails instead
+of silently comparing different cases. Tokenizer cases use the offline tiny
+tokenizer and the pinned Gemma 3 / Qwen3 snapshots whose `tokenizer.json`
+SHA-256 `tests/legacy_tokenizers.py` asserts; pinned cases still skip only when
+the snapshot is absent. Floats are stored as JSON numbers and compared exactly
+wherever the original test compared exactly.
+
+`tests/test_removal_contract.py` checks that every file cites `FROZEN_COMMIT`
+and has a capture module, and that no test imports a legacy module or the capture
+code.
+
+## Files
+
+| File | Tests | Legacy sources |
+| --- | --- | --- |
+| `bbq.json` | `test_inspect_bbq.py` | `dataset_config:DatasetConfig.model_fields`, `eval_config:EvaluationConfig.model_fields`, `eval_config:FAMILY_TOKEN_DEFAULTS`, `free_text_bias_evaluator:FreeTextBiasEvaluator.AGREEMENT_CHECK_SYSTEM_PROMPT`, `free_text_bias_evaluator:FreeTextBiasEvaluator.UNCERTAINTY_CHECK_SYSTEM_PROMPT`, `free_text_bias_evaluator:FreeTextBiasEvaluator._grade_impl`, `free_text_bias_evaluator:FreeTextBiasEvaluator._match_llm_answers`, `free_text_bias_evaluator:_JUDGE_OUTPUT_RE`, `free_text_bias_evaluator:_UNCERT_RE`, `free_text_bias_evaluator:extract_agreements`, `free_text_bias_evaluator:map_uncertainty_outputs`, `prompts:FREE_TEXT_SYSTEM_MESSAGE`, `prompts:UNKNOWN_ANSWERS` |
+| `bloom.json` | `test_inspect_bloom.py` | `dataset_config:DatasetConfig.model_fields`, `enums:BLOOM_BIAS_TYPES`, `eval_config:EvaluationConfig.model_fields`, `eval_config:FAMILY_TOKEN_DEFAULTS`, `free_text_bias_evaluator:FreeTextBiasEvaluator.AGREEMENT_CHECK_SYSTEM_PROMPT`, `free_text_bias_evaluator:FreeTextBiasEvaluator.UNCERTAINTY_CHECK_SYSTEM_PROMPT`, `free_text_bias_evaluator:FreeTextBiasEvaluator._grade_impl`, `free_text_bias_evaluator:extract_agreements`, `free_text_bias_evaluator:map_uncertainty_outputs`, `prompts:FREE_TEXT_SYSTEM_MESSAGE`, `prompts:UNKNOWN_ANSWERS` |
+| `catalog.json` | `test_preset_inspect_mapping.py` | `censorship_utils:CCPC_DATASET_ID`, `censorship_utils:CCPC_DATASET_REPOSITORY`, `enums:BBQ_BIAS_TYPES`, `enums:BIAS_KINDS`, `enums:BLOOM_BIAS_TYPES`, `enums:UNQOVER_BIAS_TYPES`, `evaluate_factory:EvaluateFactory.get_evaluator_family`, `refusal_utils:OR_BENCH_DATASET`, `refusal_utils:XSTEST_DATASET` |
+| `ccpc.json` | `test_inspect_ccpc.py` | `censorship_utils:CCPC_*`, `censorship_utils:calculate_censorship_metrics`, `censorship_utils:censorship_dataset_fingerprint`, `censorship_utils:parse_censorship_judgment`, `eval_config:EvaluationConfig`, `eval_config:FAMILY_TOKEN_DEFAULTS` |
+| `halueval.json` | `test_inspect_halueval.py` | `base_evaluator:BaseEvaluator.prepare_dataloader`, `custom_dataset:free_text_preprocess_function`, `dataset_config:DatasetConfig`, `eval_config:EvaluationConfig`, `eval_config:FAMILY_TOKEN_DEFAULTS`, `free_text_hallu_evaluator:FreeTextHaluEvaluator._grade_impl`, `free_text_hallu_evaluator:FreeTextHaluEvaluator._map_judge_outputs`, `free_text_hallu_evaluator:GRADER_TEMPLATE`, `prompts:FREE_TEXT_SYSTEM_MESSAGE` |
+| `medhallu.json` | `test_inspect_medhallu.py` | `base_evaluator:BaseEvaluator.prepare_dataloader`, `custom_dataset:free_text_preprocess_function`, `dataset_config:DatasetConfig`, `eval_config:EvaluationConfig`, `eval_config:FAMILY_TOKEN_DEFAULTS`, `free_text_hallu_evaluator:FreeTextHaluEvaluator._grade_impl`, `free_text_hallu_evaluator:FreeTextHaluEvaluator._map_judge_outputs`, `free_text_hallu_evaluator:GRADER_TEMPLATE`, `prompts:FREE_TEXT_SYSTEM_MESSAGE` |
+| `orbench.json` | `test_inspect_orbench.py` | `dataset_config:DatasetConfig`, `eval_config:EvaluationConfig`, `eval_config:FAMILY_TOKEN_DEFAULTS`, `free_text_refusal_evaluator:FreeTextRefusalEvaluator._grade_impl`, `free_text_refusal_evaluator:FreeTextRefusalEvaluator._judge_prompt_template`, `free_text_refusal_evaluator:parse_or_bench_judgment`, `free_text_refusal_evaluator:refusal_heuristic`, `refusal_utils:REFUSAL_MARKERS`, `refusal_utils:_REFUSAL_PREFIXES`, `refusal_utils:normalize_refusal_dataset` |
+| `preprocessing.json` | `test_inspect_preprocessing.py` | `custom_dataset:free_text_preprocess_function`, `eval_config:FAMILY_TOKEN_DEFAULTS`, `free_text_hallu_evaluator:GRADER_TEMPLATE`, `util_functions:safe_apply_chat_template` |
+| `probe.json` | `test_parity_evidence.py` | `custom_dataset:free_text_preprocess_function` |
+| `prompt_injection.json` | `test_inspect_prompt_injection.py` | `custom_dataset:free_text_preprocess_function`, `eval_config:EvaluationConfig`, `eval_config:FAMILY_TOKEN_DEFAULTS`, `free_text_injection_evaluator:FreeTextPromptInjectionEvaluator`, `prompts:FREE_TEXT_SYSTEM_MESSAGE` |
+| `unqover.json` | `test_inspect_unqover.py` | `dataset_config:DatasetConfig.model_fields`, `eval_config:EvaluationConfig.model_fields`, `eval_config:FAMILY_TOKEN_DEFAULTS`, `free_text_bias_evaluator:FreeTextBiasEvaluator.AGREEMENT_CHECK_SYSTEM_PROMPT`, `free_text_bias_evaluator:FreeTextBiasEvaluator.UNCERTAINTY_CHECK_SYSTEM_PROMPT`, `free_text_bias_evaluator:FreeTextBiasEvaluator._grade_impl`, `free_text_bias_evaluator:extract_agreements`, `free_text_bias_evaluator:map_uncertainty_outputs`, `prompts:FREE_TEXT_SYSTEM_MESSAGE`, `prompts:UNKNOWN_ANSWERS` |
+| `xstest.json` | `test_inspect_xstest.py` | `eval_config:EvaluationConfig`, `eval_config:FAMILY_TOKEN_DEFAULTS`, `free_text_refusal_evaluator:FreeTextRefusalEvaluator._grade_impl`, `free_text_refusal_evaluator:parse_xstest_judgment`, `free_text_refusal_evaluator:refusal_heuristic`, `refusal_utils:REFUSAL_MARKERS`, `refusal_utils:XSTEST_DATASET`, `refusal_utils:XSTEST_JUDGE_PROMPT`, `refusal_utils:_REFUSAL_PREFIXES`, `refusal_utils:normalize_refusal_label` |
+
+Sources are relative to `llm_behavior_eval.evaluation_utils`.

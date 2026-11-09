@@ -1,1 +1,1 @@
-"""Native Inspect medhallu support."""
+"""Self-contained native Inspect Med-Hallu benchmark."""

@@ -170,6 +170,8 @@ cython_debug/
 */results/*
 *.json
 !.devcontainer/devcontainer.json
+# Benchmark-owned report metrics ship with each package.
+!llm_behavior_eval/*/target_metrics.json
 
 # ACT Secrets
 act-events/pr.secrets
@@ -182,6 +184,5 @@ act-events/pr.secrets
 results/
 .DS_Store
 
-!llm_behavior_eval/target_metrics.json
-
+# Frozen legacy expectations (data only).
 !tests/golden/*.json

@@ -238,3 +238,78 @@ def test_unavailable_mlflow_is_optional(monkeypatch, caplog):
     asyncio.run(hook.on_run_start(RunStart(None, "missing", [])))
     assert not hook._runs
     assert "unavailable" in caplog.text
+
+
+def test_hook_is_registered_by_the_entry_point_and_off_by_default(monkeypatch):
+    from inspect_ai.hooks._hooks import get_all_hooks
+
+    from llm_behavior_eval import _registry
+
+    assert "hooks" not in _registry.__all__
+    [hook] = [h for h in get_all_hooks() if isinstance(h, MlflowHook)]
+    monkeypatch.delenv(PREFIX + "ENABLED", raising=False)
+    assert not hook.enabled()
+    monkeypatch.setenv(PREFIX + "ENABLED", "true")
+    assert hook.enabled()
+
+
+def test_registered_benchmark_metrics_are_reported(tracking, tmp_path):
+    [log] = inspect_eval(
+        "llm_behavior_eval/inspect_template",
+        model="mockllm/model",
+        log_dir=str(tmp_path / "logs"),
+        display="none",
+    )
+    assert log.status == "success"
+    experiment = tracking.get_experiment_by_name("llm-behavior-eval")
+    [run] = tracking.search_runs([experiment.experiment_id])
+    names = {key.rsplit("/", 1)[-1] for key in run.data.metrics}
+    assert {"field_rate", "incomplete_response_rate", "datasets_attached"} <= names
+    # Keys are namespaced TASK/IDENTITY/...; long task names are shortened
+    # with a hash suffix.
+    assert {
+        key.split("/")[0] for key in run.data.metrics if key != "datasets_attached"
+    } == {hook_module._component(log.eval.task)}
+
+
+def test_cli_run_of_any_task_reports_through_the_entry_point(tracking, tmp_path):
+    """A fresh ``inspect eval`` loads the hook from the package entry point."""
+    import os
+    import shutil
+    import subprocess
+
+    task_file = tmp_path / "other_task.py"
+    task_file.write_text(
+        "from inspect_ai import Task, task\n"
+        "from inspect_ai.dataset import Sample\n"
+        "from inspect_ai.scorer import exact\n"
+        "from inspect_ai.solver import generate\n\n\n"
+        "@task\n"
+        "def other_task():\n"
+        "    return Task(dataset=[Sample(input='hi', target='Default output')],\n"
+        "                solver=generate(), scorer=exact())\n"
+    )
+    inspect = shutil.which("inspect", path=os.path.dirname(sys.executable))
+    assert inspect
+    result = subprocess.run(
+        [
+            inspect,
+            "eval",
+            task_file.name,
+            "--model",
+            "mockllm/model",
+            "--display",
+            "none",
+            "--log-dir",
+            str(tmp_path / "logs"),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "INSPECT_BRIEF_ENABLED": "false"},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    experiment = tracking.get_experiment_by_name("llm-behavior-eval")
+    [run] = tracking.search_runs([experiment.experiment_id])
+    assert run.info.status == "FINISHED"
+    assert run.data.metrics["datasets_attached"] == 1

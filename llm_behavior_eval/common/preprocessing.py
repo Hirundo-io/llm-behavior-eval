@@ -1,277 +1,203 @@
-"""Legacy text preprocessing at the native provider boundary (no inference engine)."""
+"""Opt-in legacy-engine text preprocessing, for parity runs only.
+
+The legacy engine did not judge the raw sample text. It rendered the chat
+template, tokenized the result with truncation to 1024 tokens and
+``padding="max_length"``, and gave the judge the *decoded* prompt as the
+question. Targets, stereotyped answers and per-row judge questions took a
+256-token round trip without special tokens. This module reproduces those text
+views from the answer model's own tokenizer, so a benchmark can show the judge
+exactly what the legacy judge saw.
+
+It is a prompt transform, not an inference setting. It never changes the
+messages sent to the model under test, never sets a ``GenerateConfig`` for
+either role, and never inspects or restricts the provider, so every Inspect
+provider still works. Truncating the answer model's own input to 1024 tokens is
+a provider setting; parity runs pass it with the benchmark's ``parity.yaml``
+(vLLM/OpenAI-compatible servers) or ``-M tokenizer_call_args`` (HF).
+
+Nothing here runs unless a benchmark opts in: each benchmark adds
+:func:`legacy_text_preprocessing` to its solver only when its
+``legacy_tokenizer`` task argument is set, and its scorer reads the recorded
+views with :func:`legacy_prompt` and :func:`legacy_text`. Which views a
+benchmark uses, and what it shows its judge, is that benchmark's decision.
+"""
 
 import hashlib
-import json
 import re
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from inspect_ai import Task
-from inspect_ai.model import GenerateConfig, get_model
-from inspect_ai.solver import Generate, TaskState, solver
+from inspect_ai.solver import Generate, Solver, TaskState, solver
+
+# Legacy engine tokenization (evaluation_utils/custom_dataset.py at d8c8015,
+# free_text_preprocess_function): prompts use max_length=1024 with special
+# tokens; targets, stereotypes and judge questions use gt_max_length=256 without.
+LEGACY_PROMPT_MAX_LENGTH = 1024
+LEGACY_TEXT_MAX_LENGTH = 256
+METADATA_KEY = "legacy_text"
+SCHEMA = "legacy-text-v1"
+
+# Templates whose legacy rendering differed from a plain apply_chat_template
+# (evaluation_utils/util_functions.py SafeApplyChatTemplate at d8c8015): Nemotron
+# "/no_think" injection, Muse Glimmer reasoning surgery, and the Gemma v1
+# system-role merge. They fail loudly instead of producing a wrong prompt.
+_UNSUPPORTED_TEMPLATE_MARKERS = {
+    "/no_think": "Nemotron /no_think injection",
+    "to=self": "Muse Glimmer reasoning surgery",
+    "reasoning_strength": "Muse Glimmer reasoning surgery",
+    "System role not supported": "Gemma v1 system-role merge",
+}
+_REVISION = re.compile(r"[0-9a-f]{40}")
 
 
 @lru_cache(maxsize=8)
-def load_tokenizer(path: str, revision: str | None) -> Any:
-    try:
-        from transformers import AutoTokenizer  # type: ignore[missing-import]
-    except ImportError as exc:
-        raise ImportError(
-            "Install llm-behavior-eval[tokenizers] for compatibility_tokenizer"
-        ) from exc
+def load_tokenizer(path: str, revision: str | None = None) -> Any:
+    """Load the answer model's tokenizer from local files only.
 
-    if not Path(path).is_dir() and not revision:
+    ``path`` is a local snapshot directory, or a repository already in the HF
+    cache together with an immutable 40-character commit ``revision``. Nothing
+    is downloaded during an evaluation.
+    """
+    try:
+        from transformers import AutoTokenizer
+    except ImportError as error:
+        raise ImportError(
+            "legacy_tokenizer needs Transformers: install llm-behavior-eval[tokenizers]"
+        ) from error
+
+    if revision is not None and not _REVISION.fullmatch(revision):
         raise ValueError(
-            "compatibility_tokenizer requires a local snapshot or immutable revision"
+            "legacy_tokenizer_revision must be an immutable 40-character commit"
         )
-    if revision is not None and not re.fullmatch(r"[0-9a-f]{40}", revision):
+    if revision is None and not Path(path).is_dir():
         raise ValueError(
-            "compatibility_tokenizer_revision must be an immutable 40-character commit"
+            "legacy_tokenizer must be a local snapshot directory, or a cached "
+            "repository with legacy_tokenizer_revision"
         )
     return AutoTokenizer.from_pretrained(path, revision=revision, local_files_only=True)
 
 
-def preprocess(
-    tokenizer: Any,
-    messages: list[dict[str, str]],
-    target: str,
-    *,
-    thinking: bool = False,
-    question: str | None = None,
-    stereotype: str | None = None,
-) -> dict[str, Any]:
-    """Retain padding, special tokens, whitespace and tokenizer truncation direction."""
-    template = tokenizer.get_chat_template()
-    if any(x in template for x in ("/no_think", "to=self", "reasoning_strength")):
-        raise ValueError(
-            "This template requires unsupported legacy thinking transformations"
-        )
-    rendered = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True, enable_thinking=thinking
-    )
+def render_chat(
+    tokenizer: Any, messages: list[dict[str, str]], *, legacy_thinking: bool
+) -> str:
+    """Render ``messages`` with the tokenizer's chat template, as the legacy engine did.
 
-    if not thinking and rendered.rstrip().endswith("<think>"):
-        raise ValueError(
-            "Native template requires unsupported legacy thinking-token closure"
-        )
-
-    def roundtrip(text: str, limit: int, special: bool) -> dict[str, Any]:
-        encoded = tokenizer(
-            [text],
-            truncation=True,
-            padding="max_length",
-            max_length=limit,
-            add_special_tokens=special,
-        )
-        ids = list(encoded["input_ids"][0])
-        mask = list(encoded["attention_mask"][0])
-        return dict(
-            input_ids=ids,
-            attention_mask=mask,
-            decoded=tokenizer.decode(ids, skip_special_tokens=True),
-        )
-
-    prompt = roundtrip(rendered, 1024, True)
-    result = dict(
-        schema="legacy-text-v1",
-        prompt=prompt,
-        target=roundtrip(target, 256, False),
-        judge_question=prompt["decoded"],
-    )
-    if question is not None:
-        result["judge_question"] = roundtrip(question, 256, False)["decoded"]
-    if stereotype is not None:
-        result["stereotype"] = roundtrip(stereotype, 256, False)
-    return result
-
-
-def judge_question(state: TaskState) -> str:
-    return state.metadata.get("compatibility", {}).get(
-        "judge_question", state.metadata.get("judge_question", state.input_text)
-    )
-
-
-def judge_target(state: TaskState, target: str) -> str:
-    return (
-        state.metadata.get("compatibility", {}).get("target", {}).get("decoded", target)
-    )
-
-
-def validate_hf(api: Any, tokenizer: Any | None = None) -> None:
-    """Validate native HF configuration without mutating shared provider state."""
-    args = api.tokenizer_call_args
-    if not isinstance(args, dict) or set(args) - {
-        "truncation",
-        "max_length",
-        "add_special_tokens",
-    }:
-        raise ValueError(
-            "Unsupported HF tokenizer_call_args; omit padding/return_tensors"
-        )
-    if args.get("add_special_tokens", True) is not True:
-        raise ValueError("HF requires add_special_tokens=True")
-    if tokenizer is None:
-        if args.get("truncation", False) is not False or "max_length" in args:
-            raise ValueError(
-                "Legacy HF judge must not have answer truncation/max_length configured"
-            )
-        return
-    if args != dict(truncation=True, max_length=1024, add_special_tokens=True):
-        raise ValueError(
-            "HF answer requires tokenizer_call_args={truncation: true, max_length: 1024, add_special_tokens: true}"
-        )
-    if api.use_chat_template is False:
-        raise ValueError("HF answer requires use_chat_template=True")
-    if (
-        api.chat_template is not None
-        and api.chat_template != tokenizer.get_chat_template()
-    ):
-        raise ValueError(
-            "HF chat_template override differs from compatibility tokenizer"
-        )
-    if not isinstance(api.enable_thinking, bool):
-        raise ValueError("HF requires explicit enable_thinking")
-
-    def identity(value: Any) -> dict[str, Any]:
-        if not getattr(value, "is_fast", False):
-            raise ValueError(
-                "HF compatibility requires a fast tokenizer with inspectable identity"
-            )
-        backend = json.loads(value.backend_tokenizer.to_str())
-        # Runtime encode settings differ: native HF owns dynamic left EOS pads.
-        backend.pop("padding", None)
-        backend.pop("truncation", None)
-        return backend
-
-    if (
-        identity(api.tokenizer) != identity(tokenizer)
-        or api.tokenizer.get_chat_template() != tokenizer.get_chat_template()
-        or api.tokenizer.truncation_side != tokenizer.truncation_side
-    ):
-        raise ValueError(
-            "HF provider tokenizer differs from compatibility tokenizer content/template/truncation"
-        )
-
-
-def compatibility_task(
-    task: Task, tokenizer_path: str | None, revision: str | None, *, family: str
-) -> Task:
-    """Wrap generation, preserving original input and writing explicit judge metadata.
-
-    Real providers require an explicit matching tokenizer. Mock smoke runs are
-    deliberately unqualified. HF/vLLM own templating and generation; encoded text
-    is never sent back as a user message.
+    ``legacy_thinking`` is the ``enable_thinking`` chat-template variable the
+    legacy engine rendered with; templates that do not read it ignore it. It
+    only shapes this text view, never a model request. Templates the legacy
+    engine rewrote raise ``ValueError``.
     """
-    original = task.solver
-
-    @solver
-    def compatibility():
-        async def solve(state: TaskState, generate: Generate) -> TaskState:
-            async def boundary(
-                state: TaskState,
-                tool_calls: Literal["loop", "single", "none"] = "loop",
-                **kwargs: Any,
-            ) -> TaskState:
-                model = get_model()
-                provider = str(model).split("/")[0]
-                if provider == "mockllm" and tokenizer_path is None:
-                    return await generate(state, tool_calls=tool_calls, **kwargs)
-                if tokenizer_path is None:
-                    raise ValueError(
-                        "Supply compatibility_tokenizer (matching local snapshot) for production preprocessing"
-                    )
-                if provider not in {"vllm", "hf", "mockllm"}:
-                    raise ValueError(
-                        "Production preprocessing requires native hf or vllm; API answer token boundaries are unsupported"
-                    )
-                tokenizer = load_tokenizer(tokenizer_path, revision)
-                messages = [dict(role=m.role, content=m.text) for m in state.messages]
-                # Gemma 3's pinned template folds system content into the user turn.
-                # Let the actual template do this; do not demote roles generically.
-                template = tokenizer.get_chat_template()
-                if "System role not supported" in template:
-                    raise ValueError(
-                        "Old Gemma system-role merge is unsupported by the native transport"
-                    )
-                extra = dict(kwargs.get("extra_body") or {})
-                template_args = extra.get("chat_template_kwargs", {})
-                if set(template_args) - {"enable_thinking"}:
-                    raise ValueError(
-                        "Additional chat template arguments require separate legacy qualification"
-                    )
-                thinking = template_args.get("enable_thinking", False)
-                if provider == "hf":
-                    api: Any = model.api
-                    validate_hf(api, tokenizer)
-                    thinking = api.enable_thinking
-                    rendered = tokenizer.apply_chat_template(
-                        messages,
-                        tokenize=False,
-                        add_generation_prompt=True,
-                        enable_thinking=thinking,
-                    )
-                    if api.hf_chat(state.messages, []) != rendered:
-                        raise ValueError(
-                            "HF provider message/template transformation differs from legacy rendering"
-                        )
-                probe = preprocess(
-                    tokenizer,
-                    messages,
-                    state.target.text,
-                    thinking=thinking,
-                    question=state.metadata.get("judge_question")
-                    if family == "prompt_injection"
-                    else None,
-                    stereotype=state.metadata.get("stereotyped_answer"),
-                )
-                probe["thinking"] = thinking
-                if family == "ccpc":
-                    probe["judge_question"] = state.input_text
-                state.metadata["compatibility"] = probe
-                state.metadata["compatibility_tokenizer"] = dict(
-                    path=tokenizer_path,
-                    revision=revision,
-                    truncation_side=tokenizer.truncation_side,
-                    template_sha256=hashlib.sha256(template.encode()).hexdigest(),
-                )
-                state.metadata["prompt_parity"] = (
-                    "production legacy-text-v1; live token equality requires qualification"
-                )
-                if provider == "hf":
-                    probe["provider_padding"] = (
-                        "dynamic left EOS; unpadded IDs equivalent, generation unqualified"
-                    )
-                    return await generate(state, tool_calls=tool_calls, **kwargs)
-                extra.update(
-                    return_token_ids=True,
-                    add_special_tokens=True,
-                    truncate_prompt_tokens=1024,
-                    truncation_side=tokenizer.truncation_side,
-                )
-                kwargs["extra_body"] = extra
-                return await generate(state, tool_calls=tool_calls, **kwargs)
-
-            return await original(state, boundary)
-
-        return solve
-
-    task.solver = compatibility()
-    return task
+    template = tokenizer.get_chat_template()
+    for marker, reason in _UNSUPPORTED_TEMPLATE_MARKERS.items():
+        if marker in template:
+            raise ValueError(f"Unsupported legacy chat template ({reason})")
+    rendered = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=legacy_thinking,
+    )
+    if not legacy_thinking and rendered.rstrip().endswith("<think>"):
+        raise ValueError(
+            "Unsupported legacy chat template (open <think> with thinking off)"
+        )
+    return rendered
 
 
-def judge_config(state: TaskState, config: GenerateConfig) -> GenerateConfig:
-    """Validate HF and configure vLLM graders without applying answer caps."""
-    if "compatibility" not in state.metadata:
-        return config
-    model = get_model(role="grader", required=True)
-    if str(model).startswith("hf/"):
-        validate_hf(model.api)
-        return config
-    if not str(model).startswith("vllm/"):
-        return config
-    extra = dict(config.extra_body or {})
-    if extra.get("truncate_prompt_tokens") is not None:
-        raise ValueError("Legacy judge must not have truncate_prompt_tokens configured")
-    extra.update(add_special_tokens=True, return_token_ids=True)
-    return config.model_copy(update={"extra_body": extra})
+def roundtrip(
+    tokenizer: Any, text: str, *, max_length: int, add_special_tokens: bool
+) -> dict[str, Any]:
+    """Tokenize as the legacy engine did, then decode without special tokens.
+
+    Keeps the tokenizer's own truncation side. Returns the unpadded
+    ``input_ids`` (the tokens the model would see) and the ``decoded`` text.
+    """
+    encoded = tokenizer(
+        [text],
+        truncation=True,
+        padding="max_length",
+        max_length=max_length,
+        add_special_tokens=add_special_tokens,
+    )
+    ids = list(encoded["input_ids"][0])
+    mask = list(encoded["attention_mask"][0])
+    return {
+        "input_ids": [token for token, keep in zip(ids, mask, strict=True) if keep],
+        "decoded": tokenizer.decode(ids, skip_special_tokens=True),
+    }
+
+
+@solver
+def legacy_text_preprocessing(
+    tokenizer: str,
+    revision: str | None = None,
+    *,
+    legacy_thinking: bool,
+    target: bool = False,
+    metadata_fields: Sequence[str] = (),
+) -> Solver:
+    """Record the legacy engine's text views of a sample in its metadata.
+
+    Place it after the steps that build the prompt and before ``generate()``.
+    It renders the current messages with the answer tokenizer and stores, under
+    ``metadata["legacy_text"]``: the decoded 1024-token prompt with its token
+    IDs (rendered with the chat-template variable ``enable_thinking`` set to
+    ``legacy_thinking``, the benchmark's legacy value), and 256-token round trips of the target (``target=True``) and of each
+    string ``metadata_fields`` entry. Messages, target and config are unchanged.
+    The tokenizer is loaded here, so a bad path fails before any generation.
+    """
+    loaded = load_tokenizer(tokenizer, revision)
+    template = loaded.get_chat_template()
+    identity = {
+        "path": tokenizer,
+        "revision": revision,
+        "truncation_side": loaded.truncation_side,
+        "template_sha256": hashlib.sha256(template.encode()).hexdigest(),
+    }
+
+    def text_view(text: str) -> dict[str, Any]:
+        return roundtrip(
+            loaded, text, max_length=LEGACY_TEXT_MAX_LENGTH, add_special_tokens=False
+        )
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        messages = [{"role": m.role, "content": m.text} for m in state.messages]
+        rendered = render_chat(loaded, messages, legacy_thinking=legacy_thinking)
+        texts = {}
+        if target:
+            texts["target"] = text_view(state.target.text)
+        for name in metadata_fields:
+            value = state.metadata.get(name)
+            if isinstance(value, str):
+                texts[name] = text_view(value)
+        state.metadata[METADATA_KEY] = {
+            "schema": SCHEMA,
+            "legacy_thinking": legacy_thinking,
+            "prompt": roundtrip(
+                loaded,
+                rendered,
+                max_length=LEGACY_PROMPT_MAX_LENGTH,
+                add_special_tokens=True,
+            ),
+            "texts": texts,
+            "tokenizer": identity,
+        }
+        return state
+
+    return solve
+
+
+def legacy_prompt(state: TaskState, default: str) -> str:
+    """The decoded legacy prompt if preprocessing ran, else ``default``."""
+    views = state.metadata.get(METADATA_KEY)
+    return views["prompt"]["decoded"] if views else default
+
+
+def legacy_text(state: TaskState, name: str, default: str) -> str:
+    """The decoded round trip of ``name`` if preprocessing recorded it, else ``default``."""
+    views = state.metadata.get(METADATA_KEY)
+    if views and name in views["texts"]:
+        return views["texts"][name]["decoded"]
+    return default

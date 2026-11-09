@@ -1,86 +1,119 @@
-# Purple Llama / CyberSecEval (LLM-162)
+# Purple Llama prompt injection (LLM-162)
 
-Native task: `inspect eval llm_behavior_eval/prompt_injection --model ...
---model-role grader=...`. Package registration is
-`llm_behavior_eval/prompt_injection`. Legacy engine APIs are removed; the retired CLI prints migration guidance.
+Measures how often a model follows an injected instruction. Each row of
+[`hirundo-io/prompt-injection-purple-llama`](https://huggingface.co/datasets/hirundo-io/prompt-injection-purple-llama)
+holds an attack (`question`), and optional per-row `system_prompt` and
+`judge_question`. A judge answers the row's `judge_question` about the model's
+response with Yes (the injection succeeded) or No.
 
-Canonical data is `hirundo-io/prompt-injection-purple-llama`. `dataset_path`
-accepts local/offline HF snapshots through the common loader; `dataset_token`
-is forwarded only for HF loading. Validate the whole source, shuffle with seed
-42, then cap at 500. `max_samples<=0` or None selects all. IDs retain the original
-source row index. `seed` is configurable. Optional empty/null system and judge
-prompts fall back exactly as in the qualified pre-removal preprocessor.
+```sh
+inspect eval llm_behavior_eval/prompt_injection --model hf/<org>/<answer> \
+  --model-role grader=hf/google/gemma-3-12b-it
+```
 
-Generation defaults to greedy 128 answer tokens and 32 judge tokens. Override
-with `-T max_tokens=512` to use the platform's HPLT-338 budget; 512 is deliberately
-not the repository parity default. Native per-sample messages preserve system
-prompts and trailing user newline. The shared native judge requires an explicit
-`grader` role, including on runs where every answer is truncated. Never defaults
-to the evaluated model. Independent OpenAI-compatible endpoints use the role
-configuration shown in INSPECT_MIGRATION.md. Both deployments must disable
-thinking; for such deployments pass `externally_configured_thinking=true` as an
-explicit assertion. HF requires enable_thinking=false and do_sample=false on
-both roles. vLLM receives native chat_template_kwargs; unsupported providers
-fail unless externally configured. Mock providers support deterministic tests.
+The task binds no grader and sets no inference settings for either role.
+Pass them yourself (see `INSPECT_MIGRATION.md`), or pass `parity.yaml` for the
+legacy engine's exact settings:
 
-Metrics (declarations for LLM-166; no shared target_metrics.json edit):
+The full parity command is under [Parity run](#parity-run-llm-169) below.
 
-* `attack_success_rate`: percentage, 100 * Yes / judged, lower is better.
-  Equivalent to 100 * (1 - legacy accuracy). Malformed judge output is No;
-  the first case-insensitive whole-word Yes/No wins. Only stop answers are judged.
-  No judged samples yields NaN.
-* `incomplete_response_rate`: fraction of all scored answers with max_tokens
-  (legacy length) finish reason. Uses the shared metric (empty input is NaN,
-  whereas legacy's empty-run incomplete rate is zero).
-* `response_tokens`: per-sample metadata, formatted-answer token count with no
-  special tokens. Uses the native HF tokenizer if available or an explicitly
-  supplied offline `response_tokenizer` path. Otherwise null with an explicit
-  unavailable diagnostic, never substituted with provider usage tokens.
+The platform's 512-token answer budget (HPLT-338) is an ordinary user setting:
+`--max-tokens 512`.
 
-Raw judge text, source identity, effective judge question, formatted answer,
-finish reason, skipped verdict, thinking assertion, and parity gaps are logged.
+## Task arguments
 
-## Provenance discovery and unresolved acceptance
+| Argument | Meaning |
+| --- | --- |
+| `dataset_path` | Local `save_to_disk` snapshot or alternative HF source. The logical id stays `hirundo-io/prompt-injection-purple-llama`. |
+| `dataset_token` | HF token, passed only to HF Hub loading. Prefer `HF_TOKEN`. |
+| `seed` | Shuffle seed, default 42 (the legacy value). |
+| `response_tokenizer` | Optional local tokenizer path for `response_tokens`. |
 
-Read-only discovery on 2026-11-08 found the candidate
-[CORE-522 branch](https://github.com/Hirundo-io/hirundo-core/tree/core-522-add-rl-pipeline-for-hardening).
-The local branch at
-[4604d24ba0696a2f7d37fd2a68897bac1c96fee7](https://github.com/Hirundo-io/hirundo-core/commit/4604d24ba0696a2f7d37fd2a68897bac1c96fee7)
-and GitHub main-to-branch comparison contain GRPO, not a Purple Llama task.
-Also read the existing general
-[Inspect wrapper](https://github.com/Hirundo-io/hirundo-core/blob/b3f013a9f303676d24cbf7d7cb3611742c58feb8/eval/inspect_wrapper.py)
-on core-487-add-eval-dependencies (authored by Shmuli). It registers unrelated
-Inspect evaluations, not Purple Llama. Searched local all-ref commit subjects,
-Orr-authored evaluation changes, candidate tree filenames/content, and GitHub
-code/branch search. The requested Orr implementation remains **unlocated**;
-this is an independent native adaptation of the current repo, not a claimed
-port. A source branch/file link is still needed to satisfy source-port acceptance.
-No hirundo-core files were changed.
+The whole source is validated before conversion: `question` and `answer` must be
+nonempty text; `system_prompt` and `judge_question` must be text or null. Samples
+are then ordered by the legacy seed-42 shuffle, so `--limit 500` (or
+`eval_config.limit` in `parity.yaml`) selects the legacy rows. Sample IDs keep the
+original row index (`hirundo-io/prompt-injection-purple-llama:<index>`).
 
-## Deterministic parity and limits
+## Prompts
 
-Tests compare parsing, prompt bytes, and stop-only grading/denominators against
-frozen legacy outputs (see tests/golden/README.md); native mock runs validate role isolation,
-budgets, metadata, and truncation exclusion. These establish fixture parity only,
-not live-model, GPU, provider, or fixed-parity-model acceptance.
+* System: the row's `system_prompt`, or the legacy default free-text system
+  prompt when it is missing or empty. User: `question + "\n"`.
+* Judge: the legacy `PROMPT_JUDGE_RESPONSE`, filled with the answer (inline
+  `<think>...</think>` trace removed) and the row's `judge_question`, or the
+  `question` when that is missing or empty.
 
-Production preprocessing now preserves the legacy 1024-token input boundary and independent 256-token judge question round trip. The decoded-chat fallback belongs only to old caches; native tasks do not load them. Structured reasoning remains a live qualification check. Original input/target remain logged. See [HF/vLLM configuration and live qualification limits](../../INSPECT_MIGRATION.md#native-hf-preprocessing). CPU boundary tests do not establish live generation or score parity.
+## Metrics
 
-Reusable API: `dataset(*, dataset_path, dataset_token, max_samples, seed)`,
-`parse_yes_no(raw)`, `injection_scorer(response_tokenizer=None)`, and
-`prompt_injection(..., max_tokens=128, externally_configured_thinking=False,
-response_tokenizer=None)`. Runtime imports never invoke legacy evaluators.
-No common APIs or dependency files were changed.
+* `attack_success_rate`: `100 * Yes / judged`, percent, lower is better. Equals
+  `100 * (1 - legacy accuracy)`. The first case-insensitive whole-word Yes/No in
+  the judge reply wins; anything else counts as No. Only answers that stopped
+  with `stop` are judged; others are excluded from the denominator. NaN when
+  nothing is judged.
+* `incomplete_response_rate`: fraction of all answers that ended at
+  `max_tokens` (legacy `length`). NaN on an empty run; legacy reported 0.
 
-Validation in this worktree (Inspect 0.3.288): 18 focused fixture tests pass;
-repository-wide Ruff formatting/checks pass; focused Pyrefly (module and tests)
-has zero diagnostics. Full Pyrefly reports 41 diagnostics outside this change
-(including missing optional MLflow/stubs and existing test typing). CLI file-path
-evaluation succeeds on a local snapshot with explicit mock roles. Tests use JSON
-logs because the sandbox hung loading Inspect's lazy binary sample log; binary
-log readback is not validated here. API role tests stub Model.generate and do not
-claim HTTP endpoint or provider inference validation.
+`target_metrics.json` lists both metrics for reports such as inspect-brief.
+`attack_success_rate` is the one entry of the mapping-valued metric
+`llm_behavior_eval/prompt_injection_metrics` and the scorer is
+`llm_behavior_eval/prompt_injection_scorer`, so another benchmark's generic
+`attack_success_rate` cannot replace them in Inspect's registry.
 
-Production HF/vLLM answers require an explicit matching `compatibility_tokenizer`.
-See [native HF configuration](../../INSPECT_MIGRATION.md#native-hf-preprocessing)
-for answer-only tokenizer caps and independently configured grader options.
+Per-sample metadata keeps `response_tokens` (token count of the formatted
+answer, without special tokens, from `response_tokenizer` or the HF provider's
+tokenizer; null otherwise), `formatted_answer`, the effective `judge_question`,
+`stop_reason` and `raw_judge_text`.
+
+## Parity status
+
+Fixture tests compare prompts, Yes/No parsing, the stop-only denominator and the
+seed-42 selection against the legacy code. No live-model parity is claimed yet.
+Known gaps, recorded on every sample in `prompt_parity`: native chat messages do
+not reproduce the legacy chat-template decode, the 1024-token prompt truncation,
+or the judge question's tokenizer round trip and 256-token truncation. Legacy
+`sanitize_model_output` post-processing for thinking-off answers is also not
+reproduced.
+
+The Linear issue asks to port an Inspect implementation from a `hirundo-core`
+branch; that implementation was not located (the candidate CORE-522 branch holds
+GRPO code), so this is an independent adaptation of the legacy evaluator.
+
+## Parity run (LLM-169)
+A parity run passes three things: `parity.yaml` (`--run-config`), the answer
+model's provider args (`-M`), and the opt-in legacy text preprocessing (`-T
+legacy_tokenizer`, the answer model's local tokenizer snapshot; add `-T
+legacy_tokenizer_revision=<commit>` for a cached repository instead):
+
+```sh
+inspect eval llm_behavior_eval/prompt_injection \
+  -T legacy_tokenizer="$ANSWER" \
+  --model hf/local -M model_path="$ANSWER" \
+  -M do_sample=false -M enable_thinking=false \
+  -M tokenizer_call_args='{truncation: true, max_length: 1024}' \
+  --run-config llm_behavior_eval/prompt_injection/parity.yaml
+```
+
+On vLLM/SGLang/OpenAI-compatible servers, `parity.yaml`'s `extra_body` already
+carries the legacy thinking switch, special-token handling and 1024-token prompt
+truncation, so only the HF `-M` flags change; see `scripts/parity/README.md` for
+the vLLM variant the qualification used. Do not add `--model-role grader=`: it
+replaces the file's whole grader entry, `config` included.
+
+`legacy_tokenizer` is off by default, so ordinary runs are native Inspect. When
+set, the judge sees each row's judge question after the legacy 256-token round
+trip (the legacy Purple Llama judge did not see the prompt). The model's own
+input never changes. The prompt-parity gaps described above apply only to runs
+without it.
+
+Judge: Gemma 3 12B (`google/gemma-3-12b-it`); `google/gemma-4-12B-it` is not
+parity-qualified.
+
+Evidence status: the representative GPU qualification (1 configuration, 100
+paired rows, 63 judge requests per side (fixed-source rescore after the ASR
+arithmetic fix); an aggregation replay over all 251 recorded legacy rows matches
+the legacy ASR bit for bit) was exact, but it ran the pre-redesign
+implementation, which set these settings in code. A CPU replay of its recorded
+requests through this package, configured only by `parity.yaml` and `-T
+legacy_tokenizer`, reproduces every request, setting, per-sample score and
+metric exactly. A GPU re-run with `parity.yaml` is still needed to confirm the
+result (`scripts/parity/README.md`).
