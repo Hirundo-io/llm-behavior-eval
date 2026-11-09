@@ -317,3 +317,11 @@ fresh root. It performs no inference. Run `run_matrix` on that root with the sam
 `legacy answer judge report` (omit `prepare`). Preserve the original reports.
 Supplement reports describe their actual row counts; `matrix_report` retains its
 separate 500-row acceptance gate and must not substitute a larger run implicitly.
+
+`report_matrix` also checks retained run settings and every native model-event
+configuration: budgets, greedy decoding, seed, concurrency, thinking flags,
+special tokens and the answer-only prompt cap. To audit existing artifacts
+without rewriting their reports, run `python -m scripts.parity.settings CASE_ROOT
+[CASE_ROOT ...] --output settings-audit.json`. The audit binds its checks to
+source, retained-configuration and scored-log hashes. It reports zero judge
+requests explicitly; settings validation alone does not establish score parity.

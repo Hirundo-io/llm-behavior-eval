@@ -12,6 +12,7 @@ from inspect_ai.scorer import CORRECT, INCORRECT, NOANSWER
 
 from scripts.parity.compare import compare_case, digest
 from scripts.parity.qualify_matrix import case_identity
+from scripts.parity.settings import audit_settings
 
 
 def input_content(value: str | list[ChatMessage]) -> str | list[dict]:
@@ -322,6 +323,14 @@ def main() -> None:
         raise ValueError("Native execution mode differs from pinned run identity")
     legacy_config_path = next((root / "legacy").rglob("run_config.json"))
     legacy_config = json.loads(legacy_config_path.read_text())["evaluation_config"]
+    native_configs = []
+    for sample in log.samples or []:
+        events = [event for event in sample.events if event.event == "model"]
+        native_configs.extend(
+            ("answer" if index == 0 else "judge", event.config)
+            for index, event in enumerate(events)
+        )
+    settings_audit = audit_settings(family, legacy_config, native_configs)
     if legacy_config["vllm_config"]["enforce_eager"] != config["enforce_eager"]:
         raise ValueError("Retained execution mode differs from pinned run identity")
     legacy_run = {
@@ -345,6 +354,7 @@ def main() -> None:
         native_extra_body=log.eval.model_generate_config.extra_body,
         legacy_execution="Fresh engine per case, sequential answer and judge batches of one",
         native_judge_runtime=judge_runtime,
+        settings_audit=settings_audit,
     )
     fields = dict(
         verdict=("observed.verdict", "metadata.observed.verdict"),
