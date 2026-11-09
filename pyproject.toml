@@ -137,3 +137,10 @@ unfixable = ["F401"]
 
 [tool.pyrefly]
 min-severity = "warn"
+
+[tool.pytest.ini_options]
+# The default prepend mode puts the repository root first on sys.path for each
+# test module. setuptools' source-tree llm_behavior_eval.egg-info then shadows
+# the editable install's dist-info, which has the PEP 610 metadata that Inspect
+# uses to namespace registry names. importlib mode leaves sys.path unchanged.
+addopts = ["--import-mode=importlib"]

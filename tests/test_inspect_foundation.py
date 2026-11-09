@@ -17,6 +17,7 @@ from inspect_ai.dataset import Sample
 from inspect_ai.log import EvalLog, list_eval_logs, read_eval_log
 from inspect_ai.model import GenerateConfig, ModelOutput, get_model
 from inspect_ai.scorer import Metric, SampleScore, Score
+from inspect_ai.util import registry_info
 
 from llm_behavior_eval.common.dataset import load_hf_dataset, to_inspect_dataset
 from llm_behavior_eval.common.judge import judge_scorer, strip_thinking
@@ -454,6 +455,19 @@ def test_registration_and_lazy_import(tmp_path):
     )
     assert listed.returncode == 0, listed.stderr
     assert "inspect_template" in listed.stdout
+
+
+def test_in_process_registry_names_are_namespaced():
+    # Inspect adds the package namespace only when the package's metadata shows
+    # an install. If the source-tree egg-info comes before site-packages on
+    # sys.path, as in pytest's prepend import mode, it hides the editable
+    # install's PEP 610 metadata, and in-process task and metric names lose
+    # the prefix that target_metrics.json and inspect-brief key on.
+    assert registry_info(inspect_template).name == "llm_behavior_eval/inspect_template"
+    assert (
+        registry_info(incomplete_response_rate()).name
+        == "llm_behavior_eval/incomplete_response_rate"
+    )
 
 
 class _Loaded:
