@@ -180,7 +180,7 @@ def main() -> None:
         rows = []
         for name in ("production", "truncation"):
             path = root / f"{name}-scored.eval"
-            log = read_eval_log(str(path))
+            log = read_eval_log(str(path), resolve_attachments=True)
             for sample in log.samples or []:
                 events = [e for e in sample.events if e.event == "model"]
                 event = events[0]
