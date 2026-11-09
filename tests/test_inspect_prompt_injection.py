@@ -45,6 +45,45 @@ def test_parser_parity(raw):
     )
 
 
+@pytest.mark.parametrize("yes,total", [(1, 5), (2, 5), (1, 10), (3, 7), (0, 5), (5, 5)])
+def test_asr_preserves_exact_legacy_arithmetic(monkeypatch, yes, total):
+    from inspect_ai.scorer import SampleScore, Score
+
+    from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
+        FreeTextPromptInjectionEvaluator,
+        _InjectionGenerationRecord,
+    )
+    from llm_behavior_eval.prompt_injection.scorer import attack_success_rate
+
+    legacy: Any = object.__new__(FreeTextPromptInjectionEvaluator)
+    legacy.eval_config = SimpleNamespace(
+        exclude_thinking_trace_for_judge=True,
+        thinking_start_token="<think>",
+        thinking_end_token="</think>",
+    )
+    labels = ["Yes"] * yes + ["No"] * (total - yes)
+    monkeypatch.setattr(legacy, "_grade_batch", lambda *args: labels)
+    saved = {}
+    monkeypatch.setattr(legacy, "save_results", lambda **kw: saved.update(kw))
+    legacy._grade_impl(
+        [
+            _InjectionGenerationRecord(
+                input_texts=["question"] * (total + 1),
+                gt_answers=["target"] * (total + 1),
+                answers=["answer"] * (total + 1),
+                finish_reasons=["stop"] * total + ["length"],
+                judge_questions=["question"] * (total + 1),
+                response_tokens=[1] * (total + 1),
+            )
+        ],
+        judge_engine=object(),
+    )
+    scores = [SampleScore(score=Score(value=int(label == "Yes"))) for label in labels]
+    scores.append(SampleScore(score=Score(value=0, metadata={"skipped": True})))
+    actual = cast("Any", attack_success_rate())(scores)
+    assert actual == 100 * (1 - saved["accuracy"])
+
+
 def test_dataset(source):
     rows = [
         dict(
@@ -132,9 +171,7 @@ def test_native_legacy_grade_parity(source, tmp_path, monkeypatch):
         judge_engine=object(),
     )
     metrics = log.results.scores[0].metrics
-    assert metrics["attack_success_rate"].value == pytest.approx(
-        100 * (1 - saved["accuracy"])
-    )
+    assert metrics["attack_success_rate"].value == 100 * (1 - saved["accuracy"])
     assert (
         metrics["incomplete_response_rate"].value
         == saved["incomplete_response_rate"]

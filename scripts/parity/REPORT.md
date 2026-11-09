@@ -320,3 +320,20 @@ production preprocessing tests. The pinned Gemma/Qwen tokenizer fixtures were
 present, so these boundary tests ran rather than skipped. Repository Ruff
 format/check and focused preprocessing/runner Pyrefly checks passed. This remains
 CPU/mock qualification; the production GPU matrix is still pending.
+
+
+A local Purple metric regression found an exact arithmetic mismatch independently
+of GPU output: the retained evaluator converts Yes rate to safety accuracy and
+then back to ASR, while native ASR previously multiplied Yes rate directly.
+For one Yes among five judged answers, these produce `19.999999999999996` and
+`20.0`. New tests call the retained grading method and compare without a tolerance;
+three of six fractions failed before the fix. Native ASR now preserves the same
+operation order, with skipped-answer and undefined-denominator behavior intact.
+The existing end-to-end fixture also uses exact equality. **64 focused tests**,
+Ruff, and focused Pyrefly pass.
+
+This local change affects only `prompt_injection/scorer.py` and its tests. It is
+**not deployed into the active GPU source**, which remains frozen at `f35fb81`.
+The primary Purple evidence must receive an explicitly recorded metric follow-up
+before this change is described as qualified on real data. No GPU mismatch or
+GPU success is inferred from the constructed arithmetic regression.
