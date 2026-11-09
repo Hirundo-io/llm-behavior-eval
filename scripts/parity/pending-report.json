@@ -1,0 +1,223 @@
+{
+  "schema": "llm169-parity-v1",
+  "acceptance": "not granted",
+  "rows": [
+    {
+      "name": "bbq:gender:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bbq:gender:unbias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bbq:race:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bbq:race:unbias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bbq:nationality:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bbq:nationality:unbias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bbq:physical:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bbq:physical:unbias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bbq:age:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bbq:age:unbias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bbq:religion:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bbq:religion:unbias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "unqover:religion:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "unqover:gender:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "unqover:race:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "unqover:nationality:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bloom:age:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bloom:age:unbias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bloom:age:ambiguous",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bloom:gender:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bloom:gender:unbias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bloom:gender:ambiguous",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bloom:race:bias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bloom:race:unbias",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "bloom:race:ambiguous",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "halueval",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "medhallu",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "prompt_injection",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "ccpc",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "xstest",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    },
+    {
+      "name": "orbench",
+      "status": "incomplete",
+      "errors": [
+        "missing evidence pair"
+      ]
+    }
+  ]
+}

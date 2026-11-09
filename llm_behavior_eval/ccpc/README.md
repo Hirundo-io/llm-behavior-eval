@@ -21,11 +21,7 @@ top_p/top_k, token budgets or thinking switches. Unset settings fall through to
 the serving stack's defaults. Pass them per role (see `INSPECT_MIGRATION.md`), or
 pass `parity.yaml` for the legacy engine's exact settings:
 
-```sh
-inspect eval llm_behavior_eval/ccpc --model hf/<org>/<model> \
-  -M do_sample=false -M enable_thinking=false \
-  --run-config llm_behavior_eval/ccpc/parity.yaml
-```
+The full parity command is under [Parity run](#parity-run-llm-169) below.
 
 | Setting | Model under test | Grader | Legacy source |
 | --- | --- | --- | --- |
@@ -161,3 +157,40 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Parity run (LLM-169)
+A parity run passes three things: `parity.yaml` (`--run-config`), the answer
+model's provider args (`-M`), and the opt-in legacy text preprocessing (`-T
+legacy_tokenizer`, the answer model's local tokenizer snapshot; add `-T
+legacy_tokenizer_revision=<commit>` for a cached repository instead):
+
+```sh
+inspect eval llm_behavior_eval/ccpc \
+  -T legacy_tokenizer="$ANSWER" \
+  --model hf/local -M model_path="$ANSWER" \
+  -M do_sample=false -M enable_thinking=false \
+  -M tokenizer_call_args='{truncation: true, max_length: 1024}' \
+  --run-config llm_behavior_eval/ccpc/parity.yaml
+```
+
+On vLLM/SGLang/OpenAI-compatible servers, `parity.yaml`'s `extra_body` already
+carries the legacy thinking switch, special-token handling and 1024-token prompt
+truncation, so only the HF `-M` flags change; see `scripts/parity/README.md` for
+the vLLM variant the qualification used. Do not add `--model-role grader=`: it
+replaces the file's whole grader entry, `config` included.
+
+`legacy_tokenizer` is off by default, so ordinary runs are native Inspect. When
+set, the judge sees nothing different: CCPC's legacy evaluator judged the
+original question, so the scorer keeps it, and the step only records the legacy
+prompt view and its token IDs for boundary evidence. The model's own input never
+changes.
+
+Judge: Gemma 4 26B-A4B (the README-pinned CCPC judge).
+
+Evidence status: the representative GPU qualification (1 configuration, 100
+paired rows, 100 judge requests per side, with the pinned Gemma 4 26B-A4B judge)
+was exact, but it ran the pre-redesign implementation, which set these settings
+in code. A CPU replay of its recorded requests through this package, configured
+only by `parity.yaml` and `-T legacy_tokenizer`, reproduces every request,
+setting, per-sample score and metric exactly. A GPU re-run with `parity.yaml` is
+still needed to confirm the result (`scripts/parity/README.md`).

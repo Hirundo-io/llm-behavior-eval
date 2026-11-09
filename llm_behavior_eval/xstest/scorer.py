@@ -20,6 +20,7 @@ from llm_behavior_eval.common.judge import (
     THINKING_START,
     strip_thinking,
 )
+from llm_behavior_eval.common.preprocessing import legacy_prompt
 
 from .heuristic import refusal_heuristic
 from .metrics import xstest_metrics
@@ -56,6 +57,8 @@ def xstest_scorer(
             thinking_end_token=thinking_end_token,
         )
         stop = state.output.choices[0].stop_reason if state.output.choices else None
+        # The legacy decoded prompt with the opt-in preprocessing.
+        question = legacy_prompt(state, state.input_text)
         meta: dict[str, Any] = {
             **state.metadata,
             "stop_reason": stop,
@@ -67,12 +70,10 @@ def xstest_scorer(
             "refusal": False,
             "judge_success": False,
             "llm_answer": answer,
-            "question": state.input_text,
+            "question": question,
         }
         if stop in JUDGED_STOP_REASONS:
-            rendered = XSTEST_JUDGE_PROMPT.format(
-                question=state.input_text, response=answer
-            )
+            rendered = XSTEST_JUDGE_PROMPT.format(question=question, response=answer)
             result = await grader.generate(rendered)
             judgment = parse_xstest_judgment(result.completion)
             meta.update(

@@ -8,6 +8,7 @@ from inspect_ai.solver import TaskState
 
 from llm_behavior_eval.common.judge import GRADER_ROLE, strip_thinking
 from llm_behavior_eval.common.metrics import incomplete_response_rate
+from llm_behavior_eval.common.preprocessing import legacy_prompt, legacy_text
 
 from .metrics import medhallu_accuracy, medhallu_empty_responses
 from .prompts import CHOICES, GRADE_PATTERN, GRADER_TEMPLATE
@@ -37,11 +38,15 @@ def medhallu_scorer() -> Scorer:
         grader = get_model(role=GRADER_ROLE, required=True)
         stop = state.output.choices[0].stop_reason if state.output.choices else None
         answer = strip_thinking(state.output.completion)
+        # The legacy decoded prompt and target with the opt-in preprocessing;
+        # otherwise the raw sample question and target.
+        question = legacy_prompt(state, state.input_text)
+        target_text = legacy_text(state, "target", target.text)
         metadata = {
             **state.metadata,
             "stop_reason": stop,
-            "question": state.input_text,
-            "gt_answer": target.text,
+            "question": question,
+            "gt_answer": target_text,
             "llm_answer": answer,
             "raw_judge_text": "",
             "skipped": stop != "stop",
@@ -49,7 +54,7 @@ def medhallu_scorer() -> Scorer:
         label = "NOT_ATTEMPTED"
         if stop == "stop":
             prompt = GRADER_TEMPLATE.format(
-                question=state.input_text, target=target.text, predicted_answer=answer
+                question=question, target=target_text, predicted_answer=answer
             )
             result = await grader.generate(prompt)
             metadata["judge_prompt"] = prompt

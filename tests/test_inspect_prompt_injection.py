@@ -87,6 +87,21 @@ def test_task_sets_no_inference_settings(source):
     assert not task.model_roles
 
 
+# parity.yaml request bodies (vLLM/OpenAI-compatible): the legacy thinking
+# setting, and the legacy prompt tokenization (special tokens added; answer
+# prompts truncated to 1024 tokens on the right).
+ANSWER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+    "truncate_prompt_tokens": 1024,
+    "truncation_side": "right",
+}
+GRADER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+}
+
+
 def test_shipped_parity_config_holds_legacy_settings():
     from llm_behavior_eval.evaluation_utils.eval_config import (
         FAMILY_TOKEN_DEFAULTS,
@@ -102,6 +117,8 @@ def test_shipped_parity_config_holds_legacy_settings():
     assert config["generate_config"] == {
         "temperature": 0.0,
         "max_tokens": legacy["max_answer_tokens"],
+        "seed": 42,
+        "extra_body": ANSWER_BODY,
     }
     assert legacy_defaults["sample"].default is False
     assert config["eval_config"] == {"limit": legacy_defaults["max_samples"].default}
@@ -110,6 +127,8 @@ def test_shipped_parity_config_holds_legacy_settings():
     assert grader["config"] == {
         "temperature": 0.0,
         "max_tokens": legacy["max_judge_tokens"],
+        "seed": 42,
+        "extra_body": GRADER_BODY,
     }
     assert legacy["sample_judge"] is False and legacy["enable_thinking"] is False
     assert grader["args"] == {"do_sample": False, "enable_thinking": False}

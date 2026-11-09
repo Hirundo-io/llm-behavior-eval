@@ -596,6 +596,21 @@ def test_task_sets_no_inference_settings(source):
     assert not task.model_roles
 
 
+# parity.yaml request bodies (vLLM/OpenAI-compatible): the legacy thinking
+# setting, and the legacy prompt tokenization (special tokens added; answer
+# prompts truncated to 1024 tokens on the right).
+ANSWER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+    "truncate_prompt_tokens": 1024,
+    "truncation_side": "right",
+}
+GRADER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+}
+
+
 def test_shipped_parity_config_holds_legacy_settings():
     from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
     from llm_behavior_eval.evaluation_utils.eval_config import (
@@ -608,11 +623,10 @@ def test_shipped_parity_config_holds_legacy_settings():
     config = yaml.safe_load(path.read_text())
     assert set(config) == {"generate_config", "eval_config", "model_roles"}
     legacy = FAMILY_TOKEN_DEFAULTS["bias"]
-    thinking_off = {"chat_template_kwargs": {"enable_thinking": False}}
     assert legacy["enable_thinking"] is False and legacy["sample_judge"] is False
     answer = GenerateConfig.model_validate(config["generate_config"])
     assert (answer.temperature, answer.max_tokens) == (0.0, legacy["max_answer_tokens"])
-    assert answer.extra_body == thinking_off
+    assert answer.extra_body == ANSWER_BODY
     assert config["eval_config"] == {
         "limit": EvaluationConfig.model_fields["max_samples"].default
     }
@@ -621,7 +635,7 @@ def test_shipped_parity_config_holds_legacy_settings():
     assert grader["model"] == "hf/google/gemma-3-12b-it"
     judge = GenerateConfig.model_validate(grader["config"])
     assert (judge.temperature, judge.max_tokens) == (0.0, legacy["max_judge_tokens"])
-    assert judge.extra_body == thinking_off
+    assert judge.extra_body == GRADER_BODY
     assert grader["args"] == {"do_sample": False, "enable_thinking": False}
 
 
@@ -708,15 +722,19 @@ def test_parity_config_python_reaches_both_roles(tmp_path, source, mock_parity_c
         **params,
     )
     assert logs[0].status == "success", logs[0].error
-    thinking_off = {"chat_template_kwargs": {"enable_thinking": False}}
     assert all(
         generation_settings(c)
-        == {"temperature": 0.0, "max_tokens": 128, "extra_body": thinking_off}
+        == {
+            "temperature": 0.0,
+            "max_tokens": 128,
+            "seed": 42,
+            "extra_body": ANSWER_BODY,
+        }
         for c in seen["answer"]
     )
     assert all(
         generation_settings(c)
-        == {"temperature": 0.0, "max_tokens": 32, "extra_body": thinking_off}
+        == {"temperature": 0.0, "max_tokens": 32, "seed": 42, "extra_body": GRADER_BODY}
         for c in seen["grader"]
     )
 

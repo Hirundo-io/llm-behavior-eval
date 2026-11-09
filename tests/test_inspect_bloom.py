@@ -602,6 +602,21 @@ def test_registry_names_are_package_specific():
 # --- Parity config -------------------------------------------------------------
 
 
+# parity.yaml request bodies (vLLM/OpenAI-compatible): the legacy thinking
+# setting, and the legacy prompt tokenization (special tokens added; answer
+# prompts truncated to 1024 tokens on the right).
+ANSWER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+    "truncate_prompt_tokens": 1024,
+    "truncation_side": "right",
+}
+GRADER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+}
+
+
 def test_shipped_parity_config_holds_legacy_settings():
     from llm_behavior_eval.evaluation_utils.eval_config import (
         FAMILY_TOKEN_DEFAULTS,
@@ -613,14 +628,14 @@ def test_shipped_parity_config_holds_legacy_settings():
     config = yaml.safe_load(path.read_text())
     assert set(config) == {"generate_config", "eval_config", "model_roles"}
     legacy = FAMILY_TOKEN_DEFAULTS["bias"]
-    no_thinking = {"chat_template_kwargs": {"enable_thinking": False}}
     assert legacy["enable_thinking"] is False and legacy["sample_judge"] is False
     answer = GenerateConfig.model_validate(config["generate_config"])
     assert (answer.temperature, answer.max_tokens) == (
         0.0,
         legacy["max_answer_tokens"],
     )
-    assert answer.extra_body == no_thinking
+    assert answer.seed == 42
+    assert answer.extra_body == ANSWER_BODY
     assert config["eval_config"] == {
         "limit": EvaluationConfig.model_fields["max_samples"].default
     }
@@ -628,7 +643,8 @@ def test_shipped_parity_config_holds_legacy_settings():
     assert grader["model"] == "hf/google/gemma-3-12b-it"
     judge = GenerateConfig.model_validate(grader["config"])
     assert (judge.temperature, judge.max_tokens) == (0.0, legacy["max_judge_tokens"])
-    assert judge.extra_body == no_thinking
+    assert judge.seed == 42
+    assert judge.extra_body == GRADER_BODY
     assert grader["args"] == {"do_sample": False, "enable_thinking": False}
 
 

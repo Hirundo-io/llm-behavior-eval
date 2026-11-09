@@ -601,6 +601,21 @@ def test_independent_api_grader_gets_no_code_settings(tmp_path):
 # --- Parity config ----------------------------------------------------------------
 
 
+# parity.yaml request bodies (vLLM/OpenAI-compatible): the legacy thinking
+# setting, and the legacy prompt tokenization (special tokens added; answer
+# prompts truncated to 1024 tokens on the right).
+ANSWER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": True},
+    "add_special_tokens": True,
+    "truncate_prompt_tokens": 1024,
+    "truncation_side": "right",
+}
+GRADER_BODY = {
+    "chat_template_kwargs": {"enable_thinking": False},
+    "add_special_tokens": True,
+}
+
+
 def test_shipped_parity_config_holds_legacy_settings(legacy):
     from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
     from llm_behavior_eval.evaluation_utils.eval_config import (
@@ -621,7 +636,7 @@ def test_shipped_parity_config_holds_legacy_settings(legacy):
     assert answer.max_tokens == refusal["max_answer_tokens"] == 2048
     assert answer.seed == seed == 42
     assert refusal["enable_thinking"] is True
-    assert answer.extra_body == {"chat_template_kwargs": {"enable_thinking": True}}
+    assert answer.extra_body == ANSWER_BODY
 
     assert config["eval_config"] == {
         "limit": EvaluationConfig.model_fields["max_samples"].default
@@ -657,14 +672,14 @@ def assert_parity_recorded(spec: EvalSpec) -> None:
         2048,
         42,
     )
-    assert generate.extra_body == {"chat_template_kwargs": {"enable_thinking": True}}
+    assert generate.extra_body == ANSWER_BODY
     assert spec.config.limit == 500
     assert spec.model_roles
     grader_role = spec.model_roles["grader"]
     assert not isinstance(grader_role, list)
     config = grader_role.config
     assert (config.temperature, config.max_tokens, config.seed) == (0.0, 128, 42)
-    assert config.extra_body is None
+    assert config.extra_body == GRADER_BODY
 
 
 def test_parity_config_python_caps_legacy_selection(tmp_path, mock_parity_config):

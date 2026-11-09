@@ -1,46 +1,77 @@
-# HaluEval parity config: the legacy `hallu` preset's exact inference settings, as
-# an Inspect run config. Pass it explicitly:
-#   inspect eval llm_behavior_eval/halueval --model hf/<org>/<model> \
+# HaluEval parity config: the legacy engine's exact settings, as an Inspect run
+# config. It applies only when passed explicitly. One parity command (HF answer
+# model; $ANSWER is its local snapshot directory):
+#
+#   inspect eval llm_behavior_eval/halueval \
+#     -T legacy_tokenizer="$ANSWER" \
+#     --model hf/local -M model_path="$ANSWER" \
 #     -M do_sample=false -M enable_thinking=false \
+#     -M tokenizer_call_args='{truncation: true, max_length: 1024}' \
 #     --run-config llm_behavior_eval/halueval/parity.yaml
-# The file cannot name the model under test, so its HF provider args stay on the
-# command line: Inspect's HF provider samples unless given do_sample=false, and
-# enable_thinking=false is the legacy chat-template switch (vLLM/SGLang get it
-# from extra_body below instead).
-# Values come from llm_behavior_eval/evaluation_utils at the foundation commit:
-# FAMILY_TOKEN_DEFAULTS["hallucination"] in eval_config.py, EvaluationConfig
-# defaults, and SamplingConfig defaults in sampling_config.py.
+#
+# This file never names the model under test, so its provider args stay on the
+# command line: Inspect's HF provider samples unless given do_sample=false,
+# reads enable_thinking itself (it ignores extra_body), and truncates the
+# prompt only through tokenizer_call_args. -T legacy_tokenizer turns on the
+# benchmark's opt-in legacy text preprocessing; a run config cannot set task
+# arguments without naming the task, which this file must not do. See
+# scripts/parity/README.md for the vLLM variant used by the qualification runs.
+#
+# Sources (llm_behavior_eval/evaluation_utils/): eval_config.py
+# FAMILY_TOKEN_DEFAULTS["hallucination"] (token budgets, sample_judge, enable_thinking)
+# and EvaluationConfig (sample=False, max_samples=500); sampling_config.py
+# SamplingConfig.seed=42, passed to every legacy vLLM request; custom_dataset.py
+# (prompts tokenized with special tokens and truncated to 1024 tokens). Only
+# inference settings belong here: never `task`, `model` or `solver`.
 
 # Model under test (eval-level GenerateConfig; never applied to the grader).
 generate_config:
-  # EvaluationConfig.sample=False -> greedy decoding.
+  # sample=False: greedy decoding.
   temperature: 0.0
-  # FAMILY_TOKEN_DEFAULTS["hallucination"]["max_answer_tokens"].
+  # max_answer_tokens.
   max_tokens: 128
-  # FAMILY_TOKEN_DEFAULTS["hallucination"]["enable_thinking"]=False, which the
-  # legacy chat template received as enable_thinking=False. Ignored by Inspect's
-  # HF provider (use -M enable_thinking=false there).
+  # SamplingConfig.seed.
+  seed: 42
+  # Read by vLLM/SGLang/OpenAI-compatible servers; Inspect's HF provider
+  # ignores extra_body (see the -M flags above).
   extra_body:
+    # Legacy enable_thinking=False, passed to the chat template.
     chat_template_kwargs:
       enable_thinking: false
+    # The legacy engine tokenized the rendered chat template with the
+    # tokenizer's special tokens added (for Gemma, a second <bos>).
+    add_special_tokens: true
+    # Legacy prompts were truncated to 1024 tokens on the tokenizer's
+    # truncation side, which must be "right" for the answer tokenizer (the
+    # transformers default and the qualified Gemma 3 4B tokenizer).
+    truncate_prompt_tokens: 1024
+    truncation_side: right
 
-# EvaluationConfig.max_samples=500. Legacy runs scored the first 500 rows after a
-# seed-42 shuffle; the task's dataset is already in that order.
+# Legacy max_samples=500, taken after the seed-42 shuffle that halueval/dataset.py reproduces.
 eval_config:
   limit: 500
 
 model_roles:
   grader:
-    # Parity evidence used a Gemma 3 12B judge (legacy default is now Gemma 4 12B,
-    # which is not parity-qualified).
+    # Parity evidence used Gemma 3 12B judges. google/gemma-4-12B-it is not
+    # parity-qualified.
     model: hf/google/gemma-3-12b-it
+    # Grader GenerateConfig.
     config:
-      # FAMILY_TOKEN_DEFAULTS["hallucination"]["sample_judge"]=False -> greedy.
+      # sample_judge=False: greedy.
       temperature: 0.0
-      # FAMILY_TOKEN_DEFAULTS["hallucination"]["max_judge_tokens"].
+      # max_judge_tokens.
       max_tokens: 32
+      seed: 42
+      # Read by vLLM/SGLang/OpenAI-compatible graders; ignored by HF (see args).
+      extra_body:
+        # The legacy judge was never run with thinking on.
+        chat_template_kwargs:
+          enable_thinking: false
+        # Judge prompts were tokenized with special tokens and not truncated.
+        add_special_tokens: true
+    # Grader HF provider args: greedy decoding and thinking off. Drop them if
+    # the grader is swapped for a non-HF provider.
     args:
-      # Inspect's HF provider samples unless told not to.
       do_sample: false
-      # The legacy judge prompt was always templated with thinking off.
       enable_thinking: false

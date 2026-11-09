@@ -1,0 +1,317 @@
+{
+  "scope": "Representative implementation parity; no full-dataset equality or statistical accuracy guarantee",
+  "expected_cases": [
+    "bbq:gender:bias",
+    "bbq:gender:unbias",
+    "bbq:race:bias",
+    "bbq:race:unbias",
+    "bbq:nationality:bias",
+    "bbq:nationality:unbias",
+    "bbq:physical:bias",
+    "bbq:physical:unbias",
+    "bbq:age:bias",
+    "bbq:age:unbias",
+    "bbq:religion:bias",
+    "bbq:religion:unbias",
+    "unqover:religion:bias",
+    "unqover:gender:bias",
+    "unqover:race:bias",
+    "unqover:nationality:bias",
+    "bloom:age:bias",
+    "bloom:age:unbias",
+    "bloom:age:ambiguous",
+    "bloom:gender:bias",
+    "bloom:gender:unbias",
+    "bloom:gender:ambiguous",
+    "bloom:race:bias",
+    "bloom:race:unbias",
+    "bloom:race:ambiguous",
+    "halueval",
+    "medhallu",
+    "prompt_injection",
+    "ccpc",
+    "xstest",
+    "orbench"
+  ],
+  "cases": [
+    {
+      "case": "bbq:gender:bias",
+      "report_name": "bbq:gender:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "75efcaf51c79b22b57008149eaafe9a9b483a75d306aaa2e17863363d47d659b",
+      "identity_sha256": "d2f86aea00cfa21eb4e77c80cbf78e59457097e65a7127fe1be0317c32d48a0c",
+      "selected_ids_sha256": "344f9fa473e9d3970e37fda4b58180da4f92fd7412b85b9e4e848842bdc3f620",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bbq:gender:unbias",
+      "report_name": "bbq:gender:unbias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "84e383c952d4c7fa6a0968bdc61d153b99c60b8d50e0b2afebaae8cef9d60224",
+      "identity_sha256": "1183110ede3c92cb419d09b4ae818d0d89402f6ecd2b4f84240a5891df2a2a17",
+      "selected_ids_sha256": "45820eb68bb0991f361c4af842d858643945f486bfc23fe6c3a5941b204eaadc",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bbq:race:bias",
+      "report_name": "bbq:race:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "05efb6a35cca2ddb546b7ac895161d8f62d4fa352f3335e38715421460bc555a",
+      "identity_sha256": "31cdc7e4b0639ae808fef5707482144350779e0dbd362766045e27e475f8cbb1",
+      "selected_ids_sha256": "820425ef3cd67685ec97d2b4bc55e18ae535ce6a1b3d092d6c977eca8324d2da",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bbq:race:unbias",
+      "report_name": "bbq:race:unbias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "10c872d94f81b4548231e0642bc32abd5a770bd426dbec2586f569d30c2309bf",
+      "identity_sha256": "f2841986b9f77d618f1f194a69011e5922795847caca03c37c88c4ca6a9fbc66",
+      "selected_ids_sha256": "a7cee4b853cdb32d7c8b63047cf1899b86a86a4adf27bd7ad97521b1418e2fb8",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bbq:nationality:bias",
+      "report_name": "bbq:nationality:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "2ce489b12027995aeb72f65f658f36c1a7a68ddbb8bec3060f8bab307eb62ccb",
+      "identity_sha256": "05b7171f8a84e508510060c9545341fe08b69d6c55f76e97f796d0b69acdf9a7",
+      "selected_ids_sha256": "825d5822dc99132842adb48989d0725cb3f5416962f45106530b899b5fab047e",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bbq:nationality:unbias",
+      "report_name": "bbq:nationality:unbias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "f0000e0283d8ee2a4553b92ca2882b06d9aa391d4627ed57b481bb44d654f4b8",
+      "identity_sha256": "4824f31be77da908fbd1bd1ee9e6d08352a0bbcad897c3100abe96591997c4b8",
+      "selected_ids_sha256": "e504333de9efb98ae4b402fbc856fc938c27e4ad25f81a92165049419263dda0",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bbq:physical:bias",
+      "report_name": "bbq:physical:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "031fb7582f2fa638706d4c22b902d05326fc0314ab7622dad8136607e09c3510",
+      "identity_sha256": "e3daa685a62bbee9cf7cebd1c7577af8818e48837912e50fb2d88e8c96243001",
+      "selected_ids_sha256": "5cfa72d9180dc1eed2286761ccb849e7b1aa17035a2f3685e6de63845b4b58d2",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bbq:physical:unbias",
+      "report_name": "bbq:physical:unbias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "0d341d166ff233bd9ab2f8bc3065a810c0821f4ef2f757acc20371a7158fb960",
+      "identity_sha256": "c4959be64561d1f14910b889303f960beb75428bb93aece7286afea8180e6ae0",
+      "selected_ids_sha256": "17e2a1ef2a39ab067ba78785726bf985c2c09537c2006228e9af7ed446f7150d",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bbq:age:bias",
+      "report_name": "bbq:age:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "7eeeb10e8a16dae2e651464a53aa072476f4468c4f645d16950e792504d3ec63",
+      "identity_sha256": "35a00893d029a38996887b0f0f474ae34cb5b8092099a0ff78ed492e23811f21",
+      "selected_ids_sha256": "079e3137ccb748a77599c35f44de6d3612ab9118935b4fbfc654f5af6770653c",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bbq:age:unbias",
+      "report_name": "bbq:age:unbias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "8841a6e483f24c9335a1f12a210c144954edf738724eb5c27bef10874a8d0ff7",
+      "identity_sha256": "7194f38b3eb48d33449ff02247697059b5b83cf278fe9977274cad480b751a77",
+      "selected_ids_sha256": "4b69c0f662545e8a9bc93ed72c1b0a152b138b0816e5f5227df757f90d640bc8",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bbq:religion:bias",
+      "report_name": "bbq:religion:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "963effae5acc52171a9f506b2438241041d8310ec9eb0b7a492115b56c2d611f",
+      "identity_sha256": "21e185b10c891a9db39260dc42e661962bb80dd3e36848b7ffec1995db2674cc",
+      "selected_ids_sha256": "c5cc16014d0e746aed4766c252a574834d754088395a23ea10f486a539aa510d",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bbq:religion:unbias",
+      "report_name": "bbq:religion:unbias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "ecdf11117d66961ad8ee54bd8c5298acfe08ae5ac3d28f66681230afd6b799a3",
+      "identity_sha256": "f1b936445a56945edd56d86e176e53b5f45407b516f3db91d06f8afc7b94ffad",
+      "selected_ids_sha256": "5c28592bfbd205b7fe27f7fa29ee3198427da1df6cbfffd04ee3706e7c142a44",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "unqover:religion:bias",
+      "report_name": "unqover:religion:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "dc23eb5999d67e2a8d347622d840ba4486cea719ebaab022f68c1387dfab5eca",
+      "identity_sha256": "2e8f21041b2937cf274608235cff9b0d05c3d774b297a755e12a35e0d71f0c91",
+      "selected_ids_sha256": "ced18c05a8b3ec75026749f1ede7459ce70acff6540f62843fc2b762b165901b",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "unqover:gender:bias",
+      "report_name": "unqover:gender:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "213cdfa7c7589dbbc53cc881fb26b99153b65617df9b5e9f69e20de9f00b4309",
+      "identity_sha256": "d2808be5dd390d73ab085dfaa08d4af3cd6047fd7e78b5fd5d96588f93464bed",
+      "selected_ids_sha256": "d28d4301a1c24283602a329432c072a34f09d4a37dfce0069fee04a668b496a3",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "unqover:race:bias",
+      "report_name": "unqover:race:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "2c0c0dfc272a9f72958fee3160cbafcf370a23398a6bd5d47eef155ed21924b2",
+      "identity_sha256": "ba57674ebcfa5cfe370cdac73b0452e6e2d6d10bb4703028885d4594ed72c2f5",
+      "selected_ids_sha256": "56f51aa20d3b1d6b22a2023d6f236cd9192cb76b6453ffa7c1a3dd0145c94351",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "unqover:nationality:bias",
+      "report_name": "unqover:nationality:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "5ebd1985f54d8b07b6a86f0b746a598593fba7c829f461d93b9f81af0e04ba4c",
+      "identity_sha256": "0963500cc4dbe0ba3f8468ca4f4b550155805fda5dec9e8905020db40eab02f6",
+      "selected_ids_sha256": "dab030f143c4bc21c76c0ffa8ce8051330b975e88d14ce94b9d772307eb6acf1",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bloom:age:bias",
+      "report_name": "bloom:age:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "791ae5f14effda6122e7565639ba5be17e18af4cb291a007087faae25912b76c",
+      "identity_sha256": "703f20980f3d912282c546eed48717d18f6010778b97f46e06cf3cd708e0b9fa",
+      "selected_ids_sha256": "db3793998f1a9e3816c71770e7569e3542bbc8c222fd060cb25718541b82bdd0",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bloom:age:unbias",
+      "report_name": "bloom:age:unbias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "85cf9eaa1f973ec7ea004bb00ad724a00937b19be730852717efa785050ebc28",
+      "identity_sha256": "fb3d1931b7630f56956258175f29a25c62b1349d99a2c54b6a46865d7f8f4631",
+      "selected_ids_sha256": "529a593ac1ce13d471a020843763bb36f9ec906a7222014ce7a1fc05914ee4f4",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bloom:age:ambiguous",
+      "report_name": "bloom:age:ambiguous:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "17e4d49580e794bf1e17334c2e83ca74694b4dd26c46c9f1df6bd77c39705288",
+      "identity_sha256": "222a430c2cc84305027fc40624a54a6928c6ae0bc7c03603c001bd5127f7389b",
+      "selected_ids_sha256": "f4f42a2da63201f67fba3157f2de57a3cffb0a2f2af9d96e7ba445c997368dbf",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bloom:gender:bias",
+      "report_name": "bloom:gender:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "45e3774b9955ff00bd4d899a81de2f8f660904a83b66446ffb3bef412e382d62",
+      "identity_sha256": "d18a479586a43564bac400904df6c6b53e39911dd4f9d733da217e593067ea5c",
+      "selected_ids_sha256": "104806c894f70e3fabf4f3516911b05f11f70884f07b70337354ff66faa5c050",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bloom:gender:unbias",
+      "report_name": "bloom:gender:unbias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "351bd08308a2903ae3a86495a37029dc9262ab2911b91e8e36bb0458633f9011",
+      "identity_sha256": "2066c642c01c0709d88765e2916831bd796a5ded82cf83adb950a89292608a45",
+      "selected_ids_sha256": "4bb27965ada11b6501382a92d21bb58eca0c3b508acf2bcbb132c6a9372219a2",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bloom:gender:ambiguous",
+      "report_name": "bloom:gender:ambiguous:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "28c56ef4c1ce168ca3e43a58a1bcfa80cfd21a7289cd443af7a4e07d9d31348e",
+      "identity_sha256": "8c3abde8dc2b0f84cb0b80c71c3186b021d2d07a55823364638a335bd99d7925",
+      "selected_ids_sha256": "dd9ccf803af9cf2bd7a79abb2950197a5bad6de42425c7efd3dac69b80b7c0a0",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bloom:race:bias",
+      "report_name": "bloom:race:bias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "bd2f9bebd86bb5846923390eda8f1a14ef1a261b48f678dc19eb94916aec1eb2",
+      "identity_sha256": "b19b5e8734c907df0fc68e65c48532bb6814141f66338b4706cf469ea884666e",
+      "selected_ids_sha256": "1cca928f45c055e8c4f8520b339eb228185151429a8fec261618976916fce584",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bloom:race:unbias",
+      "report_name": "bloom:race:unbias:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "daeebbdfe8ba694dd8646f0a3de2ce42023477ff6d577d3fbc7653ababb1d7af",
+      "identity_sha256": "15c59c565f4349f1e6b15a45ba95598ac11ad1ae463f41ae8bf1a7d94bb74a8a",
+      "selected_ids_sha256": "0b5e6754a2dd95ab8dac1d78c832af0a92fc26361c6b5135c19997d346ceceda",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "bloom:race:ambiguous",
+      "report_name": "bloom:race:ambiguous:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "ff50170aeeb2aacdff72f4291f9069089e166bdd98dcf8a86b39cd920f27de2c",
+      "identity_sha256": "ae193b4e8bb898c227b7badec57f1ce1a92180951f6ceceedb29e22801954912",
+      "selected_ids_sha256": "ae208d716eab78053204b3649e1396859e8cd744aeef7f26b955c18580a4f71b",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "halueval",
+      "report_name": "halueval:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "86021540290f60ceacb75d16799e4b956c08cb03898b3ed2eb6574ce6048425f",
+      "identity_sha256": "d6bd11aeab213883630ccc5aff412b493e1eaa2cc36aa7356084478ff15ad9d9",
+      "selected_ids_sha256": "e6c64ba1c8a57d36bae06afb0baab1f01b6636cf9c5dec0f260facabfaab55fc",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "medhallu",
+      "report_name": "medhallu:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "2d9c7a0ba2b4346e7ae1b480995331eabf7caf9da547c03ac7a6b6866f59488c",
+      "identity_sha256": "d9c91e9613f4daac515dd2b6a1051cdfd60cc29e58b439554d91656aabcd34e2",
+      "selected_ids_sha256": "b82be775d86f62be221e902d6830d35f0883f5f31171a23c59540d9f5814a97f",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "prompt_injection",
+      "report_name": "prompt_injection:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "ed4bf2f84fe789a2481ec998979faa50a6fea0b7f2b28c902489fe4038f24883",
+      "identity_sha256": "dce3d5d6b57b85402aee3c2d2a5ef5c1c9c7b3a4e15e342eb77ead6183f6c90c",
+      "selected_ids_sha256": "33b486db9d031779ed7bf87a001fe29cbad2c5f100a753fac653e2304d2ffd9d",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "ccpc",
+      "report_name": "ccpc:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "9d847230c8f1447cd43bb49e2ffdb50d223cb838b98cf1fda3ebff6ad69abd01",
+      "identity_sha256": "1769b2f02050c9faa60fbeb41992cd84a130e5722f773d49f7b82ab17dec4503",
+      "selected_ids_sha256": "0ed88088127e2ad481af32a0c2cc2fa8a1ba6eab9b88d2f049f03e64a7b1870a",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "xstest",
+      "report_name": "xstest:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "94548e2809bfeb5c80d0c230e5641d040a29136a966332dc3849e621cf96ad91",
+      "identity_sha256": "ae515444d8b07045f39259f113599505bb0ff7425914d6b48deb1eb4505b43c6",
+      "selected_ids_sha256": "7a49068a641ae25980487245e40f7f76ded34004d9fb1dcb8dd36bc7c7072dbb",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    },
+    {
+      "case": "orbench",
+      "report_name": "orbench:small-slice",
+      "expected_samples": 100,
+      "source_sha256": "b06b788324cc3bfea4853b49cb36837e403df168f8c92a4a345f84a3744ee783",
+      "identity_sha256": "fd54d9adae181992f816154a7812d2fbf263fe4111ec06c3bab5674e9aa1b8ad",
+      "selected_ids_sha256": "71387d2f5885dc817d71ef694eee926d8708654468968dabab29c09a3c54db09",
+      "selection": "Prefix of the frozen seed-42 source order; CCPC preserves published order"
+    }
+  ]
+}

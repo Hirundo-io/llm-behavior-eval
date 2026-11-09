@@ -1,0 +1,20 @@
+{
+  "scope": "CPU aggregation replay of the entire actual retained GPU judgment selection; no native inference claim",
+  "rows": 251,
+  "actual_judgments": 152,
+  "labels": {
+    "None": 99,
+    "Yes": 74,
+    "No": 78
+  },
+  "retained_asr": 48.684210526315795,
+  "native_metric_asr": 48.684210526315795,
+  "exact": true,
+  "metric_source_sha256": "812226d9de6a5dd884f0c9c0eb986e62913fb71d4b16428e85802a2a9ae76c46",
+  "evidence_sha256": {
+    "matrix500-qualified/prompt_injection/legacy/093f9f388b31de276ce2de164bdc2081324b9767/prompt-injection-purple-llama/responses.json": "91b64005af05f18883e12ec3094c2c697bfee0de2013c31854dfc5767305ddc5",
+    "matrix500-qualified/prompt_injection/source.json": "1284f05ed1e0de825e988f71964b689318e5a635e7cca5ea84ecdad5e841e693",
+    "matrix500-qualified/prompt_injection/legacy-judge-boundary.json": "ff2e82eef2a9312a3a65a2b0a5e665e77473c22a46d4c0df2b9aa32b63a9b823",
+    "matrix500-qualified/prompt_injection/legacy-metrics-unrounded.json": "47ec325fdfaf43f0da4dc7a129c83a38e8980691e4a3232bfeac4a9ba664949b"
+  }
+}

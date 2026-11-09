@@ -15,6 +15,8 @@ def bbq(
     dataset_path: str | None = None,
     dataset_token: str | None = None,
     seed: int = LEGACY_SHUFFLE_SEED,
+    legacy_tokenizer: str | None = None,
+    legacy_tokenizer_revision: str | None = None,
 ) -> Task:
     """BBQ split ``hirundo-io/bbq-{bias_type}-{kind}-free-text``.
 
@@ -22,6 +24,12 @@ def bbq(
     inference settings are set here (no ``config=``): pass them per role, or
     pass ``parity.yaml`` with ``--run-config`` for the legacy settings.
     ``seed`` only orders the samples (the legacy shuffle).
+
+    ``legacy_tokenizer`` (off by default) opts in to the legacy engine's text
+    preprocessing for parity runs: it names the answer model's local tokenizer
+    snapshot (or a cached repository with an immutable
+    ``legacy_tokenizer_revision``), and the judge then sees the legacy decoded
+    prompt, target and stereotype. The model's input is unchanged.
     """
     data = dataset(
         bias_type,
@@ -35,7 +43,7 @@ def bbq(
     )
     return Task(
         dataset=data,
-        solver=bbq_solver(),
+        solver=bbq_solver(legacy_tokenizer, legacy_tokenizer_revision),
         scorer=bbq_scorer(),
         metrics=[bbq_metrics(kind, has_stereotype)],
     )
