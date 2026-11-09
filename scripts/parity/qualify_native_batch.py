@@ -7,6 +7,7 @@ Run answer and judge in separate processes; CCPC judge gets a separate group.
 import argparse
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -29,12 +30,16 @@ def main() -> None:
     parser.add_argument("--isolate-cache", action="store_true")
     parser.add_argument("--ordered", action="store_true")
     args = parser.parse_args()
+    os.environ.setdefault("VLLM_USE_AOT_COMPILE", "0")
     identities = [
         json.loads((root / "identity-config.json").read_text()) for root in args.roots
     ]
     for key in ("answer", "judge"):
         if len({identity[key] for identity in identities}) != 1:
             raise ValueError(f"Batch requires identical {key} identity")
+    modes = {identity.get("execution_mode", "eager") for identity in identities}
+    if len(modes) != 1 or not modes <= {"eager", "compiled"}:
+        raise ValueError("Batch requires one supported execution mode")
 
     def model(path: str, case: str):
         extra_body: dict[str, Any] = {
@@ -53,7 +58,8 @@ def main() -> None:
             ),
             max_model_len=16384,
             gpu_memory_utilization=0.5,
-            enforce_eager=True,
+            enforce_eager=modes == {"eager"},
+            compilation_config='{"cudagraph_specialize_lora":false}',
             language_model_only=True,
             dtype="bfloat16",
             max_num_seqs=1,

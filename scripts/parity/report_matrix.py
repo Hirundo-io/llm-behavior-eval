@@ -261,13 +261,15 @@ def main() -> None:
         engine_seed=0,
         request_seed=42,
         max_model_len=16384,
-        enforce_eager=True,
+        enforce_eager=identity.get("execution_mode", "eager") == "eager",
         gpu_memory_utilization=0.5,
         task_args=task_args,
         answer_budget=2048 if refusal else 8192 if family == "ccpc" else 128,
         judge_budget=128 if refusal else 4096 if family == "ccpc" else 32,
         thinking=refusal,
     )
+    if identity.get("execution_mode") == "compiled":
+        config.update(cudagraph_specialize_lora=False, vllm_use_aot_compile=0)
     run = dict(
         model_revision=Path(identity["answer"]).name,
         judge_revision=Path(identity["judge"]).name,
@@ -278,6 +280,12 @@ def main() -> None:
         config=config,
     )
     native_seed = log.eval.model_generate_config.seed
+    if log.eval.model_args.get("enforce_eager") != config["enforce_eager"]:
+        raise ValueError("Native execution mode differs from pinned run identity")
+    legacy_config_path = next((root / "legacy").rglob("run_config.json"))
+    legacy_config = json.loads(legacy_config_path.read_text())["evaluation_config"]
+    if legacy_config["vllm_config"]["enforce_eager"] != config["enforce_eager"]:
+        raise ValueError("Retained execution mode differs from pinned run identity")
     legacy_run = {
         **run,
         "config": {**config, "request_seed": 42},

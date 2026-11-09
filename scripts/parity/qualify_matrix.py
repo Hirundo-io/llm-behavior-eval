@@ -8,6 +8,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +64,10 @@ def main() -> None:
     parser.add_argument("--answer", required=True)
     parser.add_argument("--judge", required=True)
     parser.add_argument("--samples", type=int, default=2)
+    parser.add_argument("--compiled", action="store_true")
     args = parser.parse_args()
+    # Match the retained load_vllm_model environment for native subprocesses.
+    os.environ.setdefault("VLLM_USE_AOT_COMPILE", "0")
     if args.samples <= 0:
         raise ValueError("Use an explicit positive sample cap")
     family, repository, task_args = case_identity(args.case)
@@ -73,6 +77,8 @@ def main() -> None:
     identity = dict(
         case=args.case, answer=args.answer, judge=args.judge, samples=args.samples
     )
+    if args.compiled:
+        identity["execution_mode"] = "compiled"
     immutable_json(root / "identity-config.json", identity)
     if args.phase == "prepare":
         from datasets import Dataset, DatasetDict, load_dataset
@@ -175,7 +181,7 @@ def main() -> None:
                     max_model_len=16384,
                     gpu_memory_utilization=0.5,
                     language_model_only=True,
-                    enforce_eager=True,
+                    enforce_eager=not args.compiled,
                 ),
             ),
             DatasetConfig(
@@ -312,7 +318,8 @@ def main() -> None:
             ),
             max_model_len=16384,
             gpu_memory_utilization=0.5,
-            enforce_eager=True,
+            enforce_eager=not args.compiled,
+            compilation_config='{"cudagraph_specialize_lora":false}',
             language_model_only=True,
             dtype="bfloat16",
             max_num_seqs=1,

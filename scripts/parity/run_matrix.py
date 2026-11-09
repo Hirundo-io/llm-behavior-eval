@@ -24,6 +24,7 @@ def main() -> None:
     parser.add_argument("--group-native", action="store_true")
     parser.add_argument("--isolate-cache", action="store_true")
     parser.add_argument("--ordered", action="store_true")
+    parser.add_argument("--compiled", action="store_true")
     parser.add_argument(
         "--phases",
         nargs="+",
@@ -86,6 +87,8 @@ def main() -> None:
                     "--samples",
                     str(args.samples),
                 ]
+                if args.compiled:
+                    cmd.append("--compiled")
             log_path = root / (phase + ".log")
             if log_path.exists():
                 raise ValueError(f"Refusing to overwrite {log_path}")

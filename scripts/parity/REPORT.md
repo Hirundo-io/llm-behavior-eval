@@ -427,3 +427,24 @@ recorded in `qualification-ordering-fix.json`. The fix precedes larger native
 scoring; production source remains unchanged. **32 focused tests**, Ruff, and
 focused Pyrefly pass. The all-31 capped run is now executing, beginning with
 500-row HaluEval; the boundary results do not satisfy that production matrix.
+
+The eager-mode **500-row production HaluEval pair completed exactly**: accuracy
+89.8% on both sides, zero empty responses, zero incomplete-response rate, zero
+field mismatches and zero metric deltas. All 500 actual judge input sequences
+and raw judge outputs match; response insertion order also matches after the
+source-ID callback correction. `production-halueval-500.json` records the real
+result and artifact hashes. Raw evidence is locally preserved in ignored
+`results/llm169-production-h200/halueval-500-evidence.tar.gz`. This is one
+configuration, not all-31 completion.
+
+A separately identified compiled-mode probe is now checking vLLM's existing
+configuration APIs to make the long-budget matrix practical. It keeps frozen
+production code, model snapshots, BF16, greedy sampling, budgets, seeds and
+batch-one settings. The first retained XSTest generation took about 9 seconds
+versus 78 seconds in eager mode for two answers, but both answer texts differ
+across modes. Therefore no cross-mode result reuse or equality is claimed:
+compiled old/new must be freshly paired, and a successful candidate will run all
+31 primary configurations in that mode. The exact eager HaluEval pair and eager
+boundary evidence remain separately scoped. The outer eager controller is
+paused; an already-started Med-Hallu eager phase was interrupted and its partial
+artifacts/logs preserved, never counted as a result. No engine code was rewritten.
