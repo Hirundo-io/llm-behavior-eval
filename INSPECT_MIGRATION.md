@@ -67,6 +67,26 @@ registry discovery, dataset conversion, scorer, parity-config tests, an
 `target_metrics.json` name in a real `.eval` log (`missing_target_metrics`, see
 [Target metrics](#target-metrics)).
 
+Generic test helpers live in `tests/inspect_helpers.py` (importable as
+`inspect_helpers`; `pytest`'s `pythonpath` adds `tests/`) and
+`tests/conftest.py`; use them instead of copying:
+
+| Helper | Use |
+| --- | --- |
+| `generation_settings(config)` | The inference fields a `GenerateConfig` sets; `{}` means nothing was set. |
+| `eval_metrics(log)` | Metrics of a successful log's single, unreduced `EvalScore`. |
+| `sample_scores(log, scorer)` | Every sample's `Score` from one scorer, in log order. |
+| `rate(metric)`, `mapping(metric)` | A metric typed as returning a float or a mapping, to call it on `SampleScore`s directly. |
+| `only_log(log_dir)` | The one `.eval` log in a directory. |
+| `run_inspect_cli(*args, cwd=...)` | `python -m inspect_ai ... --display none`; asserts it succeeded. Pass a `cwd` other than the repository root (see [Target metrics](#target-metrics)). |
+| `mock_grader(reply)` | A `mockllm/grader` model that always replies `reply`. |
+| `patch_scorer_grader(monkeypatch, scorer_module, reply)` | Routes a scorer module's `get_model` to a canned reply, for scorers called directly; returns the prompts it got. |
+| `snapshot(directory, rows)` | Saves rows as a `save_to_disk` snapshot and returns its path. |
+| `mock_parity_config(package, directory, grader="mockllm/model")` | Writes the shipped `parity.yaml` with only the grader swapped for a mock model. |
+| `assert_grader_required(task, tmp_path)` | Runs `task` without a grader role and asserts it fails, naming the grader. |
+| `assert_no_credentials_logged(log, secret)` | Asserts no file of a `.eval` log contains `secret`. |
+| `openai_judge` fixture (conftest), `local_openai_judge(reply)` | A loopback OpenAI-compatible chat endpoint (`LocalOpenAIJudge`): `.base_url`, `.reply` (text, or a function of the request body), `.requests` (bodies) and `.paths`. Use it for `openai-api` grader tests instead of patching `Model.generate`: a patched memoized model leaks into later tests. `message_text(message)` reads a request message's text. |
+
 Registry names are global. Inspect keeps one registry per object type, keyed by
 `llm_behavior_eval/<name>`, and a later registration under a name silently
 replaces the earlier one; `inspect score` and anything else that rebuilds a

@@ -131,12 +131,18 @@ fixable = ["ALL"]
 # Disable fix for unused imports possibly needed for export.
 unfixable = ["F401"]
 
+[tool.ruff.lint.isort]
+# tests/inspect_helpers.py, imported through pytest's pythonpath.
+known-local-folder = ["inspect_helpers"]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["S"]
 "hirundo_notion_tools/test_*.py" = ["S"]
 
 [tool.pyrefly]
 min-severity = "warn"
+# tests/ is on pytest's pythonpath, for the shared inspect_helpers module.
+search-path = [".", "tests"]
 
 [tool.pytest.ini_options]
 # The default prepend mode puts the repository root first on sys.path for each
@@ -144,3 +150,6 @@ min-severity = "warn"
 # the editable install's dist-info, which has the PEP 610 metadata that Inspect
 # uses to namespace registry names. importlib mode leaves sys.path unchanged.
 addopts = ["--import-mode=importlib"]
+# Shared test helpers (tests/inspect_helpers.py) import as top-level modules.
+# Only tests/ is added: the repository root would bring back the egg-info.
+pythonpath = ["tests"]

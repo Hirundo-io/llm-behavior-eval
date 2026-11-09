@@ -19,7 +19,8 @@ inspect eval llm_behavior_eval/inspect_template --model mockllm/model
 | `target_metrics.json` | Example report metrics for `llm_behavior_eval/inspect_template`. |
 
 Tests live in `tests/test_inspect_template.py` (task, parity config, target
-metrics checked against a real `.eval` log, no credential in the log).
+metrics checked against a real `.eval` log, no credential in the log). Generic
+helpers come from `tests/inspect_helpers.py` and `tests/conftest.py`.
 
 A benchmark copied from this directory registers itself: `_registry.py` imports
 the `task` module of every subpackage, and `common.target_metrics` merges every

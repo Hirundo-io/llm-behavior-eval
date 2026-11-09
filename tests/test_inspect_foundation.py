@@ -2,9 +2,7 @@ import json
 import math
 import subprocess
 import sys
-import threading
-from collections.abc import Callable, Iterator
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections.abc import Iterator
 from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Any, cast
@@ -14,7 +12,6 @@ from datasets import Dataset, DatasetDict
 from inspect_ai import Task
 from inspect_ai import eval as inspect_eval
 from inspect_ai.dataset import Sample
-from inspect_ai.log import EvalLog, list_eval_logs, read_eval_log
 from inspect_ai.model import (
     ChatMessage,
     ContentReasoning,
@@ -25,7 +22,7 @@ from inspect_ai.model import (
     StopReason,
     get_model,
 )
-from inspect_ai.scorer import Metric, SampleScore, Score, accuracy, mean, stderr
+from inspect_ai.scorer import SampleScore, Score, accuracy, mean, stderr
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import ToolChoice, ToolInfo
 from inspect_ai.util import registry_info
@@ -52,44 +49,17 @@ from llm_behavior_eval.common.metrics import (
 from llm_behavior_eval.inspect_template.dataset import record_to_sample
 from llm_behavior_eval.inspect_template.task import inspect_template
 
-# Inference settings that benchmark code must never set for either role.
-GENERATION_FIELDS = (
-    "temperature",
-    "top_p",
-    "top_k",
-    "max_tokens",
-    "seed",
-    "frequency_penalty",
-    "presence_penalty",
-    "reasoning_effort",
-    "reasoning_tokens",
-    "reasoning_summary",
-    "extra_body",
+from inspect_helpers import (
+    LocalOpenAIJudge,
+    assert_grader_required,
+    eval_metrics,
+    generation_settings,
+    message_text,
+    only_log,
+    rate,
+    run_inspect_cli,
+    sample_scores,
 )
-
-
-def generation_settings(config: GenerateConfig) -> dict[str, Any]:
-    return {
-        name: getattr(config, name)
-        for name in GENERATION_FIELDS
-        if getattr(config, name) is not None
-    }
-
-
-def run_cli(*args: str, cwd: Path | None = None) -> None:
-    result = subprocess.run(
-        [sys.executable, "-m", "inspect_ai", *args, "--display", "none"],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-
-
-def only_log(log_dir: Path) -> EvalLog:
-    logs = list_eval_logs(str(log_dir))
-    assert len(logs) == 1
-    return read_eval_log(logs[0])
 
 
 class _Loaded:
@@ -132,11 +102,6 @@ def test_thinking(answer: str, expected: str) -> None:
     assert strip_thinking(answer) == expected
     assert strip_thinking(answer, exclude_thinking_trace_for_judge=False) == answer
     assert strip_thinking(answer, thinking_start_token=None) == answer
-
-
-def rate(metric: Metric) -> Callable[[list[SampleScore]], float]:
-    # Metric returns Inspect's Value union; these rates always return a float.
-    return cast("Callable[[list[SampleScore]], float]", metric)
 
 
 def test_rates() -> None:
@@ -392,15 +357,6 @@ def test_verdict_ignores_grader_reasoning(
     assert score.metadata["raw_judge_text"] == grader_reply.completion
 
 
-def eval_metrics(log: EvalLog) -> dict[str, float]:
-    assert log.status == "success", log.error
-    assert log.results
-    # The epoch layout: one EvalScore per scorer, computed from every epoch.
-    [result] = log.results.scores
-    assert result.reducer is None
-    return {name: metric.value for name, metric in result.metrics.items()}
-
-
 @pytest.mark.parametrize("epochs", [1, 2])
 def test_metrics_aggregate_every_epoch(tmp_path: Path, epochs: int) -> None:
     # Inspect's epoch reducers keep only the first epoch's metadata. Here
@@ -538,7 +494,7 @@ def test_template_thinking_task_args(tmp_path: Path, exclude: bool) -> None:
 
 
 def test_cli_turns_thinking_stripping_off(tmp_path: Path) -> None:
-    run_cli(
+    run_inspect_cli(
         "eval",
         "llm_behavior_eval/inspect_template",
         "--model",
@@ -554,18 +510,13 @@ def test_cli_turns_thinking_stripping_off(tmp_path: Path) -> None:
 
 
 def test_grader_role_is_required(tmp_path: Path) -> None:
-    logs = inspect_eval(
+    assert_grader_required(
         Task(
             dataset=[Sample(input="question", target="answer")],
             scorer=judge_scorer("{answer}", r"SCORE:\s*(\S+)"),
         ),
-        model=get_model("mockllm/model"),
-        log_dir=str(tmp_path),
-        display="none",
+        tmp_path,
     )
-    assert logs[0].status == "error"
-    assert logs[0].error
-    assert "grader" in logs[0].error.message
 
 
 @pytest.mark.parametrize("user_settings", [False, True])
@@ -639,7 +590,7 @@ def test_cli_per_role_settings(tmp_path: Path, source: str) -> None:
         config_file = tmp_path / "answer.yaml"
         config_file.write_text("temperature: 0.3\nmax_tokens: 99\n")
         answer_args = ["--generate-config", str(config_file)]
-    run_cli(
+    run_inspect_cli(
         "eval",
         "llm_behavior_eval/inspect_template",
         "--model",
@@ -661,56 +612,10 @@ def test_cli_per_role_settings(tmp_path: Path, source: str) -> None:
     assert generation_settings(grader.config) == {"temperature": 0.0, "max_tokens": 7}
 
 
-@pytest.fixture
-def openai_judge() -> Iterator[tuple[str, list[tuple[str, dict[str, Any]]]]]:
-    requests: list[tuple[str, dict[str, Any]]] = []
-
-    # BaseHTTPRequestHandler logs each request to stderr, which pytest captures.
-    class Handler(BaseHTTPRequestHandler):
-        def do_POST(self) -> None:
-            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            requests.append((self.path, body))
-            payload = json.dumps(
-                {
-                    "id": "local-test",
-                    "object": "chat.completion",
-                    "created": 0,
-                    "model": "judge",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {"role": "assistant", "content": "SCORE: 0"},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                    "usage": {
-                        "prompt_tokens": 1,
-                        "completion_tokens": 1,
-                        "total_tokens": 2,
-                    },
-                }
-            ).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{server.server_port}/v1", requests
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join()
-
-
 def test_openai_compatible_grader_defaults(
-    tmp_path: Path, openai_judge: tuple[str, list[tuple[str, dict[str, Any]]]]
+    tmp_path: Path, openai_judge: LocalOpenAIJudge
 ) -> None:
-    base_url, requests = openai_judge
+    base_url, requests = openai_judge.base_url, openai_judge.requests
     grader = get_model(
         "openai-api/airgap/judge",
         base_url=base_url,
@@ -729,18 +634,41 @@ def test_openai_compatible_grader_defaults(
     # The endpoint's result overrides the template's mock grader.
     assert logs[0].samples[0].scores["judge_scorer"].value == 0
     assert len(requests) == 1
-    path, body = requests[0]
-    assert path == "/v1/chat/completions"
+    assert openai_judge.paths == ["/v1/chat/completions"]
+    body = requests[0]
     assert body["model"] == "judge"
     # Nothing set, so the endpoint's own generation defaults apply.
     for key in ("temperature", "top_p", "max_tokens", "max_completion_tokens"):
         assert key not in body
 
 
-def test_openai_compatible_grader_cli_role_config(
-    tmp_path: Path, openai_judge: tuple[str, list[tuple[str, dict[str, Any]]]]
+def test_openai_judge_reply_can_depend_on_the_request(
+    tmp_path: Path, openai_judge: LocalOpenAIJudge
 ) -> None:
-    base_url, requests = openai_judge
+    openai_judge.reply = lambda body: f"SCORE: {len(body['messages'])}"
+    grader = get_model(
+        "openai-api/airgap/judge",
+        base_url=openai_judge.base_url,
+        api_key="local-test-placeholder",
+        memoize=False,
+    )
+    [log] = inspect_eval(
+        inspect_template(),
+        model="mockllm/model",
+        model_roles={"grader": grader},
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    [request] = openai_judge.requests
+    assert [message_text(m) for m in request["messages"]]
+    [score] = sample_scores(log, "judge_scorer")
+    assert score.value == len(request["messages"])
+
+
+def test_openai_compatible_grader_cli_role_config(
+    tmp_path: Path, openai_judge: LocalOpenAIJudge
+) -> None:
+    base_url, requests = openai_judge.base_url, openai_judge.requests
     role = json.dumps(
         {
             "model": "openai-api/airgap/judge",
@@ -749,7 +677,7 @@ def test_openai_compatible_grader_cli_role_config(
             "max_tokens": 32,
         }
     )
-    run_cli(
+    run_inspect_cli(
         "eval",
         "llm_behavior_eval/inspect_template",
         "--model",
@@ -762,7 +690,7 @@ def test_openai_compatible_grader_cli_role_config(
         str(tmp_path / "logs"),
     )
     assert len(requests) == 1
-    body = requests[0][1]
+    body = requests[0]
     assert body["temperature"] == 0
     assert body["max_tokens"] == 32
     log = only_log(tmp_path / "logs")
@@ -783,7 +711,7 @@ def test_registration_and_lazy_import(tmp_path: Path) -> None:
         text=True,
     )
     assert result.returncode == 0, result.stderr
-    run_cli(
+    run_inspect_cli(
         "eval",
         "llm_behavior_eval/inspect_template",
         "--model",
@@ -792,7 +720,7 @@ def test_registration_and_lazy_import(tmp_path: Path) -> None:
         str(tmp_path / "local"),
     )
     # Force package entry-point resolution rather than the same-named local directory.
-    run_cli(
+    run_inspect_cli(
         "eval",
         "llm_behavior_eval/inspect_template",
         "--model",

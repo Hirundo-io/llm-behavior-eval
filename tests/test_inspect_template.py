@@ -1,12 +1,10 @@
-import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 from inspect_ai import eval as inspect_eval
-from inspect_ai.log import EvalSpec, list_eval_logs, read_eval_log
+from inspect_ai.log import EvalSpec
 from inspect_ai.model import GenerateConfig
 
 from llm_behavior_eval.common.parity import parity_config_path, read_parity_config
@@ -17,6 +15,9 @@ from llm_behavior_eval.common.target_metrics import (
     read_target_metrics_file,
 )
 from llm_behavior_eval.inspect_template.task import inspect_template
+
+from inspect_helpers import assert_no_credentials_logged, only_log, run_inspect_cli
+from inspect_helpers import mock_parity_config as write_mock_parity_config
 
 TEMPLATE = "llm_behavior_eval.inspect_template"
 
@@ -43,13 +44,7 @@ def test_shipped_parity_config_holds_only_inference_settings() -> None:
 
 @pytest.fixture
 def mock_parity_config(tmp_path: Path) -> Path:
-    """The shipped parity config with only the grader model swapped for a mock."""
-    config = yaml.safe_load(parity_config_path(TEMPLATE).read_text())
-    config["model_roles"]["grader"]["model"] = "mockllm/model"
-    config["model_roles"]["grader"]["args"] = {}
-    path = tmp_path / "parity.yaml"
-    path.write_text(yaml.safe_dump(config))
-    return path
+    return write_mock_parity_config(TEMPLATE, tmp_path)
 
 
 def assert_parity_recorded(spec: EvalSpec) -> None:
@@ -63,33 +58,18 @@ def assert_parity_recorded(spec: EvalSpec) -> None:
 
 
 def test_parity_config_cli(tmp_path: Path, mock_parity_config: Path) -> None:
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "inspect_ai",
-            "eval",
-            "llm_behavior_eval/inspect_template",
-            "--model",
-            "mockllm/model",
-            "--run-config",
-            str(mock_parity_config),
-            "--log-dir",
-            str(tmp_path / "logs"),
-            "--display",
-            "none",
-        ],
-        capture_output=True,
-        text=True,
-        # Not the repository root: `python -m` puts the working directory first
-        # on sys.path, where the source-tree egg-info hides the install metadata
-        # Inspect needs to name the task llm_behavior_eval/inspect_template.
+    run_inspect_cli(
+        "eval",
+        "llm_behavior_eval/inspect_template",
+        "--model",
+        "mockllm/model",
+        "--run-config",
+        str(mock_parity_config),
+        "--log-dir",
+        str(tmp_path / "logs"),
         cwd=tmp_path,
     )
-    assert result.returncode == 0, result.stderr
-    logs = list_eval_logs(str(tmp_path / "logs"))
-    assert len(logs) == 1
-    log = read_eval_log(logs[0])
+    log = only_log(tmp_path / "logs")
     assert_parity_recorded(log.eval)
     assert missing_target_metrics(log) == []
 
@@ -147,3 +127,15 @@ def test_template_target_metrics_match_eval_metric_names(tmp_path: Path) -> None
     # Every target name is found in the written .eval log as inspect-brief
     # reads it: by log.eval.task, then as a key of a scorer's metrics.
     assert missing_target_metrics(logs[0].location) == []
+
+
+def test_template_logs_no_environment_credential(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sentinel = "hf_TEMPLATE_SENTINEL_NOT_A_REAL_SECRET"
+    monkeypatch.setenv("HF_TOKEN", sentinel)
+    [log] = inspect_eval(
+        inspect_template(), model="mockllm/model", log_dir=str(tmp_path), display="none"
+    )
+    assert log.status == "success", log.error
+    assert_no_credentials_logged(log, sentinel)
