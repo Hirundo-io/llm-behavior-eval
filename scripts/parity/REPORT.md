@@ -487,3 +487,14 @@ claimed yet. Production code, template bytes, rubric, dataset revision, and
 fingerprint are unchanged. The matrix summary also requires explicit raw judge
 output and response-order equality. **40 focused tests**, Ruff, and focused
 Pyrefly pass after these changes.
+
+The fresh CCPC pair with explicit string content **passes exactly**: two actual
+answer sequences/completions, two actual judge sequences/raw outputs, all three
+compared metrics, and judge response order. The longest judge input is 1625
+tokens. `production-ccpc-string-wiring.json` records the successful report,
+runtime setting, artifact hashes, and tokenizer-confirmed diagnosis of the
+original single-space mismatch. Raw evidence is locally preserved in ignored
+`ccpc-string-evidence.tar.gz`. The compiled boundary controller started at
+2026-11-09 01:45 UTC; it gates a fresh uniform compiled run of all 31 primary
+configurations, totaling 13,217 samples per implementation. No 31-case primary
+completion is claimed at this checkpoint.
