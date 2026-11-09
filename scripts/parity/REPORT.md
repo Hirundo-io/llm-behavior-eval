@@ -1,13 +1,27 @@
 # LLM-169 qualification report — 2026-11-09
 
-**Engine retirement remains blocked pending the full 31-configuration matrix.**
+**Representative paired qualification across all 31 configurations remains pending.**
+The owner reduced the remaining acceptance scope to deterministic 50–100-row
+subsets per configuration. The former 500-row/full-source schedule is no longer
+a migration gate. Its completed evidence remains unchanged. A separate 100-row
+manifest pins all 31 configurations, source IDs, counts and hashes; it does not
+relabel the earlier 500-row runs. This validates implementation parity, without
+claiming full-dataset score equality or a statistical one-percentage-point bound.
+
+Thirty completed legacy runs supplied immutable first-100-row evidence. Existing
+retained graders recomputed subset metrics from actual generations and raw
+judgments on CPU. Every reconstructed judge prompt matched its original observed
+token IDs, and every resulting response record matched the original prefix.
+OR-Bench requires fresh 100-row legacy inference; native paired comparisons and
+the explicit Purple arithmetic follow-up remain outstanding at this checkpoint.
+
 Current real evidence includes exact eager-mode production HaluEval parity on
 500 rows (89.8% accuracy on both sides), 16 eager boundary rows, and compiled
 two-row wiring across all nine families. The initial compiled CCPC judge-token
 mismatch was diagnosed and a fresh pair passes with explicit scalar content
 formatting. Purple's two-row compiled ASR is undefined, so that slice does not
 establish its score. All 16 compiled boundary rows now pass exactly, and the fresh
-31-case primary matrix is running. No tolerance or divergence is accepted, and
+31-case representative matrix is prepared. No tolerance or divergence is accepted, and
 no legacy files were deleted.
 
 The production source remains pinned to `f35fb81`; only qualification tooling

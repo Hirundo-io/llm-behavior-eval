@@ -356,6 +356,16 @@ def main() -> None:
         native_judge_runtime=judge_runtime,
         settings_audit=settings_audit,
     )
+    reuse_path = root / "legacy-reuse-provenance.json"
+    if reuse_path.exists():
+        execution["legacy_evidence_reuse"] = {
+            **json.loads(reuse_path.read_text()),
+            "provenance_sha256": digest(reuse_path),
+        }
+        execution["legacy_execution"] = (
+            "Recorded prefix of an actual sequential GPU run; retained grader "
+            "recomputed subset metrics after exact observed judge-token checks"
+        )
     fields = dict(
         verdict=("observed.verdict", "metadata.observed.verdict"),
         answer=("observed.raw_answer", "output.completion"),
