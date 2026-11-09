@@ -210,6 +210,8 @@ class LocalOpenAIJudge:
     """Request bodies, in arrival order."""
     paths: list[str] = field(default_factory=list)
     """Request paths, in arrival order."""
+    authorizations: list[str | None] = field(default_factory=list)
+    """``Authorization`` headers (``None`` when absent), in arrival order."""
 
 
 def message_text(message: dict[str, Any]) -> str:
@@ -237,6 +239,7 @@ def local_openai_judge(
         def do_POST(self) -> None:
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             judge.paths.append(self.path)
+            judge.authorizations.append(self.headers.get("Authorization"))
             judge.requests.append(body)
             reply = judge.reply if isinstance(judge.reply, str) else judge.reply(body)
             payload = json.dumps(

@@ -51,8 +51,9 @@ Task arguments (every benchmark exposes these, with the same defaults):
 
 Never add a credential task argument (a token, key, secret or password):
 Inspect writes every task argument into the `.eval` log. A benchmark that loads
-a gated Hub dataset authenticates through `HF_TOKEN` in the environment;
-`load_hf_dataset` takes no token. `tests/test_inspect_packages.py` rejects
+a gated Hub dataset authenticates from the environment
+(`LLM_BEHAVIOR_EVAL_DATASET_TOKEN`, then `HF_TOKEN`; see INSPECT_MIGRATION.md,
+"Credentials"); `load_hf_dataset` takes no token parameter. `tests/test_inspect_packages.py` rejects
 credential-like parameter names on every registered task.
 
 The scorer uses `only_stop=True`, so a model under test served by Inspect's

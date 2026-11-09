@@ -211,8 +211,11 @@ def test_dataset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         return DatasetDict({"train": ds, "test": cast("Dataset", ds.select([0]))})
 
     monkeypatch.setattr(datasets, "load_dataset", load)
+    monkeypatch.delenv("LLM_BEHAVIOR_EVAL_DATASET_TOKEN", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
     assert len(load_hf_dataset("logical", dataset_path="override")) == 502
-    # No token is passed: datasets reads HF_TOKEN itself.
+    # No credential in the environment: no token, datasets uses its own sources
+    # (tests/test_inspect_credentials.py covers the resolved token).
     assert calls == [("override", {})]
     load_hf_dataset("logical", revision="abc123")
     assert calls[-1] == ("logical", {"revision": "abc123"})

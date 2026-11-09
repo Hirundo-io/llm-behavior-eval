@@ -40,8 +40,9 @@ the reporting PR ([#207](https://github.com/Hirundo-io/llm-behavior-eval/pull/20
    mechanics only. Share mechanics, not semantics.
 4. **No credentials in task arguments.** Inspect writes every task argument
    into the `.eval` log, so no task takes a token, key, secret or password.
-   Credentials come only from environment variables (see
-   [Credentials](#credentials)).
+   Credentials come from environment variables, set directly or with the
+   `credentials` context manager, or from Inspect's per-model `api_key`, which
+   Inspect does not log (see [Credentials](#credentials)).
 
 ## Benchmark layout
 
@@ -85,7 +86,7 @@ Generic test helpers live in `tests/inspect_helpers.py` (importable as
 | `mock_parity_config(package, directory, grader="mockllm/model")` | Writes the shipped `parity.yaml` with only the grader swapped for a mock model. |
 | `assert_grader_required(task, tmp_path)` | Runs `task` without a grader role and asserts it fails, naming the grader. |
 | `assert_no_credentials_logged(log, secret)` | Asserts no file of a `.eval` log contains `secret`. |
-| `openai_judge` fixture (conftest), `local_openai_judge(reply)` | A loopback OpenAI-compatible chat endpoint (`LocalOpenAIJudge`): `.base_url`, `.reply` (text, or a function of the request body), `.requests` (bodies) and `.paths`. Use it for `openai-api` grader tests instead of patching `Model.generate`: a patched memoized model leaks into later tests. `message_text(message)` reads a request message's text. |
+| `openai_judge` fixture (conftest), `local_openai_judge(reply)` | A loopback OpenAI-compatible chat endpoint (`LocalOpenAIJudge`): `.base_url`, `.reply` (text, or a function of the request body), `.requests` (bodies), `.paths` and `.authorizations` (`Authorization` headers). Use it for `openai-api` grader tests instead of patching `Model.generate`: a patched memoized model leaks into later tests. `message_text(message)` reads a request message's text. |
 
 Registry names are global. Inspect keeps one registry per object type, keyed by
 `llm_behavior_eval/<name>`, and a later registration under a name silently
@@ -151,7 +152,14 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
   `revision` pins the Hub dataset revision. `dataset_path` changes where data is
   read from, not the logical id. Selects `train` when present, otherwise
   requires exactly one split. It takes no token: gated Hub datasets
-  authenticate through `HF_TOKEN` (see [Credentials](#credentials)).
+  authenticate with `credentials.resolve_dataset_token()`,
+  `LLM_BEHAVIOR_EVAL_DATASET_TOKEN` then `HF_TOKEN` (see
+  [Credentials](#credentials)).
+* `credentials.resolve_dataset_token()` returns the dataset credential from the
+  environment. `credentials.credentials(*, dataset_token=None, model_env=None,
+  judge_env=None)` sets credential variables for a `with` block and restores
+  them (see [Credentials](#credentials)). `credentials.DATASET_TOKEN_ENV` is
+  `"LLM_BEHAVIOR_EVAL_DATASET_TOKEN"`.
 * `dataset.legacy_order(num_rows, seed=LEGACY_SHUFFLE_SEED)` returns source row
   positions in the legacy engine's `Dataset.shuffle(seed=42)` order. Convert
   records in that order so `--limit N` keeps the rows the legacy `max_samples`
@@ -489,18 +497,128 @@ illustrative values.
 ## Credentials
 
 Inspect records every task argument (`-T`, `task_args`) in the `.eval` log, and
-logs are shared. No task argument carries a credential:
+logs are shared. No task argument carries a credential. Each role reads
+environment variables instead, and `llm_behavior_eval.common.credentials` holds
+the shared helpers.
 
-* Gated Hub datasets authenticate through `HF_TOKEN` (or a cached
-  `huggingface-cli login`), which `datasets` and `huggingface_hub` read
-  themselves. `load_hf_dataset` passes no token.
-* Model and grader providers read their own environment variables
-  (`HF_TOKEN`, `OPENAI_API_KEY`, `<SERVICE>_API_KEY`, ...).
+| Role | Variables, in order of precedence | Read by |
+| --- | --- | --- |
+| Dataset (Hub) | `LLM_BEHAVIOR_EVAL_DATASET_TOKEN`, then `HF_TOKEN`; with neither, `huggingface_hub`'s own sources (such as a cached `hf auth login`) | `load_hf_dataset`, through `credentials.resolve_dataset_token()`, when the task is built |
+| Model under test | Its provider's own: `HF_TOKEN` (`hf/`, and Hub downloads by the vLLM server Inspect starts), `<SERVICE>_API_KEY` and `<SERVICE>_BASE_URL` (`openai-api/<service>/...`), `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `VLLM_API_KEY` (vLLM server key), ... | The Inspect provider |
+| Grader | The same, for the grader's provider | The Inspect provider |
+
+Empty or whitespace-only values count as unset. `save_to_disk` snapshots
+(`-T dataset_path=...`) take no token. This package adds no variables for
+models: Inspect's providers already read their own.
+
+### Separate model and grader credentials
+
+* **Different variables.** Providers and services read different variables, so
+  give each role its own service name:
+
+  ```sh
+  export LLM_BEHAVIOR_EVAL_DATASET_TOKEN=...  # dataset only
+  export ANSWER_BASE_URL=http://answer.internal:8000/v1 ANSWER_API_KEY=...
+  export AIRGAP_BASE_URL=http://judge.internal:8000/v1 AIRGAP_API_KEY=...
+  inspect eval llm_behavior_eval/<benchmark> --model openai-api/answer/model \
+    --model-role 'grader={model: openai-api/airgap/judge}'
+  ```
+
+* **Same variable** (for example two `hf/` models that need different Hub
+  tokens, or two `openai/` models on different accounts). One environment
+  cannot hold both. Use Inspect's per-model `api_key`, which Inspect removes
+  from the model arguments it logs: `get_model(..., api_key=...)` in Python,
+  `-M api_key=...` for the model under test and `model_args: {api_key: ...}` in
+  the grader role on the CLI. For `hf/`, `api_key` is the Hub token for that
+  model's weights and tokenizer; without it, `huggingface_hub` reads `HF_TOKEN`.
+  CLI arguments are visible in the process list and shell history, so prefer
+  Python, for example `api_key=os.environ["JUDGE_HF_TOKEN"]`.
+* **Two `vllm/` models with different Hub tokens.** `vllm/`'s `api_key` is the
+  server key, not a Hub token, and the server Inspect launches inherits
+  `HF_TOKEN` when it starts. This cannot be separated in one process: download
+  the weights with each token first (`hf download org/repo --token ...
+  --local-dir ...`) and pass local paths, start the servers yourself and pass
+  `-M base_url=...`, or run separate processes.
+
+### Python: the `credentials` context manager
+
+```python
+from inspect_ai import eval
+from inspect_ai.model import get_model
+
+from llm_behavior_eval.common.credentials import credentials
+
+with credentials(
+    dataset_token=dataset_secret,
+    model_env={"HF_TOKEN": model_secret},
+    judge_env={"AIRGAP_API_KEY": judge_secret},
+):
+    eval(
+        "llm_behavior_eval/<benchmark>",
+        model=get_model("hf/org/answer", memoize=False),
+        model_roles={"grader": get_model("openai-api/airgap/judge", memoize=False)},
+    )
+```
+
+`credentials(*, dataset_token=None, model_env=None, judge_env=None)` takes
+credentials as ordinary Python arguments, never as task or logged model
+arguments. `dataset_token` sets `LLM_BEHAVIOR_EVAL_DATASET_TOKEN`; `model_env`
+and `judge_env` map each role's provider variables to values. `None` leaves a
+variable unchanged.
+
+* **Restore.** On exit, normal or by exception, every variable the context set
+  gets its previous value back, or is removed if it was unset. Changes made
+  inside the block to those variables are discarded; other variables are not
+  touched. Contexts nest, and the innermost value wins while it is open.
+* **Validation.** Before changing anything, it raises `ValueError` for an empty
+  value, an invalid name, or two roles that set one variable to different
+  values (use `api_key` as above). Messages name variables, never values.
+* **Scope.** Keep the block open around the whole `eval` call: the dataset
+  token is read when the task is built, provider keys when models are built,
+  and a `vllm/` server starts lazily during the run. A server Inspect started
+  keeps the environment it started with.
+* **Environment variables are process-global.** Every thread and async task in
+  the process sees them. Do not overlap contexts that set different
+  credentials (threads, concurrent `eval_async` calls). Run such evaluations in
+  separate processes, for example one `inspect eval` per credential set.
+* **Inspect caches models given by name.** `eval(model="openai-api/answer/m")`
+  reuses the model built by an earlier `eval` in the same process, with the key
+  it read then. Build models inside the block with `get_model(...,
+  memoize=False)`, as above, or use a separate process.
+
+### Mapping from `main` (LLM-148)
+
+On `main`, LLM-148 (PR #186) added `--dataset-token` (`dataset_token` in the
+evaluation config, excluded from saved configs), independent of
+`--model-token` and `--judge-token`. Without it, datasets used the loader's
+default authentication (`HF_TOKEN` or a cached login) and never the model
+token. `main` defined no environment variable for it, so the native layer adds
+`LLM_BEHAVIOR_EVAL_DATASET_TOKEN`:
+
+| `main` | Native Inspect |
+| --- | --- |
+| `--dataset-token X` | `LLM_BEHAVIOR_EVAL_DATASET_TOKEN=X`, or `credentials(dataset_token=X)` |
+| No `--dataset-token` | `HF_TOKEN`, then a cached login: the same loader default |
+| `--model-token X` | `hf/`: `HF_TOKEN=X`, or `-M api_key=X` / `get_model(..., api_key=X)`. `vllm/`: `HF_TOKEN` when the server starts. Other providers: their own variable. |
+| `--judge-token X` | `hf/` grader: `model_args: {api_key: X}` / `get_model(..., api_key=X)`. Other providers: their own variable, under a service name distinct from the model under test's. |
+
+One difference: `main` applied `--model-token` only while loading the model,
+so datasets never saw it. Natively, a model token set as `HF_TOKEN` is also the
+dataset fallback. To keep it from dataset access, set
+`LLM_BEHAVIOR_EVAL_DATASET_TOKEN`, or give the model its token through
+`api_key` instead of `HF_TOKEN`.
+
+### Tests
 
 `tests/test_inspect_packages.py` fails if any registered task has a parameter
 whose name contains the word `token`, `key`, `secret` or `password` (the
 thinking-trace markers are not credentials), and each benchmark's tests assert
 that a dummy `HF_TOKEN` never appears in its `.eval` log.
+`tests/test_inspect_credentials.py` covers dataset token precedence, nested
+contexts, restoration on exceptions (including variables that were unset),
+dataset, model and grader separation, per-model `api_key` for `hf/`, model
+memoization, and an eval with dataset, model, grader and `HF_TOKEN` sentinels,
+none of which appear in its `.eval` log.
 
 ## Caveats
 
@@ -543,7 +661,8 @@ applies to the model under test; put the same keys under the grader's
 | Answer/judge temperature, token budgets, thinking | No defaults. Pass them per role as above, or use the benchmark's `parity.yaml`. |
 | `--exclude-thinking-trace-for-judge` / `--include-thinking-trace-for-judge`, `--thinking-start-token`, `--thinking-end-token` | `-T exclude_thinking_trace_for_judge=true/false`, `-T thinking_start_token=...`, `-T thinking_end_token=...`. Stripping defaults to **on** with `<think>`/`</think>`; legacy defaulted to off. |
 | `--dataset-path` | Benchmark task parameter `-T dataset_path=...`. |
-| `--dataset-token` | No task parameter. Set `HF_TOKEN` in the environment (or `huggingface-cli login`); see [Credentials](#credentials). |
+| `--dataset-token` | No task parameter. Set `LLM_BEHAVIOR_EVAL_DATASET_TOKEN` (falls back to `HF_TOKEN`), or `credentials(dataset_token=...)` in Python; see [Credentials](#credentials). |
+| `--model-token`, `--judge-token` | No task parameter. Each role's provider variable, or Inspect's per-model `api_key`; see [Mapping from `main`](#mapping-from-main-llm-148). |
 | max_samples | `--limit N` / `eval(limit=N)`, or `eval_config.limit` in a parity config. Without a limit, Inspect runs the full split. |
 | use-4bit / use-4bit-judge | HF forwards remaining model args to Transformers. Use Python `quantization_config=BitsAndBytesConfig(load_in_4bit=True)`; no portable boolean CLI alias is implemented. Requires compatible bitsandbytes/GPU. Not vLLM. |
 | device_map | HF `-M device=auto` (Inspect supplies this as device_map); don't pass device_map again |

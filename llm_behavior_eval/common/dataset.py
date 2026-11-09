@@ -10,6 +10,8 @@ from typing import Any, cast
 
 from inspect_ai.dataset import MemoryDataset, Sample
 
+from llm_behavior_eval.common.credentials import resolve_dataset_token
+
 LEGACY_SHUFFLE_SEED = 42
 """Seed the legacy engine passed to ``datasets.Dataset.shuffle``."""
 
@@ -41,8 +43,11 @@ def load_hf_dataset(
 
     There is no token parameter. Benchmarks call this with their task
     arguments, and Inspect records every task argument in the ``.eval`` log, so
-    gated Hub datasets authenticate through the ``HF_TOKEN`` environment
-    variable (or a cached ``huggingface-cli login``), which ``datasets`` reads itself.
+    gated Hub datasets authenticate from the environment:
+    ``credentials.resolve_dataset_token`` reads ``DATASET_TOKEN_ENV``
+    (``LLM_BEHAVIOR_EVAL_DATASET_TOKEN``), then ``HF_TOKEN``. Without either,
+    no token is passed and ``datasets`` uses its own sources (such as a cached
+    ``hf auth login``). Snapshot directories take no token.
     """
     from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
 
@@ -56,6 +61,9 @@ def load_hf_dataset(
         options: dict[str, Any] = {}
         if revision is not None:
             options["revision"] = revision
+        token = resolve_dataset_token()
+        if token is not None:
+            options["token"] = token
         raw = load_dataset(source, **options)
     if isinstance(raw, Dataset):
         return raw
