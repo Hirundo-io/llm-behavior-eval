@@ -116,7 +116,16 @@ def main() -> None:
             truncated = Task(
                 name="reasoning_truncation",
                 dataset=MemoryDataset([selected[0]]),
-                solver=generate(max_tokens=8, temperature=0),
+                solver=generate(
+                    max_tokens=8,
+                    temperature=0,
+                    extra_body=dict(
+                        return_token_ids=True,
+                        add_special_tokens=True,
+                        reasoning_effort=args.reasoning_effort,
+                        chat_template_kwargs={"enable_thinking": False},
+                    ),
+                ),
                 scorer=scorer(),
             )
             for name, current in [("production", task), ("truncation", truncated)]:
@@ -216,6 +225,9 @@ def main() -> None:
                     == sample.output.completion,
                     stop_reason=sample.output.choices[0].stop_reason,
                     requested_budget=event.config.max_tokens,
+                    requested_enable_thinking=(event.config.extra_body or {})
+                    .get("chat_template_kwargs", {})
+                    .get("enable_thinking"),
                     upstream_final_equals_completion=raw_final
                     == sample.output.completion,
                     upstream_reasoning_captured=raw_reasoning
@@ -271,6 +283,12 @@ def main() -> None:
                     and not r["has_final"]
                     and r["stop_reason"] == "max_tokens"
                     and r["requested_budget"] == 8
+                    for r in rows
+                ),
+                thinking_disable_ignored_observed=any(
+                    r["case"] == "truncation"
+                    and r["requested_enable_thinking"] is False
+                    and r["has_reasoning"]
                     for r in rows
                 ),
                 unsupported_effort_rejected=rejection.get("rejected") is True
