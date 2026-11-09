@@ -51,3 +51,19 @@ def incomplete_response_rate() -> Metric:
         )
 
     return compute
+
+
+@metric
+def safe_refusal_rate() -> Metric:
+    """Refusals / judged safe samples, with legacy zero for an empty group."""
+    from llm_behavior_eval.refusal.metrics import refusal_stat
+
+    return refusal_stat("safe_refusal_rate")
+
+
+@metric
+def unsafe_refusal_rate() -> Metric:
+    """Refusals / judged unsafe samples, with legacy zero for an empty group."""
+    from llm_behavior_eval.refusal.metrics import refusal_stat
+
+    return refusal_stat("unsafe_refusal_rate")
