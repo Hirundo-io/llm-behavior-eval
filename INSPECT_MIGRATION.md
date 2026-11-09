@@ -4,7 +4,8 @@ Legacy CLI, evaluators, and public imports remain available. No benchmark has
 migrated in this layer; each benchmark arrives in its own PR. Inspect 0.3.288 is
 tested and pinned to `<0.3.289`. Every Inspect behavior described below was
 checked against that version's source and is covered by tests in
-`tests/test_inspect_foundation.py` and `tests/test_inspect_template.py`.
+`tests/test_inspect_foundation.py`, `tests/test_inspect_packages.py` and
+`tests/test_inspect_template.py`.
 Revalidate before widening the pin. Inspect requires Python 3.11+, so its
 dependency has a Python-version marker and Inspect tests are not collected on
 Python 3.10, which remains legacy-only.
@@ -36,7 +37,8 @@ returns SCORE: 1**. Real benchmarks bind no grader and fail unless one is passed
 
 ## Benchmark layout
 
-Each benchmark is a subpackage `llm_behavior_eval/<benchmark>/` that owns:
+Each benchmark is a regular subpackage `llm_behavior_eval/<benchmark>/` (it has an
+`__init__.py`) that owns:
 
 | File | Contents |
 | --- | --- |
@@ -48,12 +50,55 @@ Each benchmark is a subpackage `llm_behavior_eval/<benchmark>/` that owns:
 | `metrics.py` | Benchmark metrics, when `common.metrics` is not enough. |
 | `README.md` | What it measures, task arguments, metrics, parity status. |
 | `parity.yaml` | Legacy-engine settings as an Inspect run config (see below). |
-| `tests/test_inspect_<benchmark>.py` | Registry discovery, dataset conversion, scorer and parity-config tests. |
+| `target_metrics.json` | Report metrics for each of its tasks (see below). |
 
-Rules: no imports between benchmarks; import every decorated task in
-`_registry.py`; use absolute imports in task files (Inspect also loads them by
-file path). `llm_behavior_eval/inspect_template/` is the reference copy of this
-layout. Copy it, then replace its mock grader and illustrative parity values.
+Its tests live outside the package, in `tests/test_inspect_<benchmark>.py`:
+registry discovery, dataset conversion, scorer, parity-config tests, and a check
+that its `target_metrics.json` names match the metric names in a real `.eval` log.
+
+Rules: no imports between benchmarks; use absolute imports in task files
+(Inspect also loads them by file path). `llm_behavior_eval/inspect_template/` is
+the reference copy of this layout. Copy it, then replace its mock grader,
+illustrative parity values and example target metrics.
+
+### Adding a benchmark touches no shared file
+
+A benchmark PR adds exactly two things: its package directory
+`llm_behavior_eval/<benchmark>/` and its test file
+`tests/test_inspect_<benchmark>.py`. It does not edit `_registry.py`, any
+root-level metrics file, the root `README.md`, `.gitignore` or `pyproject.toml`:
+
+* **Registration is automatic.** `llm_behavior_eval/_registry.py` (Inspect's
+  `inspect_ai` entry point) imports the `task` module of every subpackage that
+  has one, in sorted package order, with `pkgutil`/`importlib`. Discovery works
+  the same from a source checkout, an editable install and an installed wheel.
+  Tasks register under the `llm_behavior_eval/` namespace, are bound as
+  attributes of `_registry` and listed in its `__all__` (sorted). A task module
+  that fails to import fails registration, as an explicit import would; two
+  packages registering the same task name raise an error. Packages without a
+  `task` module (`common/`, shared helpers) are not benchmarks.
+* **Target metrics are per package.** `llm_behavior_eval/<benchmark>/target_metrics.json`
+  holds only that benchmark's entries; `common.target_metrics` merges them.
+  `.gitignore` excludes `*.json` but re-includes
+  `llm_behavior_eval/*/target_metrics.json`, and the wheel ships it with the
+  package (`tool.setuptools.package-data`).
+* **Documentation is per package.** The benchmark's own `README.md` documents
+  it; the root README points to these files generically.
+
+`tests/test_inspect_packages.py` enforces the convention: every registered task
+has target metrics and vice versa, package files are tracked and ship in the
+wheel, and an installed wheel discovers the same tasks and metrics.
+
+### `inspect_template` is registered on purpose
+
+The template is discovered like any benchmark, so `inspect list tasks` shows it
+and `inspect eval llm_behavior_eval/inspect_template --model mockllm/model`
+works. It is the only task in this foundation, and running it is the
+end-to-end check that discovery, the entry point and the CLI work for a package
+laid out as benchmarks copy it; excluding it would need a special case in
+discovery that a copied benchmark could inherit by mistake. It needs no
+credentials or weights (mock grader, one inline record). Tools that run or
+report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
 
 ## Shared API (`llm_behavior_eval.common`)
 
@@ -85,6 +130,20 @@ layout. Copy it, then replace its mock grader and illustrative parity values.
   optionally restricted to a score-metadata subgroup.
   `metrics.incomplete_response_rate()` is the share of **all** scored samples that
   stopped at `max_tokens`. Empty denominators yield NaN.
+* `packages.benchmark_packages(root="llm_behavior_eval")` returns the sorted
+  names of subpackages that have a `task` module, without importing them.
+  `packages.subpackages(root)` lists every regular subpackage.
+* `target_metrics.load_target_metrics(root="llm_behavior_eval")` merges every
+  package's `target_metrics.json` into one mapping with sorted task keys.
+  Each file is validated (keys `llm_behavior_eval/<task>`, non-empty metric
+  lists, objects with exactly `name`, `is_percentage`, `is_higher_better`,
+  `is_normalized`, booleans as JSON booleans). A task key defined twice, in one
+  file or across packages, raises `ValueError`. `target_metrics_files(root)`
+  maps packages to their files; `read_target_metrics_file(path)` validates one.
+  `write_target_metrics(path)` writes the merged JSON for tools that need one
+  file, such as inspect-brief; from a shell,
+  `python -m llm_behavior_eval.common.target_metrics --output PATH` does the
+  same, and without `--output` it prints the JSON.
 * `parity.parity_config_path(package)` returns the installed path of a benchmark's
   `parity.yaml`. `parity.read_parity_config(path)` returns `inspect_ai.eval()`
   keyword arguments, parsed by Inspect's own `--run-config` reader. It rejects
@@ -92,6 +151,27 @@ layout. Copy it, then replace its mock grader and illustrative parity values.
 
 Sample limits are Inspect's: `--limit N`, `eval(limit=N)`, or `eval_config.limit`
 in a run config. There is no task-level sample cap.
+
+## Target metrics
+
+`target_metrics.json` maps each task the package registers to the metrics a
+report shows, in inspect-brief's format:
+
+```json
+{
+  "llm_behavior_eval/<benchmark>": [
+    {
+      "name": "<metric name as written in the .eval log>",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ]
+}
+```
+
+List one key per registered task (usually one, named after the package). Metric
+order is kept; merged keys are sorted.
 
 ## Setting inference options per role
 

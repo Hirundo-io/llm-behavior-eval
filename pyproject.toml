@@ -85,8 +85,9 @@ include = ["llm_behavior_eval*"]
 exclude = ["results*"]
 
 [tool.setuptools.package-data]
-# Benchmark-owned parity configs and READMEs ship with each benchmark package.
-"*" = ["parity.yaml", "README.md"]
+# Benchmark-owned parity configs, READMEs and target metrics ship with each
+# benchmark package.
+"*" = ["parity.yaml", "README.md", "target_metrics.json"]
 
 [tool.bumpver]
 current_version = "0.1.12"

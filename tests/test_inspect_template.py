@@ -10,6 +10,10 @@ from inspect_ai.log import EvalSpec, list_eval_logs, read_eval_log
 from inspect_ai.model import GenerateConfig
 
 from llm_behavior_eval.common.parity import parity_config_path, read_parity_config
+from llm_behavior_eval.common.target_metrics import (
+    TARGET_METRICS_FILE,
+    read_target_metrics_file,
+)
 from llm_behavior_eval.inspect_template.task import inspect_template
 
 TEMPLATE = "llm_behavior_eval.inspect_template"
@@ -108,3 +112,17 @@ def test_parity_config_rejects_non_settings(tmp_path, extra: dict[str, Any]):
 def test_missing_parity_config():
     with pytest.raises(FileNotFoundError):
         parity_config_path("llm_behavior_eval.common")
+
+
+def test_template_target_metrics_match_eval_metric_names(tmp_path):
+    path = parity_config_path(TEMPLATE).with_name(TARGET_METRICS_FILE)
+    targets = read_target_metrics_file(path)
+    assert list(targets) == ["llm_behavior_eval/inspect_template"]
+    logs = inspect_eval(
+        inspect_template(), model="mockllm/model", log_dir=str(tmp_path), display="none"
+    )
+    assert logs[0].status == "success"
+    assert logs[0].results is not None
+    produced = {name for score in logs[0].results.scores for name in score.metrics}
+    expected = {m["name"] for m in targets["llm_behavior_eval/inspect_template"]}
+    assert expected <= produced
