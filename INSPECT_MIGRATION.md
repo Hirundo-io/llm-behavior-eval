@@ -1,4 +1,4 @@
-# Native Inspect foundation (LLM-156)
+# Native Inspect foundation
 
 Legacy CLI, evaluators, and public imports remain available. No benchmark has
 migrated in this layer; each benchmark arrives in its own PR. Inspect 0.3.287 is
@@ -401,7 +401,7 @@ the absence of code-set settings for both roles, an `openai-api` judge on
 loopback with and without a role config, parity-config loading, and HF/vLLM
 provider configuration with stub loaders. They are not GPU inference tests.
 
-Track LLM-141 for sequential vLLM eval lifecycle: repeated real GPU evaluations
-still need a regression test. Benchmark parity, GPU/quantization/LoRA testing,
+The sequential vLLM eval lifecycle still needs a regression test for repeated
+real GPU evaluations; it is tracked separately. Benchmark parity, GPU/quantization/LoRA testing,
 Muse Glimmer support and optional Inspect-brief integration remain follow-up
 work. Keep the legacy engine until benchmark-by-benchmark comparisons pass.
