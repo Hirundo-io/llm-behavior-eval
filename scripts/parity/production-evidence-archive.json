@@ -1,0 +1,38 @@
+{
+  "archive": "sampled-complete-evidence.tar.gz",
+  "bytes": 182873081,
+  "sha256": "c9791b0d5d943de3a5cb640847ecf4273eff94b2ef02e795892bffc657614ec7",
+  "roots": [
+    "matrix500-qualified",
+    "sample100-qualified",
+    "sample100-score-checkpoints",
+    "sample100-purple-asr",
+    "gptoss-bounded-supported"
+  ],
+  "metadata": [
+    "sample100-manifest.json",
+    "sampled-source-provenance.json",
+    "sampled-scope-transition.json",
+    "purple-asr-source-provenance.json",
+    "reasoning-source-provenance.json",
+    "gptoss-upstream-source-audit.json",
+    "gptoss-thinking-tokenizer-audit.json",
+    "purple-actual-metric-baseline.json",
+    "purple-actual-metric-fixed.json",
+    "sample100-final-summary.json",
+    "sample100-final-settings.json",
+    "sample100-final-case-roots.json",
+    "sample100-native-controller.json",
+    "sample100-followups-controller.json",
+    "sample100-checkpoint-summary.json",
+    "sample100-checkpoint-roots.json",
+    "sample100-answer-checkpoint-latest.json",
+    "run-orbench100.py",
+    "run-native100.py",
+    "run-followups100.py",
+    "score-checkpoint.py"
+  ],
+  "scope": "Actual complete sampled paired evidence, immutable legacy originals, real Purple rescore and bounded GPTOSS; raw outputs remain ignored",
+  "local_directory": "results/llm169-production-h200",
+  "local_sha256_verified": true
+}

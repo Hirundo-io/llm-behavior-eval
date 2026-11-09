@@ -298,3 +298,101 @@ The additional Qwen3 thinking test pins `Qwen/Qwen3-0.6B` at
 `c1899de289a04d12100db370d81485cdf75e47ca`, tokenizer-only files under
 `results/tokenizers/qwen3`. It checks thinking enabled/disabled against the
 retained template helper and actual tokenizer IDs; no Qwen inference was run.
+
+### Extending an existing frozen selection
+
+The historical full-source supplement recipe below is optional. The current
+owner-approved migration gate uses representative subsets, described next.
+Prepare any additional selection from exact Parquet bytes rather than resolving
+dataset revisions again:
+
+```bash
+python -m scripts.parity.prepare_frozen \
+  --primary-root results/matrix500 --root results/full-small --samples 1000 \
+  --cases bbq:religion:bias bbq:religion:unbias bbq:physical:bias bbq:physical:unbias
+```
+
+This verifies the original source hashes and seed-42 order, checks the extended
+selection through the production task, and records preparation provenance in a
+fresh root. It performs no inference. Run `run_matrix` on that root with the same
+`--samples`, cases, model arguments and execution settings, selecting phases
+`legacy answer judge report` (omit `prepare`). Preserve the original reports.
+Supplement reports describe their actual row counts; `matrix_report` retains its
+separate 500-row acceptance gate and must not substitute a larger run implicitly.
+
+`report_matrix` also checks retained run settings and every native model-event
+configuration: budgets, greedy decoding, seed, concurrency, thinking flags,
+special tokens and the answer-only prompt cap. To audit existing artifacts
+without rewriting their reports, run `python -m scripts.parity.settings CASE_ROOT
+[CASE_ROOT ...] --output settings-audit.json`. The audit binds its checks to
+source, retained-configuration and scored-log hashes. It reports zero judge
+requests explicitly; settings validation alone does not establish score parity.
+
+### Representative paired subsets
+
+The reduced LLM-169 scope uses deterministic first-100 selections for all 31
+configurations in `pending.json`. `prepare_frozen --samples 100` creates fresh
+case directories with unchanged source bytes/revisions and independently checks
+IDs against the production task. It preserves CCPC's original published order
+and validated 500-row source fingerprint. Selection never depends on outputs.
+
+When complete real legacy evidence already exists, `reuse_legacy --primary-root
+OLD --root SAMPLED --cases CASE...` replays the selected actual generation records
+through the retained grader's parsing and aggregation methods. Every replayed
+judge prompt must encode to the original observed token IDs, and every resulting
+response must equal the original prefix. This performs no model inference and
+does not create simulated predictions. The original run configuration retains its
+original cap; `legacy-reuse-provenance.json` records the distinct comparison
+subset, source hashes and recomputed metrics. Cases without real evidence require
+fresh legacy inference at the sampled cap.
+
+Before native inference, pin the separate manifest:
+
+```bash
+python -m scripts.parity.sampled_report pin \
+  --root results/sampled --manifest results/sampled-manifest.json
+```
+
+Run the existing `run_matrix` with `--samples 100 --phases answer judge report
+--group-native --isolate-cache --ordered --compiled`, the pinned model/provision
+arguments, and `--ccpc-judge-content-format string`. Answer and judge processes
+run sequentially. Summarize with `sampled_report report --root results/sampled
+--manifest results/sampled-manifest.json --output results/sampled-report.json`.
+The sampled gate requires exact fields, metrics and observed judge outputs/order;
+the historical `matrix_report` 500-row gate remains separate. Neither gate accepts
+CPU/mock inference as real paired evidence. Sampled results establish scoped
+implementation parity, not full-dataset equality or a statistical accuracy bound.
+
+`rescore_followup` preserves a baseline report, verifies frozen production source
+hashes, copies actual retained artifacts byte-for-byte, and reuses the immutable
+native answer log for real scoring under an explicitly isolated fix. Its CLI
+requires primary/follow-up roots, both source directories, source provenance and
+model provision metadata. Pass an explicit case-root mapping to `sampled_report`
+to select that follow-up; source IDs and generation identity must remain equal.
+
+### Bounded upstream reasoning integration
+
+Reasoning parser choice belongs to user/provider configuration. Supply official
+parser arguments through Inspect (for example `-M reasoning_parser=qwen3`), or
+use a verified upstream default. The package has no model-to-parser mapping or
+custom model-output parser. Benchmark judge verdict parsing remains task-owned.
+See [Inspect reasoning configuration](https://inspect.aisi.org.uk/reasoning#vllm--sglang)
+and [vLLM 0.30 reasoning outputs](https://docs.vllm.ai/en/v0.30.0/features/reasoning_outputs/).
+
+`qualify_reasoning` takes explicit `--reasoning-parser`, `--reasoning-effort` and
+`--rejected-effort` arguments plus cached answer/judge paths, a local XSTest dataset
+and fresh output root. Run `answer`, `judge`, then `report` in separate processes.
+It selects one safe and one unsafe source case for production generation, adds
+an explicitly labelled eight-token truncation diagnostic, and checks a rejected
+effort request. Real raw responses, Inspect content blocks, stop reasons and the
+exact text seen by the production scorer are retained. This bounded probe does
+not claim old/new generation equality or certify the complete benchmark matrix
+for another model.
+
+Pinned vLLM 0.30 defaults GPT-OSS to `openai_gptoss`; its Harmony effort values are
+`low`, `medium`, and `high`. The cached revision
+`6cee5e81ee83917806bbde320786a8fb61efebee` ignores `enable_thinking` in its template.
+Reasoning extraction and suppression are separate: **low is not off**. Strict
+thinking-off benchmark modes remain unsupported for that combination; use a
+model/provider with a verified off mode. Live integration results belong in the
+qualification report, not an inferred claim from parser availability or CPU tests.
