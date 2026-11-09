@@ -115,11 +115,16 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
 
 ## Shared API (`llm_behavior_eval.common`)
 
-* `dataset.load_hf_dataset(dataset_id, *, dataset_path=None, dataset_token=None)`
-  loads the complete split of an HF dataset or a `save_to_disk` snapshot.
+* `dataset.load_hf_dataset(dataset_id, *, dataset_path=None, dataset_token=None,
+  revision=None)` loads the complete split of an HF dataset or a `save_to_disk`
+  snapshot. `revision` pins the Hub dataset revision.
   `dataset_path` changes where data is read from, not the logical id. Selects
   `train` when present, otherwise requires exactly one split. The token is passed
   only to HF Hub loading.
+* `dataset.legacy_order(num_rows, seed=LEGACY_SHUFFLE_SEED)` returns source row
+  positions in the legacy engine's `Dataset.shuffle(seed=42)` order. Convert
+  records in that order so `--limit N` keeps the rows the legacy `max_samples`
+  cap kept; keep the source position in the sample ID.
 * `dataset.to_inspect_dataset(records, record_to_sample, *, dataset_id)` converts
   every record, in source order, into a `MemoryDataset`. Validate the complete
   source first. Supply stable sample IDs and subgroup metadata.

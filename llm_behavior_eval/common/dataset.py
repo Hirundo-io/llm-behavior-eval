@@ -6,9 +6,12 @@ config's ``eval_config.limit``), so conversion always keeps every record.
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from inspect_ai.dataset import MemoryDataset, Sample
+
+LEGACY_SHUFFLE_SEED = 42
+"""Seed the legacy engine passed to ``datasets.Dataset.shuffle``."""
 
 
 def load_hf_dataset(
@@ -16,12 +19,27 @@ def load_hf_dataset(
     *,
     dataset_path: str | None = None,
     dataset_token: str | None = None,
+    revision: str | None = None,
 ) -> Any:
     """Load the full split of an HF dataset or a ``save_to_disk`` snapshot.
 
-    ``dataset_path`` overrides where data is read from without changing the
-    logical ``dataset_id``. Selects ``train`` when present, otherwise requires
-    exactly one split. ``dataset_token`` is passed only to HF Hub loading.
+    Args:
+        dataset_id: Logical dataset id, used in error messages and loaded from
+            the HF Hub unless ``dataset_path`` is given.
+        dataset_path: Where to read the data instead: a ``save_to_disk``
+            directory (detected by ``dataset_dict.json`` or ``state.json``) or
+            any source ``datasets.load_dataset`` accepts. It does not change the
+            logical ``dataset_id``.
+        dataset_token: HF token, passed only to ``load_dataset``.
+        revision: Dataset revision (branch, tag or commit) passed only to
+            ``load_dataset``; a snapshot directory is already fixed.
+
+    Returns:
+        The ``train`` split when present, otherwise the only split.
+
+    Raises:
+        ValueError: The source is neither a ``Dataset`` nor a ``DatasetDict``,
+            or it has several splits and none is ``train``.
     """
     from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
 
@@ -32,7 +50,10 @@ def load_hf_dataset(
     ):
         raw = load_from_disk(source)
     else:
-        raw = load_dataset(source, token=dataset_token)
+        options: dict[str, Any] = {"token": dataset_token}
+        if revision is not None:
+            options["revision"] = revision
+        raw = load_dataset(source, **options)
     if isinstance(raw, Dataset):
         return raw
     if not isinstance(raw, DatasetDict):
@@ -46,12 +67,44 @@ def load_hf_dataset(
     )
 
 
+def legacy_order(num_rows: int, seed: int = LEGACY_SHUFFLE_SEED) -> list[int]:
+    """Source row positions in the order the legacy engine visited them.
+
+    The legacy engine called ``datasets.Dataset.shuffle(seed=seed)`` and kept
+    the first ``max_samples`` rows. Converting records in this order lets
+    Inspect's ``--limit N`` select the same rows.
+
+    Args:
+        num_rows: Number of source rows.
+        seed: Shuffle seed; the legacy default is ``LEGACY_SHUFFLE_SEED``.
+
+    Returns:
+        A permutation of ``range(num_rows)``.
+    """
+    if num_rows == 0:
+        return []
+    from datasets import Dataset
+
+    rows = Dataset.from_dict({"index": list(range(num_rows))})
+    return cast("list[int]", list(rows.shuffle(seed=seed)["index"]))
+
+
 def to_inspect_dataset(
     records: Any,
     record_to_sample: Callable[[dict[str, Any]], Sample],
     *,
     dataset_id: str,
 ) -> MemoryDataset:
-    """Convert every record, in source order, after benchmark validation."""
+    """Convert every record, in source order, after benchmark validation.
+
+    Args:
+        records: A sized, indexable collection of mappings, such as a
+            ``datasets.Dataset`` or a list of dicts.
+        record_to_sample: Benchmark conversion of one record (as a ``dict``).
+        dataset_id: Name given to the returned dataset.
+
+    Returns:
+        A ``MemoryDataset`` with one sample per record, in order.
+    """
     samples = [record_to_sample(dict(records[i])) for i in range(len(records))]
     return MemoryDataset(samples, name=dataset_id)

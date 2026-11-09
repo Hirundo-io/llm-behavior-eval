@@ -26,7 +26,12 @@ from inspect_ai.model import (
 from inspect_ai.scorer import Metric, SampleScore, Score
 from inspect_ai.util import registry_info
 
-from llm_behavior_eval.common.dataset import load_hf_dataset, to_inspect_dataset
+from llm_behavior_eval.common.dataset import (
+    LEGACY_SHUFFLE_SEED,
+    legacy_order,
+    load_hf_dataset,
+    to_inspect_dataset,
+)
 from llm_behavior_eval.common.judge import judge_scorer, strip_thinking
 from llm_behavior_eval.common.metrics import field_rate, incomplete_response_rate
 from llm_behavior_eval.inspect_template.dataset import record_to_sample
@@ -148,11 +153,28 @@ def test_dataset(tmp_path, monkeypatch):
         == 502
     )
     assert calls == [("override", {"token": "test-token"})]
+    load_hf_dataset("logical", revision="abc123")
+    assert calls[-1] == ("logical", {"token": None, "revision": "abc123"})
     monkeypatch.setattr(
         datasets, "load_dataset", lambda *a, **kw: DatasetDict({"a": ds, "b": ds})
     )
     with pytest.raises(ValueError, match="exactly one"):
         load_hf_dataset("logical")
+
+
+@pytest.mark.parametrize("num_rows", [0, 1, 7, 50])
+def test_legacy_order_matches_legacy_shuffle(num_rows: int) -> None:
+    rows = Dataset.from_dict({"index": list(range(num_rows))})
+    expected = list(rows.shuffle(seed=LEGACY_SHUFFLE_SEED)["index"]) if num_rows else []
+    order = legacy_order(num_rows)
+    assert order == expected
+    assert sorted(order) == list(range(num_rows))
+    if num_rows > 2:
+        assert order != list(range(num_rows))
+        assert legacy_order(num_rows, seed=7) != order
+    if num_rows == 7:
+        # Pinned: a datasets upgrade that changes shuffle(seed=42) breaks parity.
+        assert order == [3, 2, 6, 4, 1, 5, 0]
 
 
 @pytest.mark.parametrize(
