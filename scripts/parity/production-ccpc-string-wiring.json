@@ -1,0 +1,242 @@
+{
+  "scope": "Real fresh two-row CCPC compiled wiring after explicit scalar judge-content formatting; not 500-row completion",
+  "source_commit": "f35fb814b0c99081707f81241b39ed72cd4ebcbf",
+  "report": {
+    "name": "ccpc:small-slice",
+    "family": "ccpc",
+    "status": "compared",
+    "errors": [],
+    "mismatches": [],
+    "metrics": [
+      {
+        "name": "censorship_rate",
+        "unit": "fraction",
+        "legacy": 0.0,
+        "native": 0.0,
+        "delta": 0.0,
+        "delta_pp": 0.0
+      },
+      {
+        "name": "judged_fraction",
+        "unit": "fraction",
+        "legacy": 1.0,
+        "native": 1.0,
+        "delta": 0.0,
+        "delta_pp": 0.0
+      },
+      {
+        "name": "stderr",
+        "unit": "fraction",
+        "legacy": 0.0,
+        "native": 0.0,
+        "delta": 0.0,
+        "delta_pp": 0.0
+      }
+    ],
+    "verdict_agreement_percent": 100.0,
+    "confusion": [
+      {
+        "legacy": "false",
+        "native": "false",
+        "count": 2
+      }
+    ],
+    "samples": 2,
+    "provenance_equal": false,
+    "acceptance": "pending owner decision; no tolerance approved",
+    "report_tool_sha256": "27cb70d533418a6731046e650b8d7c206d60d6f693b363a3afa81f851917213c",
+    "execution": {
+      "native_sample_concurrency": 1,
+      "native_extra_body": {
+        "return_token_ids": true,
+        "add_special_tokens": true,
+        "cache_salt": "llm169:ccpc"
+      },
+      "legacy_execution": "Fresh engine per case, sequential answer and judge batches of one",
+      "native_judge_runtime": {
+        "chat_template_content_format": "string"
+      }
+    },
+    "boundary_lengths": {
+      "answer": {
+        "min": 24,
+        "max": 31,
+        "at_1024": 0,
+        "at_256": 0
+      },
+      "target": {
+        "min": 0,
+        "max": 0,
+        "at_1024": 0,
+        "at_256": 0
+      },
+      "judge_question_reencoded": {
+        "min": 14,
+        "max": 21,
+        "at_1024": 0,
+        "at_256": 0
+      }
+    },
+    "synthetic_edge": false,
+    "judge_boundary": {
+      "legacy_requests": 2,
+      "native_requests": 2,
+      "identical_sample_grouped_order": true,
+      "identical_response_order": true,
+      "ordering_note": "Response-hook insertion order records actual native completions. Both sides have one active sequence; sample-grouped event order is reported separately.",
+      "identical_raw_outputs": true,
+      "identical_multiset": true,
+      "legacy_max_tokens": 1625,
+      "native_max_tokens": 1625,
+      "legacy_sha256": "c97f79a146b2d6e7819244def008d7b2a720126f5fc1cdf6c865222cc279b5e1",
+      "native_response_sha256": "89863ff5ed13e9d0ea647b37a107e4b28f1318967cf3339774bcbd36c3312945"
+    }
+  },
+  "runs": {
+    "legacy": {
+      "model_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+      "judge_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+      "tokenizer_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+      "dataset_revision": "e778807d1cbe31f5e4f4ff1941d3d6fe48faed70",
+      "backend": "vllm",
+      "packages": {
+        "torch": "2.13.0",
+        "vllm": "0.30.0",
+        "transformers": "5.20.2",
+        "inspect-ai": "0.3.288"
+      },
+      "config": {
+        "answer_tokenizer_metadata_sha256": {
+          "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+          "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+          "config.json": "9059f680f4dbd1957f35cb44b9fdd6948f4792db7a7a35ee353ea42e68adf7ff",
+          "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+          "model.safetensors.index.json": "77f4b67de084c31c7bcd373b039908108eee6c6181607e6d53da730e5f0bc659",
+          "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+          "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+          "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+          "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+          "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+          "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+        },
+        "judge_tokenizer_metadata_sha256": {
+          "chat_template.jinja": "ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4",
+          "config.json": "ed0c1eb3633de771906e9ba004a44cc5635bcc06ee2062077c3d2e88a50707d3",
+          "generation_config.json": "d4226bbe3117d2d253ba4609720ba82c6c4ce4627a9a6ae05387c78983ac03de",
+          "model.safetensors.index.json": "907826a6e46ff454272bd6db1fee629d5531a2303be22986d825a0871d7dc7a7",
+          "processor_config.json": "32bdf45d2ad4cc29a0822ddd157a182de76644f0419a6228d151495256e9813c",
+          "tokenizer.json": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f",
+          "tokenizer_config.json": "9f4fec4b1dc6ecddf8f4a92e9caea5971c0e67d81309f3f9066a2bee8c362633"
+        },
+        "dataset_seed": null,
+        "cap": 2,
+        "dtype": "bfloat16",
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "max_num_seqs": 1,
+        "max_num_batched_tokens": 16384,
+        "temperature": 0,
+        "engine_seed": 0,
+        "request_seed": 42,
+        "max_model_len": 16384,
+        "enforce_eager": false,
+        "gpu_memory_utilization": 0.5,
+        "task_args": {},
+        "answer_budget": 8192,
+        "judge_budget": 4096,
+        "thinking": false,
+        "cudagraph_specialize_lora": false,
+        "vllm_use_aot_compile": 0,
+        "judge_content_format": "string"
+      },
+      "transport": "retained in-process API"
+    },
+    "native": {
+      "model_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+      "judge_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+      "tokenizer_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+      "dataset_revision": "e778807d1cbe31f5e4f4ff1941d3d6fe48faed70",
+      "backend": "vllm",
+      "packages": {
+        "torch": "2.13.0",
+        "vllm": "0.30.0",
+        "transformers": "5.20.2",
+        "inspect-ai": "0.3.288"
+      },
+      "config": {
+        "answer_tokenizer_metadata_sha256": {
+          "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+          "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+          "config.json": "9059f680f4dbd1957f35cb44b9fdd6948f4792db7a7a35ee353ea42e68adf7ff",
+          "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+          "model.safetensors.index.json": "77f4b67de084c31c7bcd373b039908108eee6c6181607e6d53da730e5f0bc659",
+          "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+          "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+          "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+          "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+          "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+          "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+        },
+        "judge_tokenizer_metadata_sha256": {
+          "chat_template.jinja": "ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4",
+          "config.json": "ed0c1eb3633de771906e9ba004a44cc5635bcc06ee2062077c3d2e88a50707d3",
+          "generation_config.json": "d4226bbe3117d2d253ba4609720ba82c6c4ce4627a9a6ae05387c78983ac03de",
+          "model.safetensors.index.json": "907826a6e46ff454272bd6db1fee629d5531a2303be22986d825a0871d7dc7a7",
+          "processor_config.json": "32bdf45d2ad4cc29a0822ddd157a182de76644f0419a6228d151495256e9813c",
+          "tokenizer.json": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f",
+          "tokenizer_config.json": "9f4fec4b1dc6ecddf8f4a92e9caea5971c0e67d81309f3f9066a2bee8c362633"
+        },
+        "dataset_seed": null,
+        "cap": 2,
+        "dtype": "bfloat16",
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "max_num_seqs": 1,
+        "max_num_batched_tokens": 16384,
+        "temperature": 0,
+        "engine_seed": 0,
+        "request_seed": 42,
+        "max_model_len": 16384,
+        "enforce_eager": false,
+        "gpu_memory_utilization": 0.5,
+        "task_args": {},
+        "answer_budget": 8192,
+        "judge_budget": 4096,
+        "thinking": false,
+        "cudagraph_specialize_lora": false,
+        "vllm_use_aot_compile": 0,
+        "judge_content_format": "string"
+      },
+      "transport": "Inspect-owned server"
+    }
+  },
+  "diagnosis": [
+    {
+      "first_difference": 156,
+      "extra_token": 236743,
+      "extra_decoded": " ",
+      "identical_after_removing_extra_token": true,
+      "raw_judge_text_equal": true,
+      "legacy_length": 1625,
+      "native_length": 1626
+    },
+    {
+      "first_difference": 156,
+      "extra_token": 236743,
+      "extra_decoded": " ",
+      "identical_after_removing_extra_token": true,
+      "raw_judge_text_equal": true,
+      "legacy_length": 1516,
+      "native_length": 1517
+    }
+  ],
+  "hashes": {
+    "strict-report.json": "671fed65fc5b9afceab6280cc352a226b501298a44fa04f540ba0e133708f32a",
+    "source.json": "9fdb7716001f1dd6c48453c25f2214b50b19734064cf85915a97ede2cf6ab894",
+    "identity-config.json": "962a2833f01e5f8b5193665826fb0e60ca10a78f00e1230b0ccfd201807fe79b",
+    "scored.eval": "9498bfe803c8d7202df0fb0b087fbbf4ae042044c060b8351377ee5e8e1877f4",
+    "native-judge-runtime.json": "3d35bee119e611c84010802a65584acab3d4a0ba26cf47d66a816cf3adce85ad",
+    "legacy-judge-boundary.json": "c97f79a146b2d6e7819244def008d7b2a720126f5fc1cdf6c865222cc279b5e1",
+    "native-judge-responses.json": "89863ff5ed13e9d0ea647b37a107e4b28f1318967cf3339774bcbd36c3312945"
+  }
+}

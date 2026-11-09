@@ -1,0 +1,26 @@
+{
+  "python": "3.13.18",
+  "packages": {
+    "inspect-ai": "0.3.288",
+    "torch": "2.15.0",
+    "transformers": "5.22.2",
+    "vllm": null,
+    "datasets": "5.1.0",
+    "pytest": "9.1.1",
+    "ruff": "0.15.20",
+    "pyrefly": "1.2.1"
+  },
+  "environment": "uv-created .venv, read-only local uv archive paths via .pth; dependency install blocked by DNS; not a qualified inference runtime",
+  "gpu": "nvidia-smi absent",
+  "weights": "two HF cache model directories 28K each; no qualification weights",
+  "model_revision": null,
+  "judge_revision": null,
+  "live_runs": 0,
+  "remote_access": {
+    "status": "h200 started by parent, SSH ready, idle GPU confirmed; eight-row exploratory legacy/native generation completed; no GPU compute processes at completion; parent owns stop/watchdog restoration",
+    "hardware_inspected": true,
+    "models_inspected": true,
+    "generation_runs": 2,
+    "judge_runs": 0
+  }
+}
