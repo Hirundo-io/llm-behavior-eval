@@ -44,6 +44,7 @@ def main(
             do_sample=False,
         ),
         model_roles={
+            # judge_snapshot: e.g. the recommended google/gemma-4-12B-it.
             "grader": get_model(
                 "hf/local-judge",
                 model_path=judge_snapshot,

@@ -6,7 +6,8 @@ inspect eval llm_behavior_eval/unqover -T bias_type=gender \
 ```
 
 This mock command verifies wiring only. Real evaluation requires an explicitly
-configured `grader` role; the evaluated model is never used as an implicit judge.
+configured `grader` role (Gemma 4 12B, `google/gemma-4-12B-it`, is recommended);
+the evaluated model is never used as an implicit judge.
 `bias_type` accepts religion, gender, race, nationality. Only `kind=bias` exists;
 `unbias` is rejected before loading. Run one task per type for the legacy
 `unqover:bias:all` preset; results remain separate.

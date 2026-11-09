@@ -27,7 +27,7 @@ def unqover(
 
     Other metrics: accuracy/incomplete_response_rate (fractions),
     empty_responses (count), stereotype_bias (signed index, optional column).
-    One split per task; explicit grader required, recommended gemma-3-12b-it.
+    One split per task; explicit grader required, recommended gemma-4-12B-it.
 
     externally_configured_thinking asserts BOTH deployments disable thinking;
     use it for independently configured OpenAI-compatible endpoints.

@@ -23,7 +23,7 @@ def bbq(
     compatibility_tokenizer: str | None = None,
     compatibility_tokenizer_revision: str | None = None,
 ) -> Task:
-    """One split per task; explicit grader required, recommended gemma-3-12b-it.
+    """One split per task; explicit grader required, recommended gemma-4-12B-it.
 
     externally_configured_thinking asserts BOTH deployments disable thinking;
     use it for independently configured OpenAI-compatible endpoints.

@@ -6,7 +6,8 @@ inspect eval llm_behavior_eval/bloom -T bias_type=age -T kind=ambiguous \
 ```
 
 The mock example checks wiring only. For real inference, configure an explicit
-`grader` role; the evaluated model is never implicitly used as judge. Follow the
+`grader` role (Gemma 4 12B, `google/gemma-4-12B-it`, is recommended); the
+evaluated model is never implicitly used as judge. Follow the
 [BBQ provider configuration](../bbq/README.md) for independent HF model arguments
 or an independent OpenAI-compatible endpoint (`base_url`, `api_key` supplied to
 Inspect's `get_model`, passed through `model_roles={"grader": grader}`).

@@ -8,6 +8,7 @@ Use native Inspect (Python 3.12–3.13), for example:
 Use list_dataset_presets()[...].inspect_tasks for exact task names and -T arguments.
 --max-samples -> -T max_samples=N; output directory -> --log-dir.
 Select providers independently with --model and --model-role grader=PROVIDER/MODEL.
+Recommended grader: hf/google/gemma-4-12B-it (the old --judge-model default); it is never implied.
 Configure native provider arguments with -M or grader role YAML, not legacy flags.
 Use environment credentials; never put tokens in task arguments.
 Thinking flags differ by benchmark/provider; see INSPECT_MIGRATION.md.

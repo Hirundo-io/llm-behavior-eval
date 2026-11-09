@@ -4,7 +4,7 @@ Use the Python example below to configure both HF roles independently.
 
 Configure the grader's HF model arguments independently as well (Python example
 below); its tokenizer requires `enable_thinking=False`, `do_sample=False`.
-The task rejects missing grader roles. Gemma is recommended, never implicitly
+The task rejects missing grader roles. Gemma 4 12B is recommended, never implicitly
 loaded or replaced with the evaluated model. Native Inspect generates and scores;
 legacy CLI and evaluator APIs are removed in 0.2.0.
 
@@ -24,7 +24,7 @@ from llm_behavior_eval.bbq.task import bbq
 
 grader = get_model(
     "hf/local-judge",
-    model_path="/models/gemma3-judge",
+    model_path="/models/gemma-4-12B-it",
     auto_model_class="AutoModelForImageTextToText",
     enable_thinking=False,
     do_sample=False,

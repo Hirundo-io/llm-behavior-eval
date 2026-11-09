@@ -83,6 +83,13 @@ have `thinking` (default true). HF model objects must receive the appropriate
 `enable_thinking` and `do_sample` arguments independently for each role.
 See each benchmark's README and [migration reference](INSPECT_MIGRATION.md).
 
+The grader is always configured explicitly; no judge is loaded by default.
+Gemma 4 12B (`google/gemma-4-12B-it`, the old CLI's `--judge-model` default) is
+the recommended grader, for example `--model-role grader=hf/google/gemma-4-12B-it`.
+CCPC instead expects its pinned `google/gemma-4-26B-A4B-it` judge; see its README.
+The parity evidence in `scripts/parity` was collected with Gemma 3 12B judges;
+Gemma 4 12B has not been parity-qualified yet.
+
 [The preset example](examples/presets_customization.py) expands catalog mappings
 into native tasks. `list_dataset_presets()` and `expand_dataset_preset()` retain
 ordered asset identities; `preset.inspect_tasks` supplies task names and arguments.

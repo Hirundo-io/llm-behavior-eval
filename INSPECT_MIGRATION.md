@@ -92,7 +92,7 @@ Local GPU execution and full benchmark parity are not claimed by CPU tests.
 | Local HF | `--model hf/local -M model_path=/models/model -M tokenizer_path=/models/model` |
 | vLLM repo | `--model vllm/org/repo` (Inspect launches a vLLM server) |
 | Local vLLM | `--model vllm//models/model`; `vllm/local` alone means a model literally named `local`, not a model_path override. For a prestarted endpoint use `vllm/local -M base_url=http://127.0.0.1:8000/v1`, with that served model name. |
-| Judge | `--model-role grader=hf/org/judge` or an API provider; role configuration can be supplied as YAML |
+| Judge | `--model-role grader=hf/google/gemma-4-12B-it` (recommended judge, matching the legacy `--judge-model` default) or another HF/API provider; the grader is never implied, so always pass it. Role configuration can be supplied as YAML |
 | dataset path/token | Benchmark task parameters `-T dataset_path=... -T dataset_token=...`; HF_TOKEN avoids putting credentials in CLI history/logged task arguments. Template has no remote dataset. |
 | max_samples | `-T max_samples=500` default; nonpositive all; see `--limit` interaction above |
 | use-4bit / use-4bit-judge | HF forwards remaining model args to Transformers. Use Python `quantization_config=BitsAndBytesConfig(load_in_4bit=True)`; no portable boolean CLI alias is implemented. Requires compatible bitsandbytes/GPU. Not vLLM. |
@@ -298,7 +298,10 @@ thinking disabled on that deployment; hidden server tokenization is unqualified.
 For a local HF judge, use a separate `get_model("hf/local-judge",
 model_path="/models/judge", enable_thinking=False, do_sample=False)` and omit the
 API assertion. Do not give the judge answer truncation/max_length settings.
-Gemma 3 weights may require `auto_model_class="AutoModelForImageTextToText"`.
+The recommended judge is an immutable `google/gemma-4-12B-it` snapshot. The
+parity evidence was collected with Gemma 3 12B judges; Gemma 4 12B has not been
+parity-qualified yet. Gemma 3 and Gemma 4 weights may require
+`auto_model_class="AutoModelForImageTextToText"`.
 For XSTest/OR-Bench answers use `enable_thinking=True` by default; judge stays False.
 
 CLI answers require `-T compatibility_tokenizer=/models/answer`,

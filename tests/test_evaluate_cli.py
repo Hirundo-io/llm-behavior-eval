@@ -20,6 +20,7 @@ def test_retired_cli_never_executes(args):
     assert "no evaluation ran" in result.output
     assert "inspect eval llm_behavior_eval/halueval" in result.output
     assert "--model-role grader=" in result.output
+    assert "hf/google/gemma-4-12B-it" in result.output
     assert "INSPECT_MIGRATION.md" in result.output
 
 
