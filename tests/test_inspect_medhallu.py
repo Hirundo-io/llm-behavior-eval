@@ -8,7 +8,6 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -42,8 +41,12 @@ from llm_behavior_eval.medhallu.metrics import (
 from llm_behavior_eval.medhallu.prompts import GRADER_TEMPLATE, SYSTEM_MESSAGE
 from llm_behavior_eval.medhallu.scorer import medhallu_scorer, parse_grade
 from llm_behavior_eval.medhallu.task import medhallu
+from tests.golden import golden
 
 PACKAGE = "llm_behavior_eval.medhallu"
+# Legacy expectations are frozen outputs of the removed legacy engine (see
+# tests/golden/README.md); medhallu.json records their provenance commit.
+LEGACY = golden("medhallu")
 PACKAGE_DIR = Path(__file__).parents[1] / "llm_behavior_eval" / "medhallu"
 METRICS = ["accuracy", "empty_responses", "incomplete_response_rate"]
 
@@ -85,13 +88,10 @@ def test_package_is_self_contained():
 
 
 def test_prompts_match_legacy():
-    from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
-        GRADER_TEMPLATE as LEGACY_TEMPLATE,
-    )
-    from llm_behavior_eval.evaluation_utils.prompts import FREE_TEXT_SYSTEM_MESSAGE
-
-    assert GRADER_TEMPLATE == LEGACY_TEMPLATE
-    assert SYSTEM_MESSAGE == FREE_TEXT_SYSTEM_MESSAGE["content"]
+    # Legacy free_text_hallu_evaluator.GRADER_TEMPLATE and
+    # prompts.FREE_TEXT_SYSTEM_MESSAGE["content"].
+    assert GRADER_TEMPLATE == LEGACY["prompts"]["grader_template"]
+    assert SYSTEM_MESSAGE == LEGACY["prompts"]["system_message"]
 
 
 @pytest.mark.parametrize(
@@ -99,14 +99,8 @@ def test_prompts_match_legacy():
     ["A", "B", "C", "garbage", "", "AA", "a", "B then A", "(A)", "<think>B</think>A"],
 )
 def test_parse_legacy(raw):
-    from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
-        FreeTextHaluEvaluator,
-    )
-
-    assert (
-        parse_grade(raw)
-        == FreeTextHaluEvaluator._map_judge_outputs([[{"generated_text": raw}]])[0]
-    )
+    # Legacy FreeTextHaluEvaluator._map_judge_outputs on the same reply.
+    assert parse_grade(raw) == LEGACY["parse"][raw]
 
 
 def test_dataset(tmp_path):
@@ -151,8 +145,6 @@ def test_loader_identity_and_token(monkeypatch):
 
 def test_parity_cap_selects_legacy_samples(monkeypatch):
     """Legacy shuffled with seed 42 and kept max_samples=500; the cap must match."""
-    from llm_behavior_eval.evaluation_utils import base_evaluator
-
     source = Dataset.from_list(
         [
             {"question": f"q{i}", "answer": f"a{i}", "source_index": i}
@@ -161,62 +153,24 @@ def test_parity_cap_selects_legacy_samples(monkeypatch):
     )
     module = importlib.import_module("llm_behavior_eval.medhallu.dataset")
     monkeypatch.setattr(module, "load_hf_dataset", lambda *args, **kwargs: source)
-    monkeypatch.setattr(
-        base_evaluator,
-        "CustomDataset",
-        lambda *args, **kwargs: SimpleNamespace(
-            preprocess=lambda *args, **kwargs: source
-        ),
-    )
-    monkeypatch.setattr(base_evaluator, "DataLoader", lambda *args, **kwargs: None)
     limit = yaml.safe_load(parity_config_path(PACKAGE).read_text())["eval_config"][
         "limit"
     ]
-    legacy = SimpleNamespace(
-        dataset_config=SimpleNamespace(
-            file_path="offline",
-            dataset_type=None,
-            dataset_id=DATASET_ID,
-            preprocess_config=None,
-            seed=42,
-        ),
-        eval_config=SimpleNamespace(
-            model_token=None,
-            dataset_token=None,
-            max_answer_tokens=128,
-            enable_thinking=False,
-            enable_thinking_arg_name="enable_thinking",
-            thinking_start_token="<think>",
-            thinking_end_token="</think>",
-            pass_max_answer_tokens=False,
-            max_samples=500,
-        ),
-        tokenizer=None,
-        trust_remote_code=False,
-        data_collator=None,
-        eval_engine=SimpleNamespace(
-            set_dataset=lambda ds: None, get_batch_size=lambda: 1
-        ),
-    )
-    base_evaluator.BaseEvaluator.prepare_dataloader(cast("Any", legacy))
+    # Legacy BaseEvaluator.prepare_dataloader columns for these 502 rows with
+    # seed 42 and max_samples=500 (order-preserving preprocessing).
+    legacy = LEGACY["selection"]
+    assert (legacy["rows"], legacy["max_samples"]) == (len(source), 500)
     capped = list(dataset())[:limit]
-    assert len(capped) == len(legacy.eval_dataset) == 500
+    assert len(capped) == len(legacy["source_index"]) == 500
     assert [s.id for s in capped] == [
-        f"{DATASET_ID}:{i}" for i in legacy.eval_dataset["source_index"]
+        f"{DATASET_ID}:{i}" for i in legacy["source_index"]
     ]
-    assert [s.input for s in capped] == list(legacy.eval_dataset["question"])
-    assert [s.target for s in capped] == list(legacy.eval_dataset["answer"])
+    assert [s.input for s in capped] == legacy["question"]
+    assert [s.target for s in capped] == legacy["answer"]
 
 
 def test_scorer_matches_legacy_aggregate(monkeypatch):
-    from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
-        GRADER_TEMPLATE as LEGACY_TEMPLATE,
-    )
-    from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
-        FreeTextHaluEvaluator,
-        _HalluGenerationRecord,
-    )
-
+    legacy_template = LEGACY["prompts"]["grader_template"]
     module = importlib.import_module("llm_behavior_eval.medhallu.scorer")
     raw = iter(["A", "B", "garbage", "C"])
     calls = []
@@ -252,7 +206,7 @@ def test_scorer_matches_legacy_aggregate(monkeypatch):
             SampleScore(score=asyncio.run(medhallu_scorer()(state, Target("gold"))))
         )
     assert len(calls) == 4
-    assert calls[0] == LEGACY_TEMPLATE.format(
+    assert calls[0] == legacy_template.format(
         question="question", target="gold", predicted_answer="answer"
     )
     metadata = [s.score.metadata or {} for s in scores]
@@ -261,27 +215,21 @@ def test_scorer_matches_legacy_aggregate(monkeypatch):
     assert all(m["grade"] == "NOT_ATTEMPTED" and m["skipped"] for m in metadata[4:])
     assert [s.score.value for s in scores] == [1, 0, 1, 1, 1, 1, 1]
 
-    legacy = FreeTextHaluEvaluator.__new__(FreeTextHaluEvaluator)
-    legacy.num_samples = len(stops)
-    monkeypatch.setattr(legacy, "_format_answers", lambda answers: answers)
-    monkeypatch.setattr(
-        legacy,
-        "_grade_batch",
-        lambda *args: ["CORRECT", "INCORRECT", "NOT_ATTEMPTED", "NOT_ATTEMPTED"],
-    )
-    saved = {}
-    monkeypatch.setattr(legacy, "save_results", lambda **kwargs: saved.update(kwargs))
-    legacy._grade_impl(
-        [
-            _HalluGenerationRecord(
-                answers=["answer"] * len(stops),
-                input_texts=["question"] * len(stops),
-                gt_answers=["gold"] * len(stops),
-                finish_reasons=["length" if s == "max_tokens" else s for s in stops],
-            )
-        ],
-        cast("Any", object()),
-    )
+    # Legacy FreeTextHaluEvaluator._grade_impl saved results for the same rows,
+    # with the stub judge grading the four judged answers as below.
+    legacy = LEGACY["aggregate"]
+    assert legacy["stops"] == stops
+    assert legacy["finish_reasons"] == [
+        "length" if s == "max_tokens" else s for s in stops
+    ]
+    assert legacy["stub_grades"] == [
+        "CORRECT",
+        "INCORRECT",
+        "NOT_ATTEMPTED",
+        "NOT_ATTEMPTED",
+    ]
+    assert legacy["response_grades"] == [m["grade"] for m in metadata]
+    saved = legacy["saved"]
     assert mapping(medhallu_accuracy())(scores)["accuracy"] == pytest.approx(
         100 * saved["accuracy"]
     )
@@ -375,30 +323,15 @@ def test_grader_role_is_required(tmp_path):
     assert logs[0].status == "error"
 
 
-def test_documented_tokenizer_parity_gaps(monkeypatch, tmp_path):
-    from llm_behavior_eval.evaluation_utils import custom_dataset
-
-    class Tokenizer:
-        def __call__(self, texts, *, max_length, **kwargs):
-            ids = [[ord(c) for c in text[:max_length]] for text in texts]
-            return {"input_ids": ids, "attention_mask": [[1] * len(row) for row in ids]}
-
-    monkeypatch.setattr(
-        custom_dataset,
-        "safe_apply_chat_template",
-        lambda tokenizer, messages, **kwargs: "TEMPLATE:" + str(messages),
-    )
+def test_documented_tokenizer_parity_gaps(tmp_path):
+    # Legacy custom_dataset.free_text_preprocess_function of this row with a
+    # character tokenizer and a "TEMPLATE:" + str(messages) chat template.
+    legacy = LEGACY["tokenizer_gap"]
     question, target = "q" * 1200, "a" * 300
-    legacy = custom_dataset.free_text_preprocess_function(
-        {"question": [question], "answer": [target]},
-        cast("Any", Tokenizer()),
-        1024,
-        256,
-        False,
-    )
-    assert legacy["test_input_ids"].shape[1] == 1024
-    assert legacy["gt_answers"].shape[1] == 256
-    decoded = "".join(chr(c) for c in legacy["test_input_ids"][0])
+    assert (legacy["question_length"], legacy["target_length"]) == (1200, 300)
+    assert legacy["test_input_ids_width"] == 1024
+    assert legacy["gt_answers_width"] == 256
+    decoded = legacy["decoded_prompt"]
     assert decoded.startswith("TEMPLATE:") and decoded != question
     path = snapshot(tmp_path, [{"question": question, "answer": target}], "long")
     sample = dataset(dataset_path=path)[0]
@@ -562,30 +495,24 @@ GRADER_BODY = {
 
 
 def test_shipped_parity_config_holds_legacy_settings():
-    from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
-    from llm_behavior_eval.evaluation_utils.eval_config import (
-        FAMILY_TOKEN_DEFAULTS,
-        EvaluationConfig,
-    )
+    # Legacy eval_config.FAMILY_TOKEN_DEFAULTS["hallucination"] and the
+    # EvaluationConfig/DatasetConfig field defaults.
+    settings = LEGACY["settings"]
 
     path = parity_config_path(PACKAGE)
     assert path == PACKAGE_DIR / "parity.yaml"
     config = yaml.safe_load(path.read_text())
     assert set(config) == {"generate_config", "eval_config", "model_roles"}
-    legacy = FAMILY_TOKEN_DEFAULTS["hallucination"]
-    seed = DatasetConfig.model_fields["seed"].default
+    legacy = settings["family_token_defaults"]
+    seed = settings["dataset_seed_default"]
     answer = GenerateConfig.model_validate(config["generate_config"])
-    assert not EvaluationConfig.model_fields["sample"].default
+    assert not settings["sample_default"]
     assert answer.temperature == 0.0
     assert answer.max_tokens == legacy["max_answer_tokens"] == 128
     assert answer.seed == seed == 42
     assert legacy["enable_thinking"] is False
     assert answer.extra_body == ANSWER_BODY
-    assert (
-        config["eval_config"]["limit"]
-        == EvaluationConfig.model_fields["max_samples"].default
-        == 500
-    )
+    assert config["eval_config"]["limit"] == settings["max_samples_default"] == 500
     grader = config["model_roles"]["grader"]
     assert grader["model"] == "hf/google/gemma-3-12b-it"
     judge = GenerateConfig.model_validate(grader["config"])

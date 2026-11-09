@@ -17,7 +17,9 @@
 # arguments without naming the task, which this file must not do. See
 # scripts/parity/README.md for the vLLM variant used by the qualification runs.
 #
-# Sources (llm_behavior_eval/evaluation_utils/): eval_config.py
+# Sources (the legacy engine's llm_behavior_eval/evaluation_utils/, removed in
+# 0.2.0; read them at the frozen commit d8c8015, scripts/parity/README.md):
+# eval_config.py
 # FAMILY_TOKEN_DEFAULTS["refusal"] (token budgets, sample_judge, enable_thinking)
 # and EvaluationConfig (sample=False, max_samples=500); sampling_config.py
 # SamplingConfig.seed=42, passed to every legacy vLLM request; custom_dataset.py

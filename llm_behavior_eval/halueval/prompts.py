@@ -2,6 +2,10 @@
 
 ``SYSTEM_MESSAGE`` is ``evaluation_utils.prompts.FREE_TEXT_SYSTEM_MESSAGE``;
 ``GRADER_TEMPLATE`` is ``evaluation_utils.free_text_hallu_evaluator.GRADER_TEMPLATE``.
+
+The legacy engine was removed in 0.2.0: read these sources at the frozen
+pre-removal commit d8c8015 (scripts/parity/README.md); tests/golden/ freezes
+their values.
 """
 
 SYSTEM_MESSAGE = """

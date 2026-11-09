@@ -3,8 +3,7 @@ import subprocess
 import sys
 from math import isnan
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import yaml
@@ -23,6 +22,11 @@ from llm_behavior_eval.common.target_metrics import (
 from llm_behavior_eval.prompt_injection.dataset import DATASET_ID, dataset
 from llm_behavior_eval.prompt_injection.scorer import parse_yes_no
 from llm_behavior_eval.prompt_injection.task import prompt_injection
+from tests.golden import golden
+
+# Frozen outputs of the removed legacy engine (FreeTextPromptInjectionEvaluator,
+# custom_dataset, prompts, eval_config); see tests/golden/README.md.
+LEGACY = golden("prompt_injection")
 
 PACKAGE = "llm_behavior_eval.prompt_injection"
 TASK = "llm_behavior_eval/prompt_injection"
@@ -103,25 +107,20 @@ GRADER_BODY = {
 
 
 def test_shipped_parity_config_holds_legacy_settings():
-    from llm_behavior_eval.evaluation_utils.eval_config import (
-        FAMILY_TOKEN_DEFAULTS,
-        EvaluationConfig,
-    )
-
     path = parity_config_path(PACKAGE)
     assert path == REPO / "llm_behavior_eval" / "prompt_injection" / "parity.yaml"
     config = yaml.safe_load(path.read_text())
     assert set(config) == {"generate_config", "eval_config", "model_roles"}
-    legacy = FAMILY_TOKEN_DEFAULTS["prompt-injection"]
-    legacy_defaults = EvaluationConfig.model_fields
+    legacy = LEGACY["family_token_defaults"]
+    legacy_defaults = LEGACY["evaluation_config_defaults"]
     assert config["generate_config"] == {
         "temperature": 0.0,
         "max_tokens": legacy["max_answer_tokens"],
         "seed": 42,
         "extra_body": ANSWER_BODY,
     }
-    assert legacy_defaults["sample"].default is False
-    assert config["eval_config"] == {"limit": legacy_defaults["max_samples"].default}
+    assert legacy_defaults["sample"] is False
+    assert config["eval_config"] == {"limit": legacy_defaults["max_samples"]}
     grader = config["model_roles"]["grader"]
     assert grader["model"] == "hf/google/gemma-3-12b-it"
     assert grader["config"] == {
@@ -284,11 +283,9 @@ def test_limit_selects_legacy_rows(tmp_path, source):
 
 
 def test_default_system_prompt_matches_legacy(source):
-    from llm_behavior_eval.evaluation_utils.prompts import FREE_TEXT_SYSTEM_MESSAGE
-
     source([dict(question="q", answer="a", system_prompt=None)])
     sample: Any = dataset()[0]
-    assert sample.input[0].text == FREE_TEXT_SYSTEM_MESSAGE["content"]
+    assert sample.input[0].text == LEGACY["default_system_prompt"]
 
 
 def test_offline_snapshot(tmp_path):
@@ -300,43 +297,24 @@ def test_offline_snapshot(tmp_path):
     assert loaded[0].metadata["question"] == "offline"
 
 
-def test_current_preprocessor_and_explicit_truncation_gap(source, monkeypatch):
-    from llm_behavior_eval.evaluation_utils import custom_dataset
-
-    captured = []
-    calls = []
-
-    def template(tokenizer, messages, **kwargs):
-        captured.append(messages)
-        return "CHAT:" + messages[-1]["content"]
-
-    class Tokenizer:
-        def __call__(self, texts, **kwargs):
-            calls.append((texts, kwargs))
-            limit = kwargs["max_length"]
-            return {
-                "input_ids": [[ord(c) for c in t[:limit]] for t in texts],
-                "attention_mask": [[1] * min(len(t), limit) for t in texts],
-            }
-
-    monkeypatch.setattr(custom_dataset, "safe_apply_chat_template", template)
+def test_current_preprocessor_and_explicit_truncation_gap(source):
+    # Frozen: legacy free_text_preprocess_function on this row with a stub chat
+    # template ("CHAT:" + last message) and a character tokenizer that truncates
+    # to max_length; the chat messages and tokenizer calls it made, and widths.
+    legacy = LEGACY["preprocessing"]
     question = "q" * 1100
+    assert legacy["question"] == question
     source([dict(question=question, answer="a")])
     native: Any = dataset()[0]
-    legacy = custom_dataset.free_text_preprocess_function(
-        {"question": [question], "answer": ["a"]},
-        cast("Any", Tokenizer()),
-        max_length=1024,
-        gt_max_length=128,
-        has_stereotype=False,
-    )
+    captured = [legacy["chat_messages"]]
+    calls = [(call["texts"], call["kwargs"]) for call in legacy["tokenizer_calls"]]
     assert captured[0] == [
         {"role": "system", "content": native.input[0].text},
         {"role": "user", "content": native.input[1].text},
     ]
     assert calls[2][0] == [native.metadata["judge_question"]] == [question]
-    assert legacy["test_input_ids"].shape[1] == 1024
-    assert legacy["judge_questions"].shape[1] == 128
+    assert legacy["test_input_ids_width"] == 1024
+    assert legacy["judge_questions_width"] == 128
     assert len(native.input[1].text) == 1101  # Unresolved native truncation difference.
 
 
@@ -347,41 +325,23 @@ def test_current_preprocessor_and_explicit_truncation_gap(source, monkeypatch):
     "raw", ["Yes", "NO!", "yesterday", "", "No then yes", "YES/no", "  yes  "]
 )
 def test_parser_parity(raw):
-    from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
-        FreeTextPromptInjectionEvaluator,
-    )
-
-    assert (
-        parse_yes_no(raw)
-        == FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no(
-            [[{"generated_text": raw}]]
-        )[0]
-    )
+    # Frozen FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no outputs.
+    assert parse_yes_no(raw) == LEGACY["parser"][raw]
 
 
 def test_prompt_matches_legacy():
-    from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
-        FreeTextPromptInjectionEvaluator,
-    )
     from llm_behavior_eval.prompt_injection.prompts import (
         JUDGE_PROMPT,
         PROMPT_JUDGE_RESPONSE,
     )
 
-    assert (
-        PROMPT_JUDGE_RESPONSE == FreeTextPromptInjectionEvaluator.PROMPT_JUDGE_RESPONSE
-    )
+    assert PROMPT_JUDGE_RESPONSE == LEGACY["prompt_judge_response"]
     assert JUDGE_PROMPT.format(
         answer="A", metadata={"judge_question": "Q"}
     ) == PROMPT_JUDGE_RESPONSE.format(llm_response="A", question="Q")
 
 
-def test_native_legacy_grade_parity(source, tmp_path, monkeypatch):
-    from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
-        FreeTextPromptInjectionEvaluator,
-        _InjectionGenerationRecord,
-    )
-
+def test_native_legacy_grade_parity(source, tmp_path):
     raw = ["Yes", "malformed", "No", "unused"]
     answers = ["<think>secret</think>a0", "a1", "a2", "a3"]
     source([dict(question=f"q{i}", answer="a") for i in range(4)])
@@ -407,28 +367,12 @@ def test_native_legacy_grade_parity(source, tmp_path, monkeypatch):
         log_dir=str(tmp_path),
     )[0]
     assert log.status == "success", log.error
-    legacy: Any = object.__new__(FreeTextPromptInjectionEvaluator)
-    legacy.eval_config = SimpleNamespace(
-        exclude_thinking_trace_for_judge=True,
-        thinking_start_token="<think>",
-        thinking_end_token="</think>",
-    )
-    monkeypatch.setattr(legacy, "_grade_batch", lambda *args: ["Yes", "No", "No"])
-    saved = {}
-    monkeypatch.setattr(legacy, "save_results", lambda **kw: saved.update(kw))
-    legacy._grade_impl(
-        [
-            _InjectionGenerationRecord(
-                input_texts=["q0", "q1", "q2", "q3"],
-                gt_answers=["a"] * 4,
-                answers=answers,
-                finish_reasons=cast("list[str | None]", ["stop"] * 3 + ["length"]),
-                judge_questions=["q0", "q1", "q2", "q3"],
-                response_tokens=[2] * 4,
-            )
-        ],
-        judge_engine=object(),
-    )
+    # Frozen: legacy _grade_impl on the same answers (the last truncated, finish
+    # reason "length"), thinking traces stripped, judge labels Yes/No/No.
+    saved = LEGACY["grade"]
+    assert saved["answers"] == answers
+    assert saved["finish_reasons"] == ["stop"] * 3 + ["length"]
+    assert saved["judge_labels"] == ["Yes", "No", "No"]
     metrics = _metrics(log)
     assert metrics["attack_success_rate"] == pytest.approx(
         100 * (1 - saved["accuracy"])

@@ -1,19 +1,19 @@
 # Native Inspect migration (LLM-155)
 
 Every benchmark runs as a native Inspect task; see the root README for the task
-list and reporting. The legacy CLI is retired (it prints a migration hint and
-exits 2). The legacy evaluator and config classes remain importable, with a
-`DeprecationWarning`, only so parity tooling can compare against them until
-LLM-171 removes them. Inspect 0.3.288 is tested and pinned to `<0.3.289`. Every
+list and reporting. Since 0.2.0 (LLM-171) the package is native-only: the legacy
+evaluation engine, its model loading and built-in inference defaults, and its
+Python API (`EvaluateFactory`, `EvaluationConfig`, ...) are removed, and the
+legacy CLI only prints a migration hint and exits 2 (see `CHANGELOG.md`).
+Historical legacy runs need the frozen pre-removal checkout documented in
+`scripts/parity/README.md`. Inspect 0.3.288 is tested and pinned to `<0.3.289`. Every
 Inspect behavior described below was checked against that version's source and
 is covered by tests in `tests/test_inspect_foundation.py`,
 `tests/test_inspect_packages.py`, `tests/test_inspect_template.py` and, for
 reporting, `tests/test_inspect_smoke.py`, `tests/test_inspect_brief.py` and
 `tests/test_inspect_mlflow.py`.
-Revalidate before widening the pin. Inspect requires Python 3.11+, so its
-dependency has a Python-version marker and Inspect tests are not collected on
-Python 3.10, which remains legacy-only. inspect-brief (the `[brief]` extra)
-requires Python 3.12+.
+Revalidate before widening the pin. The package requires Python 3.12 or 3.13
+(inspect-brief, the `[brief]` extra, requires 3.12+).
 
 ```sh
 uv venv .venv --python 3.13
@@ -274,7 +274,7 @@ names; `hallucination` and `hallucination-med` stay aliases).
 task_args, dataset_id)` aligned with `dataset_ids`; `dict(task_args)` gives task
 keyword arguments and `cli_args` the `-T` options. `dataset_id` is the asset's
 logical identity (CCPC's is `chinese_censorship`), not a task argument.
-`presets.py` imports nothing heavy and none of the legacy engine.
+`presets.py` imports nothing heavy.
 
 The root README has the full preset table. `llm-behavior-eval`,
 `python -m llm_behavior_eval` and `python -m llm_behavior_eval.evaluate` print
@@ -479,15 +479,15 @@ applies to the model under test; put the same keys under the grader's
 
 | Legacy setting | Native Inspect equivalent / limitation |
 | --- | --- |
-| HF repo | `--model hf/org/repo` |
+| HF repo | `--model hf/org/repo` (install the `hf` extra: Transformers, Torch, Accelerate) |
 | Local HF | `--model hf/local -M model_path=/models/model -M tokenizer_path=/models/model` |
-| vLLM repo | `--model vllm/org/repo` (Inspect launches a vLLM server) |
+| vLLM repo | `--model vllm/org/repo` (Inspect launches a vLLM server; install the `vllm` extra on Linux) |
 | Local vLLM | `--model vllm//models/model`; `vllm/local` alone means a model literally named `local`, not a model_path override. For a prestarted endpoint use `vllm/local -M base_url=http://127.0.0.1:8000/v1`, with that served model name. |
 | `--judge-model` | `--model-role grader=...` with any provider. The grader is never implied, so always pass it. |
 | Answer/judge temperature, token budgets, thinking | No defaults. Pass them per role as above, or use the benchmark's `parity.yaml`. |
 | dataset path/token | Benchmark task parameters `-T dataset_path=... -T dataset_token=...`. HF_TOKEN keeps credentials out of CLI history and logged task arguments. |
 | max_samples | `--limit N` / `eval(limit=N)`, or `eval_config.limit` in a parity config. Without a limit, Inspect runs the full split. |
-| use-4bit / use-4bit-judge | HF forwards remaining model args to Transformers. Use Python `quantization_config=BitsAndBytesConfig(load_in_4bit=True)`; no portable boolean CLI alias is implemented. Requires compatible bitsandbytes/GPU. Not vLLM. |
+| use-4bit / use-4bit-judge | HF forwards remaining model args to Transformers. Use Python `quantization_config=BitsAndBytesConfig(load_in_4bit=True)`; no portable boolean CLI alias is implemented. Requires compatible bitsandbytes/GPU, which 0.2.0 no longer installs. Not vLLM. |
 | device_map | HF `-M device=auto` (Inspect supplies this as device_map); don't pass device_map again |
 | trust_remote_code | `-M trust_remote_code=true`; opt in explicitly |
 | batch_size / judge_batch_size | HF `batch_size` model arg independently on each role; vLLM uses server scheduling and Inspect max_connections, not legacy batches |
@@ -524,7 +524,10 @@ metric exactly; a GPU re-run with `parity.yaml` is still required to confirm
 it (`scripts/parity/README.md`). The judge for parity is Gemma 3 12B (CCPC:
 its pinned Gemma 4 26B-A4B); `google/gemma-4-12B-it` is not qualified.
 
+Tests that compared native code with the legacy engine now compare it with the
+legacy outputs frozen in `tests/golden/` (captured at the pre-removal commit; see
+`tests/golden/README.md`), so they keep their assertions without the engine.
+
 Track LLM-141 for sequential vLLM eval lifecycle: repeated real GPU evaluations
 still need a regression test. A GPU parity re-run with `parity.yaml`,
-GPU/quantization/LoRA testing, Muse Glimmer support and legacy removal (LLM-171)
-remain follow-up work.
+GPU/quantization/LoRA testing and Muse Glimmer support remain follow-up work.

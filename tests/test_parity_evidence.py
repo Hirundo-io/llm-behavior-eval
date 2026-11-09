@@ -1,13 +1,10 @@
 import json
-from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from scripts.parity import compare as comparator
 from scripts.parity.tokenizer_probe import legacy_text_probe
-
-if TYPE_CHECKING:
-    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+from tests.golden import golden
 
 
 @pytest.fixture
@@ -209,8 +206,10 @@ def test_empty_manifest_still_reports_all_required_splits(tmp_path):
     assert all(row["status"] == "incomplete" for row in report["rows"])
 
 
-def test_probe_against_actual_legacy_preprocessing(monkeypatch):
-    from llm_behavior_eval.evaluation_utils import custom_dataset
+def test_probe_against_actual_legacy_preprocessing():
+    # Frozen legacy free_text_preprocess_function outputs for this tokenizer and
+    # render (tests/golden/probe.json; see tests/golden/README.md).
+    legacy = golden("probe")
 
     class Tokenizer:
         def __call__(self, texts, **kwargs):
@@ -231,21 +230,6 @@ def test_probe_against_actual_legacy_preprocessing(monkeypatch):
 
     tokenizer = Tokenizer()
     rendered = "system:user:" + "Q" * 1100
-    monkeypatch.setattr(
-        custom_dataset, "safe_apply_chat_template", lambda *args, **kwargs: rendered
-    )
-    legacy = custom_dataset.free_text_preprocess_function(
-        {
-            "question": ["Q" * 1100],
-            "answer": ["A" * 300],
-            "stereotyped_answer": ["S" * 300],
-            "judge_question": ["J" * 300],
-        },
-        cast("PreTrainedTokenizerBase", tokenizer),
-        1024,
-        256,
-        True,
-    )
     probe = legacy_text_probe(
         tokenizer, rendered, "A" * 300, stereotype="S" * 300, judge_question="J" * 300
     )
@@ -254,9 +238,9 @@ def test_probe_against_actual_legacy_preprocessing(monkeypatch):
         ("gt_answers", "target"),
         ("stereotyped_answers", "stereotype"),
     ]:
-        assert legacy[key][0].tolist() == probe[native_key]["input_ids"]
+        assert legacy[key] == probe[native_key]["input_ids"]
     assert (
-        tokenizer.decode(legacy["judge_questions"][0], skip_special_tokens=True)
+        tokenizer.decode(legacy["judge_questions"], skip_special_tokens=True)
         == probe["judge_question"]
     )
 

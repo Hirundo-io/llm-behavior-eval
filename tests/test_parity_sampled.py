@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from scripts.parity.reuse_legacy import RecordedJudgments
+from scripts.parity.recorded_judgments import RecordedJudgments
 from scripts.parity.sampled_report import pin_samples, summarize_samples
 
 

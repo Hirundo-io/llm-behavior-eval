@@ -27,7 +27,7 @@ ensure_uv() {
 ensure_uv
 
 if [[ ! -d "${VENV_PATH}" ]]; then
-  uv venv "${VENV_PATH}"
+  uv venv --python 3.12 "${VENV_PATH}"
 fi
 
 VENV_PYTHON="${VENV_PATH}/bin/python"

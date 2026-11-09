@@ -4,6 +4,10 @@
 (``evaluation_utils.prompts.FREE_TEXT_SYSTEM_MESSAGE``), used when a row has no
 ``system_prompt`` override. ``PROMPT_JUDGE_RESPONSE`` is
 ``FreeTextPromptInjectionEvaluator.PROMPT_JUDGE_RESPONSE``.
+
+The legacy engine was removed in 0.2.0: read these sources at the frozen
+pre-removal commit d8c8015 (scripts/parity/README.md); tests/golden/ freezes
+their values.
 """
 
 SYSTEM_PROMPT = """

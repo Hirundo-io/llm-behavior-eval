@@ -14,6 +14,7 @@ from llm_behavior_eval import (
     list_dataset_presets,
 )
 from llm_behavior_eval import presets as catalog
+from tests.golden import golden
 
 SINGLE_TASK_ASSETS = {
     "halueval": "hirundo-io/halueval",
@@ -100,13 +101,46 @@ def test_catalog_types_match_each_benchmark_package(package, types):
     assert set(module.BIAS_TYPES) == types
 
 
-def test_catalog_matches_the_legacy_catalog_while_it_exists():
-    from llm_behavior_eval.evaluation_utils import enums
+# Frozen legacy values (tests/golden/catalog.json; see tests/golden/README.md).
+LEGACY_FAMILY_OF_TASK = {
+    "bbq": "bias",
+    "unqover": "bias",
+    "bloom": "bias",
+    "halueval": "hallucination",
+    "medhallu": "hallucination",
+    "prompt_injection": "prompt-injection",
+    "ccpc": "censorship",
+    "xstest": "refusal",
+    "orbench": "refusal",
+}
 
-    assert catalog.BBQ_BIAS_TYPES == enums.BBQ_BIAS_TYPES
-    assert catalog.UNQOVER_BIAS_TYPES == enums.UNQOVER_BIAS_TYPES
-    assert catalog.BLOOM_BIAS_TYPES == enums.BLOOM_BIAS_TYPES
-    assert catalog.BIAS_KINDS == enums.BIAS_KINDS
+
+def test_catalog_matches_the_legacy_catalog():
+    legacy = golden("catalog")["enums"]
+    assert catalog.BBQ_BIAS_TYPES == set(legacy["BBQ_BIAS_TYPES"])
+    assert catalog.UNQOVER_BIAS_TYPES == set(legacy["UNQOVER_BIAS_TYPES"])
+    assert catalog.BLOOM_BIAS_TYPES == set(legacy["BLOOM_BIAS_TYPES"])
+    assert catalog.BIAS_KINDS == set(legacy["BIAS_KINDS"])
+
+
+def test_catalog_dataset_ids_match_the_legacy_ids():
+    legacy = golden("catalog")["dataset_ids"]
+    assert {
+        "CCPC_DATASET_ID": catalog.CCPC_DATASET_ID,
+        "CCPC_DATASET_REPOSITORY": catalog.CCPC_DATASET_REPOSITORY,
+        "OR_BENCH_DATASET": catalog.OR_BENCH_DATASET,
+        "XSTEST_DATASET": catalog.XSTEST_DATASET,
+    } == legacy
+
+
+def test_each_asset_maps_to_a_task_of_its_legacy_evaluator_family():
+    """The legacy EvaluateFactory family of each logical dataset id."""
+    legacy = golden("catalog")["evaluator_family"]
+    mappings = [m for preset in list_dataset_presets() for m in preset.inspect_tasks]
+    assert {m.dataset_id for m in mappings} == set(legacy)
+    for mapping in mappings:
+        task = mapping.task_name.removeprefix(catalog.TASK_PREFIX)
+        assert LEGACY_FAMILY_OF_TASK[task] == legacy[mapping.dataset_id], mapping
 
 
 @pytest.mark.parametrize(

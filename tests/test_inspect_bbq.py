@@ -3,7 +3,6 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -26,10 +25,13 @@ from llm_behavior_eval.common.target_metrics import (
     missing_target_metrics,
     read_target_metrics_file,
 )
+from tests.golden import golden
 
 REPO = Path(__file__).parents[1]
 PACKAGE = "llm_behavior_eval.bbq"
 SCORER = "bbq_scorer"
+# Frozen outputs of the removed legacy engine (tests/golden/README.md).
+LEGACY = golden("bbq")
 GENERATION_FIELDS = (
     "temperature",
     "top_p",
@@ -92,13 +94,8 @@ def source(monkeypatch):
     ],
 )
 def test_parser_parity(raw):
-    from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
-        extract_agreements,
-    )
-
-    assert (
-        parse_agreement(raw) == extract_agreements([[{"generated_text": raw}]])[0].value
-    )
+    # Legacy extract_agreements(...)[0].value on the same raw judge text.
+    assert parse_agreement(raw) == LEGACY["agreement"][raw]
 
 
 @pytest.mark.parametrize(
@@ -111,38 +108,26 @@ def test_parser_parity(raw):
     ],
 )
 def test_uncertainty_parity(raw):
-    from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
-        map_uncertainty_outputs,
-    )
-
-    assert (
-        parse_uncertainty(raw)
-        == map_uncertainty_outputs([[{"generated_text": raw}]])[0]
-    )
+    # Legacy map_uncertainty_outputs(...)[0] on the same raw judge text.
+    assert parse_uncertainty(raw) == LEGACY["uncertainty"][raw]
 
 
 def test_exact_legacy_constants():
-    from llm_behavior_eval.evaluation_utils import free_text_bias_evaluator as legacy
-    from llm_behavior_eval.evaluation_utils.prompts import (
-        FREE_TEXT_SYSTEM_MESSAGE,
-        UNKNOWN_ANSWERS,
-    )
-
-    evaluator = legacy.FreeTextBiasEvaluator
-    assert prompts.SYSTEM_MESSAGE == FREE_TEXT_SYSTEM_MESSAGE["content"]
-    assert list(prompts.UNKNOWN_ANSWERS) == UNKNOWN_ANSWERS
+    constants = LEGACY["constants"]
+    assert prompts.SYSTEM_MESSAGE == constants["system_message"]
+    assert list(prompts.UNKNOWN_ANSWERS) == constants["unknown_answers"]
     for key in ("AGREEMENT_CHECK_SYSTEM_PROMPT", "UNCERTAINTY_CHECK_SYSTEM_PROMPT"):
-        assert getattr(prompts, key) == getattr(evaluator, key)
-    assert prompts.AGREEMENT_PATTERN.pattern == legacy._JUDGE_OUTPUT_RE.pattern
-    assert prompts.AGREEMENT_PATTERN.flags == legacy._JUDGE_OUTPUT_RE.flags
-    assert prompts.UNCERTAINTY_PATTERN.pattern == legacy._UNCERT_RE.pattern
-    assert prompts.UNCERTAINTY_PATTERN.flags == legacy._UNCERT_RE.flags
+        assert getattr(prompts, key) == constants[key.lower()]
+    # Legacy _JUDGE_OUTPUT_RE and _UNCERT_RE.
+    patterns = LEGACY["patterns"]
+    assert prompts.AGREEMENT_PATTERN.pattern == patterns["agreement"]["pattern"]
+    assert prompts.AGREEMENT_PATTERN.flags == patterns["agreement"]["flags"]
+    assert prompts.UNCERTAINTY_PATTERN.pattern == patterns["uncertainty"]["pattern"]
+    assert prompts.UNCERTAINTY_PATTERN.flags == patterns["uncertainty"]["flags"]
 
 
-def test_judge_messages_match_legacy(tmp_path, monkeypatch, source):
+def test_judge_messages_match_legacy(tmp_path, source):
     """The grader receives exactly the legacy judge messages (raw question)."""
-    from llm_behavior_eval.evaluation_utils import free_text_bias_evaluator as legacy
-
     source([dict(question="q0", answer="person", stereotyped_answer="stereo")])
     seen: list[list[dict[str, str]]] = []
 
@@ -162,26 +147,11 @@ def test_judge_messages_match_legacy(tmp_path, monkeypatch, source):
     )
     scores_of(logs[0])
 
-    captured: list[list[dict[str, str]]] = []
-    evaluator = object.__new__(legacy.FreeTextBiasEvaluator)
-    monkeypatch.setattr(evaluator, "prepare_judge_tokenizer", lambda: None)
-    monkeypatch.setattr(evaluator, "_get_judge_tokenizer", lambda: None)
-    monkeypatch.setattr(
-        legacy,
-        "safe_apply_chat_template",
-        lambda tokenizer, messages: captured.append(messages) or "",
-    )
-    monkeypatch.setattr(
-        evaluator,
-        "run_judge_with_backoff",
-        lambda engine, batch: [[{"generated_text": ""}]] * len(batch),
-    )
-    evaluator._match_llm_answers(
-        cast("Any", object()), ["a0"], ["person"], ["stereo"], ["q0"]
-    )
+    # The messages legacy FreeTextBiasEvaluator._match_llm_answers rendered for
+    # answers ["a0"], targets ["person"], stereotypes ["stereo"], questions ["q0"].
     # Legacy batches all GT prompts, then all stereotype prompts, then all
     # uncertainty prompts; with one sample the order matches the native calls.
-    assert seen == captured
+    assert seen == LEGACY["judge_messages"]
 
 
 # --- dataset -----------------------------------------------------------------
@@ -239,18 +209,20 @@ def test_offline_snapshot(tmp_path):
 
 @pytest.mark.parametrize("kind", KINDS)
 @pytest.mark.parametrize("has_stereotype", [True, False])
-def test_legacy_grade_parity(tmp_path, monkeypatch, source, kind, has_stereotype):
-    from llm_behavior_eval.evaluation_utils.enums import DatasetType
-    from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
-        Agreement,
-        FreeTextBiasEvaluator,
-        _BiasGenerationRecord,
-    )
-
+def test_legacy_grade_parity(tmp_path, source, kind, has_stereotype):
     targets = ["person", "Unknown", "person", "person", "person"]
     gt = ["yes", "no", "unmatched", "no"]
     uncertainty = ["no", "yes", "yes", "no"]
     stereo = ["yes", "yes", "yes", "yes"]
+    finish_reasons = ["stop", "stop", "stop", "stop", "length"]
+    # The fixture the frozen legacy _grade_impl results were captured on.
+    assert LEGACY["grade_inputs"] == dict(
+        targets=targets,
+        gt=gt,
+        uncertainty=uncertainty,
+        stereo=stereo,
+        finish_reasons=finish_reasons,
+    )
     rows = [
         dict(
             question=f"q{i}",
@@ -299,55 +271,16 @@ def test_legacy_grade_parity(tmp_path, monkeypatch, source, kind, has_stereotype
     assert (scores[0].metadata or {})["judge_question"] == "q0"
     assert "1024" in (scores[0].metadata or {})["prompt_parity"]
 
-    legacy = object.__new__(FreeTextBiasEvaluator)
-    legacy.num_samples = 5
-    legacy.has_stereotype = has_stereotype
-    monkeypatch.setattr(
-        legacy,
-        "dataset_config",
-        SimpleNamespace(
-            dataset_type=DatasetType.UNBIAS if kind == "unbias" else DatasetType.BIAS
-        ),
-        raising=False,
-    )
-    monkeypatch.setattr(legacy, "_format_answers", lambda a: a)
-    monkeypatch.setattr(
-        legacy,
-        "_match_llm_answers",
-        lambda *a: (
-            [
-                (Agreement(g), Agreement(s if has_stereotype else "no"))
-                for g, s in zip(gt, stereo, strict=True)
-            ],
-            uncertainty,
-            [[{"generated_text": ""}]] * 4,
-            [[{"generated_text": ""}]] * 4,
-        ),
-    )
-    saved = []
-    monkeypatch.setattr(
-        legacy, "save_results", lambda *args, **kwargs: saved.append((args, kwargs))
-    )
-    legacy._grade_impl(
-        [
-            _BiasGenerationRecord(
-                questions=[r["question"] for r in rows],
-                answers=[f"a{i}" for i in range(5)],
-                correct_answers=targets,
-                stereotyped_answers=["stereo"] * 5 if has_stereotype else None,
-                finish_reasons=["stop", "stop", "stop", "stop", "length"],
-            )
-        ],
-        judge_engine=cast("Any", object()),
-    )
     metrics = metrics_of(logs[0])
-    args, kwargs = saved[0]
-    assert metrics["accuracy"] == args[1]
-    assert metrics["error"] == 1 - args[1]
-    assert metrics["empty_responses"] == args[3]
-    assert metrics["incomplete_response_rate"] == kwargs["incomplete_response_rate"]
+    # Legacy FreeTextBiasEvaluator._grade_impl save_results on the same fixture
+    # (the kind's dataset type, one record, finish_reasons above, stubbed judges).
+    saved = LEGACY["grade"][kind][str(has_stereotype)]
+    assert metrics["accuracy"] == saved["accuracy"]
+    assert metrics["error"] == 1 - saved["accuracy"]
+    assert metrics["empty_responses"] == saved["empty_responses"]
+    assert metrics["incomplete_response_rate"] == saved["incomplete_response_rate"]
     if has_stereotype:
-        assert metrics["stereotype_bias"] == args[2]
+        assert metrics["stereotype_bias"] == saved["stereotype_bias"]
     else:
         assert "stereotype_bias" not in metrics
 
@@ -539,25 +472,19 @@ def test_shipped_parity_config_holds_legacy_settings():
 
 
 def test_parity_config_matches_legacy_defaults():
-    from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
-    from llm_behavior_eval.evaluation_utils.eval_config import (
-        FAMILY_TOKEN_DEFAULTS,
-        EvaluationConfig,
-    )
-
+    # Legacy FAMILY_TOKEN_DEFAULTS["bias"], EvaluationConfig and DatasetConfig
+    # field defaults.
+    legacy = LEGACY["settings"]
     config = yaml.safe_load(parity_config_path(PACKAGE).read_text())
-    family = FAMILY_TOKEN_DEFAULTS["bias"]
+    family = legacy["family_token_defaults"]
     grader = config["model_roles"]["grader"]
     assert config["generate_config"]["max_tokens"] == family["max_answer_tokens"]
     assert grader["config"]["max_tokens"] == family["max_judge_tokens"]
     assert grader["args"]["do_sample"] == family["sample_judge"]
     assert grader["args"]["enable_thinking"] == family["enable_thinking"]
-    assert EvaluationConfig.model_fields["sample"].default is False
-    assert (
-        config["eval_config"]["limit"]
-        == EvaluationConfig.model_fields["max_samples"].default
-    )
-    seed = DatasetConfig.model_fields["seed"].default
+    assert legacy["evaluation_sample_default"] is False
+    assert config["eval_config"]["limit"] == legacy["evaluation_max_samples_default"]
+    seed = legacy["dataset_seed_default"]
     assert config["generate_config"]["seed"] == grader["config"]["seed"] == seed
 
 

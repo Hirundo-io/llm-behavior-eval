@@ -69,7 +69,8 @@ rebuilds metrics from a log.
 
 ## Parity
 
-`parity.yaml` holds the legacy settings (from `evaluation_utils/eval_config.py`
+`parity.yaml` holds the legacy settings (from the removed engine's
+`evaluation_utils/eval_config.py` at d8c8015
 `FAMILY_TOKEN_DEFAULTS["hallucination"]`, `sampling_config.py` and
 `dataset_config.py`):
 
