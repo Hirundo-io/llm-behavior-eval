@@ -92,7 +92,12 @@ Local GPU execution and full benchmark parity are not claimed by CPU tests.
 | device_map | HF `-M device=auto` (Inspect supplies this as device_map); don't pass device_map again |
 | trust_remote_code | `-M trust_remote_code=true`; opt in explicitly |
 | batch_size / judge_batch_size | HF `batch_size` model arg independently on each role; vLLM uses server scheduling and Inspect max_connections, not legacy batches |
-| vLLM max_model_len, gpu_memory_utilization, tokenizer, config_format, load_format, language_model_only | Server args via `-M name=value`; passed through, support depends on vLLM/model. Gemma 4 still needs GPU validation. |
+| `--vllm-max-model-len N` | `-M max_model_len=N` (vLLM server `--max-model-len N`) |
+| `--vllm-gpu-memory-utilization F` | `-M gpu_memory_utilization=F` (`--gpu-memory-utilization F`) |
+| `--vllm-tokenizer-mode MODE` | `-M tokenizer_mode=MODE` (`--tokenizer-mode MODE`; `auto`, `slow`, `mistral` or `custom`) |
+| `--vllm-config-format FMT` / `--vllm-load-format FMT` | `-M config_format=FMT` / `-M load_format=FMT` (`--config-format` / `--load-format`) |
+| vLLM tokenizer path, language_model_only | `-M tokenizer=PATH`; `-M language_model_only=true` (boolean flag, omitted when false) |
+| vLLM server-argument contract | Inspect forwards every unrecognized `-M name=value` to the server it launches as `--name-with-dashes value` (`true` becomes a bare flag). Values are not validated by Inspect; support depends on the vLLM version and model. With `base_url` no server is launched, so configure these on the prestarted server. Gemma 4 still needs GPU validation. |
 | vllm-max-lora-rank | vLLM `-M max_lora_rank=...`; native adapter model syntax `vllm/base:adapter-path` |
 | mlflow://, s3://, gs://, git:// adapters | Pre-resolve using legacy `util_functions.maybe_download_adapter` in a separate setup step, then pass local adapter path. No URI resolver/custom provider in this foundation; resolver import can load legacy dependencies. HF adapter parity is unverified. |
 | HF thinking | `-M enable_thinking=false -M do_sample=false`; refusal answer uses true. Set grader args separately. HF accepts no custom thinking keyword and does not implement Muse Glimmer SafeApplyChatTemplate. |

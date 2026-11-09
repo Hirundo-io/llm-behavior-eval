@@ -341,25 +341,98 @@ def test_registration_and_lazy_import(tmp_path):
     assert "inspect_template" in listed.stdout
 
 
-def test_provider_contracts():
-    # Source contracts exercise installed API shape without loading weights or a GPU.
-    import inspect_ai
+class _Loaded:
+    def __init__(self, kind: str, source: str, kwargs: dict[str, object]):
+        self.kind = kind
+        self.source = source
+        self.kwargs = kwargs
+        self.eos_token = "</s>"
 
-    root = (
-        __import__("pathlib").Path(inspect_ai.__file__).parent / "model" / "_providers"
+
+@pytest.mark.parametrize(
+    ("name", "model_args", "model_source", "tokenizer_source"),
+    [
+        ("hf/org/repo", {}, "org/repo", "org/repo"),
+        (
+            "hf/local",
+            {"model_path": "/models/answer", "tokenizer_path": "/models/tok"},
+            "/models/answer",
+            "/models/tok",
+        ),
+        ("hf/local", {"model_path": "/models/answer"}, "/models/answer", None),
+    ],
+)
+def test_hf_provider_configuration(
+    monkeypatch, name, model_args, model_source, tokenizer_source
+):
+    # Configure the real HF provider with stub loaders: no weights, no GPU.
+    hf = pytest.importorskip("inspect_ai.model._providers.hf")
+    calls: list[_Loaded] = []
+
+    def loader(kind: str):
+        def from_pretrained(source: str, **kwargs: object) -> _Loaded:
+            loaded = _Loaded(kind, source, kwargs)
+            calls.append(loaded)
+            return loaded
+
+        return type(kind, (), {"from_pretrained": staticmethod(from_pretrained)})
+
+    monkeypatch.setattr(hf, "AutoModelForCausalLM", loader("model"))
+    monkeypatch.setattr(hf, "AutoTokenizer", loader("tokenizer"))
+    model = get_model(
+        name,
+        memoize=False,
+        device="cpu",
+        batch_size=4,
+        trust_remote_code=True,
+        **model_args,
     )
-    hf = (root / "hf.py").read_text()
-    for key in (
-        "model_path",
-        "enable_thinking",
-        "batch_size",
-        "device",
-        "trust_remote_code",
-    ):
-        assert f'collect_model_arg("{key}")' in hf
+    api = model.api
+    assert isinstance(api, hf.HuggingFaceAPI)
+    assert [(c.kind, c.source) for c in calls] == [
+        ("model", model_source),
+        ("tokenizer", tokenizer_source or model_source),
+    ]
+    assert calls[0].kwargs["device_map"] == "cpu"
+    assert calls[0].kwargs["trust_remote_code"] is True
+    assert "model_path" not in calls[0].kwargs
+    assert api.batch_size == 4
+
+
+def test_provider_contracts():
     for name in ("vllm/org/repo", "vllm/local"):
         model = get_model(name)
         assert model.api.model_name == name.removeprefix("vllm/")
+    # Legacy vLLM options are forwarded as server args; no server starts here.
+    model = get_model(
+        "vllm/org/repo",
+        memoize=False,
+        max_model_len=4096,
+        gpu_memory_utilization=0.8,
+        tokenizer_mode="mistral",
+        config_format="mistral",
+        load_format="mistral",
+    )
+    from inspect_ai.model._providers.vllm import VLLMAPI
+
+    assert isinstance(model.api, VLLMAPI)
+    server_args = model.api.server_args
+    assert {
+        key: server_args[key]
+        for key in (
+            "max_model_len",
+            "gpu_memory_utilization",
+            "tokenizer_mode",
+            "config_format",
+            "load_format",
+        )
+    } == {
+        "max_model_len": 4096,
+        "gpu_memory_utilization": 0.8,
+        "tokenizer_mode": "mistral",
+        "config_format": "mistral",
+        "load_format": "mistral",
+    }
     with pytest.raises(ValueError, match="custom thinking"):
         thinking_args("refusal", provider="hf", argument="custom")
 
