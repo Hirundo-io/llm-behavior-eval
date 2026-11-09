@@ -1,33 +1,140 @@
 # LLM-169 qualification report — 2026-11-09
 
-**Representative paired qualification across all 31 configurations remains pending.**
-The owner reduced the remaining acceptance scope to deterministic 50–100-row
-subsets per configuration. The former 500-row/full-source schedule is no longer
-a migration gate. Its completed evidence remains unchanged. A separate 100-row
-manifest pins all 31 configurations, source IDs, counts and hashes; it does not
-relabel the earlier 500-row runs. This validates implementation parity, without
-claiming full-dataset score equality or a statistical one-percentage-point bound.
+**All 31 representative paired configurations pass exactly: 100 rows each,
+3,100 rows total, with 7,448 actual judge requests per side.** The final selection
+includes the real Purple rescore under the arithmetic fix. Every compared field,
+metric, observed judge-token boundary, raw judge output and actual response order
+matches. No tolerance or divergence was accepted. Original sample inputs and
+targets remain intact. The legacy oracle remains; deletion candidate `e642f167`
+was not integrated. This is qualification evidence, not PR or release approval.
 
-Thirty completed legacy runs supplied immutable first-100-row evidence. Existing
-retained graders recomputed subset metrics from actual generations and raw
-judgments on CPU. Every reconstructed judge prompt matched its original observed
-token IDs, and every resulting response record matched the original prefix.
-OR-Bench requires fresh 100-row legacy inference; native paired comparisons and
-the explicit Purple arithmetic follow-up remain outstanding at this checkpoint.
+The owner reduced the remaining migration gate to representative subsets. These
+are deterministic first-100 selections from the frozen production source order,
+not rows selected by outputs. Every required bias/unbias/ambiguous variant ran;
+XSTest covers 58 safe/42 unsafe rows and OR-Bench 70 safe/30 unsafe rows. CCPC
+retains its original 500-row source fingerprint/revision and published order.
+The separate sampled manifest preserves IDs, counts and source hashes. It does
+not relabel older 500-row evidence or weaken the historical 500-row reporter.
 
-Current real evidence includes exact eager-mode production HaluEval parity on
-500 rows (89.8% accuracy on both sides), 16 eager boundary rows, and compiled
-two-row wiring across all nine families. The initial compiled CCPC judge-token
-mismatch was diagnosed and a fresh pair passes with explicit scalar content
-formatting. Purple's two-row compiled ASR is undefined, so that slice does not
-establish its score. All 16 compiled boundary rows now pass exactly, and the fresh
-31-case representative matrix is prepared. No tolerance or divergence is accepted, and
-no legacy files were deleted.
+| Family | Configurations | Paired rows | Actual judge requests per side | Largest judge input, tokens | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| BBQ | 12 | 1,200 | 3,489 | 818 | Exact |
+| UNQOVER | 4 | 400 | 742 | 734 | Exact |
+| BLOOM | 9 | 900 | 2,700 | 911 | Exact |
+| HaluEval | 1 | 100 | 100 | 472 | Exact |
+| Med-Hallu | 1 | 100 | 54 | 798 | Exact |
+| Purple Llama | 1 | 100 | 63 | 172 | Exact, fixed-source rescore |
+| CCPC | 1 | 100 | 100 | 2,038 | Exact |
+| XSTest | 1 | 100 | 100 | 1,649 | Exact |
+| OR-Bench | 1 | 100 | 100 | 2,262 | Exact |
 
-The production source remains pinned to `f35fb81`; only qualification tooling
-changed during these runs. Parent's later HF support is outside this GPU evidence.
-Compact JSON evidence and detailed checkpoint results appear below. Earlier
-diagnostics and initial gap assessments are retained as historical records.
+[Final sampled evidence](production-sampled-100.json) contains every configuration's
+metrics, verdict confusion, source/identity hashes and coverage. The separate
+[settings audit](production-sampled-settings.json) binds all 31 actual logs and
+configs; the [sampled manifest](production-sampled-manifest.json) pins selection.
+HaluEval/Med-Hallu/Purple metrics use percent; the other rate metrics use fractions.
+Actual request order is exact. Inspect's sample-grouped event serialization can
+have a different order, which is retained as a separate diagnostic rather than
+mistaken for model request order.
+
+Thirty legacy sides reuse immutable actual GPU generations and raw judgments
+from completed larger runs. The retained graders recomputed the selected metrics
+on CPU, checking every replayed judge prompt against observed original token IDs
+and every resulting response against the original prefix. Original run configs
+still carry their original caps, and reuse provenance records both scopes.
+OR-Bench ran fresh legacy inference on its 100 selected rows. No simulated model
+output or full-run aggregate was substituted for sampled evidence.
+
+All paired production source is frozen at `f35fb814b0c99081707f81241b39ed72cd4ebcbf`,
+with exactly one production-file change in the Purple follow-up:
+`llm_behavior_eval/prompt_injection/scorer.py`, fix `b9a5b28` (parent `104f6b2`).
+The H200 runtime is Python 3.12.16, Torch 2.13, vLLM 0.30, Transformers 5.20.2 and
+Inspect 0.3.288. The paired runs use pinned Gemma 3 4B answers, Gemma 3 12B judges,
+and Gemma 4 26B-A4B for CCPC judging; revisions are recorded in the evidence.
+Greedy BF16 generation, request seed 42, engine seed 0, production budgets and
+thinking controls, one active sequence, and source order match on both sides.
+Answer and judge models run in separate processes. Native servers are reused
+through existing Inspect APIs, with per-case cache isolation. CCPC uses explicit
+`chat_template_content_format=string`. No evaluation/model engine was added.
+
+The earlier exact eager HaluEval 500-row result (89.8% on both sides) and exact
+16-row compiled long-boundary result remain separate evidence. The latter checks
+actual 1024-token answer boundaries, 256-token targets/stereotypes and independent
+Purple questions. Judge requests are uncapped; the representative matrix also
+observes inputs above 1024 tokens. These results do not establish full-dataset
+score equality or a statistical one-percentage-point accuracy guarantee.
+
+## Purple arithmetic follow-up
+
+The actual 100-row slice has 30 Yes/33 No judgments and 37 non-stop answers. Its
+ASR is `47.61904761904761` before and after the fix, so this slice does not exhibit
+the rounding counterexample. The isolated fixed-source run nevertheless performs
+63 real judge calls and passes all strict checks, reusing a hash-verified immutable
+native answer log and unchanged legacy evidence.
+
+Separately, [aggregation-only replay](production-purple-metric-replay.json) uses
+all 251 already-recorded legacy rows, with 152 actual judgments (74 Yes/78 No).
+The old native metric returns `48.68421052631579`; retained arithmetic and the
+fixed native metric both return `48.684210526315795`. This demonstrates the fix
+on real recorded judgments without output-based selection. It is not a claim of
+native generation or judge inference on all 251 rows.
+
+## Bounded GPT-OSS integration
+
+[Actual integration evidence](production-gptoss-integration.json) covers cached
+GPT-OSS 20B revision `6cee5e81ee83917806bbde320786a8fb61efebee` on the same pinned
+runtime, with its existing MXFP4 weights and BF16 activations. The operator supplies
+`reasoning_parser=openai_gptoss` and `reasoning_effort=medium` through Inspect;
+the installed upstream source also establishes the parser's automatic default.
+There is no package model-to-parser mapping or custom model-output parser.
+Parser selection remains user/provider configuration. Benchmark verdict parsers
+remain task-owned. See [Inspect](https://inspect.aisi.org.uk/reasoning#vllm--sglang)
+and [vLLM 0.30](https://docs.vllm.ai/en/v0.30.0/features/reasoning_outputs/).
+
+Two real production XSTest cases cover safe/unsafe inputs, final text with separate
+reasoning, and both stop and token-budget termination. Their actual prompt IDs
+match production metadata. A third, explicitly diagnostic eight-token request
+terminates with reasoning but no final text. In all three cases the exact final
+text reaches the production scorer and the recorded grader request matches its
+prompt; reasoning is not included in the response being graded. The empty final
+response is actually judged as comply by the Gemma judge; no claim of judge
+accuracy is made from this integration test.
+
+The diagnostic still produces reasoning with `enable_thinking=False`. A separate
+`reasoning_effort="none"` request receives native HTTP 400: Harmony does not support
+that value. Strict thinking-off tasks therefore remain unsupported/unqualified
+for this tested combination. Medium is the tested mode; low is not off. The
+provider reports zero reasoning-token usage despite visible reasoning in all
+three responses, so that counter cannot establish thinking-off behavior.
+
+The report reader resolves Inspect's stored attachments through the existing API.
+The initial unresolved-attachment report and the error-wording diagnostic are
+preserved; fixes only re-read evidence, with scored-log hashes unchanged. This
+probe establishes scoped native provider/parser/scorer integration, not paired
+legacy/native GPT-OSS generation or score equality. HF GPU equality remains a
+separate validation gap. Nemotron/Muse have CPU rejection coverage only here;
+existing Gemma/Qwen tokenizer fixtures retain their limited CPU scope.
+
+## Validation and preservation
+
+The final parity-tool suite passes **92 tests**. Full Ruff lint/format checks and
+focused Pyrefly checks pass. All four primary GPU phases, all 31 primary report
+phases, and the real Purple follow-up finish successfully. An independent audit
+checks settings and binds source, retained config and scored-log hashes for all
+31 selected final cases. No shared production preprocessing was edited.
+
+Raw evidence is ignored locally under `results/llm169-production-h200/`, including
+`sampled-complete-evidence.tar.gz`. It preserves the larger legacy originals,
+complete sampled matrix, strict snapshots, real Purple follow-up, GPT-OSS logs,
+failed reader diagnostics and provenance. Compact evidence is committed separately.
+The [archive index](production-evidence-archive.json) records its verified local
+SHA-256 and size (182,873,081 bytes). [Cleanup evidence](production-gpu-cleanup.json)
+confirms all own jobs finished and the GPU was idle; the original `VM_OFF_h200`
+flag was restored before shutdown, and H200 is verified **STOPPED**. Other
+instances and environments were left untouched. No sampled rows remain unfinished.
+
+Historical records below are retained for audit; their earlier gap assessments
+and obsolete schedules are not the current qualification result.
 
 ## Historical initial review
 
