@@ -151,3 +151,18 @@ The corrected complete suite also passes in a clean locked Python 3.12 reporting
 environment: **431 passed, 18 optional skips**, with Ruff, Pyrefly and lock checks
 passing. This run uses the console `pytest` entry point without `PYTHONPATH`;
 `results/pr-stack/ci312-full-final.log` records the local result.
+
+A fresh CI build exposed an additional import-order regression: prepending the
+checkout made setuptools' generated source `.egg-info` shadow the installed
+`.dist-info`, hiding the editable-install metadata Inspect uses for task names.
+The test configuration now appends the checkout after installed packages instead.
+This preserves imports of examples and parity scripts without overriding package
+metadata. Reproduced with source `.egg-info` present: the original BBQ smoke
+fails; the corrected discovery/CLI/parity subset passes all **46 tests**.
+The complete rerun passed 429 tests and skipped 18; two UNQOVER cases hit the
+VM's full root disk (`sqlite3.OperationalError: database or disk is full`).
+Redirecting Inspect data/config/cache to the project volume made the complete
+UNQOVER suite pass (**24 tests**). Ruff, Pyrefly, formatting and lock checks pass.
+Logs: `results/pr-stack/egg-shadow-{full,unqover}.log`. No task/scorer change was
+needed for the storage failures, and source `.egg-info` remained present during
+these checks.
