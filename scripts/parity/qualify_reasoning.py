@@ -107,7 +107,7 @@ def main() -> None:
             truncated = Task(
                 name="reasoning_truncation",
                 dataset=MemoryDataset([selected[0]]),
-                solver=generate(max_tokens=1, temperature=0),
+                solver=generate(max_tokens=8, temperature=0),
                 scorer=scorer(),
             )
             for name, current in [("production", task), ("truncation", truncated)]:
@@ -238,7 +238,7 @@ def main() -> None:
                     and r["has_reasoning"]
                     and not r["has_final"]
                     and r["stop_reason"] == "max_tokens"
-                    and r["requested_budget"] == 1
+                    and r["requested_budget"] == 8
                     for r in rows
                 ),
                 unsupported_effort_rejected=rejection.get("rejected") is True
