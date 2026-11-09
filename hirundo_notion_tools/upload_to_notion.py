@@ -9,7 +9,8 @@ For each `<page_dir>`:
 - Create/update a Notion page (title = `<page_dir>` by default)
 - For each row in `summary_brief.csv`:
   - Notion property name = `Dataset` column
-  - Notion property value = `Error (%)` if present else `Accuracy (%)` (as a Number)
+  - Notion property value = the first non-empty of `Error (%)`, `Attack success rate (%)`,
+    `Censorship rate (%) ⬇️`, then `Accuracy (%)` (as a Number); headers may carry a ⬇️/⬆️ suffix
 - Add two more properties:
   - "Model name": taken from `evaluation_config.model_path_or_repo_id` in any `run_config.json`
   - "Judge name": taken from `evaluation_config.judge_path_or_repo_id` in any `run_config.json`
@@ -141,6 +142,19 @@ def find_results_pages(results_dir: Path) -> list[Path]:
     return sorted([page for page in results_dir.iterdir() if page.is_dir()])
 
 
+# Metric headers in priority order. Each family accepts the legacy header and the
+# arrow-suffixed header that the evaluators write today.
+SUMMARY_METRIC_COLUMNS = (
+    "Error (%)",
+    "Error (%) ⬇️",
+    "Attack success rate (%)",
+    "Attack success rate (%) ⬇️",
+    "Censorship rate (%) ⬇️",
+    "Accuracy (%)",
+    "Accuracy (%) ⬆️",
+)
+
+
 def parse_summary_brief(summary_brief_csv: Path) -> dict[str, float]:
     """
     Args:
@@ -155,22 +169,29 @@ def parse_summary_brief(summary_brief_csv: Path) -> dict[str, float]:
     out: dict[str, float] = {}
     with summary_brief_csv.open("r", encoding="utf-8", newline="") as summary_file:
         reader = csv.DictReader(summary_file)
-        required_cols = {"Dataset", "Accuracy (%)", "Error (%)"}
-        if reader.fieldnames is None or not required_cols.issubset(
-            set(reader.fieldnames)
-        ):
+        field_names = reader.fieldnames or []
+        metric_columns = [
+            column for column in SUMMARY_METRIC_COLUMNS if column in field_names
+        ]
+        if "Dataset" not in field_names or not metric_columns:
             raise ValueError(
                 f"{summary_brief_csv} missing required columns. "
-                f"Got: {reader.fieldnames}; required: {sorted(required_cols)}"
+                f"Got: {reader.fieldnames}; required: 'Dataset' and at least one of "
+                f"{list(SUMMARY_METRIC_COLUMNS)}"
             )
 
         for row in reader:
             dataset = (row.get("Dataset") or "").strip()
             if not dataset:
                 continue
-            err_raw = (row.get("Error (%)") or "").strip()
-            acc_raw = (row.get("Accuracy (%)") or "").strip()
-            chosen = err_raw if err_raw != "" else acc_raw
+            chosen = next(
+                (
+                    value
+                    for column in metric_columns
+                    if (value := (row.get(column) or "").strip())
+                ),
+                "",
+            )
             if chosen == "":
                 continue
             try:

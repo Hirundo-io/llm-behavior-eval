@@ -74,6 +74,63 @@ def test_parse_summary_brief_prefers_error_else_accuracy(tmp_path: Path) -> None
     assert "Empty row" not in got
 
 
+@pytest.mark.parametrize(
+    ("csv_text", "expected"),
+    [
+        pytest.param(
+            "Dataset,Thinking,Accuracy (%) ⬆️,Error (%) ⬇️,Attack success rate (%) ⬇️\n"
+            "BBQ: race bias,off,,41.600,\n"
+            "halueval,off,72.200,,\n"
+            "prompt-injection-purple-llama,off,,,25.000\n",
+            {
+                "BBQ: race bias": 41.6,
+                "halueval": 72.2,
+                "prompt-injection-purple-llama": 25.0,
+            },
+            id="current-headers",
+        ),
+        pytest.param(
+            "Dataset,Attack success rate (%) ⬇️\nprompt-injection-purple-llama,25.000\n",
+            {"prompt-injection-purple-llama": 25.0},
+            id="attack-success-rate-only",
+        ),
+        pytest.param(
+            "Dataset,Thinking,Censorship rate (%) ⬇️\nchinese_censorship,off,12.400\n",
+            {"chinese_censorship": 12.4},
+            id="censorship-rate-only",
+        ),
+        pytest.param(
+            "Dataset,Accuracy (%) ⬆️\nhalueval,67.000\n",
+            {"halueval": 67.0},
+            id="accuracy-only",
+        ),
+        pytest.param(
+            "Dataset,Accuracy (%),Attack success rate (%),Error (%)\n"
+            "Dataset one,70.000,31.000,12.000\n"
+            "Dataset two,66.000,22.000,\n"
+            "Dataset three,55.000,,\n",
+            {"Dataset one": 12.0, "Dataset two": 22.0, "Dataset three": 55.0},
+            id="error-then-attack-success-rate-then-accuracy",
+        ),
+    ],
+)
+def test_parse_summary_brief_reads_supported_metric_columns(
+    tmp_path: Path, csv_text: str, expected: dict[str, float]
+) -> None:
+    csv_path = tmp_path / "summary_brief.csv"
+    csv_path.write_text(csv_text, encoding="utf-8")
+
+    assert upload_to_notion.parse_summary_brief(csv_path) == pytest.approx(expected)
+
+
+def test_parse_summary_brief_requires_a_metric_column(tmp_path: Path) -> None:
+    csv_path = tmp_path / "summary_brief.csv"
+    csv_path.write_text("Dataset,Thinking\nhalueval,off\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing required columns"):
+        upload_to_notion.parse_summary_brief(csv_path)
+
+
 def test_extract_model_and_judge_names_reads_first_run_config(tmp_path: Path) -> None:
     page_dir = tmp_path / "page"
     run_dir = page_dir / "some_dataset"
