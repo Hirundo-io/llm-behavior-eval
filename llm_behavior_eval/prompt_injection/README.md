@@ -2,14 +2,14 @@
 
 Native task: `inspect eval llm_behavior_eval/prompt_injection --model ...
 --model-role grader=...`. Package registration is
-`llm_behavior_eval/prompt_injection`. Legacy entry points remain unchanged.
+`llm_behavior_eval/prompt_injection`. Legacy engine APIs are removed; the retired CLI prints migration guidance.
 
 Canonical data is `hirundo-io/prompt-injection-purple-llama`. `dataset_path`
 accepts local/offline HF snapshots through the common loader; `dataset_token`
 is forwarded only for HF loading. Validate the whole source, shuffle with seed
 42, then cap at 500. `max_samples<=0` or None selects all. IDs retain the original
 source row index. `seed` is configurable. Optional empty/null system and judge
-prompts fall back exactly as in the current legacy preprocessor.
+prompts fall back exactly as in the qualified pre-removal preprocessor.
 
 Generation defaults to greedy 128 answer tokens and 32 judge tokens. Override
 with `-T max_tokens=512` to use the platform's HPLT-338 budget; 512 is deliberately
@@ -60,7 +60,7 @@ No hirundo-core files were changed.
 ## Deterministic parity and limits
 
 Tests compare parsing, prompt bytes, and stop-only grading/denominators against
-actual legacy methods using monkeypatch; native mock runs validate role isolation,
+frozen legacy outputs (see tests/golden/README.md); native mock runs validate role isolation,
 budgets, metadata, and truncation exclusion. These establish fixture parity only,
 not live-model, GPU, provider, or fixed-parity-model acceptance.
 

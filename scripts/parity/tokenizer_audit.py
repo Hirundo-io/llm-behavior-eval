@@ -5,20 +5,20 @@ import hashlib
 import json
 from copy import deepcopy
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import Any, cast
 
-if TYPE_CHECKING:
-    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+from scripts.parity.historical import legacy_module
 
 
 def main() -> None:
     from datasets import Dataset
-    from transformers import AutoTokenizer
+
+    safe_apply_chat_template = legacy_module(
+        "llm_behavior_eval.evaluation_utils.util_functions"
+    ).safe_apply_chat_template
+    from transformers import AutoTokenizer  # type: ignore[missing-import]
 
     from llm_behavior_eval.common.templates import FREE_TEXT_SYSTEM_MESSAGE
-    from llm_behavior_eval.evaluation_utils.util_functions import (
-        safe_apply_chat_template,
-    )
     from scripts.parity.tokenizer_probe import legacy_text_probe
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -26,7 +26,7 @@ def main() -> None:
     parser.add_argument("--root", type=Path, required=True)
     args = parser.parse_args()
     tokenizer = cast(
-        "PreTrainedTokenizerBase",
+        "Any",
         AutoTokenizer.from_pretrained(str(args.model), local_files_only=True),
     )
     tokenizer.pad_token = tokenizer.pad_token or tokenizer.eos_token

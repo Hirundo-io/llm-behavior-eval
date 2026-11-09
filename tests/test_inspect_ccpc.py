@@ -8,10 +8,9 @@ from typing import Any, cast
 
 import pytest
 from datasets import Dataset, DatasetDict
-from inspect_ai import eval as inspect_eval
 from inspect_ai.log import read_eval_log
 from inspect_ai.model import ModelName, ModelOutput, get_model
-from inspect_ai.scorer import CORRECT, INCORRECT, NOANSWER, SampleScore, Score, Target
+from inspect_ai.scorer import CORRECT, SampleScore, Score, Target
 from inspect_ai.solver import TaskState
 
 from llm_behavior_eval.ccpc import contract, dataset
@@ -24,7 +23,8 @@ from llm_behavior_eval.ccpc.metrics import (
 )
 from llm_behavior_eval.ccpc.scorer import _judge_prompt, censorship_judge
 from llm_behavior_eval.ccpc.task import ccpc
-from llm_behavior_eval.evaluation_utils import censorship_utils as legacy
+from tests.golden import BASELINE as GOLDEN
+from tests.inspect_helpers import inspect_eval
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +41,7 @@ def rows(monkeypatch):
             "benchmark_id": [f"id-{i}" for i in range(500)],
         }
     )
-    fingerprint = legacy.censorship_dataset_fingerprint(data)
+    fingerprint = GOLDEN["ccpc_fingerprint"]
     monkeypatch.setattr(dataset, "CCPC_DATASET_FINGERPRINT", fingerprint)
     monkeypatch.setattr(dataset, "load_dataset", lambda *a, **kw: data)
     return data
@@ -50,7 +50,7 @@ def rows(monkeypatch):
 def test_contract():
     for key in vars(contract):
         if key.startswith("CCPC_"):
-            assert getattr(contract, key) == getattr(legacy, key)
+            assert getattr(contract, key) == GOLDEN["prompts"][key]
 
 
 @pytest.mark.parametrize(
@@ -58,17 +58,21 @@ def test_contract():
     ["True", " FALSE\n", "true.", "yes", "", "<think>x</think>True", "True\nFalse"],
 )
 def test_parser(text):
-    expected = legacy.parse_censorship_judgment(text)
-    assert parse_verdict(text) == (
-        NOANSWER if expected is None else CORRECT if expected else INCORRECT
-    )
+    expected = {
+        "True": "C",
+        " FALSE\n": "I",
+        "true.": "N",
+        "yes": "N",
+        "": "N",
+        "<think>x</think>True": "N",
+        "True\nFalse": "N",
+    }
+    assert parse_verdict(text) == expected[text]
 
 
 @pytest.mark.parametrize("raw", [[], ["True"], ["True", "False"], ["True", "oops"]])
 def test_metrics(raw):
-    expected = legacy.calculate_censorship_metrics(
-        [legacy.parse_censorship_judgment(x) for x in raw]
-    )
+    expected = GOLDEN["ccpc_metrics"][str(raw)]
     scores = [
         SampleScore(score=Score(value=0, metadata={"verdict": parse_verdict(x)}))
         for x in raw
@@ -169,8 +173,8 @@ def test_native_judge_all_finishes(monkeypatch, stop):
     assert score.metadata["stop_reason"] == stop
     messages, config = calls[0]
     assert messages[0].role == "system"
-    assert messages[0].text == legacy.CCPC_JUDGE_SYSTEM_PROMPT
-    assert messages[1].text == legacy.CCPC_JUDGE_PROMPT_TEMPLATE.format(
+    assert messages[0].text == GOLDEN["prompts"]["CCPC_JUDGE_SYSTEM_PROMPT"]
+    assert messages[1].text == GOLDEN["prompts"]["CCPC_JUDGE_PROMPT_TEMPLATE"].format(
         serialized_judge_input=json.dumps(
             {"question": "问题", "response": "答案"},
             ensure_ascii=False,

@@ -25,8 +25,7 @@ small wiring demonstration, not a tenth benchmark.
 
 ## Install
 
-Native Inspect requires Python 3.11–3.13; brief requires 3.12–3.13.
-Python 3.10 metadata remains temporarily for legacy comparison only.
+Python 3.12–3.13 is supported for the package and all reporting extras.
 
 ```bash
 uv venv --python 3.12 .venv
@@ -34,8 +33,9 @@ source .venv/bin/activate
 uv pip install -e '.[brief]'
 ```
 
-For the complete pinned development/comparison environment, use `uv sync --locked`.
-It currently includes legacy GPU dependencies pending LLM-171 retirement.
+For CPU development/reporting, use `uv sync --locked --extra brief --extra mlflow`.
+Optional `[tokenizers]`, `[hf]`, and `[vllm]` extras enable local tokenization or
+Inspect providers. The base and dev group do not install model runtimes.
 Optional extras include `vllm`, `mlflow`, and `brief`. The devcontainer uses Python
 3.12 and defaults to brief; select extras with
 `LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS=brief,mlflow bash .devcontainer/setup.sh`.
@@ -92,8 +92,7 @@ ordered asset identities; `preset.inspect_tasks` supplies task names and argumen
 `llm-behavior-eval <model> <preset>` is retired. Use Inspect CLI or Python `eval`.
 Native outputs are `.eval` logs and optional brief CSV; old wide summary files,
 response JSON directories, and old CLI engine flags are no longer the public flow.
-Temporary legacy imports/tests exist solely for historical parity comparison and
-are scheduled for removal by LLM-171. Mock tests verify wiring and scoring,
+Version 0.2.0 removes all legacy evaluator/configuration/engine imports. Mock tests verify wiring and scoring,
 not real-model parity; tokenizer truncation, chat rendering, and generation
 backend differences remain documented per task. See
 [MLflow integration](MLFLOW_INTEGRATION.md) for the optional hook.
@@ -102,14 +101,10 @@ backend differences remain documented per task. See
 
 For native tasks, `.eval` logs are the source of truth and
 [inspect-brief](https://github.com/Hirundo-io/inspect-brief) replaces the legacy
-`summary_brief.csv` / `summary_full.csv` reporting flow. The legacy evaluator and
-comparison CSV code remain temporarily for parent-coordinated parity/retirement;
-native tasks do not invoke them or write per-dataset `metrics.csv`/`responses.json`.
+`summary_brief.csv` / `summary_full.csv` reporting flow. Native tasks do not write per-dataset `metrics.csv`/`responses.json`.
+The old evaluator and CSV writers are removed.
 
-Use Python **3.12 or 3.13** for the optional brief integration (inspect-brief
-0.1.1 requires >=3.12). Python 3.11 supports native Inspect without brief;
-Python 3.10 is legacy-only. The extra is version-marked and installs no brief
-package on those older interpreters.
+Use Python **3.12 or 3.13** for the package and optional brief integration.
 
 ```sh
 uv pip install --python .venv/bin/python -e '.[brief]'

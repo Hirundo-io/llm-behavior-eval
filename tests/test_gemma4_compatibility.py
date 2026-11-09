@@ -4,14 +4,16 @@ import pytest
 
 pytest.importorskip("vllm.config")
 
-from transformers import Gemma4UnifiedTextConfig
-from transformers.integrations.heterogeneity.configuration_utils import (
-    AmbiguousGlobalPerLayerAttributeError,
-)
-from vllm.transformers_utils.configs.gemma4 import gemma4_layer_config
-from vllm.transformers_utils.model_arch_config_convertor import (
-    Gemma4ModelArchConfigConvertor,
-)
+Gemma4UnifiedTextConfig = pytest.importorskip("transformers").Gemma4UnifiedTextConfig
+AmbiguousGlobalPerLayerAttributeError = pytest.importorskip(
+    "transformers.integrations.heterogeneity.configuration_utils"
+).AmbiguousGlobalPerLayerAttributeError
+gemma4_layer_config = pytest.importorskip(
+    "vllm.transformers_utils.configs.gemma4"
+).gemma4_layer_config
+Gemma4ModelArchConfigConvertor = pytest.importorskip(
+    "vllm.transformers_utils.model_arch_config_convertor"
+).Gemma4ModelArchConfigConvertor
 
 
 def test_gemma4_converter_preserves_per_layer_attention():

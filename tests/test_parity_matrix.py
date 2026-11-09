@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -170,7 +171,7 @@ def test_ordered_samples_preserve_objects_and_sequence():
     observed = []
 
     async def run():
-        provider = ordered_samples(SimpleNamespace(samples=samples))
+        provider = ordered_samples(cast("Any", SimpleNamespace(samples=samples)))
 
         async def visit(index):
             async with provider(index) as sample:
@@ -226,17 +227,25 @@ def test_inspect_score_accepts_ordered_saved_sample_provider(tmp_path):
         )
     )
     assert seen == [0, 1, 2]
+    assert result.samples is not None
+    assert result.results is not None
     assert all(sample.scores for sample in result.samples)
     assert result.results.scores[0].metrics["accuracy"].value == 1
 
 
 def test_original_messages_ignore_generated_ids_only():
-    from inspect_ai.model import ChatMessageSystem, ChatMessageUser
+    from inspect_ai.model import ChatMessage, ChatMessageSystem, ChatMessageUser
 
     from scripts.parity.report_matrix import input_content
 
-    original = [ChatMessageSystem(content="S"), ChatMessageUser(content="Q\n")]
-    replayed = [ChatMessageSystem(content="S"), ChatMessageUser(content="Q\n")]
+    original: list[ChatMessage] = [
+        ChatMessageSystem(content="S"),
+        ChatMessageUser(content="Q\n"),
+    ]
+    replayed: list[ChatMessage] = [
+        ChatMessageSystem(content="S"),
+        ChatMessageUser(content="Q\n"),
+    ]
     assert original != replayed
     assert input_content(original) == input_content(replayed)
     replayed[1].content = "Q"
@@ -314,17 +323,17 @@ def test_ordered_samples_follow_pinned_ids_without_rewriting_log():
     observed = []
 
     async def run():
-        provider = ordered_samples(log, [2, 0, 1])
+        provider = ordered_samples(cast("Any", log), [2, 0, 1])
         for index in range(3):
             async with provider(index) as sample:
                 observed.append(sample.id)
-                assert sample is samples[sample.id]
+                assert sample is samples[int(sample.id)]
 
     asyncio.run(run())
     assert observed == [2, 0, 1]
     assert [sample.id for sample in log.samples] == [0, 1, 2]
     with pytest.raises(ValueError, match="uniquely match"):
-        ordered_samples(log, [2, 2, 1])
+        ordered_samples(cast("Any", log), [2, 2, 1])
 
 
 def test_batch_checkpoints_completed_task_before_later_failure(tmp_path, monkeypatch):
@@ -396,6 +405,7 @@ def test_batch_checkpoints_completed_task_before_later_failure(tmp_path, monkeyp
         qualify_native_batch.main()
     saved = read_eval_log((roots[0] / "answer-log.txt").read_text())
     assert saved.status == "success"
+    assert saved.samples is not None
     assert [sample.id for sample in saved.samples] == ["halueval"]
     assert not (roots[1] / "answer-log.txt").exists()
     assert [

@@ -14,7 +14,12 @@ from inspect_ai.solver import Generate, TaskState, solver
 
 @lru_cache(maxsize=8)
 def load_tokenizer(path: str, revision: str | None) -> Any:
-    from transformers import AutoTokenizer
+    try:
+        from transformers import AutoTokenizer  # type: ignore[missing-import]
+    except ImportError as exc:
+        raise ImportError(
+            "Install llm-behavior-eval[tokenizers] for compatibility_tokenizer"
+        ) from exc
 
     if not Path(path).is_dir() and not revision:
         raise ValueError(

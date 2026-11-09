@@ -1,8 +1,10 @@
 """CPU production boundary tests; never substitute log input before scoring."""
 
 import hashlib
+import json
 import os
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from inspect_ai import eval as inspect_eval
@@ -11,14 +13,12 @@ from inspect_ai.model import ModelOutput, get_model
 
 from llm_behavior_eval import _registry
 from llm_behavior_eval.common.preprocessing import load_tokenizer, preprocess
-from llm_behavior_eval.evaluation_utils.custom_dataset import (
-    free_text_preprocess_function,
-)
 from tests.native_fixtures import local_task_dataset
 
 
 @pytest.fixture
 def tokenizer():
+    pytest.importorskip("transformers")
     path = Path(
         os.environ.get("LLM169_TOKENIZER", "results/tokenizers/gemma3")
     ).resolve()
@@ -44,20 +44,9 @@ def test_long_legacy_roundtrips(tokenizer, side, thinking):
         stereo = " stereotype " * 500
         independent = " Independent question " * 500
         system = "You are helpful.\n"
-        legacy = free_text_preprocess_function(
-            dict(
-                question=[question],
-                answer=[target],
-                stereotyped_answer=[stereo],
-                system_prompt=[system],
-                judge_question=[independent],
-            ),
-            tokenizer,
-            1024,
-            256,
-            True,
-            enable_thinking=thinking,
-        )
+        legacy = json.loads(
+            (Path(__file__).parent / "golden/preprocessing_baseline.json").read_text()
+        )["long"][f"{side}-{thinking}"]
         result = preprocess(
             tokenizer,
             [
@@ -74,7 +63,7 @@ def test_long_legacy_roundtrips(tokenizer, side, thinking):
             ("target", "gt_answers"),
             ("stereotype", "stereotyped_answers"),
         ]:
-            assert result[key]["input_ids"] == legacy[old][0].tolist()
+            assert result[key]["input_ids"] == legacy[old][0]
             assert result[key]["decoded"] == tokenizer.decode(
                 legacy[old][0], skip_special_tokens=True
             )
@@ -142,6 +131,7 @@ def test_registered_production_metadata(name, tmp_path, monkeypatch, tokenizer):
     )[0]
     assert log.status == "success", log.error
     saved = read_eval_log(log.location)
+    assert saved.samples is not None
     sample = saved.samples[0]
     meta = sample.metadata["compatibility"]
     assert meta["schema"] == "legacy-text-v1"
@@ -162,10 +152,11 @@ def test_registered_production_metadata(name, tmp_path, monkeypatch, tokenizer):
     )
     if isinstance(sample.input, str) and name != "ccpc":
         assert sample.input != meta["judge_question"]
+    assert saved.results is not None
     assert saved.results.total_samples == 1
 
     if name in {"halueval", "medhallu"}:
-        from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
+        from llm_behavior_eval.hallucination.prompts import (
             GRADER_TEMPLATE,
         )
 
@@ -178,10 +169,7 @@ def test_registered_production_metadata(name, tmp_path, monkeypatch, tokenizer):
 
 @pytest.mark.parametrize("thinking", [False, True])
 def test_qwen_thinking_roundtrip(thinking):
-    from llm_behavior_eval.evaluation_utils.util_functions import (
-        safe_apply_chat_template,
-    )
-
+    pytest.importorskip("transformers")
     path = Path("results/tokenizers/qwen3").resolve()
     if not path.is_dir():
         pytest.skip("Pinned Qwen3 tokenizer fixture absent; see parity README")
@@ -194,10 +182,9 @@ def test_qwen_thinking_roundtrip(thinking):
         dict(role="system", content="Be helpful."),
         dict(role="user", content="question\n"),
     ]
-    rendered = safe_apply_chat_template(tokenizer, messages, enable_thinking=thinking)
-    expected = tokenizer(
-        [rendered], truncation=True, padding="max_length", max_length=1024
-    )
+    expected = json.loads(
+        (Path(__file__).parent / "golden/preprocessing_baseline.json").read_text()
+    )["qwen"][str(thinking)]
     actual = preprocess(tokenizer, messages, "target", thinking=thinking)
     assert actual["prompt"]["input_ids"] == expected["input_ids"][0]
     assert actual["judge_question"] == tokenizer.decode(
@@ -221,7 +208,7 @@ def test_judge_controls_never_apply_answer_cap(monkeypatch):
     original = GenerateConfig(
         extra_body={"chat_template_kwargs": {"enable_thinking": False}, "custom": 1}
     )
-    config = module.judge_config(state, original)
+    config = module.judge_config(cast("Any", state), original)
     assert config.extra_body == {
         "chat_template_kwargs": {"enable_thinking": False},
         "custom": 1,
@@ -234,7 +221,8 @@ def test_judge_controls_never_apply_answer_cap(monkeypatch):
     }
     with pytest.raises(ValueError, match="must not"):
         module.judge_config(
-            state, GenerateConfig(extra_body={"truncate_prompt_tokens": 1024})
+            cast("Any", state),
+            GenerateConfig(extra_body={"truncate_prompt_tokens": 1024}),
         )
 
 

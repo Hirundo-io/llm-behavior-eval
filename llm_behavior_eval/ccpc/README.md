@@ -38,7 +38,7 @@ Deliberate differences implement the requested llm-behavior-eval v6 contract:
   saved DatasetDict uses test, never train. Default cap 500; nonpositive/None all.
 
 `contract.py` is the native task's single frozen contract source. Its constants
-are checked byte-for-byte against legacy censorship_utils in tests. The rubric
+are checked byte-for-byte against frozen censorship_utils outputs in tests. The rubric
 matches upstream exactly. Cross-repository contract extraction is still a
 coordination item for RSCH-82: the repositories currently disagree on dataset
 coordinates and finish handling, so claiming a shared installable contract would
@@ -72,7 +72,7 @@ resolved-weight attestation: pin the actual provider revision independently.
 
 ## Validation and limits
 
-Deterministic fixtures compare the current legacy parser, fingerprint and metric
+Deterministic fixtures compare the frozen legacy parser, fingerprint and metric
 formulas; native mock evals exercise .eval serialization and all-row denominators.
 Synthetic 500-row fixtures substitute only their expected fingerprint; they do
 not establish that the remote pinned dataset is available or unchanged.

@@ -9,7 +9,7 @@ from inspect_ai.solver import TaskState
 
 from llm_behavior_eval.common.judge import THINKING_END, THINKING_START, strip_thinking
 from llm_behavior_eval.common.preprocessing import judge_config, judge_question
-from llm_behavior_eval.evaluation_utils.refusal_utils import (
+from llm_behavior_eval.refusal.contract import (
     _REFUSAL_PREFIXES,
     REFUSAL_MARKERS,
 )

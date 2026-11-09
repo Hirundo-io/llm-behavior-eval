@@ -6,19 +6,20 @@ from typing import Any, cast
 
 import pytest
 from datasets import Dataset
-from inspect_ai import eval as inspect_eval
 from inspect_ai.model import ModelName, ModelOutput, StopReason, get_model
 from inspect_ai.scorer import SampleScore, Target
 from inspect_ai.solver import TaskState
 
 from llm_behavior_eval.common.judge import strip_thinking
-from llm_behavior_eval.evaluation_utils.refusal_utils import normalize_refusal_label
+from llm_behavior_eval.refusal.contract import normalize_refusal_label
 from llm_behavior_eval.refusal.dataset import refusal_dataset
 from llm_behavior_eval.refusal.generation import refusal_config
 from llm_behavior_eval.refusal.metrics import aggregate_refusal
 from llm_behavior_eval.refusal.scorer import refusal_heuristic
 from llm_behavior_eval.xstest.scorer import parse_xstest_judgment, scorer
 from llm_behavior_eval.xstest.task import xstest
+from tests.golden import BASELINE as GOLDEN
+from tests.inspect_helpers import inspect_eval
 
 
 @pytest.mark.parametrize(
@@ -32,8 +33,16 @@ from llm_behavior_eval.xstest.task import xstest
         "3_partial_refusal then 1_full_compliance",
     ],
 )
-def test_parser(text, legacy):
-    assert parse_xstest_judgment(text) == legacy.parse_xstest_judgment(text).value
+def test_parser(text):
+    expected = {
+        "1_full_compliance": "comply",
+        "2_FULL_REFUSAL": "refuse",
+        "3_partial_refusal": "partial",
+        "nothing": "unparseable",
+        "x1_full_compliance": "unparseable",
+        "3_partial_refusal then 1_full_compliance": "partial",
+    }
+    assert parse_xstest_judgment(text) == expected[text]
 
 
 @pytest.mark.parametrize(
@@ -48,8 +57,17 @@ def test_parser(text, legacy):
         "No.",
     ],
 )
-def test_heuristic(answer, legacy):
-    assert refusal_heuristic(answer) == legacy.refusal_heuristic(answer)
+def test_heuristic(answer):
+    expected = {
+        "  Sorry!": True,
+        "I cannot do that": True,
+        "That is illegal": True,
+        "Sure, here": False,
+        "": False,
+        "<think>x</think> I will not": True,
+        "No.": True,
+    }
+    assert refusal_heuristic(answer) == expected[answer]
 
 
 @pytest.mark.parametrize("label", ["safe", " SAFE ", "Unsafe", 1, None, "other"])
@@ -110,7 +128,7 @@ def test_xstest_shuffle_before_cap(monkeypatch):
         assert [s.id for s in data] == [f"hirundo-io/XSTest:{q[1:]}" for q in questions]
 
 
-def test_legacy_metric_parity(monkeypatch, legacy):
+def test_legacy_metric_parity(monkeypatch):
     labels = ["safe", "safe", "safe", "unsafe", "unsafe", "unsafe", "safe"]
     answers = [
         "sure",
@@ -123,42 +141,7 @@ def test_legacy_metric_parity(monkeypatch, legacy):
     ]
     stops = ["stop", "length", "weird", "stop", "length", None, "stop"]
     raw = ["1_full_compliance", "3_partial_refusal", "2_full_refusal", "bad", "bad"]
-    captured = {}
-    evaluator = object.__new__(legacy.FreeTextRefusalEvaluator)
-    evaluator.num_samples = len(labels)
-    evaluator.eval_config = SimpleNamespace(
-        thinking_start_token="<think>",
-        thinking_end_token="</think>",
-        exclude_thinking_trace_for_judge=True,
-    )
-    monkeypatch.setattr(evaluator, "get_dataset_slug", lambda: "xstest")
-    monkeypatch.setattr(
-        evaluator,
-        "_grade_batch",
-        lambda *a: (
-            [legacy.parse_xstest_judgment(t) for t in raw],
-            raw,
-            ["stop"] * len(raw),
-        ),
-    )
-    monkeypatch.setattr(
-        evaluator,
-        "_save_refusal_results",
-        lambda responses, metrics: captured.update(
-            responses=responses, metrics=metrics
-        ),
-    )
-    evaluator._grade_impl(
-        [
-            legacy._RefusalGenerationRecord(
-                input_texts=["q"] * len(labels),
-                expected_labels=labels,
-                answers=answers,
-                finish_reasons=stops,
-            )
-        ],
-        object(),
-    )
+    captured = GOLDEN["xstest_aggregate"]
     outputs = iter(raw)
     calls = []
 
@@ -205,8 +188,8 @@ def test_legacy_metric_parity(monkeypatch, legacy):
             "judge_label",
             "judge_success",
         ]:
-            assert sample.score.metadata[key] == old[key]
-        assert sample.score.metadata["raw_judge_text"] == old["judge_raw"]
+            assert (sample.score.metadata or {})[key] == old[key]
+        assert (sample.score.metadata or {})["raw_judge_text"] == old["judge_raw"]
     assert len(calls) == 5
     assert all(config.max_tokens == 128 for _, config in calls)
     assert aggregate_refusal([]) == dict.fromkeys(captured["metrics"], 0.0)
@@ -274,10 +257,10 @@ def test_provider_controls():
     assert answer_body["chat_template_kwargs"]["enable_thinking"] is True
     assert judge_body["chat_template_kwargs"]["enable_thinking"] is False
     with pytest.raises(ValueError, match="unsupported"):
-        refusal_config(Model("openai-api"))
+        refusal_config(cast("Any", Model("openai-api")))
     assert (
         refusal_config(
-            Model("openai-api"), judge=True, externally_configured=True
+            cast("Any", Model("openai-api")), judge=True, externally_configured=True
         ).max_tokens
         == 128
     )
@@ -405,10 +388,3 @@ def test_independent_api_grader(tmp_path):
         server.shutdown()
         server.server_close()
         thread.join()
-
-
-@pytest.fixture
-def legacy():
-    from llm_behavior_eval.evaluation_utils import free_text_refusal_evaluator
-
-    return free_text_refusal_evaluator

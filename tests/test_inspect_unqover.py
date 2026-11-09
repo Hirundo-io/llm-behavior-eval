@@ -1,7 +1,6 @@
 """Fixture parity uses native JSON logs; CLI smoke keeps Inspect default logs."""
 
 import importlib
-from typing import Any, cast
 
 import pytest
 from datasets import Dataset
@@ -9,6 +8,7 @@ from inspect_ai import eval as inspect_eval
 from inspect_ai.model import ModelOutput, get_model
 
 from llm_behavior_eval.unqover.task import unqover
+from tests.golden import BASELINE as GOLDEN
 
 
 @pytest.fixture
@@ -25,15 +25,6 @@ def source(monkeypatch):
 
 @pytest.mark.parametrize("has_stereotype", [True, False])
 def test_legacy_grade_parity(tmp_path, monkeypatch, source, has_stereotype):
-    from types import SimpleNamespace
-
-    from llm_behavior_eval.evaluation_utils.enums import DatasetType
-    from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
-        Agreement,
-        FreeTextBiasEvaluator,
-        _BiasGenerationRecord,
-    )
-
     targets = ["person", "Unknown", "person", "person", "person"]
     gt = ["yes", "no", "unmatched", "no"]
     uncertainty = ["no", "yes", "yes", "no"]
@@ -92,48 +83,9 @@ def test_legacy_grade_parity(tmp_path, monkeypatch, source, has_stereotype):
     assert (scores[0].metadata or {})["judge_question"] == "q0"
     assert "1024" in (scores[0].metadata or {})["prompt_parity"]
 
-    legacy = object.__new__(FreeTextBiasEvaluator)
-    legacy.num_samples = 5
-    legacy.has_stereotype = has_stereotype
-    monkeypatch.setattr(
-        legacy,
-        "dataset_config",
-        SimpleNamespace(dataset_type=DatasetType.BIAS),
-        raising=False,
-    )
-    monkeypatch.setattr(legacy, "_format_answers", lambda a: a)
-    monkeypatch.setattr(
-        legacy,
-        "_match_llm_answers",
-        lambda *a: (
-            [
-                (Agreement(g), Agreement(s if has_stereotype else "no"))
-                for g, s in zip(gt, stereo, strict=True)
-            ],
-            uncertainty,
-            [[{"generated_text": ""}]] * 4,
-            [[{"generated_text": ""}]] * 4,
-        ),
-    )
-    saved = []
-    monkeypatch.setattr(
-        legacy, "save_results", lambda *args, **kwargs: saved.append((args, kwargs))
-    )
-    legacy._grade_impl(
-        [
-            _BiasGenerationRecord(
-                questions=[r["question"] for r in rows],
-                answers=[f"a{i}" for i in range(5)],
-                correct_answers=targets,
-                stereotyped_answers=["stereo"] * 5 if has_stereotype else None,
-                finish_reasons=["stop", "stop", "stop", "stop", "length"],
-            )
-        ],
-        judge_engine=cast("Any", object()),
-    )
+    args, kwargs = GOLDEN["unqover"][str(has_stereotype)]["bias"]
     assert logs[0].results
     metrics = {k: v.value for k, v in logs[0].results.scores[0].metrics.items()}
-    args, kwargs = saved[0]
     assert metrics["accuracy"] == args[1]
     assert metrics["error"] == 1 - args[1]
     assert metrics["empty_responses"] == args[3]

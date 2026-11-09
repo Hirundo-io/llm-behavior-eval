@@ -4,16 +4,16 @@
 Native Inspect tasks live in benchmark subpackages under `llm_behavior_eval/`;
 shared code lives in `common/`, `bias/`, `hallucination/`, and `refusal/`.
 `_registry.py` is the Inspect entry point; `target_metrics.json` declares brief
-metrics. Tests mirror these packages in `tests/test_inspect_*.py`. Legacy
-`evaluation_utils/` and engine tests remain temporarily for parity comparison.
+metrics. Tests mirror these packages in `tests/test_inspect_*.py`. Historical engine runs require the frozen pre-removal checkout documented in
+`scripts/parity/README.md`; no engine lives in this package.
 Do not edit generated `dist/` artifacts.
 
 ## Build, Test, and Development Commands
-- Use Python 3.12 or 3.13 for brief; native Inspect alone supports 3.11.
+- Use Python 3.12 or 3.13.
 - `uv venv --python 3.12 .venv && source .venv/bin/activate`.
-- `uv sync --locked`: complete pinned development/comparison environment.
+- `uv sync --locked --extra brief --extra mlflow`: CPU development/reporting environment.
 - `uv pip install --python .venv/bin/python -e '.[brief]'`: editable install.
-- Devcontainer defaults to Python 3.12 and brief; set
+- Devcontainer defaults to Python 3.12 and brief/mlflow; set
   `LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS=brief,mlflow` for additional integrations.
 - `pytest --import-mode=importlib`: full tests;
   `pytest --import-mode=importlib tests/test_inspect_smoke.py tests/test_inspect_brief.py`
@@ -22,7 +22,7 @@ Do not edit generated `dist/` artifacts.
 - Prefer uv; install into `.venv`, never the system interpreter.
 
 ## Coding Style & Naming Conventions
-Follow PEP 8 defaults with 4-space indentation. Prefer `snake_case` for modules, functions, and variables; reserve `PascalCase` for classes and `UPPER_SNAKE_CASE` for constants. Keep public CLI options descriptive and aligned with native Inspect task arguments. Let `ruff` fix spacing and import order; avoid disabling rules unless there is a clear justification. Type hints are expected on new public functions—match the patterns in `evaluation_utils/`.
+Follow PEP 8 defaults with 4-space indentation. Prefer `snake_case` for modules, functions, and variables; reserve `PascalCase` for classes and `UPPER_SNAKE_CASE` for constants. Keep public CLI options descriptive and aligned with native Inspect task arguments. Let `ruff` fix spacing and import order; avoid disabling rules unless there is a clear justification. Type hints are expected on new public functions—match the patterns in `common/`.
 
 ## Testing Guidelines
 Add or update `tests/test_*.py` files alongside any new feature. Use `pytest` assertions, fixtures, and `monkeypatch` for mocking (avoid `unittest.mock`). Parametrization keeps dataset scenarios readable. Every benchmark needs registry discovery, dataset conversion and scorer tests, and a target_metrics entry checked against actual .eval metric names. Exercise native Inspect eval with mock answer/grader models and local fixtures. Preserve task-specific thinking policies and explicitly patch fixture fingerprints; never bypass production CCPC validation. Keep simulated model outputs deterministic so runs remain reproducible. When adding evaluation datasets, include at least one regression test that exercises parsing and scoring logic. Use pytest's `monkeypatch` fixture for patching module attributes and dependencies; create custom fixtures for reusable test setup.

@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install the project
-        run: uv sync --locked
+        run: uv sync --locked --extra brief --extra mlflow
       - name: Run tests
         run: uv run --no-sync pytest --import-mode=importlib -v
 
@@ -37,7 +37,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # Retain the locked comparison environment until LLM-171 removes legacy dependencies.
+      # CPU reporting environment; model providers are optional.
       - run: uv sync --locked --extra brief
       - name: Registered native tasks and brief (CPU, local fixtures)
         env:

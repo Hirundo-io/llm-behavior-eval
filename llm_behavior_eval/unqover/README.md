@@ -94,7 +94,7 @@ returns zero if the denominator OR stereotype count is zero. There is **no**
 
 ## Validation and unresolved parity
 
-Deterministic fixtures compare native Inspect metrics against actual legacy
+Deterministic fixtures compare native Inspect metrics against frozen legacy
 `FreeTextBiasEvaluator._grade_impl`, with monkeypatched fixed judgments. Shared
 BBQ tests cover parser/prompt/provider-policy behavior. UNQOVER tests cover all
 four registered CLI selections, preset identities, offline sources, shuffled caps,

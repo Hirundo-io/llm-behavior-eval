@@ -10,7 +10,6 @@ from typing import cast
 
 import pytest
 from datasets import Dataset, DatasetDict
-from inspect_ai import eval as inspect_eval
 from inspect_ai.model import Model, ModelOutput, get_model
 from inspect_ai.scorer import Metric, SampleScore, Score
 
@@ -24,6 +23,7 @@ from llm_behavior_eval.common.judge import strip_thinking
 from llm_behavior_eval.common.metrics import field_rate, incomplete_response_rate
 from llm_behavior_eval.inspect_template.dataset import record_to_sample
 from llm_behavior_eval.inspect_template.task import inspect_template
+from tests.inspect_helpers import inspect_eval
 
 
 @pytest.mark.parametrize(

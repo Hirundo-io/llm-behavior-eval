@@ -16,7 +16,7 @@ from scripts.parity.provision_models import MODELS
 
 def main() -> None:
     from inspect_ai.log import read_eval_log, write_eval_log
-    from transformers import AutoTokenizer
+    from transformers import AutoTokenizer  # type: ignore[missing-import]
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)

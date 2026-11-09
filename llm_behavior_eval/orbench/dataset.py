@@ -1,6 +1,6 @@
 from inspect_ai.dataset import MemoryDataset
 
-from llm_behavior_eval.evaluation_utils.refusal_utils import OR_BENCH_DATASET
+from llm_behavior_eval.refusal.contract import OR_BENCH_DATASET
 from llm_behavior_eval.refusal.dataset import refusal_dataset
 
 

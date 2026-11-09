@@ -3,7 +3,7 @@
 import typer
 
 MIGRATION = """The legacy llm-behavior-eval CLI has been retired; no evaluation ran.
-Use native Inspect (Python 3.11+), for example:
+Use native Inspect (Python 3.12–3.13), for example:
   inspect eval llm_behavior_eval/halueval --model hf/org/model --model-role grader=hf/org/judge
 Use list_dataset_presets()[...].inspect_tasks for exact task names and -T arguments.
 --max-samples -> -T max_samples=N; output directory -> --log-dir.
