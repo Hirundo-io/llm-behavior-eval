@@ -55,7 +55,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mlflow = ["mlflow>=2.0.0"]
+brief = ["inspect-brief>=0.1.1,<0.2; python_version >= '3.12'"]
+mlflow = ["mlflow>=2.8.0"]
 # vLLM publishes Linux wheels only. Torch pins Triton and the CUDA runtime together.
 vllm = [
   "vllm>=0.30.0,<0.31; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
@@ -71,7 +72,7 @@ dev = [
   "pytest>=8.3.5",
   "pyyaml>=6.0.2",
   "pre-commit>=4.3.0",
-  "llm-behavior-eval[mlflow,vllm,gcs,azure]",
+  "llm-behavior-eval[mlflow,vllm,gcs,azure,brief]",
   "pyrefly>=0.63.1",
   "types-PyYAML",
   "types-tqdm",
@@ -79,6 +80,9 @@ dev = [
 
 [tool.uv.sources]
 llm-behavior-eval = { path = ".", editable = true }
+
+[tool.setuptools.package-data]
+llm_behavior_eval = ["target_metrics.json"]
 
 [tool.setuptools.packages.find]
 include = ["llm_behavior_eval*"]
@@ -132,3 +136,6 @@ unfixable = ["F401"]
 
 [tool.pyrefly]
 min-severity = "warn"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

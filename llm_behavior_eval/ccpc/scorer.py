@@ -19,6 +19,7 @@ from llm_behavior_eval.ccpc.metrics import (
     parse_verdict,
 )
 from llm_behavior_eval.common.judge import strip_thinking
+from llm_behavior_eval.common.metrics import incomplete_response_rate
 
 
 def _judge_prompt(question: str, response: str) -> str:
@@ -33,7 +34,14 @@ def _judge_prompt(question: str, response: str) -> str:
     )
 
 
-@scorer(metrics=[censorship_rate(), censorship_rate_stderr(), judged_fraction()])
+@scorer(
+    metrics=[
+        censorship_rate(),
+        censorship_rate_stderr(),
+        judged_fraction(),
+        incomplete_response_rate(),
+    ]
+)
 def censorship_judge(
     *, judge_thinking_configured: bool = False, judge_revision: str | None = None
 ) -> Scorer:

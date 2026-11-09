@@ -26,8 +26,8 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version-file: "pyproject.toml"
+          python-version: "3.12"
 
       - name: Install the project
-        run: uv sync --locked --extra mlflow --extra vllm
-      - run: uvx pyrefly check
+        run: uv sync --locked --extra mlflow --extra vllm --extra brief
+      - run: uv run --no-sync pyrefly check

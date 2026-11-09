@@ -4,6 +4,7 @@ from .bbq.task import bbq
 from .bloom.task import bloom
 from .ccpc.task import ccpc
 from .halueval.task import halueval
+from .hooks.mlflow import MlflowHook as MlflowHook
 from .inspect_template.task import inspect_template
 from .medhallu.task import medhallu
 from .orbench.task import orbench

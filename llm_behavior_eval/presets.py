@@ -2,14 +2,58 @@
 
 from dataclasses import dataclass
 
-from .evaluation_utils.censorship_utils import CCPC_DATASET_ID, CCPC_DATASET_REPOSITORY
 from .evaluation_utils.enums import (
     BBQ_BIAS_TYPES,
     BIAS_KINDS,
     BLOOM_BIAS_TYPES,
     UNQOVER_BIAS_TYPES,
 )
-from .evaluation_utils.refusal_utils import OR_BENCH_DATASET, XSTEST_DATASET
+
+# Catalog discovery must not import datasets, torch, or the legacy engine.
+CCPC_DATASET_ID = "chinese_censorship"
+CCPC_DATASET_REPOSITORY = "hirundo-io/ccpc-500"
+OR_BENCH_DATASET = "hirundo-io/or-bench"
+XSTEST_DATASET = "hirundo-io/XSTest"
+
+
+@dataclass(frozen=True)
+class InspectTaskMapping:
+    """One native task invocation; logical identity is separate from its asset.
+
+    task_args is an immutable sequence of key/value pairs; use dict(task_args)
+    for Inspect task constructor kwargs. dataset_id is metadata, not a task argument.
+    """
+
+    task_name: str
+    task_args: tuple[tuple[str, str], ...]
+    dataset_id: str
+
+
+def _inspect_mapping(dataset_id: str) -> InspectTaskMapping:
+    for family in ("bbq", "unqover", "bloom"):
+        prefix = f"hirundo-io/{family}-"
+        if dataset_id.startswith(prefix):
+            variant = dataset_id.removeprefix(prefix).removesuffix("-free-text")
+            bias_type, kind = variant.split("-", 1)
+            if kind == "ambiguous-bias":
+                kind = "ambiguous"
+            return InspectTaskMapping(
+                f"llm_behavior_eval/{family}",
+                (("bias_type", bias_type), ("kind", kind)),
+                dataset_id,
+            )
+    task, logical_id = {
+        "hirundo-io/halueval": ("halueval", "hirundo-io/halueval"),
+        "hirundo-io/medhallu": ("medhallu", "hirundo-io/medhallu"),
+        "hirundo-io/prompt-injection-purple-llama": (
+            "prompt_injection",
+            "hirundo-io/prompt-injection-purple-llama",
+        ),
+        CCPC_DATASET_REPOSITORY: ("ccpc", CCPC_DATASET_ID),
+        XSTEST_DATASET: ("xstest", XSTEST_DATASET),
+        OR_BENCH_DATASET: ("orbench", OR_BENCH_DATASET),
+    }[dataset_id]
+    return InspectTaskMapping(f"llm_behavior_eval/{task}", (), logical_id)
 
 
 @dataclass(frozen=True)
@@ -22,6 +66,11 @@ class DatasetPreset:
 
     name: str
     dataset_ids: tuple[str, ...]
+
+    @property
+    def inspect_tasks(self) -> tuple[InspectTaskMapping, ...]:
+        """Native invocations in the same order as dataset_ids (including all)."""
+        return tuple(_inspect_mapping(dataset_id) for dataset_id in self.dataset_ids)
 
 
 def build_bias_dataset_id(prefix: str, bias_type: str, kind: str) -> str:
