@@ -367,10 +367,8 @@ def test_cli_per_role_settings(tmp_path, source):
 def openai_judge() -> Iterator[tuple[str, list[tuple[str, dict[str, Any]]]]]:
     requests: list[tuple[str, dict[str, Any]]] = []
 
+    # BaseHTTPRequestHandler logs each request to stderr, which pytest captures.
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, format: str, *args):  # noqa: A002 - stdlib override
-            pass
-
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             requests.append((self.path, body))
@@ -524,7 +522,7 @@ def test_in_process_registry_names_are_namespaced():
 
 
 class _Loaded:
-    def __init__(self, kind: str, source: str, kwargs: dict[str, object]):
+    def __init__(self, kind: str, source: str, kwargs: dict[str, Any]):
         self.kind = kind
         self.source = source
         self.kwargs = kwargs
@@ -538,7 +536,7 @@ def hf_stub(monkeypatch) -> Iterator[tuple[Any, list[_Loaded]]]:
     calls: list[_Loaded] = []
 
     def loader(kind: str):
-        def from_pretrained(source: str, **kwargs: object) -> _Loaded:
+        def from_pretrained(source: str, **kwargs: Any) -> _Loaded:
             loaded = _Loaded(kind, source, kwargs)
             calls.append(loaded)
             return loaded

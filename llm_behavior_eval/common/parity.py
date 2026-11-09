@@ -41,6 +41,11 @@ def read_parity_config(path: str | Path) -> dict[str, Any]:
     grader model, which may load its weights.
     """
     import yaml
+
+    # Inspect has no public run-config reader. This private one is what
+    # `inspect eval --run-config` calls, so Python and CLI runs agree;
+    # test_parity_config_python and test_parity_config_cli fail if an Inspect
+    # upgrade moves or changes it.
     from inspect_ai._cli.eval import parse_run_config
 
     raw = yaml.safe_load(Path(path).read_text())

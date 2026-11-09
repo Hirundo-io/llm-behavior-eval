@@ -22,18 +22,27 @@ package-specific name (``<benchmark>_metrics``, ``<benchmark>_scorer``, ...).
 """
 
 import sys
+from collections.abc import Callable
 from importlib import import_module
 from typing import Any
 
-from inspect_ai._util.registry import (
-    is_registry_object,
-    registry_info,
-    registry_unqualified_name,
-)
+from inspect_ai.util import RegistryInfo, registry_info
 
 from .common.packages import TASK_MODULE, benchmark_packages
 
 _ROOT = __package__ or "llm_behavior_eval"
+
+
+def _registry_entry(value: Any) -> RegistryInfo | None:
+    """``value``'s Inspect registry info, or ``None`` if it is not registered.
+
+    Uses only Inspect's public ``registry_info``, which raises ``ValueError``
+    for an unregistered object.
+    """
+    try:
+        return registry_info(value)
+    except ValueError:
+        return None
 
 
 def _register_tasks() -> dict[str, Any]:
@@ -42,12 +51,14 @@ def _register_tasks() -> dict[str, Any]:
     for package in benchmark_packages(_ROOT):
         module = import_module(f"{package}.{TASK_MODULE}")
         for value in vars(module).values():
-            if not is_registry_object(value, type="task"):
+            info = _registry_entry(value)
+            if info is None or info.type != "task":
                 continue
             # Skip tasks a task module merely imports from elsewhere.
             if getattr(value, "__module__", None) != module.__name__:
                 continue
-            name = registry_unqualified_name(value)
+            # Registry names are "<package>/<name>"; tasks are bound by <name>.
+            name = info.name.split("/", 1)[-1]
             if name in owners and owners[name] != module.__name__:
                 raise RuntimeError(
                     f"Task name {name!r} is registered by both "
@@ -58,7 +69,7 @@ def _register_tasks() -> dict[str, Any]:
     return dict(sorted(tasks.items()))
 
 
-def _defining_module(value: object) -> str | None:
+def _defining_module(value: Callable[..., Any]) -> str | None:
     """The module that defines a registered object.
 
     Decorators built with ``functools.wraps`` (``@task``, ``@scorer``,
@@ -67,7 +78,7 @@ def _defining_module(value: object) -> str | None:
     its closure. Follow ``__wrapped__`` and closure cells to the first callable
     defined outside ``inspect_ai``.
     """
-    pending = [value]
+    pending: list[Callable[..., Any]] = [value]
     seen: set[int] = set()
     while pending:
         current = pending.pop(0)
@@ -103,11 +114,9 @@ def registry_definitions(root: str = _ROOT) -> dict[tuple[str, str], list[str]]:
         if module is None or not module_name.startswith(f"{root}."):
             continue
         for value in list(vars(module).values()):
-            if not is_registry_object(value):
+            info = _registry_entry(value)
+            if info is None or _defining_module(value) != module_name:
                 continue
-            if _defining_module(value) != module_name:
-                continue
-            info = registry_info(value)
             definitions.setdefault((info.type, info.name), set()).add(module_name)
     return {key: sorted(modules) for key, modules in sorted(definitions.items())}
 
@@ -129,4 +138,7 @@ def check_unique_registry_names(root: str = _ROOT) -> None:
 _TASKS = _register_tasks()
 check_unique_registry_names()
 globals().update(_TASKS)
+# Task names are discovered at import time, so no static form of __all__ can
+# list them: pyrefly reports unresolvable-dunder-all for list(...), [*...] and
+# sorted(...) alike. Benchmark tests read __all__, so keep it and the ignore.
 __all__ = list(_TASKS)  # pyrefly: ignore[unresolvable-dunder-all]

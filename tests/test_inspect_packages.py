@@ -45,7 +45,7 @@ def {name}() -> Task:
 """
 
 
-def metric(name: str, *, higher_is_better: bool = True) -> dict[str, object]:
+def metric(name: str, *, higher_is_better: bool = True) -> dict[str, str | bool]:
     return {
         "name": name,
         "is_percentage": True,
