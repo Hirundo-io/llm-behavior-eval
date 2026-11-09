@@ -9,12 +9,12 @@ inspect eval llm_behavior_eval/inspect_template --model mockllm/model
 
 | File | Owns |
 | --- | --- |
-| `task.py` | The `@task`. Sets no GenerateConfig. |
+| `task.py` | The `@task`. Sets no GenerateConfig. Takes the thinking-trace task arguments. |
 | `dataset.py` | Records and `record_to_sample`. |
 | `prompts.py` | System prompt, judge prompt and the judge's answer pattern. |
 | `solver.py` | Solver chain. Sets no GenerateConfig. |
 | `scorer.py` | Scorer built on `common.judge.judge_scorer`. |
-| `metrics.py` | Not needed here: `common.metrics` covers the template. |
+| `metrics.py` | Not needed here: `common.metrics` covers the template. A benchmark's metrics are all `@metric(scores="unreduced")`. |
 | `parity.yaml` | Example parity config (illustrative values, no legacy counterpart). |
 | `target_metrics.json` | Example report metrics for `llm_behavior_eval/inspect_template`. |
 
@@ -39,6 +39,18 @@ Differences from a real benchmark:
   `common.dataset.load_hf_dataset` and validates it before conversion.
 * `target_metrics.json` lists the generic `judge_scorer` metrics. A real
   benchmark lists its own metric names, keyed by its own task name.
+
+Task arguments (every benchmark exposes these, with the same defaults):
+
+| Argument | Default | Effect |
+| --- | --- | --- |
+| `exclude_thinking_trace_for_judge` | `true` | Strip the answer's inline thinking trace before judging; `false` matches the legacy default. |
+| `thinking_start_token` | `<think>` | Marker that opens the trace. |
+| `thinking_end_token` | `</think>` | Marker that closes the trace. |
+
+The scorer uses `only_stop=True`, so a model under test served by Inspect's
+`hf/` provider, which reports no stop reasons, fails with
+`StopReasonUnavailableError`. Metrics aggregate every epoch of `--epochs N`.
 
 Inference settings come from the user per role, or from `parity.yaml`:
 

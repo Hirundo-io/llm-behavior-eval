@@ -5,6 +5,7 @@ file; these tests check that nothing else needs editing for it to register,
 report and ship.
 """
 
+import inspect
 import json
 import shutil
 import subprocess
@@ -16,9 +17,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from inspect_ai.util import registry_info
 from typer.testing import CliRunner
 
 from llm_behavior_eval import _registry
+from llm_behavior_eval.common.judge import THINKING_TASK_ARGS
+from llm_behavior_eval.common.metrics import EPOCH_SCORES, reduced_metrics
 from llm_behavior_eval.common.packages import benchmark_packages, subpackages
 from llm_behavior_eval.common.target_metrics import (
     TARGET_METRICS_FILE,
@@ -284,6 +288,56 @@ def test_registry_exports_sorted_task_names() -> None:
     assert _registry.__all__ == sorted(_registry.__all__)
     for name in _registry.__all__:
         assert callable(getattr(_registry, name))
+
+
+def package_registry_objects(kind: str) -> dict[str, Any]:
+    """This package's registered objects of one type, from imported modules."""
+    objects: dict[str, Any] = {}
+    for module_name, module in list(sys.modules.items()):
+        if module is None or not module_name.startswith("llm_behavior_eval."):
+            continue
+        for value in list(vars(module).values()):
+            try:
+                info = registry_info(value)
+            except ValueError:
+                continue
+            if info.type == kind and info.name.startswith("llm_behavior_eval/"):
+                objects[info.name] = value
+    return objects
+
+
+def test_every_benchmark_metric_sees_every_epoch() -> None:
+    # The epoch layout (INSPECT_MIGRATION.md, "Epochs"): every metric defined
+    # here is unreduced, and so is every metric a scorer declares, including
+    # Inspect built-ins. Task-level metrics= lists are checked by each
+    # benchmark's own test with common.metrics.reduced_metrics(task).
+    metrics = package_registry_objects("metric")
+    assert "llm_behavior_eval/field_rate" in metrics
+    assert [
+        name
+        for name, factory in sorted(metrics.items())
+        if registry_info(factory).metadata.get("scores") != EPOCH_SCORES
+    ] == []
+    scorers = package_registry_objects("scorer")
+    assert "llm_behavior_eval/judge_scorer" in scorers
+    assert {
+        name: reduced_metrics(factory)
+        for name, factory in sorted(scorers.items())
+        if reduced_metrics(factory)
+    } == {}
+
+
+def test_every_task_exposes_the_thinking_task_args() -> None:
+    # Every benchmark exposes thinking-trace stripping the same way, with the
+    # same names and defaults (common.judge.THINKING_TASK_ARGS).
+    for name in _registry.__all__:
+        parameters = inspect.signature(getattr(_registry, name)).parameters
+        exposed = {
+            arg: parameters[arg].default
+            for arg in THINKING_TASK_ARGS
+            if arg in parameters
+        }
+        assert exposed == dict(THINKING_TASK_ARGS), name
 
 
 def test_every_registered_task_has_target_metrics_and_vice_versa() -> None:

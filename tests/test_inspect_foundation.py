@@ -20,22 +20,35 @@ from inspect_ai.model import (
     ContentReasoning,
     ContentText,
     GenerateConfig,
+    ModelName,
     ModelOutput,
     StopReason,
     get_model,
 )
-from inspect_ai.scorer import Metric, SampleScore, Score
+from inspect_ai.scorer import Metric, SampleScore, Score, accuracy, mean, stderr
+from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import ToolChoice, ToolInfo
 from inspect_ai.util import registry_info
 
+from llm_behavior_eval.common import judge as judge_module
 from llm_behavior_eval.common.dataset import (
     LEGACY_SHUFFLE_SEED,
     legacy_order,
     load_hf_dataset,
     to_inspect_dataset,
 )
-from llm_behavior_eval.common.judge import judge_scorer, strip_thinking
-from llm_behavior_eval.common.metrics import field_rate, incomplete_response_rate
+from llm_behavior_eval.common.judge import (
+    StopReasonUnavailableError,
+    judge_scorer,
+    require_stop_reason,
+    strip_thinking,
+)
+from llm_behavior_eval.common.metrics import (
+    field_rate,
+    incomplete_response_rate,
+    reduced_metrics,
+    scores_by_sample,
+)
 from llm_behavior_eval.inspect_template.dataset import record_to_sample
 from llm_behavior_eval.inspect_template.task import inspect_template
 
@@ -77,6 +90,33 @@ def only_log(log_dir: Path) -> EvalLog:
     logs = list_eval_logs(str(log_dir))
     assert len(logs) == 1
     return read_eval_log(logs[0])
+
+
+class _Loaded:
+    def __init__(self, kind: str, source: str, kwargs: dict[str, Any]) -> None:
+        self.kind = kind
+        self.source = source
+        self.kwargs = kwargs
+        self.eos_token = "</s>"
+
+
+@pytest.fixture
+def hf_stub(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Any, list[_Loaded]]]:
+    # Configure the real HF provider with stub loaders: no weights, no GPU.
+    hf = pytest.importorskip("inspect_ai.model._providers.hf")
+    calls: list[_Loaded] = []
+
+    def loader(kind: str) -> type:
+        def from_pretrained(source: str, **kwargs: Any) -> _Loaded:
+            loaded = _Loaded(kind, source, kwargs)
+            calls.append(loaded)
+            return loaded
+
+        return type(kind, (), {"from_pretrained": staticmethod(from_pretrained)})
+
+    monkeypatch.setattr(hf, "AutoModelForCausalLM", loader("model"))
+    monkeypatch.setattr(hf, "AutoTokenizer", loader("tokenizer"))
+    yield hf, calls
 
 
 @pytest.mark.parametrize(
@@ -121,9 +161,67 @@ def test_rates() -> None:
     assert math.isnan(
         rate(field_rate(metadata_key="group", metadata_value="missing"))(scores)
     )
-    assert rate(incomplete_response_rate())(scores) == pytest.approx(1 / 3)
+    # The third score records no stop reason, so it cannot be classified.
+    assert rate(incomplete_response_rate())(scores) == pytest.approx(1 / 2)
     assert math.isnan(rate(incomplete_response_rate())([]))
     assert rate(field_rate("a"))([SampleScore(score=Score(value={"a": 0.5}))]) == 0.5
+
+
+def stopped(reason: str | None) -> SampleScore:
+    return SampleScore(score=Score(value=1, metadata={"stop_reason": reason}))
+
+
+def test_incomplete_rate_counts_context_limit_and_skips_unknown() -> None:
+    known = [stopped("stop"), stopped("max_tokens"), stopped("model_length")]
+    assert rate(incomplete_response_rate())(known) == pytest.approx(2 / 3)
+    # Inspect's hf/ provider reports "unknown" for every answer. Those answers
+    # leave the denominator instead of counting as complete, and a run with no
+    # known stop reason reports NaN, not 0.
+    unknown = [stopped("unknown"), stopped(None)]
+    assert rate(incomplete_response_rate())([*known, *unknown]) == pytest.approx(2 / 3)
+    assert math.isnan(rate(incomplete_response_rate())(unknown))
+
+
+def test_scores_by_sample() -> None:
+    def observation(sample_id: str | None, value: int) -> SampleScore:
+        return SampleScore(score=Score(value=value), sample_id=sample_id)
+
+    scores = [
+        observation("b", 1),
+        observation("a", 0),
+        observation(None, 1),
+        observation("b", 0),
+        observation(None, 0),
+        observation("a", 1),
+    ]
+    groups = scores_by_sample(scores)
+    assert [[s.score.value for s in group] for group in groups] == [
+        [1, 0],
+        [0, 1],
+        [1],
+        [0],
+    ]
+    assert [group[0].sample_id for group in groups] == ["b", "a", None, None]
+    assert scores_by_sample([]) == []
+
+
+def test_reduced_metrics() -> None:
+    # The shared metrics, and so the template, see every epoch.
+    assert reduced_metrics(inspect_template()) == []
+    dataset = [Sample(input="question", target="answer")]
+    scorer = judge_scorer("{answer}", r"SCORE:\s*(\S+)")
+    assert reduced_metrics(Task(dataset=dataset, scorer=scorer)) == []
+    # Task-level metrics replace the scorer's; Inspect built-ins are reduced.
+    mixed = Task(
+        dataset=dataset,
+        scorer=scorer,
+        metrics=[field_rate(), accuracy(), {"group": [mean(), stderr()]}],
+    )
+    assert reduced_metrics(mixed) == [
+        "inspect_ai/accuracy",
+        "inspect_ai/mean",
+        "inspect_ai/stderr",
+    ]
 
 
 def test_dataset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -298,6 +396,167 @@ def test_verdict_ignores_grader_reasoning(
     assert score.metadata
     # The grader's full reply stays available for diagnostics.
     assert score.metadata["raw_judge_text"] == grader_reply.completion
+
+
+def eval_metrics(log: EvalLog) -> dict[str, float]:
+    assert log.status == "success", log.error
+    assert log.results
+    # The epoch layout: one EvalScore per scorer, computed from every epoch.
+    [result] = log.results.scores
+    assert result.reducer is None
+    return {name: metric.value for name, metric in result.metrics.items()}
+
+
+@pytest.mark.parametrize("epochs", [1, 2])
+def test_metrics_aggregate_every_epoch(tmp_path: Path, epochs: int) -> None:
+    # Inspect's epoch reducers keep only the first epoch's metadata. Here
+    # epoch 1 is truncated (skipped, incomplete); epoch 2 finishes, graded 1.
+    answers = [answer_output("max_tokens"), answer_output("stop")]
+    logs = inspect_eval(
+        inspect_template(),
+        model=get_model("mockllm/model", custom_outputs=answers[-epochs:]),
+        model_roles={
+            "grader": get_model(
+                "mockllm/judge", custom_outputs=[judge_output("SCORE: 1")]
+            )
+        },
+        epochs=epochs,
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    expected = {1: 0.0, 2: 0.5}[epochs]
+    assert eval_metrics(logs[0]) == {
+        "field_rate": 1.0,
+        "incomplete_response_rate": expected,
+    }
+    assert logs[0].samples
+    assert len(logs[0].samples) == epochs
+
+
+@solver
+def canned_answer(stop: StopReason) -> Solver:
+    """Set the answer without calling the model under test."""
+
+    async def solve(state: TaskState, generate: Generate) -> TaskState:
+        state.output = answer_output(stop)
+        return state
+
+    return solve
+
+
+def only_stop_task(only_stop: bool, stop: StopReason) -> Task:
+    return Task(
+        dataset=[Sample(input="question", target="answer")],
+        solver=canned_answer(stop),
+        scorer=judge_scorer("{answer}", r"SCORE:\s*(\S+)", only_stop=only_stop),
+    )
+
+
+def grader_roles() -> dict[str, Any]:
+    return {
+        "grader": get_model("mockllm/judge", custom_outputs=[judge_output("SCORE: 1")])
+    }
+
+
+@pytest.mark.parametrize("only_stop", [True, False])
+def test_only_stop_fails_on_hf_models_under_test(
+    tmp_path: Path, hf_stub: tuple[Any, list[_Loaded]], only_stop: bool
+) -> None:
+    # The real HF provider (stub weights): it reports stop_reason "unknown".
+    hf_model = get_model("hf/org/repo", memoize=False, device="cpu")
+    logs = inspect_eval(
+        only_stop_task(only_stop, "unknown"),
+        model=hf_model,
+        model_roles=grader_roles(),
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    if only_stop:
+        assert logs[0].status == "error"
+        assert logs[0].error
+        assert "StopReasonUnavailableError" in logs[0].error.traceback
+        assert "hf/org/repo" in logs[0].error.message
+        assert "vllm/" in logs[0].error.message
+        return
+    # Without only_stop every answer is judged; its stop reason is unknown.
+    assert eval_metrics(logs[0])["field_rate"] == 1
+    assert math.isnan(eval_metrics(logs[0])["incomplete_response_rate"])
+
+
+def test_require_stop_reason_is_provider_based() -> None:
+    def state(model: str) -> TaskState:
+        return TaskState(
+            model=ModelName(model), sample_id=1, epoch=1, input="q", messages=[]
+        )
+
+    for name in ("hf/org/repo", "hf/local"):
+        with pytest.raises(StopReasonUnavailableError, match="hf/ provider"):
+            require_stop_reason(state(name))
+    for name in ("vllm/org/repo", "openai-api/airgap/judge", "mockllm/model"):
+        require_stop_reason(state(name))
+    assert judge_module.NO_STOP_REASON_PROVIDERS == {"hf"}
+
+
+def test_only_stop_skips_unknown_stop_reasons_elsewhere(tmp_path: Path) -> None:
+    # A provider that reports stop reasons but not for this answer: skipped,
+    # and left out of the incomplete-response rate.
+    logs = inspect_eval(
+        only_stop_task(True, "unknown"),
+        model="mockllm/model",
+        model_roles=grader_roles(),
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    metrics = eval_metrics(logs[0])
+    assert math.isnan(metrics["field_rate"])
+    assert math.isnan(metrics["incomplete_response_rate"])
+
+
+@pytest.mark.parametrize("exclude", [True, False])
+def test_template_thinking_task_args(tmp_path: Path, exclude: bool) -> None:
+    graded: list[str] = []
+
+    def grade(
+        messages: list[ChatMessage],
+        tools: list[ToolInfo],
+        choice: ToolChoice,
+        config: GenerateConfig,
+    ) -> ModelOutput:
+        graded.append(messages[-1].text)
+        return judge_output("SCORE: 1")
+
+    answer = answer_output("stop", "<reason>secret</reason>2")
+    logs = inspect_eval(
+        inspect_template(
+            exclude_thinking_trace_for_judge=exclude,
+            thinking_start_token="<reason>",
+            thinking_end_token="</reason>",
+        ),
+        model=get_model("mockllm/model", custom_outputs=[answer]),
+        model_roles={"grader": get_model("mockllm/judge", custom_outputs=grade)},
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    assert eval_metrics(logs[0])["field_rate"] == 1
+    [prompt] = graded
+    assert ("secret" in prompt) is not exclude
+    assert "Answer: 2\n" in prompt or not exclude
+
+
+def test_cli_turns_thinking_stripping_off(tmp_path: Path) -> None:
+    run_cli(
+        "eval",
+        "llm_behavior_eval/inspect_template",
+        "--model",
+        "mockllm/model",
+        "-T",
+        "exclude_thinking_trace_for_judge=false",
+        "--log-dir",
+        str(tmp_path / "logs"),
+        cwd=tmp_path,
+    )
+    log = only_log(tmp_path / "logs")
+    assert log.eval.task_args["exclude_thinking_trace_for_judge"] is False
 
 
 def test_grader_role_is_required(tmp_path: Path) -> None:
@@ -568,33 +827,6 @@ def test_in_process_registry_names_are_namespaced() -> None:
         registry_info(incomplete_response_rate()).name
         == "llm_behavior_eval/incomplete_response_rate"
     )
-
-
-class _Loaded:
-    def __init__(self, kind: str, source: str, kwargs: dict[str, Any]) -> None:
-        self.kind = kind
-        self.source = source
-        self.kwargs = kwargs
-        self.eos_token = "</s>"
-
-
-@pytest.fixture
-def hf_stub(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Any, list[_Loaded]]]:
-    # Configure the real HF provider with stub loaders: no weights, no GPU.
-    hf = pytest.importorskip("inspect_ai.model._providers.hf")
-    calls: list[_Loaded] = []
-
-    def loader(kind: str) -> type:
-        def from_pretrained(source: str, **kwargs: Any) -> _Loaded:
-            loaded = _Loaded(kind, source, kwargs)
-            calls.append(loaded)
-            return loaded
-
-        return type(kind, (), {"from_pretrained": staticmethod(from_pretrained)})
-
-    monkeypatch.setattr(hf, "AutoModelForCausalLM", loader("model"))
-    monkeypatch.setattr(hf, "AutoTokenizer", loader("tokenizer"))
-    yield hf, calls
 
 
 @pytest.mark.parametrize(

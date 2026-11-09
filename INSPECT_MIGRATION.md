@@ -46,20 +46,22 @@ Each benchmark is a regular subpackage `llm_behavior_eval/<benchmark>/` (it has 
 
 | File | Contents |
 | --- | --- |
-| `task.py` | The `@task` function. No `config=`, no default grader. |
+| `task.py` | The `@task` function. No `config=`, no default grader. Takes the [thinking-trace task arguments](#thinking-trace-task-arguments). |
 | `dataset.py` | Loading, full-source validation, `record_to_sample`. |
 | `prompts.py` | System and judge prompts, copied verbatim from the legacy engine. |
 | `solver.py` | Solver chain. No GenerateConfig. |
 | `scorer.py` | Scorer, usually wrapping `common.judge.judge_scorer`. |
-| `metrics.py` | Benchmark metrics, when `common.metrics` is not enough. |
+| `metrics.py` | Benchmark metrics, when `common.metrics` is not enough. Every one is `@metric(scores="unreduced")` (see [Epochs](#epochs)). |
 | `README.md` | What it measures, task arguments, metrics, parity status. |
 | `parity.yaml` | Legacy-engine settings as an Inspect run config (see below). |
 | `target_metrics.json` | Report metrics for each of its tasks (see below). |
 
 Its tests live outside the package, in `tests/test_inspect_<benchmark>.py`:
-registry discovery, dataset conversion, scorer, parity-config tests, and a check
-that inspect-brief finds every `target_metrics.json` name in a real `.eval` log
-(`missing_target_metrics`, see [Target metrics](#target-metrics)).
+registry discovery, dataset conversion, scorer, parity-config tests, an
+`--epochs 2` regression and `reduced_metrics(task) == []` (see
+[Epochs](#epochs)), and a check that inspect-brief finds every
+`target_metrics.json` name in a real `.eval` log (`missing_target_metrics`, see
+[Target metrics](#target-metrics)).
 
 Registry names are global. Inspect keeps one registry per object type, keyed by
 `llm_behavior_eval/<name>`, and a later registration under a name silently
@@ -102,8 +104,10 @@ root-level metrics file, the root `README.md`, `.gitignore` or `pyproject.toml`:
   it; the root README points to these files generically.
 
 `tests/test_inspect_packages.py` enforces the convention: every registered task
-has target metrics and vice versa, package files are tracked and ship in the
-wheel, and an installed wheel discovers the same tasks and metrics.
+has target metrics and vice versa and exposes the thinking-trace task arguments,
+every metric defined in the package and every metric a scorer declares is
+unreduced, package files are tracked and ship in the wheel, and an installed
+wheel discovers the same tasks and metrics.
 
 ### `inspect_template` is registered on purpose
 
@@ -138,8 +142,12 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
   group 1 goes to `parse`. The grader role is required and never falls back to the
   model under test. **The scorer passes no GenerateConfig**: the grader uses only
   its role's config. `only_stop=True` skips answers whose stop reason is not
-  `stop`. The verdict regex runs on the grader's final answer, after its inline
-  `<think>...</think>` trace is removed; `raw_judge_text` keeps the whole reply.
+  `stop`, and raises `StopReasonUnavailableError` when the model under test runs
+  on Inspect's `hf/` provider (see [Stop reasons](#stop-reasons)). The thinking
+  arguments are the benchmark's [task arguments](#thinking-trace-task-arguments).
+  The verdict regex runs on the grader's final answer, after its inline
+  `<think>...</think>` trace is removed (always, whatever the task arguments);
+  `raw_judge_text` keeps the whole reply.
   Unmatched, unparsable and non-finite (`nan`, `inf`) grades become
   `parse_error` scores. Skips and parse errors have placeholder value 0 and are
   excluded by `field_rate`; never average them with a plain mean. Score metadata
@@ -148,11 +156,23 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
   marker when both markers are configured and either appears. An unclosed start
   marker keeps the whole answer. Structured `ContentReasoning` is already
   excluded from `ModelOutput.completion`.
+* `judge.THINKING_TASK_ARGS` maps the thinking-trace task argument names to their
+  defaults (see [below](#thinking-trace-task-arguments)).
+* `judge.require_stop_reason(state)` raises `StopReasonUnavailableError` when the
+  model under test runs on a provider in `judge.NO_STOP_REASON_PROVIDERS`
+  (`{"hf"}`). Benchmark scorers that filter or score on `stop_reason` without
+  `judge_scorer(only_stop=True)` call it first.
 * `metrics.field_rate(field=None, *, metadata_key=None, metadata_value=None)`
-  averages scalar scores, or one field of dict scores, over eligible samples,
-  optionally restricted to a score-metadata subgroup.
-  `metrics.incomplete_response_rate()` is the share of **all** scored samples that
-  stopped at `max_tokens`. Empty denominators yield NaN.
+  averages scalar scores, or one field of dict scores, over eligible epoch
+  observations, optionally restricted to a score-metadata subgroup.
+  `metrics.incomplete_response_rate()` is the share of observations with a known
+  stop reason that stopped at `max_tokens` or `model_length`. Empty denominators
+  yield NaN. Both are `@metric(scores="unreduced")`.
+* `metrics.scores_by_sample(scores)` groups an unreduced metric's observations by
+  `sample_id`, in first-seen order. `metrics.reduced_metrics(task_or_scorer)`
+  lists the metrics that are not unreduced. `metrics.EPOCH_SCORES` is
+  `"unreduced"`; `metrics.INCOMPLETE_STOP_REASONS` and
+  `metrics.UNKNOWN_STOP_REASON` name the stop reasons above.
 * `packages.benchmark_packages(root="llm_behavior_eval")` returns the sorted
   names of subpackages that have a `task` module, without importing them.
   `packages.subpackages(root)` lists every regular subpackage.
@@ -176,6 +196,53 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
 
 Sample limits are Inspect's: `--limit N`, `eval(limit=N)`, or `eval_config.limit`
 in a run config. There is no task-level sample cap.
+
+## Epochs
+
+`--epochs N` runs every sample N times. Inspect's epoch reducers keep only the
+first epoch's score **metadata**, and the benchmark metrics read metadata
+(`skipped`, `parse_error`, `stop_reason`, grades, subgroups). With reduced
+metrics, an N-epoch run silently reports epoch 1's metadata. So every metric a
+benchmark reports takes unreduced scores.
+
+**Metric layout.**
+
+* Every metric is declared `@metric(scores="unreduced")`. It receives one
+  `SampleScore` per sample per epoch, each with its own metadata; `sample_id`
+  repeats across epochs.
+* `log.results.scores` holds exactly one `EvalScore` per scorer, with
+  `reducer` `None` and the same metric keys as a one-epoch run. `--epochs-reducer`
+  does not change these metrics, and `log.reductions` is empty. With one epoch,
+  values equal the previous layout's.
+* Never mix reduced and unreduced metrics on one scorer. Inspect then writes two
+  `EvalScore` entries for it (a reduced view tagged `mean` and an unreduced
+  one), and `log.results.scores[0].metrics` no longer holds every metric.
+  Inspect built-ins (`accuracy()`, `mean()`, `stderr()`, ...) are reduced, so
+  don't attach them to a benchmark scorer.
+* Rates and means pool every (sample, epoch) observation. With the same number
+  of epochs per sample and no exclusions, that equals the mean of per-sample
+  means. Counts count observations. A standard error must treat a sample's
+  epochs as one cluster: compute it over per-sample values from
+  `scores_by_sample`.
+
+**Adopting it in a benchmark.**
+
+1. Declare every metric in `<benchmark>/metrics.py` as
+   `@metric(scores="unreduced")`, including mapping-valued metrics and wrappers
+   around `common.metrics`. Keep the metric names; the log keys do not change.
+2. Remove Inspect built-in metrics from `@scorer(metrics=...)` and
+   `Task(metrics=...)`. Replace a built-in `stderr()` with a package metric
+   that clusters by sample (`scores_by_sample`).
+3. Check each metric's formula reads correctly over observations: any
+   denominator that was "samples" is now "samples x epochs".
+4. In `tests/test_inspect_<benchmark>.py`, assert
+   `reduced_metrics(<task>(...)) == []`, and add an `epochs=2` eval whose
+   epochs differ (for example a truncated then a finished answer) and assert
+   the metrics count both. Read metrics from the single
+   `[result] = log.results.scores`.
+5. `tests/test_inspect_packages.py` must pass with the benchmark merged: it
+   checks every metric defined in the package and every metric a scorer
+   declares.
 
 ## Target metrics
 
@@ -303,10 +370,61 @@ Nothing turns thinking on or off for you. Set it per role if you need it:
 * Hosted APIs: `--reasoning-effort`, `--reasoning-tokens` or provider-specific
   fields, as each provider supports.
 
-Inline `<think>...</think>` traces in answers are stripped before judging by
-`judge_scorer`, whatever the thinking setting. The grader's own inline trace is
-always removed before its verdict is parsed, so a verdict quoted in its
-reasoning is never read as the grade.
+### Thinking-trace task arguments
+
+By default, an inline `<think>...</think>` trace in the answer is stripped before
+the grader sees it, whatever the thinking setting: the grader gets only the text
+after the last end marker. Every benchmark exposes the same task arguments
+(`common.judge.THINKING_TASK_ARGS`), with these names and defaults, and passes
+them unchanged to `judge_scorer` or `strip_thinking`:
+
+| Task argument | Default | Effect |
+| --- | --- | --- |
+| `exclude_thinking_trace_for_judge` | `true` | `false` gives the grader the whole answer. |
+| `thinking_start_token` | `<think>` | Marker that opens the trace. `null` turns stripping off. |
+| `thinking_end_token` | `</think>` | Marker that closes the trace. `null` turns stripping off. |
+
+```sh
+inspect eval llm_behavior_eval/<benchmark> ... -T exclude_thinking_trace_for_judge=false
+inspect eval llm_behavior_eval/<benchmark> ... \
+  -T thinking_start_token='<reasoning>' -T thinking_end_token='</reasoning>'
+```
+
+**The legacy engine defaulted to off**: `--exclude-thinking-trace-for-judge` was
+opt-in (`exclude_thinking_trace_for_judge=False`), with no default markers.
+Legacy runs set thinking per evaluator family (off except for refusal). With no
+inference settings in code, chat templates such as Qwen3's think by default, so
+stripping is on here. For the legacy behavior pass
+`-T exclude_thinking_trace_for_judge=false`.
+
+The grader's own inline trace is always removed before its verdict is parsed,
+so a verdict quoted in its reasoning is never read as the grade.
+
+To adopt this in a benchmark: add the three arguments to its `@task` with
+defaults `True`, `THINKING_START` and `THINKING_END` from `common.judge`, and pass
+them to its scorer, which passes them to `judge_scorer` or `strip_thinking`
+(see `inspect_template/task.py` and `scorer.py`). Document them in its README.
+`tests/test_inspect_packages.py` checks every registered task's signature.
+
+### Stop reasons
+
+`judge_scorer(only_stop=True)` and `incomplete_response_rate` read the answer's
+stop reason. Inspect's `hf/` provider cannot report one: it leaves every
+`stop_reason` at `unknown` and reports the padded batch length as every answer's
+output token count, so a finished answer cannot be told from a truncated one,
+even after the fact. Therefore:
+
+* `only_stop=True` with an `hf/` model under test raises
+  `StopReasonUnavailableError` (the eval fails) instead of skipping every answer.
+  Serve the model with `vllm/` or an OpenAI-compatible endpoint. Scorers that
+  filter on the stop reason themselves call `require_stop_reason(state)`.
+* `incomplete_response_rate` counts `max_tokens` and `model_length` as
+  incomplete and leaves `unknown` (and missing) stop reasons out of its
+  denominator. On `hf/` it is NaN, not 0.
+* Elsewhere, an `unknown` answer under `only_stop=True` is skipped.
+
+The parity evidence was produced with the model under test served by vLLM,
+which reports stop reasons, so these rules do not change it.
 
 ## Parity configs
 
@@ -353,6 +471,9 @@ illustrative values.
   instead of the model's own `generation_config.json` limit. vLLM, SGLang and
   `openai-api` send no limit when unset; some hosted providers (for example
   Anthropic, Together, Groq) substitute their own Inspect default.
+* **Inspect's HF provider reports no stop reason.** See
+  [Stop reasons](#stop-reasons): `only_stop` scorers fail on `hf/`, and
+  `incomplete_response_rate` is NaN.
 * **Grading is non-deterministic unless you override it.** Model-recommended
   generation defaults for judges are often sampling (for example
   `generation_config.json` with `do_sample: true`). Set the grader's temperature
@@ -380,6 +501,7 @@ applies to the model under test; put the same keys under the grader's
 | Local vLLM | `--model vllm//models/model`; `vllm/local` alone means a model literally named `local`, not a model_path override. For a prestarted endpoint use `vllm/local -M base_url=http://127.0.0.1:8000/v1`, with that served model name. |
 | `--judge-model` | `--model-role grader=...` with any provider. The grader is never implied, so always pass it. |
 | Answer/judge temperature, token budgets, thinking | No defaults. Pass them per role as above, or use the benchmark's `parity.yaml`. |
+| `--exclude-thinking-trace-for-judge` / `--include-thinking-trace-for-judge`, `--thinking-start-token`, `--thinking-end-token` | `-T exclude_thinking_trace_for_judge=true/false`, `-T thinking_start_token=...`, `-T thinking_end_token=...`. Stripping defaults to **on** with `<think>`/`</think>`; legacy defaulted to off. |
 | dataset path/token | Benchmark task parameters `-T dataset_path=... -T dataset_token=...`. HF_TOKEN keeps credentials out of CLI history and logged task arguments. |
 | max_samples | `--limit N` / `eval(limit=N)`, or `eval_config.limit` in a parity config. Without a limit, Inspect runs the full split. |
 | use-4bit / use-4bit-judge | HF forwards remaining model args to Transformers. Use Python `quantization_config=BitsAndBytesConfig(load_in_4bit=True)`; no portable boolean CLI alias is implemented. Requires compatible bitsandbytes/GPU. Not vLLM. |
@@ -399,7 +521,8 @@ applies to the model under test; put the same keys under the grader's
 ## Validation and remaining work
 
 CPU tests cover registration and CLI execution, lightweight discovery, parsing,
-finish filtering, inline thinking, metrics, split selection, offline snapshots,
+finish filtering, the `hf/` stop-reason error, inline thinking and its task
+arguments, metrics over every epoch, split selection, offline snapshots,
 per-role settings via Python, CLI flags, `--generate-config` and `--run-config`,
 the absence of code-set settings for both roles, an `openai-api` judge on
 loopback with and without a role config, parity-config loading, and HF/vLLM

@@ -3,11 +3,17 @@
 Nothing here sets inference options for either model. The grader is whatever
 model is bound to the ``grader`` role, with whatever GenerateConfig the user gave
 that role; unset options fall through to the serving stack's defaults.
+
+Thinking-trace task arguments: every benchmark ``@task`` takes the arguments in
+``THINKING_TASK_ARGS``, with exactly these names and defaults, and passes them
+unchanged to ``judge_scorer`` or ``strip_thinking``. Stripping is on by default;
+``-T exclude_thinking_trace_for_judge=false`` gives the grader the whole answer.
 """
 
 import math
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from types import MappingProxyType
 
 from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Scorer, Target, scorer
@@ -18,6 +24,50 @@ from .metrics import field_rate, incomplete_response_rate
 GRADER_ROLE = "grader"
 THINKING_START = "<think>"
 THINKING_END = "</think>"
+
+THINKING_TASK_ARGS: Mapping[str, bool | str | None] = MappingProxyType(
+    {
+        "exclude_thinking_trace_for_judge": True,
+        "thinking_start_token": THINKING_START,
+        "thinking_end_token": THINKING_END,
+    }
+)
+"""Task arguments, with their defaults, that every benchmark ``@task`` exposes."""
+
+NO_STOP_REASON_PROVIDERS = frozenset({"hf"})
+"""Inspect providers that cannot tell a finished answer from a truncated one.
+
+Inspect's ``hf/`` provider leaves every ``stop_reason`` at ``"unknown"`` and
+reports the padded batch length as each answer's output token count, so the
+stop reason cannot be recovered after the fact either.
+"""
+
+
+class StopReasonUnavailableError(RuntimeError):
+    """A scorer needs the answer's stop reason, which the provider cannot report."""
+
+
+def require_stop_reason(state: TaskState) -> None:
+    """Fail when the model under test's provider reports no stop reasons.
+
+    Call it before filtering or scoring on ``stop_reason`` (``judge_scorer``
+    does so when ``only_stop=True``).
+
+    Args:
+        state: The sample's task state.
+
+    Raises:
+        StopReasonUnavailableError: The model under test runs on a provider in
+            ``NO_STOP_REASON_PROVIDERS``.
+    """
+    if state.model.api in NO_STOP_REASON_PROVIDERS:
+        raise StopReasonUnavailableError(
+            f"This scorer keeps only answers that finished normally, but "
+            f"{state.model} runs on Inspect's {state.model.api}/ provider, which "
+            "reports no stop reason (every answer is 'unknown'), so a finished "
+            "answer cannot be told from one cut off at max_tokens. Serve the "
+            "model with vllm/ or an OpenAI-compatible endpoint instead."
+        )
 
 
 def strip_thinking(
@@ -85,20 +135,27 @@ def judge_scorer(
         pattern: Regex applied to the grader's final answer; group 1 is parsed.
         parse: Converts group 1 to a score; ``ValueError`` marks a parse error.
         only_stop: Skip answers that did not finish with ``stop``, without
-            calling the grader.
+            calling the grader. Requires a provider that reports stop reasons.
         exclude_thinking_trace_for_judge: Strip the answer's inline thinking
-            trace before the grader sees it.
+            trace before the grader sees it. Benchmarks pass their task
+            argument of the same name (see ``THINKING_TASK_ARGS``).
         thinking_start_token: Marker that opens the answer's thinking trace.
         thinking_end_token: Marker that closes the answer's thinking trace.
 
     Returns:
         A scorer recording ``stop_reason`` and ``raw_judge_text`` metadata.
+
+    Raises:
+        StopReasonUnavailableError: From the scorer, when ``only_stop`` is set
+            and the model under test runs on Inspect's ``hf/`` provider.
     """
     regex = re.compile(pattern)
 
     async def score(state: TaskState, target: Target) -> Score:
         stop = state.output.choices[0].stop_reason if state.output.choices else None
         metadata = {**state.metadata, "stop_reason": stop, "raw_judge_text": ""}
+        if only_stop:
+            require_stop_reason(state)
         if only_stop and stop != "stop":
             metadata["skipped"] = True
             return Score(
