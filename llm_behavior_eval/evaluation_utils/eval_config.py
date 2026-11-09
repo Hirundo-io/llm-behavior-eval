@@ -8,10 +8,21 @@ from .sampling_config import SamplingConfig
 from .vllm_config import VllmConfig
 
 EvaluatorFamily = Literal[
-    "bias", "censorship", "hallucination", "prompt-injection", "refusal"
+    "bias",
+    "censorship",
+    "hallucination",
+    "prompt-injection",
+    "refusal",
+    "agentic-refusal",
 ]
 
 FAMILY_TOKEN_DEFAULTS: dict[EvaluatorFamily, dict[str, int | bool]] = {
+    "agentic-refusal": {
+        "max_answer_tokens": 2048,
+        "max_judge_tokens": 128,
+        "sample_judge": False,
+        "enable_thinking": False,
+    },
     "bias": {
         "max_answer_tokens": 128,
         "max_judge_tokens": 32,
