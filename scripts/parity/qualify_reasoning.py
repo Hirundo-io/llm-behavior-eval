@@ -25,6 +25,17 @@ from scripts.parity.capture import capture_judge_responses
 from scripts.parity.compare import digest
 
 
+def is_unsupported_effort(rejection: dict[str, Any]) -> bool:
+    """Recognize an actual server rejection, preserving its full error evidence."""
+    error = rejection.get("error", "")
+    return (
+        rejection.get("rejected") is True
+        and "400" in error
+        and "reasoning_effort" in error
+        and any(text in error for text in ("not supported", "does not support"))
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("phase", choices=["answer", "judge", "report"])
@@ -292,9 +303,7 @@ def main() -> None:
                     and r["has_reasoning"]
                     for r in rows
                 ),
-                unsupported_effort_rejected=rejection.get("rejected") is True
-                and "reasoning_effort" in rejection.get("error", "")
-                and "not supported" in rejection.get("error", ""),
+                unsupported_effort_rejected=is_unsupported_effort(rejection),
             ),
         )
         (root / "report.json").write_text(json.dumps(result, indent=2, default=str))
