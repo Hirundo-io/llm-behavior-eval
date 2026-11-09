@@ -28,6 +28,18 @@ def ccpc_verdict(value: str) -> bool | None:
     return {CORRECT: True, INCORRECT: False, NOANSWER: None}[value]
 
 
+def formatted_answer_field(family: str, scorer: str) -> str:
+    """Locate scorer text separately from the raw model completion."""
+    suffix = (
+        "metadata.llm_answer"
+        if family in {"xstest", "orbench"}
+        else "metadata.formatted_answer"
+        if family == "prompt_injection"
+        else "answer"
+    )
+    return f"scores.{scorer}.{suffix}"
+
+
 def main() -> None:
     from inspect_ai.log import read_eval_log, write_eval_log
     from transformers import AutoTokenizer
@@ -67,16 +79,19 @@ def main() -> None:
         raise ValueError("Missing captured legacy boundary or source rows")
     generations = list((root / "legacy").rglob("generations.jsonl"))
     finishes = []
+    raw_answers = []
     targets = []
     stereotypes = []
     for path in generations:
         for line in path.read_text().splitlines():
             batch = json.loads(line)
             finishes.extend(batch["finish_reasons"])
+            raw_answers.extend(batch["answers"])
             targets.extend(batch.get("gt_answers", batch.get("correct_answers", [])))
             stereotypes.extend(batch.get("stereotyped_answers") or [])
     if not finishes:
         finishes = [row["finish_reason"] for row in old]
+        raw_answers = [row["llm_answer"] for row in old]
     if len(finishes) != len(old):
         raise ValueError("Missing finish reason observations")
     bias = family in {"bbq", "bloom", "unqover"}
@@ -104,8 +119,15 @@ def main() -> None:
         if family == "prompt_injection"
         else "judge_verdict"
     )
-    for row, boundary, finish in zip(old, captured, finishes, strict=True):
-        row["observed"] = {**boundary, "finish": finish, "verdict": row[verdict_key]}
+    for row, boundary, finish, raw_answer in zip(
+        old, captured, finishes, raw_answers, strict=True
+    ):
+        row["observed"] = {
+            **boundary,
+            "finish": finish,
+            "verdict": row[verdict_key],
+            "raw_answer": raw_answer,
+        }
     if bias or hallu:
         if len(targets) != len(old):
             raise ValueError("Missing legacy target round trips")
@@ -309,7 +331,7 @@ def main() -> None:
     )
     fields = dict(
         verdict=("observed.verdict", "metadata.observed.verdict"),
-        answer=("model_answer" if bias else "llm_answer", "output.completion"),
+        answer=("observed.raw_answer", "output.completion"),
         judge_question=("question", "metadata.observed.question"),
         finish_reason=("observed.finish", f"scores.{scorer}.metadata.stop_reason"),
         input_token_ids=(
@@ -321,6 +343,11 @@ def main() -> None:
             "metadata.observed.rendered_prompt",
         ),
     )
+    if family != "ccpc":
+        fields["formatted_answer"] = (
+            "model_answer" if bias else "llm_answer",
+            formatted_answer_field(family, scorer),
+        )
     if family == "prompt_injection":
         fields["response_tokens"] = (
             "response_tokens",

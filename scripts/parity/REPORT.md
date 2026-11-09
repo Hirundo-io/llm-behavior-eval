@@ -456,3 +456,11 @@ family probes remain pending. Grouped native answers now checkpoint each
 successful task immediately; a real Inspect mock-log regression verifies that
 a subsequent task failure cannot hide that completed artifact. **33 focused
 tests** and focused lint/type checks pass; these tests do not establish GPU parity.
+
+The strict reporter now compares raw model completions and scorer-formatted
+answers separately. Legacy generation artifacts supply raw text; each family's
+documented score field supplies its formatted text. Replaying the real eager
+HaluEval 500-row run, all four eager boundary runs, and compiled XSTest's two-row
+run still yields zero field mismatches or errors. Updated compact evidence binds
+the replayed reports; the original generation and scored-log artifacts remain
+unchanged. **37 focused tests**, Ruff, and focused Pyrefly pass.

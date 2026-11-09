@@ -315,3 +315,34 @@ def test_batch_checkpoints_completed_task_before_later_failure(tmp_path, monkeyp
     assert saved.status == "success"
     assert [sample.id for sample in saved.samples] == ["halueval"]
     assert not (roots[1] / "answer-log.txt").exists()
+
+
+@pytest.mark.parametrize(
+    "family,scorer",
+    [
+        ("bbq", "bias_scorer"),
+        ("halueval", "hallucination_scorer"),
+        ("xstest", "refusal_scorer"),
+        ("prompt_injection", "injection_scorer"),
+    ],
+)
+def test_report_distinguishes_completion_from_scorer_text(family, scorer):
+    from scripts.parity.compare import field
+    from scripts.parity.report_matrix import formatted_answer_field
+
+    raw = "  answer\n"
+    formatted = "answer"
+    sample = dict(
+        output=dict(completion=raw),
+        scores={
+            scorer: dict(
+                answer="comply"
+                if family in {"xstest", "prompt_injection"}
+                else formatted,
+                metadata=dict(llm_answer=formatted, formatted_answer=formatted),
+            )
+        },
+    )
+    assert field(sample, "output.completion") == raw
+    assert field(sample, formatted_answer_field(family, scorer)) == formatted
+    assert raw != formatted

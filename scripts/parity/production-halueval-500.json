@@ -57,7 +57,7 @@
     "samples": 500,
     "provenance_equal": false,
     "acceptance": "pending owner decision; no tolerance approved",
-    "report_tool_sha256": "439572c9ef889e20bbdca7983a0a86a4addd1aa934973f6b4cdffaeecf9fffe6",
+    "report_tool_sha256": "7325fb7f44ee6a73d60b9652e8608b8dff22f153616c5997c12057805ee2bfa5",
     "execution": {
       "native_sample_concurrency": 1,
       "native_extra_body": {
@@ -224,11 +224,11 @@
   },
   "hashes": {
     "source.json": "2793e29b79ec0900e60d8f5e301000774f19f3603e750aa58f823a50d448508c",
-    "strict-report.json": "222106fb9ea4a2e1423e3f82c1a71a281f489f482941ac76310da2b59eb52473",
+    "strict-report.json": "252412883c682539a9b04a97c31d1392b4aaf04b1bee6a114e7f7ecfaa48c1cc",
     "scored.eval": "1bf6c7e42ad3fbfd321b9422b9a797e10317fa3ec2db9eddfa7390e02a34394b",
     "legacy-boundary.json": "e9598922c9b76fbe29f038122b7d00471c69fa429e3e930761578a6de59e83a9",
     "legacy-judge-boundary.json": "a251deafced91b02335939a9290d7a434e53459591c58af865338d178309b158",
     "native-judge-responses.json": "3315eb7c20438ae52b694d5fad580aa6bc14636096cf5bf24e3a7b96375f9731",
-    "comparison-identity.json": "df6841ae9fd24b6de5eb179c1efc79fe279b6a301f0cabe22a821cd8e58ce8e5"
+    "comparison-identity.json": "d87b602c79032093ca7646cbab087d3a049153046da96748cd34e797975c11c3"
   }
 }

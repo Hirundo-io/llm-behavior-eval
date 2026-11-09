@@ -6,7 +6,7 @@
     {
       "case": "bbq-gender-bias",
       "source_sha256": "c44790ab102f8127e0218a0371b9ce568b38f8a43bd2213ed4f5094d82772160",
-      "report_sha256": "f358f1157659b0532cb5a97ed9e5079e4ce9326513e3e20a821cf5cb20c8b8e0",
+      "report_sha256": "fbbce21ec9de3fa49854655362dc89afe71deedb0248cd8a0f4aebebe8e61b8b",
       "scored_eval_sha256": "b47666ed0b95c4720326db4150befcff2c23189268401388e57960c230ff0fce",
       "report": {
         "name": "bbq:gender:bias:synthetic-edge",
@@ -112,7 +112,7 @@
           },
           "legacy_execution": "Fresh engine per case, sequential answer and judge batches of one"
         },
-        "report_tool_sha256": "87aaf93ebe922876d4f4cd265efb807997c84a71824f6391145958f07a03f8e5"
+        "report_tool_sha256": "7325fb7f44ee6a73d60b9652e8608b8dff22f153616c5997c12057805ee2bfa5"
       },
       "runs": {
         "legacy": {
@@ -244,7 +244,7 @@
     {
       "case": "halueval",
       "source_sha256": "00f76bd437704135172e7966d4dcfe6eec2f9608f968c5918bf4273e79e96ad8",
-      "report_sha256": "8215bcaf2ccf41126c0ef1b373924604e8d8dfd70421a24727234d4f6d2a4eb2",
+      "report_sha256": "e9753c26240924ac7fbdb42c94b2b6aecfabaac25be5be4a27aa0d651df9c71a",
       "scored_eval_sha256": "48bbd008b803e50d10e8688d2e1c4643146fa42df5c79927fcbaf415579afaff",
       "report": {
         "name": "halueval:synthetic-edge",
@@ -328,7 +328,7 @@
           },
           "legacy_execution": "Fresh engine per case, sequential answer and judge batches of one"
         },
-        "report_tool_sha256": "87aaf93ebe922876d4f4cd265efb807997c84a71824f6391145958f07a03f8e5"
+        "report_tool_sha256": "7325fb7f44ee6a73d60b9652e8608b8dff22f153616c5997c12057805ee2bfa5"
       },
       "runs": {
         "legacy": {
@@ -454,7 +454,7 @@
     {
       "case": "prompt_injection",
       "source_sha256": "0f7443c6345ec6c8c0f18eb63e858e6a86047e4813cb05629e4988ceb5875c3e",
-      "report_sha256": "10ece3c994fd2c91156a3e30c0b05133e1b03b7c7eafbae9d4f4c4c5c4e700a9",
+      "report_sha256": "3a8ee45d30400f43ab1c55f74e77b934f1354d7e34be11a5c4b7221af61b45c2",
       "scored_eval_sha256": "e138e46cccdd090bd1fd065d0e72a98749808a0d91dc6b445ff6a1b565621795",
       "report": {
         "name": "prompt_injection:synthetic-edge",
@@ -535,7 +535,7 @@
           },
           "legacy_execution": "Fresh engine per case, sequential answer and judge batches of one"
         },
-        "report_tool_sha256": "87aaf93ebe922876d4f4cd265efb807997c84a71824f6391145958f07a03f8e5"
+        "report_tool_sha256": "7325fb7f44ee6a73d60b9652e8608b8dff22f153616c5997c12057805ee2bfa5"
       },
       "runs": {
         "legacy": {
@@ -661,7 +661,7 @@
     {
       "case": "xstest",
       "source_sha256": "dba8ad16c8df10b2cb05686616169714c9f7817a6ee1800b0ac9ba6d6d8b4d95",
-      "report_sha256": "65cdc51ddd172d1b9677a9dd2f245a79fd591e81ab19919ff9d3230f544a078b",
+      "report_sha256": "4b7dd60a4785e8862abe7c82fa0ecc024f669f45691ccb22c393d8b2b0a8778a",
       "scored_eval_sha256": "551ea6c595ca9f09437584caae8ea767f2d8c43680f9b319c67c06e09693d722",
       "report": {
         "name": "xstest:synthetic-edge",
@@ -857,7 +857,7 @@
           },
           "legacy_execution": "Fresh engine per case, sequential answer and judge batches of one"
         },
-        "report_tool_sha256": "87aaf93ebe922876d4f4cd265efb807997c84a71824f6391145958f07a03f8e5"
+        "report_tool_sha256": "7325fb7f44ee6a73d60b9652e8608b8dff22f153616c5997c12057805ee2bfa5"
       },
       "runs": {
         "legacy": {
