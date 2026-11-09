@@ -1,0 +1,234 @@
+{
+  "scope": "Real paired 500-row production HaluEval, eager mode; not all-31 completion",
+  "source_commit": "f35fb814b0c99081707f81241b39ed72cd4ebcbf",
+  "source": {
+    "repository": "hirundo-io/halueval",
+    "revision": "1516057d20afbd37202ce4d3f8c761c36c4d481c",
+    "rows": 3000,
+    "ids": "Full IDs retained in raw source manifest; hash below",
+    "parquet_sha256": "9c4a3e071d530ddb29931066857d4b224d2c62d4b7fc33a651f9395b24484f5a",
+    "dataset_seed": 42
+  },
+  "report": {
+    "name": "halueval",
+    "family": "halueval",
+    "status": "compared",
+    "errors": [],
+    "mismatches": [],
+    "metrics": [
+      {
+        "name": "accuracy",
+        "unit": "percent",
+        "legacy": 89.8,
+        "native": 89.8,
+        "delta": 0.0,
+        "delta_pp": 0.0
+      },
+      {
+        "name": "empty_responses",
+        "unit": "count",
+        "legacy": 0.0,
+        "native": 0.0,
+        "delta": 0.0,
+        "delta_pp": null
+      },
+      {
+        "name": "incomplete_response_rate",
+        "unit": "fraction",
+        "legacy": 0.0,
+        "native": 0.0,
+        "delta": 0.0,
+        "delta_pp": 0.0
+      }
+    ],
+    "verdict_agreement_percent": 100.0,
+    "confusion": [
+      {
+        "legacy": "\"CORRECT\"",
+        "native": "\"CORRECT\"",
+        "count": 449
+      },
+      {
+        "legacy": "\"INCORRECT\"",
+        "native": "\"INCORRECT\"",
+        "count": 51
+      }
+    ],
+    "samples": 500,
+    "provenance_equal": false,
+    "acceptance": "pending owner decision; no tolerance approved",
+    "report_tool_sha256": "7325fb7f44ee6a73d60b9652e8608b8dff22f153616c5997c12057805ee2bfa5",
+    "execution": {
+      "native_sample_concurrency": 1,
+      "native_extra_body": {
+        "return_token_ids": true,
+        "add_special_tokens": true,
+        "cache_salt": "llm169:halueval"
+      },
+      "legacy_execution": "Fresh engine per case, sequential answer and judge batches of one"
+    },
+    "boundary_lengths": {
+      "answer": {
+        "min": 62,
+        "max": 299,
+        "at_1024": 0,
+        "at_256": 0
+      },
+      "target": {
+        "min": 1,
+        "max": 39,
+        "at_1024": 0,
+        "at_256": 0
+      },
+      "judge_question_reencoded": {
+        "min": 57,
+        "max": 294,
+        "at_1024": 0,
+        "at_256": 0
+      }
+    },
+    "synthetic_edge": false,
+    "judge_boundary": {
+      "legacy_requests": 500,
+      "native_requests": 500,
+      "identical_sample_grouped_order": false,
+      "identical_response_order": true,
+      "ordering_note": "Response-hook insertion order records actual native completions. Both sides have one active sequence; sample-grouped event order is reported separately.",
+      "identical_raw_outputs": true,
+      "identical_multiset": true,
+      "legacy_max_tokens": 479,
+      "native_max_tokens": 479,
+      "legacy_sha256": "a251deafced91b02335939a9290d7a434e53459591c58af865338d178309b158",
+      "native_response_sha256": "3315eb7c20438ae52b694d5fad580aa6bc14636096cf5bf24e3a7b96375f9731"
+    }
+  },
+  "runs": {
+    "legacy": {
+      "model_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+      "judge_revision": "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+      "tokenizer_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+      "dataset_revision": "1516057d20afbd37202ce4d3f8c761c36c4d481c",
+      "backend": "vllm",
+      "packages": {
+        "torch": "2.13.0",
+        "vllm": "0.30.0",
+        "transformers": "5.20.2",
+        "inspect-ai": "0.3.288"
+      },
+      "config": {
+        "answer_tokenizer_metadata_sha256": {
+          "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+          "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+          "config.json": "9059f680f4dbd1957f35cb44b9fdd6948f4792db7a7a35ee353ea42e68adf7ff",
+          "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+          "model.safetensors.index.json": "77f4b67de084c31c7bcd373b039908108eee6c6181607e6d53da730e5f0bc659",
+          "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+          "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+          "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+          "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+          "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+          "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+        },
+        "judge_tokenizer_metadata_sha256": {
+          "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+          "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+          "config.json": "39172c4124d3470341bbbb25f2926fd97edf68f0fe3a9fa4cde6acb9b7ed2cc6",
+          "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+          "model.safetensors.index.json": "788cc42a1a92835df62d9a3791f47105f63504c7c404637a73288e9b11bc7b82",
+          "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+          "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+          "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+          "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+          "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+          "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+        },
+        "dataset_seed": 42,
+        "cap": 500,
+        "dtype": "bfloat16",
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "max_num_seqs": 1,
+        "max_num_batched_tokens": 16384,
+        "temperature": 0,
+        "engine_seed": 0,
+        "request_seed": 42,
+        "max_model_len": 16384,
+        "enforce_eager": true,
+        "gpu_memory_utilization": 0.5,
+        "task_args": {},
+        "answer_budget": 128,
+        "judge_budget": 32,
+        "thinking": false
+      },
+      "transport": "retained in-process API"
+    },
+    "native": {
+      "model_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+      "judge_revision": "96b6f1eccf38110c56df3a15bffe176da04bfd80",
+      "tokenizer_revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+      "dataset_revision": "1516057d20afbd37202ce4d3f8c761c36c4d481c",
+      "backend": "vllm",
+      "packages": {
+        "torch": "2.13.0",
+        "vllm": "0.30.0",
+        "transformers": "5.20.2",
+        "inspect-ai": "0.3.288"
+      },
+      "config": {
+        "answer_tokenizer_metadata_sha256": {
+          "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+          "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+          "config.json": "9059f680f4dbd1957f35cb44b9fdd6948f4792db7a7a35ee353ea42e68adf7ff",
+          "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+          "model.safetensors.index.json": "77f4b67de084c31c7bcd373b039908108eee6c6181607e6d53da730e5f0bc659",
+          "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+          "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+          "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+          "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+          "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+          "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+        },
+        "judge_tokenizer_metadata_sha256": {
+          "added_tokens.json": "50b2f405ba56a26d4913fd772089992252d7f942123cc0a034d96424221ba946",
+          "chat_template.json": "fe16baf728db49457cde32802cd7efc0ac8a7a9877dbe22fe3322b2d9dc6ccd9",
+          "config.json": "39172c4124d3470341bbbb25f2926fd97edf68f0fe3a9fa4cde6acb9b7ed2cc6",
+          "generation_config.json": "fd9324becc53c4be610db39e13a613006f09fd6ef71a95fb6320dc33157490a3",
+          "model.safetensors.index.json": "788cc42a1a92835df62d9a3791f47105f63504c7c404637a73288e9b11bc7b82",
+          "preprocessor_config.json": "f688d6bb20c5017601c4011de7ca656da8485b540b05013efdaf986c0fcc918d",
+          "processor_config.json": "3ffd5f11778dc73e2b69b3c00535e4121e1badf7018136263cd17b5b34fbaa53",
+          "special_tokens_map.json": "2f7b0adf4fb469770bb1490e3e35df87b1dc578246c5e7e6fc76ecf33213a397",
+          "tokenizer.json": "4667f2089529e8e7657cfb6d1c19910ae71ff5f28aa7ab2ff2763330affad795",
+          "tokenizer.model": "1299c11d7cf632ef3b4e11937501358ada021bbdf7c47638d13c0ee982f2e79c",
+          "tokenizer_config.json": "bfe25c2735e395407beb78456ea9a6984a1f00d8c16fa04a8b75f2a614cf53e1"
+        },
+        "dataset_seed": 42,
+        "cap": 500,
+        "dtype": "bfloat16",
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "max_num_seqs": 1,
+        "max_num_batched_tokens": 16384,
+        "temperature": 0,
+        "engine_seed": 0,
+        "request_seed": 42,
+        "max_model_len": 16384,
+        "enforce_eager": true,
+        "gpu_memory_utilization": 0.5,
+        "task_args": {},
+        "answer_budget": 128,
+        "judge_budget": 32,
+        "thinking": false
+      },
+      "transport": "Inspect-owned server"
+    }
+  },
+  "hashes": {
+    "source.json": "2793e29b79ec0900e60d8f5e301000774f19f3603e750aa58f823a50d448508c",
+    "strict-report.json": "252412883c682539a9b04a97c31d1392b4aaf04b1bee6a114e7f7ecfaa48c1cc",
+    "scored.eval": "1bf6c7e42ad3fbfd321b9422b9a797e10317fa3ec2db9eddfa7390e02a34394b",
+    "legacy-boundary.json": "e9598922c9b76fbe29f038122b7d00471c69fa429e3e930761578a6de59e83a9",
+    "legacy-judge-boundary.json": "a251deafced91b02335939a9290d7a434e53459591c58af865338d178309b158",
+    "native-judge-responses.json": "3315eb7c20438ae52b694d5fad580aa6bc14636096cf5bf24e3a7b96375f9731",
+    "comparison-identity.json": "d87b602c79032093ca7646cbab087d3a049153046da96748cd34e797975c11c3"
+  }
+}

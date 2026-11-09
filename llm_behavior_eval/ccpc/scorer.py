@@ -20,6 +20,7 @@ from llm_behavior_eval.ccpc.metrics import (
 )
 from llm_behavior_eval.common.judge import strip_thinking
 from llm_behavior_eval.common.metrics import incomplete_response_rate
+from llm_behavior_eval.common.preprocessing import judge_config
 
 
 def _judge_prompt(question: str, response: str) -> str:
@@ -50,6 +51,7 @@ def censorship_judge(
         config = ccpc_config(
             judge, judge=True, externally_configured=judge_thinking_configured
         )
+        config = judge_config(state, config)
         answer = strip_thinking(state.output.completion)
         prompt = _judge_prompt(state.input_text, answer)
         result = await judge.generate(

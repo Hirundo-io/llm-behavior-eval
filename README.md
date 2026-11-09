@@ -50,21 +50,25 @@ engine flags; consult provider help and each task's README before loading adapte
 ## Run
 
 Run outside the checkout to ensure Inspect resolves installed registered names
-rather than similarly named source directories. This example uses independently
-configured OpenAI-compatible answer and grader endpoints:
+rather than similarly named source directories. Production preprocessing requires
+a matching explicit answer tokenizer and a native vLLM or HF answer provider:
 
 ```bash
 mkdir -p results/native
 cd results/native
 inspect eval llm_behavior_eval/bbq -T bias_type=gender -T kind=bias \
-  -T externally_configured_thinking=true \
-  --model openai-api/answer/model --model-role grader=openai-api/grader/model \
+  -T compatibility_tokenizer=/models/answer-snapshot \
+  --model vllm//models/answer-snapshot --model-role grader=vllm//models/judge-snapshot \
   --log-dir logs
 inspect view --log-dir logs
 ```
 
-Set `ANSWER_BASE_URL`, `ANSWER_API_KEY`, `GRADER_BASE_URL`, and `GRADER_API_KEY`
-in the environment. Both deployments must disable thinking for this example.
+Use immutable local snapshots matching the deployments. The family applies native
+thinking controls independently to both roles. API graders may instead use the
+existing external-thinking assertions; their hidden tokenization remains
+unqualified. HF configuration is shown in [the migration reference](INSPECT_MIGRATION.md#native-hf-preprocessing). Generic API answers remain unsupported.
+See [production preprocessing and qualification](scripts/parity/README.md#production-preprocessing-contract-llm-169)
+for task options, DSTA deployment scope, and separate answer/judge processes.
 Local/offline datasets use `-T dataset_path=/absolute/path/to/saved-dataset`;
 use Hugging Face `save_to_disk` format. Physical paths do not change task identity.
 CCPC validates the full pinned 500-row snapshot, including its fingerprint,
@@ -83,6 +87,8 @@ The grader is always configured explicitly; no judge is loaded by default.
 Gemma 4 12B (`google/gemma-4-12B-it`, the old CLI's `--judge-model` default) is
 the recommended grader, for example `--model-role grader=hf/google/gemma-4-12B-it`.
 CCPC instead expects its pinned `google/gemma-4-26B-A4B-it` judge; see its README.
+The parity evidence in `scripts/parity` was collected with Gemma 3 12B judges;
+Gemma 4 12B has not been parity-qualified yet.
 
 [The preset example](examples/presets_customization.py) expands catalog mappings
 into native tasks. `list_dataset_presets()` and `expand_dataset_preset()` retain
@@ -179,8 +185,9 @@ HaluEval/Med-Hallu accuracy and Purple Llama ASR are already percentages
 refusal, censorship, ASR, and incomplete response point down. CCPC undefined
 censorship is preserved as `nan`; never interpret this as zero censorship.
 Heuristic refusal metrics, counts, and diagnostics remain in the `.eval` log
-and are excluded from brief. Refusal dict scores have distinct target metric
-keys: `safe_refusal_rate`, `unsafe_refusal_rate`, `incomplete_response_rate`.
+and are excluded from brief. The refusal scorer emits scalar sample scores;
+its aggregate metric returns named rates and counts. Brief selects
+`safe_refusal_rate`, `unsafe_refusal_rate`, and `incomplete_response_rate`.
 Configured targets match the metric key itself; unconfigured exports add
 `scorer: metric` prefixes when there are multiple score entries.
 

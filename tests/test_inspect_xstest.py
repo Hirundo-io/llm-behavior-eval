@@ -255,6 +255,7 @@ def test_native_eval_and_prompt_gap(tmp_path):
 
 def test_provider_controls():
     class FakeModel:
+        config = SimpleNamespace(extra_body=None)
         api = SimpleNamespace(enable_thinking=True, do_sample=False)
 
         def __init__(self, provider):

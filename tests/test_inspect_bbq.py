@@ -265,7 +265,9 @@ def test_provider_policy():
         )()
         for k, v in kwargs.items():
             setattr(api, k, v)
-        return cast("Any", SimpleNamespace(api=api))
+        return cast(
+            "Any", SimpleNamespace(api=api, config=SimpleNamespace(extra_body=None))
+        )
 
     assert (bias_config(model("vllm")).extra_body or {})["chat_template_kwargs"][
         "enable_thinking"

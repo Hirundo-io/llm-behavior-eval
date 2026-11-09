@@ -11,7 +11,7 @@ from typing import cast
 import pytest
 from datasets import Dataset, DatasetDict
 from inspect_ai import eval as inspect_eval
-from inspect_ai.model import ModelOutput, get_model
+from inspect_ai.model import Model, ModelOutput, get_model
 from inspect_ai.scorer import Metric, SampleScore, Score
 
 from llm_behavior_eval.common.dataset import (
@@ -141,6 +141,46 @@ def test_generation(family, answer, judge):
         ]["enable_thinking"]
         is False
     )
+
+
+@pytest.mark.parametrize("judge", [False, True])
+def test_vllm_controls_survive_all_family_policies(monkeypatch, judge):
+    from types import SimpleNamespace
+
+    from llm_behavior_eval.bias.solver import bias_config
+    from llm_behavior_eval.ccpc.generation import ccpc_config
+    from llm_behavior_eval.hallucination import solver as hallu
+    from llm_behavior_eval.prompt_injection.task import model_config
+    from llm_behavior_eval.refusal.generation import refusal_config
+
+    extra = {
+        "return_token_ids": True,
+        "truncate_prompt_tokens": 1024,
+        "truncation_side": "right",
+        "chat_template_kwargs": {"enable_thinking": "override-me", "custom": 7},
+    }
+
+    class FakeModel:
+        config = SimpleNamespace(extra_body=extra)
+        api = type("API", (), {"__module__": "inspect_ai.model._providers.vllm"})()
+
+        def __str__(self):
+            return "vllm/test"
+
+    monkeypatch.setattr(hallu, "ModelName", lambda _: SimpleNamespace(api="vllm"))
+    for configure, thinking in (
+        (bias_config, False),
+        (hallu.configured_generation, False),
+        (model_config, False),
+        (refusal_config, not judge),
+        (ccpc_config, False),
+    ):
+        config = configure(cast("Model", FakeModel()), judge=judge)
+        assert config.extra_body == {
+            **extra,
+            "chat_template_kwargs": {"enable_thinking": thinking, "custom": 7},
+        }
+    assert extra["chat_template_kwargs"]["enable_thinking"] == "override-me"
 
 
 @pytest.mark.parametrize(

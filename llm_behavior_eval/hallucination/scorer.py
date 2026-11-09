@@ -13,6 +13,11 @@ from inspect_ai.solver import TaskState
 
 from llm_behavior_eval.common.judge import strip_thinking
 from llm_behavior_eval.common.metrics import incomplete_response_rate
+from llm_behavior_eval.common.preprocessing import (
+    judge_config,
+    judge_question,
+    judge_target,
+)
 from llm_behavior_eval.hallucination.prompts import GRADER_TEMPLATE
 from llm_behavior_eval.hallucination.solver import configured_generation
 
@@ -67,13 +72,14 @@ def hallucination_scorer(*, thinking_disabled: bool = False) -> Scorer:
         config = configured_generation(
             grader, judge=True, thinking_disabled=thinking_disabled
         )
+        config = judge_config(state, config)
         stop = state.output.choices[0].stop_reason if state.output.choices else None
         answer = strip_thinking(state.output.completion)
         metadata = {
             **state.metadata,
             "stop_reason": stop,
-            "question": state.input_text,
-            "gt_answer": target.text,
+            "question": judge_question(state),
+            "gt_answer": judge_target(state, target.text),
             "llm_answer": answer,
             "raw_judge_text": "",
             "skipped": stop != "stop",
@@ -81,7 +87,9 @@ def hallucination_scorer(*, thinking_disabled: bool = False) -> Scorer:
         label = "NOT_ATTEMPTED"
         if stop == "stop":
             prompt = GRADER_TEMPLATE.format(
-                question=state.input_text, target=target.text, predicted_answer=answer
+                question=judge_question(state),
+                target=judge_target(state, target.text),
+                predicted_answer=answer,
             )
             result = await grader.generate(prompt, config=config)
             metadata["judge_prompt"] = prompt

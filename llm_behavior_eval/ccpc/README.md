@@ -79,9 +79,8 @@ not establish that the remote pinned dataset is available or unchanged.
 Endpoint routing is tested with an explicitly separate API Model and monkeypatched
 generation, not a live server.
 
-Unresolved: legacy tokenizer chat-template decode/re-encode and 1024-token input
-truncation are not reproduced by native Inspect messages. Tests and sample/task
-metadata explicitly preserve this gap, including long prompts. Structured
-reasoning extraction, GPU/HF/vLLM generation, Gemma system-template support,
-quantization, batching, and live/publication parity remain unqualified.
-No measured GPU/provider parity results are claimed.
+Production preprocessing now preserves the legacy 1024-token input boundary; CCPC intentionally retains the original source judge question. Original input/target remain logged. See [HF/vLLM configuration and live qualification limits](../../INSPECT_MIGRATION.md#native-hf-preprocessing). CPU boundary tests do not establish live generation or score parity.
+
+Production HF/vLLM answers require an explicit matching `compatibility_tokenizer`.
+See [native HF configuration](../../INSPECT_MIGRATION.md#native-hf-preprocessing)
+for answer-only tokenizer caps and independently configured grader options.

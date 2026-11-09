@@ -64,16 +64,7 @@ actual legacy methods using monkeypatch; native mock runs validate role isolatio
 budgets, metadata, and truncation exclusion. These establish fixture parity only,
 not live-model, GPU, provider, or fixed-parity-model acceptance.
 
-Current preprocess_free_text always produces judge_questions, using the raw
-question for missing/empty overrides. It tokenizes these independently before
-decoding. The issue's decoded-chat-prompt fallback applies to older generation
-caches lacking that field, not fresh current runs. Native tasks do not load old
-caches. Native messages do not replicate the legacy tokenizer/chat-template
-roundtrip, 1024-token input truncation, or judge-question tokenization/truncation.
-These are explicit unresolved parity gaps, logged on every sample and tested;
-no measured tolerance is claimed. Muse Glimmer custom templates likewise remain
-unsupported. Native Inspect completion omits structured reasoning; inline thinking
-stripping follows the common legacy rule.
+Production preprocessing now preserves the legacy 1024-token input boundary and independent 256-token judge question round trip. The decoded-chat fallback belongs only to old caches; native tasks do not load them. Structured reasoning remains a live qualification check. Original input/target remain logged. See [HF/vLLM configuration and live qualification limits](../../INSPECT_MIGRATION.md#native-hf-preprocessing). CPU boundary tests do not establish live generation or score parity.
 
 Reusable API: `dataset(*, dataset_path, dataset_token, max_samples, seed)`,
 `parse_yes_no(raw)`, `injection_scorer(response_tokenizer=None)`, and
@@ -89,3 +80,7 @@ evaluation succeeds on a local snapshot with explicit mock roles. Tests use JSON
 logs because the sandbox hung loading Inspect's lazy binary sample log; binary
 log readback is not validated here. API role tests stub Model.generate and do not
 claim HTTP endpoint or provider inference validation.
+
+Production HF/vLLM answers require an explicit matching `compatibility_tokenizer`.
+See [native HF configuration](../../INSPECT_MIGRATION.md#native-hf-preprocessing)
+for answer-only tokenizer caps and independently configured grader options.

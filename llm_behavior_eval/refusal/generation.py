@@ -3,7 +3,7 @@
 from inspect_ai.model import GenerateConfig, Model, get_model
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 
-from llm_behavior_eval.common.generation import generation_config, thinking_args
+from llm_behavior_eval.common.generation import generation_config, vllm_thinking_args
 
 
 def refusal_config(
@@ -17,9 +17,9 @@ def refusal_config(
     enabled = thinking and not judge
     provider = str(model).split("/")[0]
     if provider == "vllm":
-        config.extra_body = thinking_args(
-            "refusal", provider="vllm", judge=not enabled
-        )["extra_body"]
+        config.extra_body = vllm_thinking_args(model, "refusal", judge=not enabled)[
+            "extra_body"
+        ]
     elif provider == "hf":
         if (
             getattr(model.api, "enable_thinking", None) is not enabled

@@ -1,0 +1,15 @@
+{
+  "original_state": "STOPPED",
+  "original_flag_present": true,
+  "flag_restored_before_stop": true,
+  "flag_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "backup_removed": true,
+  "flag_restored_at": "2026-11-09T08:21:42.737400+00:00",
+  "compute_processes_before_stop": [],
+  "controllers_finished": true,
+  "archive_verified": true,
+  "other_instances_touched": false,
+  "final_state": "STOPPED",
+  "verified_at": "2026-11-09T08:22:51.995802+00:00",
+  "instance_id": "computeinstance-u00fyfj7hmj44w0vzm"
+}

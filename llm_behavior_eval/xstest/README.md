@@ -33,11 +33,16 @@ grader = get_model(
     api_key="no-auth-placeholder",
 )
 eval(
-    xstest(judge_thinking_configured=True),
+    xstest(judge_thinking_configured=True, compatibility_tokenizer="/models/answer"),
     model="hf/local",
     model_args={
         "model_path": "/models/answer",
         "tokenizer_path": "/models/answer",
+        "tokenizer_call_args": {
+            "truncation": True,
+            "max_length": 1024,
+            "add_special_tokens": True,
+        },
         "enable_thinking": True,
         "do_sample": False,
     },
@@ -84,12 +89,8 @@ judge_thinking_configured=False)`; `aggregate_refusal(scores)` and
 
 ## Parity limits
 
-Deterministic fixture tests compare legacy grading, all metric denominators,
-parsing and heuristics. Native mock evaluation checks message shape and logging.
-No live-model, GPU, quantization, adapter, or provider parity is established.
-Legacy generation tokenizes/truncates input at 1024 tokens and then decodes the
-chat template (skipping special tokens) as the judge question. Native Inspect
-uses the original question and does not reproduce tokenizer-specific truncation.
-Tests explicitly pin this gap using a long question. It affects both answer and
-judge inputs and blocks full parity acceptance pending tokenizer/provider work.
-Structured reasoning may also differ from legacy inline trace handling.
+Production preprocessing now preserves the legacy 1024-token input and decoded judge text, plus 256-token target/stereotype round trips. Original input/target remain logged. See [HF/vLLM configuration and live qualification limits](../../INSPECT_MIGRATION.md#native-hf-preprocessing). CPU boundary tests do not establish live generation or score parity.
+
+Production HF/vLLM answers require an explicit matching `compatibility_tokenizer`.
+See [native HF configuration](../../INSPECT_MIGRATION.md#native-hf-preprocessing)
+for answer-only tokenizer caps and independently configured grader options.

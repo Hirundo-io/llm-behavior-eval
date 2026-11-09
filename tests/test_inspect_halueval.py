@@ -325,3 +325,28 @@ def test_cli_registration(tmp_path):
 
 def rate(metric: Metric) -> Callable[[list[SampleScore]], float]:
     return cast("Callable[[list[SampleScore]], float]", metric)
+
+
+def test_vllm_boundary_controls_survive_thinking_policy(monkeypatch):
+    from types import SimpleNamespace
+
+    from inspect_ai.model import GenerateConfig
+
+    from llm_behavior_eval.hallucination import solver
+
+    extra = {
+        "return_token_ids": True,
+        "add_special_tokens": True,
+        "truncate_prompt_tokens": 1024,
+        "truncation_side": "right",
+        "chat_template_kwargs": {"enable_thinking": True, "custom": "preserved"},
+    }
+    model = get_model("mockllm/model", config=GenerateConfig(extra_body=extra))
+    monkeypatch.setattr(solver, "ModelName", lambda model: SimpleNamespace(api="vllm"))
+    for judge in (False, True):
+        config = solver.configured_generation(model, judge=judge)
+        assert config.extra_body == {
+            **extra,
+            "chat_template_kwargs": {"enable_thinking": False, "custom": "preserved"},
+        }
+    assert model.config.extra_body == extra

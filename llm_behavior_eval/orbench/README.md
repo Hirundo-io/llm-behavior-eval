@@ -67,10 +67,8 @@ selection, all metric denominators and sample diagnostics. Native mock and
 loopback API tests exercise Inspect generation/scoring and independent roles.
 These do not establish live-model, GPU or provider parity.
 
-Legacy decodes the answer model's chat template, skipping special tokens, as the
-judge question and truncates tokenized input to 1024 tokens. Native Inspect uses
-the original question without this tokenizer-specific truncation. A long-input
-test explicitly pins this unresolved gap and metadata reports it. Structured
-reasoning and custom/Muse Glimmer templates likewise lack parity verification.
-Full parity acceptance remains open pending fixed-model validation and LLM-166's
-shared metric mapping. Legacy removal is coordinated under LLM-171.
+Production preprocessing now preserves the legacy 1024-token input and decoded judge text, plus 256-token target/stereotype round trips. Original input/target remain logged. See [HF/vLLM configuration and live qualification limits](../../INSPECT_MIGRATION.md#native-hf-preprocessing). CPU boundary tests do not establish live generation or score parity.
+
+Production HF/vLLM answers require an explicit matching `compatibility_tokenizer`.
+See [native HF configuration](../../INSPECT_MIGRATION.md#native-hf-preprocessing)
+for answer-only tokenizer caps and independently configured grader options.

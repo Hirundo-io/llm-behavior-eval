@@ -1,0 +1,932 @@
+[
+  {
+    "case": "bbq:gender:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bbq-gender-bias",
+    "scored_log_sha256": "36d36ee347ec67838707e9815633185ae809ca6cc533e39e6025c471c31211ad",
+    "retained_config_sha256": "50e4e82240105dc2f1b12e17bbf7cdf532b2975c0fd3b8e756d3b57f35e74894",
+    "source_manifest_sha256": "75efcaf51c79b22b57008149eaafe9a9b483a75d306aaa2e17863363d47d659b",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 294
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bbq:gender:unbias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bbq-gender-unbias",
+    "scored_log_sha256": "9f85d701a724087b8ca3a0550438889f32265f61068c43f699ff5e907cd2161c",
+    "retained_config_sha256": "c6fc2307345f6050bc0aa50b7393bad6c9281745e79294e2e80ce68c8bc6dcbb",
+    "source_manifest_sha256": "84e383c952d4c7fa6a0968bdc61d153b99c60b8d50e0b2afebaae8cef9d60224",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bbq:race:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bbq-race-bias",
+    "scored_log_sha256": "b2a67a99ce17208813e3f6d9b9faeee24b74148812e6ff907be7fc583727031e",
+    "retained_config_sha256": "fb725e1967b564b1ad4c7b4055487f5f0bb0676ee5a22acaf4187a858a73699a",
+    "source_manifest_sha256": "05efb6a35cca2ddb546b7ac895161d8f62d4fa352f3335e38715421460bc555a",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 288
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bbq:race:unbias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bbq-race-unbias",
+    "scored_log_sha256": "efaa071bc339804f30870a7e21a51bf87de1a79ab083c0adf16f5b83b8e05ada",
+    "retained_config_sha256": "9300646fb84f6a6d2b0a7967683f1b6235a9cbddb7a7ada7b336e81b3eb75e66",
+    "source_manifest_sha256": "10c872d94f81b4548231e0642bc32abd5a770bd426dbec2586f569d30c2309bf",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 294
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bbq:nationality:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bbq-nationality-bias",
+    "scored_log_sha256": "31b4ba7804c8987811136b246dd9065c2453713304ac53548391edb7e0066be0",
+    "retained_config_sha256": "4ed7fb82bc3284b4dd7bbb89da73c9cef30ce272e29a990dd96529d16a81a822",
+    "source_manifest_sha256": "2ce489b12027995aeb72f65f658f36c1a7a68ddbb8bec3060f8bab307eb62ccb",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bbq:nationality:unbias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bbq-nationality-unbias",
+    "scored_log_sha256": "76b106696758d27693844bc954faa8d061eca262b710974a69dc4a7af8a07948",
+    "retained_config_sha256": "ca28f2c63472073e4878630f9ccb052675dd1d61a7df2c42a579173dd573593f",
+    "source_manifest_sha256": "f0000e0283d8ee2a4553b92ca2882b06d9aa391d4627ed57b481bb44d654f4b8",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bbq:physical:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bbq-physical-bias",
+    "scored_log_sha256": "0f1d2fc73a49ce8fa3b1d0062eb7681cc062c7327b9417b80aef1290c51470a8",
+    "retained_config_sha256": "ea9e21d427fbcd22ed68c8c1c706b2eccb52ea888530f9c381bb5eb8ea7ea4a3",
+    "source_manifest_sha256": "031fb7582f2fa638706d4c22b902d05326fc0314ab7622dad8136607e09c3510",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 279
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bbq:physical:unbias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bbq-physical-unbias",
+    "scored_log_sha256": "fecf65d63badf2d14494236b0cd01c348ef086c0bf588f7596d31d612396ad20",
+    "retained_config_sha256": "a97a2d56d29c179cb0ad3bce127eddce784a50902535338c32ff78e22b6a0b69",
+    "source_manifest_sha256": "0d341d166ff233bd9ab2f8bc3065a810c0821f4ef2f757acc20371a7158fb960",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 279
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bbq:age:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bbq-age-bias",
+    "scored_log_sha256": "af0796fe7296073507328280766e816a4e0c96abc3b980f9275c8f24f4c9b6b5",
+    "retained_config_sha256": "0ef032572dfcba0d511ff13b785b66b5f38dd5a68d531d0077263abe25aed5bb",
+    "source_manifest_sha256": "7eeeb10e8a16dae2e651464a53aa072476f4468c4f645d16950e792504d3ec63",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bbq:age:unbias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bbq-age-unbias",
+    "scored_log_sha256": "3cbda4dfba53081ed0012bfb20e81e75a6f74897df2714a7a1819f1f48ccdacd",
+    "retained_config_sha256": "b9c854a74c1a7503e4d45acc107241424e858ba0307d0ad991bdcce317a76cf5",
+    "source_manifest_sha256": "8841a6e483f24c9335a1f12a210c144954edf738724eb5c27bef10874a8d0ff7",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 294
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bbq:religion:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bbq-religion-bias",
+    "scored_log_sha256": "32cfd8836612f9565f1198ac8f6b8c71242a62db1300faa5917cf3b38e4bdb15",
+    "retained_config_sha256": "7a2b9cb7260f50ff80a17e1e767dda8cc4b2af6737012755241ff3de061bf7aa",
+    "source_manifest_sha256": "963effae5acc52171a9f506b2438241041d8310ec9eb0b7a492115b56c2d611f",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 285
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bbq:religion:unbias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bbq-religion-unbias",
+    "scored_log_sha256": "b8c18ad2aa15f62b68fe7ce5488bac6e6326084eb904b2887cbac34773bc3113",
+    "retained_config_sha256": "e6e1c922638111b012d12276606123f52d1265816a8d3fb423b85ebd9c417a44",
+    "source_manifest_sha256": "ecdf11117d66961ad8ee54bd8c5298acfe08ae5ac3d28f66681230afd6b799a3",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 276
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "unqover:religion:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/unqover-religion-bias",
+    "scored_log_sha256": "264d8453275f0e90fd71b6e4f293392fd836001830411d969c13f7e796e3fcda",
+    "retained_config_sha256": "3bd625a6e743e554f6ecaea19f4f5fae609e82bc613381dba5afeb32f7ffc12b",
+    "source_manifest_sha256": "dc23eb5999d67e2a8d347622d840ba4486cea719ebaab022f68c1387dfab5eca",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 188
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "unqover:gender:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/unqover-gender-bias",
+    "scored_log_sha256": "53f2a9e8fe54c21a7ddbaafd1843d822fb26985841fb7bef33ccb22888edcd00",
+    "retained_config_sha256": "f60e5698ba3bb2566ca5c12e6fe3103337ea01ef34d36b739710ed9a34d1ca9b",
+    "source_manifest_sha256": "213cdfa7c7589dbbc53cc881fb26b99153b65617df9b5e9f69e20de9f00b4309",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 200
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "unqover:race:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/unqover-race-bias",
+    "scored_log_sha256": "c3a2c3f43ce9a450b93af208932a25c2727900a4f258de28237695bb1e4099c5",
+    "retained_config_sha256": "5296863ef8d0b6537174a2395b95d1f9875176dae2629b77973ae7ec85709bb7",
+    "source_manifest_sha256": "2c0c0dfc272a9f72958fee3160cbafcf370a23398a6bd5d47eef155ed21924b2",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 158
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "unqover:nationality:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/unqover-nationality-bias",
+    "scored_log_sha256": "e8381578f0089852b2686fd1bc0bbe82c124824ca95a6ccb6440f500749546c5",
+    "retained_config_sha256": "dac8b5d861205638d86ca36341a3241416f9aa44f1678845f04b5cb21d23eb70",
+    "source_manifest_sha256": "5ebd1985f54d8b07b6a86f0b746a598593fba7c829f461d93b9f81af0e04ba4c",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 196
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bloom:age:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bloom-age-bias",
+    "scored_log_sha256": "67e17ee115aaf6c7ecbe0940120dd12261df8572b8fb7108c8207d183d8856b5",
+    "retained_config_sha256": "a138a60921de3d45cd71473167d87c0c054ca837f0f68588da6c7579ba408959",
+    "source_manifest_sha256": "791ae5f14effda6122e7565639ba5be17e18af4cb291a007087faae25912b76c",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bloom:age:unbias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bloom-age-unbias",
+    "scored_log_sha256": "ccac3dd401e92c1ff424dada84e8f34b665b9e5042cfdbcdc60de6dbd5457abc",
+    "retained_config_sha256": "383f2bea11c9643449fd6455a729c324e2634c41d964af2ff40bbcfe2c7d4082",
+    "source_manifest_sha256": "85cf9eaa1f973ec7ea004bb00ad724a00937b19be730852717efa785050ebc28",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bloom:age:ambiguous",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bloom-age-ambiguous",
+    "scored_log_sha256": "2a4480474cb6426437a0ac1baf6d04f374586477b84436895a2e536a5a66e804",
+    "retained_config_sha256": "e38e08bbdf5bfc1ba4406db96c6b8ddefb2d94d5fcbd977ab21581a9b6983acf",
+    "source_manifest_sha256": "17e4d49580e794bf1e17334c2e83ca74694b4dd26c46c9f1df6bd77c39705288",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bloom:gender:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bloom-gender-bias",
+    "scored_log_sha256": "085a3468f5dc80f9ebb923a7eb8cffa1885b60c06d8fb0ecddd279b4140a7539",
+    "retained_config_sha256": "f477eb89ff4b506d28a3336fe09a820b2cc82a636427055cefd482e4cb207472",
+    "source_manifest_sha256": "45e3774b9955ff00bd4d899a81de2f8f660904a83b66446ffb3bef412e382d62",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bloom:gender:unbias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bloom-gender-unbias",
+    "scored_log_sha256": "0c24455d14ae3ae16a927e0b70f1b055cd7f1c450faf568530e54a9469b37059",
+    "retained_config_sha256": "bd3a6591bfb88825bf95c7978c4fa83c78ad076917537c37b8764c018491af51",
+    "source_manifest_sha256": "351bd08308a2903ae3a86495a37029dc9262ab2911b91e8e36bb0458633f9011",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bloom:gender:ambiguous",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bloom-gender-ambiguous",
+    "scored_log_sha256": "1538e92909157210443cf37d5773f69e24044d14f070989abf4730ff7966b3a0",
+    "retained_config_sha256": "d2bc4b3431a7a75e0c51f0db0454f356dc3b358e5b888760599a8b56f4fa6758",
+    "source_manifest_sha256": "28c56ef4c1ce168ca3e43a58a1bcfa80cfd21a7289cd443af7a4e07d9d31348e",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bloom:race:bias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bloom-race-bias",
+    "scored_log_sha256": "c492b8cd7f7d12037f33cc1ff4706d2ee0c2b565d045a6a72506f28dd4978e88",
+    "retained_config_sha256": "f295548a1a3fe16f6f642f5dd1c2555204c2cec7dda52f69cd9501a297c58b51",
+    "source_manifest_sha256": "bd2f9bebd86bb5846923390eda8f1a14ef1a261b48f678dc19eb94916aec1eb2",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bloom:race:unbias",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bloom-race-unbias",
+    "scored_log_sha256": "2a2aa1b83e75bc9d485a1683fc0ec4560fc292ee1c1a561b08af11580c4aa128",
+    "retained_config_sha256": "80d9e2804af6bff7217b55923261ac1cb676cd4f82682f800fb5b113be624f8e",
+    "source_manifest_sha256": "daeebbdfe8ba694dd8646f0a3de2ce42023477ff6d577d3fbc7653ababb1d7af",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "bloom:race:ambiguous",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/bloom-race-ambiguous",
+    "scored_log_sha256": "7a82ba8f1c2fb437532f6d81d67717b9137dfb0abf74f88c779f98e677ee1634",
+    "retained_config_sha256": "42a45849ca6f5140ff930504a98457642839bfa3020f3d54aef6a780be425e33",
+    "source_manifest_sha256": "ff50170aeeb2aacdff72f4291f9069089e166bdd98dcf8a86b39cd920f27de2c",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 300
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "halueval",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/halueval",
+    "scored_log_sha256": "36ef55a48b8b4425925f2cbb78299f810fb6c6e8be27dd1230798070dd165cab",
+    "retained_config_sha256": "6baa5542635cc2f43e0df820a95acf6ff9365fac0b5d024694c12eb9f4200b20",
+    "source_manifest_sha256": "86021540290f60ceacb75d16799e4b956c08cb03898b3ed2eb6574ce6048425f",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 100
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "medhallu",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/medhallu",
+    "scored_log_sha256": "bb7d2c78876cb4b828943c671859c77783e2ad9e72c89fefa3002e046ffbef24",
+    "retained_config_sha256": "17e1f4207fbb0864f8f1b4820b3101905372ad844dcb7da28feab12943a1c772",
+    "source_manifest_sha256": "2d9c7a0ba2b4346e7ae1b480995331eabf7caf9da547c03ac7a6b6866f59488c",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 54
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "prompt_injection",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-purple-asr/prompt_injection",
+    "scored_log_sha256": "7861e3232d550b20c0c31c0877ccb372bbbd61c568db99504008ef8c5fd7f01d",
+    "retained_config_sha256": "a05d727e291ca81d977e2fa29d95e18fcdbb33d2036842423b4f957569e72067",
+    "source_manifest_sha256": "ed4bf2f84fe789a2481ec998979faa50a6fea0b7f2b28c902489fe4038f24883",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 128,
+        "max_judge_tokens": 32,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 63
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "ccpc",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/ccpc",
+    "scored_log_sha256": "7f609769c1bb918134f491f59df479004b640b62c9c6933f506b24e16563899c",
+    "retained_config_sha256": "c54bbc6a2f48f3ee8c94c045eee15d98a9b2fdf9ae982f50aa372a4c4c0c500f",
+    "source_manifest_sha256": "9d847230c8f1447cd43bb49e2ffdb50d223cb838b98cf1fda3ebff6ad69abd01",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 8192,
+        "max_judge_tokens": 4096,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": false,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 100
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "xstest",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/xstest",
+    "scored_log_sha256": "babac3e8e1da343a654c4ac660758e9039aae583db3acb3d8d31fc8a24ffab44",
+    "retained_config_sha256": "5132461593bd5a0727e4811b69fd4fdd0361dba51c8a189995038cc3203ee0bf",
+    "source_manifest_sha256": "94548e2809bfeb5c80d0c230e5641d040a29136a966332dc3849e621cf96ad91",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 2048,
+        "max_judge_tokens": 128,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": true,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 100
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  },
+  {
+    "case": "orbench",
+    "evidence_root": "/mnt/filesystem-x0/llm169_f8a66042/sample100-qualified/orbench",
+    "scored_log_sha256": "520c93a3c921e86e6a608770dd40f8d4d596f11c9eaf39b6f8a76f33dc0f5dec",
+    "retained_config_sha256": "002b85d88839f6502595e13ad1aeace5f433187f95e810a5ebe07988d7f8d786",
+    "source_manifest_sha256": "b06b788324cc3bfea4853b49cb36837e403df168f8c92a4a345f84a3744ee783",
+    "settings": {
+      "legacy": {
+        "max_answer_tokens": 2048,
+        "max_judge_tokens": 128,
+        "batch_size": 1,
+        "judge_batch_size": 1,
+        "sample": false,
+        "sample_judge": false,
+        "use_4bit": false,
+        "use_4bit_judge": false,
+        "enable_thinking": true,
+        "inference_engine": "vllm"
+      },
+      "request_seed": 42,
+      "native_requests_checked": {
+        "answer": 100,
+        "judge": 100
+      },
+      "answer_prompt_cap": 1024,
+      "judge_prompt_cap": null,
+      "judge_thinking": false,
+      "scope": "Retained run configuration and actual native model-event configs"
+    }
+  }
+]

@@ -1,8 +1,8 @@
 # Native Inspect foundation (LLM-156)
 
 Native Inspect is the public execution path. The legacy CLI is retired (LLM-168);
-legacy evaluator/config imports remain deprecated for parity validation. Eight
-benchmark tasks are integrated; Purple Llama `prompt_injection` is pending. Inspect 0.3.288 is tested and pinned to `<0.3.289`; revalidate provider
+legacy evaluator/config imports remain deprecated for parity validation. All nine
+benchmark tasks are integrated. Inspect 0.3.288 is tested and pinned to `<0.3.289`; revalidate provider
 contracts before widening this range. Inspect requires Python 3.11+, so its
 mandatory dependency has a Python-version marker; Python 3.10 remains legacy-only.
 
@@ -51,6 +51,10 @@ and loads them directly by file path.
   returns **model args for HF**, **GenerateConfig kwargs for vLLM**. Only refusal
   answer generation enables thinking; judges always request false. HF also
   requests `do_sample=False`. Custom argument names are rejected for HF.
+* `vllm_thinking_args(model, family, *, judge=False)` applies that thinking policy
+  while preserving the model's other `extra_body` controls and template kwargs.
+  All benchmark families use it so caller-supplied truncation, special-token and
+  token-ID capture settings survive. It does not itself establish input parity.
 * `judge_scorer(prompt, pattern, *, config=None, parse=float, only_stop=False,
   exclude_thinking_trace_for_judge=True, thinking_start_token='<think>',
   thinking_end_token='</think>')` returns an Inspect Scorer. Prompt fields are
@@ -187,7 +191,7 @@ Local overrides use `dataset_path` while native tasks preserve logical identity.
 | `hallu`, `hallu-med` | `halueval`, `medhallu` respectively | none |
 | `refusal:xstest`, `refusal:orbench` | `xstest`, `orbench` respectively | none |
 | `chinese_censorship` | `ccpc` | none; logical ID differs from asset |
-| `prompt-injection` | `prompt_injection` (pending integration) | none |
+| `prompt-injection` | `prompt_injection` | none |
 
 Every `:all` expands to individual tasks in the original catalog order, including
 both tasks for `refusal:all`. UNQOVER assets use `hirundo-io/unqover-...`, matching
@@ -206,7 +210,7 @@ provider reasoning themselves:
 | HaluEval, Med-Hallu | `thinking_disabled=true`, `grader_thinking_disabled=true`, independently |
 | XSTest, OR-Bench | `answer_thinking_configured=true`, `judge_thinking_configured=true`; answer `thinking=true` by default |
 | CCPC | `answer_thinking_configured=true`, `judge_thinking_configured=true`; both disabled |
-| Prompt injection | Pending task integration; do not assume its flags |
+| Prompt injection | `externally_configured_thinking=true` asserts both roles disabled |
 
 Use `--model-role grader=...` (or native role YAML with its own model args) for
 judge engine/model selection; no judge fallback to the answer model. Native
@@ -273,3 +277,83 @@ select the primary for a separate kind-specific export. HaluEval/Med-Hallu
 accuracy and Purple Llama ASR are already percentages and must not be multiplied
 by 100. Purple Llama's intended mapping is verified against commit `295ca545` and
 a synthetic real `.eval` fixture; its live task smoke remains pending integration.
+
+## Native HF preprocessing
+
+All nine production tasks require `compatibility_tokenizer` matching the answer
+snapshot. Use immutable local Gemma 3 or Qwen3 snapshots with their default chat
+templates. For example, with an independently configured API judge:
+
+```python
+from inspect_ai import eval
+from inspect_ai.model import get_model
+from llm_behavior_eval.halueval.task import halueval
+
+eval(
+    halueval(compatibility_tokenizer="/models/answer", grader_thinking_disabled=True),
+    model=get_model(
+        "hf/local",
+        model_path="/models/answer",
+        enable_thinking=False,
+        do_sample=False,
+        tokenizer_call_args={
+            "truncation": True,
+            "max_length": 1024,
+            "add_special_tokens": True,
+        },
+    ),
+    model_roles={"grader": get_model("openai-api/airgap/judge")},
+)
+```
+
+Set AIRGAP_BASE_URL and AIRGAP_API_KEY independently. The API assertion requires
+thinking disabled on that deployment; hidden server tokenization is unqualified.
+For a local HF judge, use a separate `get_model("hf/local-judge",
+model_path="/models/judge", enable_thinking=False, do_sample=False)` and omit the
+API assertion. Do not give the judge answer truncation/max_length settings.
+The recommended judge is an immutable `google/gemma-4-12B-it` snapshot. The
+parity evidence was collected with Gemma 3 12B judges; Gemma 4 12B has not been
+parity-qualified yet. Gemma 3 and Gemma 4 weights may require
+`auto_model_class="AutoModelForImageTextToText"`.
+For XSTest/OR-Bench answers use `enable_thinking=True` by default; judge stays False.
+
+CLI answers require `-T compatibility_tokenizer=/models/answer`,
+`--model hf/local -M model_path=/models/answer -M enable_thinking=false
+-M do_sample=false -M tokenizer_call_args='{"truncation":true,"max_length":1024,"add_special_tokens":true}'`.
+Configure HF grader arguments independently through role YAML or Python as above.
+The preset example uses `/models/answer` and `/models/judge`; Python callers can
+pass their immutable snapshot paths to `main(answer_snapshot, judge_snapshot)`.
+
+Validation compares actual fast-tokenizer backend contents, templates and
+truncation direction, not path strings. Disabled templates, differing template
+overrides, additional tokenizer call controls, and unresolved legacy template
+surgery fail explicitly. Runtime model/tokenizer configuration is never mutated.
+The provider's rendered text is checked against the compatibility rendering.
+Original sample input and target remain logged; compatibility metadata contains
+the legacy decoded judge question, 256-token target/stereotype and thinking flag.
+Purple uses an independent 256-token judge question; CCPC keeps its source question.
+
+Inspect 0.3.288 supplies `padding=True` and `return_tensors="pt"` itself: do not
+pass these in tokenizer_call_args. It uses dynamic left EOS padding whereas the
+oracle uses static 1024-wide padding with its tokenizer's padding side/token.
+CPU tests with real pinned Gemma 3/Qwen3 tokenizers and stub weights exercise the
+installed HF tokenize/generate boundary in both truncation directions. Equivalent
+non-padding IDs and decoded judge text do not establish tensor or generation
+equality. Required live checks remain: short/mixed-length batches with both pad
+policies, long inputs, thinking on/off, independent uncapped judges, and full
+benchmark scores across all splits. No live HF/GPU parity or divergence acceptance
+is claimed; the retained legacy engine remains the oracle.
+
+CPU implementation validation (2026-11-08): 264 tests passed across all nine
+benchmark modules, production preprocessing, the native HF boundary suite and
+CLI/example tests. A subsequent focused run passed four judge/mixed-batch cases
+(including two added mixed-batch cases). Both pinned tokenizer fixtures were
+present; no tokenizer cases were skipped. Full repository Ruff lint/format,
+`git diff --check`, and focused Pyrefly over preprocessing, the HF tests, preset
+example and CLI tests passed. Pyrefly used the existing OR-Bench Python environment;
+its initial invocation without an explicit interpreter could not resolve dependencies.
+The broad test run used CPU-only execution outside sandbox restrictions after
+sandboxed Inspect log reading stalled. Raw output stays ignored in
+`results/hf-tests.txt`. Weight stubs replaced model loading only; the installed
+Inspect HF rendering, tokenization, batching and generation dispatch executed.
+This evidence establishes CPU boundary behavior, not live model parity.

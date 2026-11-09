@@ -81,8 +81,8 @@ Only `stop` is judged; `max_tokens` corresponds to legacy `length`. Other non-st
 reasons are empty/incorrect without being incomplete, a documented extension of
 legacy iterator-exhaustion behavior. Missing choices follow the same extension.
 
-Legacy tokenizer chat-template decoding (including system text), target decoding,
-and 1024-token input truncation are not reproduced by the native shared solver.
-The raw question is sent to the judge. These unresolved parity gaps are logged in
-`prompt_parity` and locked down by a long-question regression test. Muse Glimmer
-custom template semantics remain unsupported. No live measured results are claimed.
+Production preprocessing now preserves the legacy 1024-token input and decoded judge text, plus 256-token target/stereotype round trips. Original input/target remain logged. See [HF/vLLM configuration and live qualification limits](../../INSPECT_MIGRATION.md#native-hf-preprocessing). CPU boundary tests do not establish live generation or score parity.
+
+Production HF/vLLM answers require an explicit matching `compatibility_tokenizer`.
+See [native HF configuration](../../INSPECT_MIGRATION.md#native-hf-preprocessing)
+for answer-only tokenizer caps and independently configured grader options.

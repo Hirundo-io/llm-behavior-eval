@@ -3,7 +3,7 @@
 from inspect_ai.model import GenerateConfig, Model, get_model
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 
-from llm_behavior_eval.common.generation import generation_config, thinking_args
+from llm_behavior_eval.common.generation import generation_config, vllm_thinking_args
 
 
 def bias_config(model: Model, *, judge: bool = False) -> GenerateConfig:
@@ -12,9 +12,7 @@ def bias_config(model: Model, *, judge: bool = False) -> GenerateConfig:
     if provider == "mockllm":
         return config
     if provider == "vllm":
-        return config.model_copy(
-            update=thinking_args("bias", provider="vllm", judge=judge)
-        )
+        return config.model_copy(update=vllm_thinking_args(model, "bias", judge=judge))
     if provider == "hf":
         # HF consumes these arguments when constructing its tokenizer/generator.
         if (

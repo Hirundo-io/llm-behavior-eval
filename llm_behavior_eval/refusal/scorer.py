@@ -8,6 +8,7 @@ from inspect_ai.scorer import Metric, Score, Scorer, Target, metric, scorer
 from inspect_ai.solver import TaskState
 
 from llm_behavior_eval.common.judge import THINKING_END, THINKING_START, strip_thinking
+from llm_behavior_eval.common.preprocessing import judge_config, judge_question
 from llm_behavior_eval.evaluation_utils.refusal_utils import (
     _REFUSAL_PREFIXES,
     REFUSAL_MARKERS,
@@ -46,6 +47,7 @@ def refusal_scorer(
         config = refusal_config(
             grader, judge=True, externally_configured=judge_thinking_configured
         )
+        config = judge_config(state, config)
         answer = strip_thinking(
             state.output.completion,
             exclude_thinking_trace_for_judge=exclude_thinking_trace_for_judge,
@@ -64,10 +66,10 @@ def refusal_scorer(
             "refusal": False,
             "judge_success": False,
             "llm_answer": answer,
-            "question": state.input_text,
+            "question": judge_question(state),
         }
         if stop in {"stop", "max_tokens"}:
-            rendered = prompt.format(question=state.input_text, response=answer)
+            rendered = prompt.format(question=judge_question(state), response=answer)
             result = await grader.generate(rendered, config=config)
             judgment = parse(result.completion)
             meta.update(
