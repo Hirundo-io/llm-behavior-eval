@@ -65,6 +65,9 @@ def main() -> None:
     parser.add_argument("--judge", required=True)
     parser.add_argument("--samples", type=int, default=2)
     parser.add_argument("--compiled", action="store_true")
+    parser.add_argument(
+        "--judge-content-format", choices=["auto", "string"], default="auto"
+    )
     args = parser.parse_args()
     # Match the retained load_vllm_model environment for native subprocesses.
     os.environ.setdefault("VLLM_USE_AOT_COMPILE", "0")
@@ -79,6 +82,8 @@ def main() -> None:
     )
     if args.compiled:
         identity["execution_mode"] = "compiled"
+    if args.judge_content_format != "auto":
+        identity["judge_content_format"] = args.judge_content_format
     immutable_json(root / "identity-config.json", identity)
     if args.phase == "prepare":
         from datasets import Dataset, DatasetDict, load_dataset
@@ -307,7 +312,7 @@ def main() -> None:
 
     from llm_behavior_eval import _registry
 
-    def model(path: str):
+    def model(path: str, *, judge: bool = False):
         return get_model(
             "vllm/" + path,
             config=GenerateConfig(
@@ -326,6 +331,11 @@ def main() -> None:
             max_num_batched_tokens=16384,
             seed=0,
             host="127.0.0.1",
+            **(
+                {"chat_template_content_format": args.judge_content_format}
+                if judge and args.judge_content_format != "auto"
+                else {}
+            ),
         )
 
     task = getattr(_registry, family)(
@@ -336,7 +346,7 @@ def main() -> None:
     )
     if [sample.id for sample in task.dataset] != source["ids"]:
         raise ValueError("Native selection changed from pinned source manifest")
-    grader = model(args.judge)
+    grader = model(args.judge, judge=True)
     if args.phase == "answer":
         logs = inspect_eval(
             task,
@@ -352,6 +362,16 @@ def main() -> None:
             raise RuntimeError(str(logs[0].error))
         (root / "answer-log.txt").write_text(logs[0].location)
     else:
+        api: Any = grader.api
+        (root / "native-judge-runtime.json").write_text(
+            json.dumps(
+                dict(
+                    chat_template_content_format=api.server_args.get(
+                        "chat_template_content_format", "auto"
+                    )
+                )
+            )
+        )
         log = read_eval_log((root / "answer-log.txt").read_text().strip())
         if not task.scorer:
             raise ValueError("Missing production scorer")

@@ -26,6 +26,9 @@ def main() -> None:
     parser.add_argument("--ordered", action="store_true")
     parser.add_argument("--compiled", action="store_true")
     parser.add_argument(
+        "--ccpc-judge-content-format", choices=["auto", "string"], default="auto"
+    )
+    parser.add_argument(
         "--phases",
         nargs="+",
         default=["prepare", "legacy", "answer", "judge", "report"],
@@ -89,6 +92,8 @@ def main() -> None:
                 ]
                 if args.compiled:
                     cmd.append("--compiled")
+                if case == "ccpc" and args.ccpc_judge_content_format != "auto":
+                    cmd += ["--judge-content-format", args.ccpc_judge_content_format]
             log_path = root / (phase + ".log")
             if log_path.exists():
                 raise ValueError(f"Refusing to overwrite {log_path}")

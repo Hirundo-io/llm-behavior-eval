@@ -40,8 +40,16 @@ def main() -> None:
     modes = {identity.get("execution_mode", "eager") for identity in identities}
     if len(modes) != 1 or not modes <= {"eager", "compiled"}:
         raise ValueError("Batch requires one supported execution mode")
+    formats = {i.get("judge_content_format", "auto") for i in identities}
+    if len(formats) != 1 or not formats <= {"auto", "string"}:
+        raise ValueError("Batch requires one supported judge content format")
 
-    def model(path: str, case: str):
+    def model(path: str, case: str, content_format: str = "auto"):
+        content_args: dict[str, Any] = (
+            {"chat_template_content_format": content_format}
+            if content_format != "auto"
+            else {}
+        )
         extra_body: dict[str, Any] = {
             "return_token_ids": True,
             "add_special_tokens": True,
@@ -66,6 +74,7 @@ def main() -> None:
             max_num_batched_tokens=16384,
             seed=0,
             host="127.0.0.1",
+            **content_args,
         )
 
     tasks = []
@@ -92,7 +101,10 @@ def main() -> None:
             raise ValueError("Source sample order differs")
         tasks.append(task)
     # Keep wrappers alive while the provider shares its server by model identity.
-    graders = [model(i["judge"], i["case"]) for i in identities]
+    graders = [
+        model(i["judge"], i["case"], i.get("judge_content_format", "auto"))
+        for i in identities
+    ]
     if args.phase == "answer":
         answers = [model(i["answer"], i["case"]) for i in identities]
 
@@ -135,6 +147,16 @@ def main() -> None:
 
         async def judge_all() -> None:
             for root, task, grader in zip(args.roots, tasks, graders, strict=True):
+                api: Any = grader.api
+                (root / "native-judge-runtime.json").write_text(
+                    json.dumps(
+                        dict(
+                            chat_template_content_format=api.server_args.get(
+                                "chat_template_content_format", "auto"
+                            )
+                        )
+                    )
+                )
                 log = read_eval_log((root / "answer-log.txt").read_text().strip())
                 if not task.scorer:
                     raise ValueError("Missing scorer")

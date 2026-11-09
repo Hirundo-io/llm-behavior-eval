@@ -464,3 +464,26 @@ HaluEval 500-row run, all four eager boundary runs, and compiled XSTest's two-ro
 run still yields zero field mismatches or errors. Updated compact evidence binds
 the replayed reports; the original generation and scored-log artifacts remain
 unchanged. **37 focused tests**, Ruff, and focused Pyrefly pass.
+
+All nine compiled two-row probes have now run. Eight families have zero observed
+field mismatches and metric deltas; Purple's ASR remains undefined because both
+answers reached the length limit, and Med-Hallu also made no judge calls in this
+slice. These are wiring observations, not full judge coverage or matrix success.
+`production-compiled-wiring.json` records the actual outcomes and report hashes.
+
+CCPC's initial compiled probe is **rejected**: its answers and verdicts match,
+but both actual judge inputs contain one additional native space token (236743)
+after the system rubric. The pinned Gemma 4 template appends a space for system
+content represented as a list. vLLM's automatic format detection selects that
+representation, while the retained path supplies a scalar string. The raw judge
+texts are both `False`; the input/output-pair comparison correctly rejects the
+different input IDs. The original artifacts and runner are preserved locally in
+ignored `compiled-small-evidence.tar.gz`.
+
+The runner now exposes vLLM's existing `chat_template_content_format=string`
+option for CCPC's judge, records it in a fresh immutable identity, and verifies
+the actual provider setting. A fresh old/new CCPC pair is running; no success is
+claimed yet. Production code, template bytes, rubric, dataset revision, and
+fingerprint are unchanged. The matrix summary also requires explicit raw judge
+output and response-order equality. **40 focused tests**, Ruff, and focused
+Pyrefly pass after these changes.

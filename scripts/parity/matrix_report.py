@@ -63,10 +63,16 @@ def summarize(root: Path) -> dict:
             }
             exact = exact and old_run == new_run
             judge = report.get("judge_boundary", {})
+            judge_exact = all(
+                judge.get(key) is True
+                for key in (
+                    "identical_multiset",
+                    "identical_raw_outputs",
+                    "identical_response_order",
+                )
+            )
             row.update(
-                status="exact"
-                if coverage and exact and judge.get("identical_multiset")
-                else "incomplete",
+                status="exact" if coverage and exact and judge_exact else "incomplete",
                 samples=report.get("samples"),
                 metrics=report["metrics"],
                 errors=report["errors"],

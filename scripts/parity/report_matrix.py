@@ -292,6 +292,22 @@ def main() -> None:
     )
     if identity.get("execution_mode") == "compiled":
         config.update(cudagraph_specialize_lora=False, vllm_use_aot_compile=0)
+    judge_runtime_path = root / "native-judge-runtime.json"
+    judge_runtime = (
+        json.loads(judge_runtime_path.read_text())
+        if judge_runtime_path.exists()
+        else None
+    )
+    if "judge_content_format" in identity:
+        if (
+            not judge_runtime
+            or judge_runtime.get("chat_template_content_format")
+            != identity["judge_content_format"]
+        ):
+            raise ValueError("Actual judge content format differs from pinned identity")
+        # Retained templates receive scalar strings. Explicit native string
+        # formatting matches that representation, without editing the template.
+        config["judge_content_format"] = identity["judge_content_format"]
     run = dict(
         model_revision=Path(identity["answer"]).name,
         judge_revision=Path(identity["judge"]).name,
@@ -328,6 +344,7 @@ def main() -> None:
         native_sample_concurrency=log.eval.config.max_samples,
         native_extra_body=log.eval.model_generate_config.extra_body,
         legacy_execution="Fresh engine per case, sequential answer and judge batches of one",
+        native_judge_runtime=judge_runtime,
     )
     fields = dict(
         verdict=("observed.verdict", "metadata.observed.verdict"),

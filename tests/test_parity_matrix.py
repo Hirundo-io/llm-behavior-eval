@@ -230,6 +230,43 @@ def test_matrix_retains_failed_phase_without_fabricating_scores(tmp_path):
     assert all(row["metrics"] is None and row["samples"] is None for row in failed)
 
 
+@pytest.mark.parametrize(
+    "missing", [None, "identical_raw_outputs", "identical_response_order"]
+)
+def test_matrix_requires_actual_judge_output_and_order_evidence(tmp_path, missing):
+    from scripts.parity.matrix_report import summarize
+
+    root = tmp_path / "halueval"
+    root.mkdir()
+    judge = dict(
+        identical_multiset=True,
+        identical_raw_outputs=True,
+        identical_response_order=True,
+    )
+    if missing:
+        judge.pop(missing)
+    files = {
+        "source.json": dict(rows=3000),
+        "identity-config.json": dict(samples=500),
+        "manifest.json": dict(cases=[dict(runs=dict(legacy={}, native={}))]),
+        "strict-report.json": dict(
+            name="halueval",
+            status="compared",
+            samples=500,
+            errors=[],
+            mismatches=[],
+            metrics=[dict(name="accuracy", delta=0)],
+            judge_boundary=judge,
+        ),
+    }
+    for name, value in files.items():
+        (root / name).write_text(json.dumps(value))
+    report = summarize(tmp_path)
+    row = next(row for row in report["cases"] if row["case"] == "halueval")
+    assert row["status"] == ("incomplete" if missing else "exact")
+    assert report["complete"] is False  # The other 30 cases still lack evidence.
+
+
 def test_ordered_samples_follow_pinned_ids_without_rewriting_log():
     import asyncio
     from types import SimpleNamespace
@@ -274,7 +311,15 @@ def test_batch_checkpoints_completed_task_before_later_failure(tmp_path, monkeyp
             json.dumps(dict(ids=[family], parquet_sha256=digest(parquet)))
         )
         (root / "identity-config.json").write_text(
-            json.dumps(dict(case=family, answer="answer", judge="judge", samples=1))
+            json.dumps(
+                dict(
+                    case=family,
+                    answer="answer",
+                    judge="judge",
+                    samples=1,
+                    judge_content_format="string",
+                )
+            )
         )
         roots.append(root)
 
@@ -282,11 +327,13 @@ def test_batch_checkpoints_completed_task_before_later_failure(tmp_path, monkeyp
             return Task(dataset=[Sample(id=_family, input="Q")], solver=generate())
 
         monkeypatch.setattr(qualify_native_batch._registry, family, factory)
-    monkeypatch.setattr(
-        qualify_native_batch,
-        "get_model",
-        lambda *a, **k: get_model("mockllm/checkpoint"),
-    )
+    model_calls = []
+
+    def model(name, **kwargs):
+        model_calls.append((name, kwargs))
+        return get_model("mockllm/checkpoint")
+
+    monkeypatch.setattr(qualify_native_batch, "get_model", model)
     evaluate = qualify_native_batch.eval_async
     calls = 0
 
@@ -315,6 +362,16 @@ def test_batch_checkpoints_completed_task_before_later_failure(tmp_path, monkeyp
     assert saved.status == "success"
     assert [sample.id for sample in saved.samples] == ["halueval"]
     assert not (roots[1] / "answer-log.txt").exists()
+    assert [
+        kwargs.get("chat_template_content_format")
+        for name, kwargs in model_calls
+        if name == "vllm/judge"
+    ] == ["string", "string"]
+    assert all(
+        "chat_template_content_format" not in kwargs
+        for name, kwargs in model_calls
+        if name == "vllm/answer"
+    )
 
 
 @pytest.mark.parametrize(
