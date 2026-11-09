@@ -1,4 +1,8 @@
-"""Load the complete source before benchmark validation and sample limiting."""
+"""Load a complete source split and convert it to an Inspect dataset.
+
+Sample limits are Inspect's job (``--limit`` / ``eval(limit=...)`` or a run
+config's ``eval_config.limit``), so conversion always keeps every record.
+"""
 
 from collections.abc import Callable
 from pathlib import Path
@@ -7,18 +11,18 @@ from typing import Any
 from inspect_ai.dataset import MemoryDataset, Sample
 
 
-def sample_limit(max_samples: int | None = 500) -> int | None:
-    """Value for inspect_ai.eval(limit=...); nonpositive/None means the full split."""
-    return max_samples if max_samples is not None and max_samples > 0 else None
-
-
 def load_hf_dataset(
     dataset_id: str,
     *,
     dataset_path: str | None = None,
     dataset_token: str | None = None,
 ) -> Any:
-    """Preserve logical identity; support HF sources and save_to_disk snapshots."""
+    """Load the full split of an HF dataset or a ``save_to_disk`` snapshot.
+
+    ``dataset_path`` overrides where data is read from without changing the
+    logical ``dataset_id``. Selects ``train`` when present, otherwise requires
+    exactly one split. ``dataset_token`` is passed only to HF Hub loading.
+    """
     from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
 
     source = dataset_path or dataset_id
@@ -47,12 +51,7 @@ def to_inspect_dataset(
     record_to_sample: Callable[[dict[str, Any]], Sample],
     *,
     dataset_id: str,
-    max_samples: int | None = 500,
 ) -> MemoryDataset:
-    """Convert after full-source validation; task cap applies before Inspect CLI --limit."""
-    limit = sample_limit(max_samples)
-    samples = [
-        record_to_sample(dict(records[i]))
-        for i in range(min(len(records), limit) if limit else len(records))
-    ]
+    """Convert every record, in source order, after benchmark validation."""
+    samples = [record_to_sample(dict(records[i])) for i in range(len(records))]
     return MemoryDataset(samples, name=dataset_id)

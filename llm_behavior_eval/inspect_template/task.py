@@ -1,15 +1,16 @@
 from inspect_ai import Task, task
 from inspect_ai.model import ModelOutput, get_model
-from inspect_ai.solver import generate, system_message
 
-from llm_behavior_eval.common.generation import generation_config
-from llm_behavior_eval.common.templates import FREE_TEXT_SYSTEM_MESSAGE
 from llm_behavior_eval.inspect_template.dataset import dataset
 from llm_behavior_eval.inspect_template.scorer import scorer
+from llm_behavior_eval.inspect_template.solver import solver
 
 
 @task
-def inspect_template(max_samples: int | None = 500) -> Task:
+def inspect_template() -> Task:
+    # Wiring demo only: a mock grader that always answers SCORE: 1. Real
+    # benchmarks bind no grader and require --model-role grader=...
+    # No `config=`: inference settings come from the user, never the task.
     return Task(
         model_roles={
             "grader": get_model(
@@ -19,8 +20,7 @@ def inspect_template(max_samples: int | None = 500) -> Task:
                 ),
             )
         },
-        dataset=dataset(max_samples),
-        solver=[system_message(FREE_TEXT_SYSTEM_MESSAGE["content"]), generate()],
+        dataset=dataset(),
+        solver=solver(),
         scorer=scorer(),
-        config=generation_config("bias"),
     )

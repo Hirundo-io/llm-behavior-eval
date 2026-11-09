@@ -84,6 +84,10 @@ llm-behavior-eval = { path = ".", editable = true }
 include = ["llm_behavior_eval*"]
 exclude = ["results*"]
 
+[tool.setuptools.package-data]
+# Benchmark-owned parity configs and READMEs ship with each benchmark package.
+"*" = ["parity.yaml", "README.md"]
+
 [tool.bumpver]
 current_version = "0.1.12"
 version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"

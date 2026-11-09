@@ -1,15 +1,21 @@
-"""Native Inspect grader role with explicit parsing and legacy answer formatting."""
+"""Grader call, thinking-trace stripping and answer parsing for judge-based scorers.
+
+Nothing here sets inference options for either model. The grader is whatever
+model is bound to the ``grader`` role, with whatever GenerateConfig the user gave
+that role; unset options fall through to the serving stack's defaults.
+"""
 
 import math
 import re
 from collections.abc import Callable
 
-from inspect_ai.model import GenerateConfig, get_model
+from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
 
 from .metrics import field_rate, incomplete_response_rate
 
+GRADER_ROLE = "grader"
 THINKING_START = "<think>"
 THINKING_END = "</think>"
 
@@ -21,7 +27,12 @@ def strip_thinking(
     thinking_start_token: str | None = THINKING_START,
     thinking_end_token: str | None = THINKING_END,
 ) -> str:
-    """Match FreeTextSharedEvaluator._format_answers, including unmatched markers."""
+    """Drop an inline reasoning trace: keep only the text after the last end marker.
+
+    Applies only when both markers are configured and either one appears, so an
+    unclosed start marker keeps the whole answer. Structured ``ContentReasoning``
+    is already excluded from ``ModelOutput.completion`` by Inspect.
+    """
     if (
         exclude_thinking_trace_for_judge
         and thinking_start_token
@@ -37,18 +48,22 @@ def judge_scorer(
     prompt: str,
     pattern: str,
     *,
-    config: GenerateConfig | None = None,
     parse: Callable[[str], float] = float,
     only_stop: bool = False,
     exclude_thinking_trace_for_judge: bool = True,
     thinking_start_token: str | None = THINKING_START,
     thinking_end_token: str | None = THINKING_END,
 ) -> Scorer:
-    """Format {question}/{answer}/{target}/{metadata}; regex group 1 feeds parse.
+    """Ask the ``grader`` role to judge an answer; regex group 1 feeds ``parse``.
 
-    Requires an independent grader role. Invalid (including non-finite) and
-    skipped scores have value 0 but are excluded by field_rate; raw judge text
-    and status remain in metadata.
+    ``prompt`` is formatted with ``{question}``, ``{answer}``, ``{target}`` and
+    ``{metadata}``. The grader role is required: it never falls back to the
+    model under test. Generation settings come only from the role's own
+    GenerateConfig; this scorer passes none.
+
+    Invalid (unmatched, unparsable or non-finite) and skipped scores have value 0
+    with ``parse_error``/``skipped`` metadata, and are excluded by ``field_rate``.
+    Raw judge text and the answer's stop reason are kept in score metadata.
     Benchmark scorers may wrap this scorer and supply their own metrics.
     """
     regex = re.compile(pattern)
@@ -76,10 +91,8 @@ def judge_scorer(
             target=target.text,
             metadata=state.metadata,
         )
-        grader = get_model(role="grader", required=True)
-        result = await grader.generate(
-            rendered, config=config or GenerateConfig(temperature=0, max_tokens=32)
-        )
+        grader = get_model(role=GRADER_ROLE, required=True)
+        result = await grader.generate(rendered)
         raw = result.completion
         metadata["raw_judge_text"] = raw
         match = regex.search(raw)

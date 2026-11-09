@@ -1,1 +1,1 @@
-"""Reference structure for benchmark migrations."""
+"""Reference layout for a self-contained native Inspect benchmark."""

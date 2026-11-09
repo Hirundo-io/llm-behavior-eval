@@ -1,0 +1,26 @@
+# Parity config: an Inspect run config, passed explicitly with
+#   inspect eval llm_behavior_eval/inspect_template --model <provider/model> \
+#     --run-config llm_behavior_eval/inspect_template/parity.yaml
+# The template has no legacy counterpart, so these values are illustrative. A
+# real benchmark copies the legacy engine's exact settings here. Only inference
+# settings belong in this file: never `task`, `model` or `solver`.
+
+# Model under test (eval-level GenerateConfig; never applied to the grader).
+generate_config:
+  temperature: 0.0
+  max_tokens: 128
+
+# Legacy runs scored the first 500 samples.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    model: hf/google/gemma-3-12b-it
+    # Grader GenerateConfig.
+    config:
+      temperature: 0.0
+      max_tokens: 32
+    # Grader provider args. Inspect's HF provider samples unless told not to.
+    args:
+      do_sample: false

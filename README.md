@@ -345,5 +345,9 @@ Using the next models as judges:
 This project is licensed under the MIT License. See the LICENSE file for more information.
 
 Native Inspect migration scaffolding is available alongside the legacy engine.
-See [Inspect migration and shared API](INSPECT_MIGRATION.md) for the reference task,
-provider mappings, air-gapped grader setup, and remaining parity limitations.
+Native tasks set no inference settings: pass them per role yourself (eval-level
+flags for the model under test, `--model-role grader=...` with its own config for
+the judge), or pass a benchmark's `parity.yaml` with `--run-config` for the legacy
+engine's exact settings. See [Inspect migration and shared API](INSPECT_MIGRATION.md)
+for the benchmark layout, per-role CLI and Python forms, `openai-api` judge setup,
+provider caveats, and remaining parity limitations.
