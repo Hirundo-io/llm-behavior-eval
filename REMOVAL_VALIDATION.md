@@ -132,3 +132,8 @@ tokenizer paths must be coordinated. See INSPECT_MIGRATION.md. The preserved
 catalog and offline bundle formats do not imply drop-in worker compatibility.
 The new bundle contract suite covers raw HF snapshot Parquet loading for all
 nine benchmarks and rejects CCPC tampering outside the selected sample cap.
+
+Parent integration validation: **23 bundle, discovery, and removal tests passed**.
+The tampering test uses a separate immutable snapshot path so HF's metadata-keyed
+dataset cache cannot mask an in-place rewrite on a filesystem with coarse
+modification timestamps. Production loaders and qualified scoring are unchanged.

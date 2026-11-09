@@ -52,9 +52,14 @@ def test_raw_snapshot_parquet_preserves_native_ids(name, tmp_path, monkeypatch):
         # Corrupt a row outside the requested cap: full-source pin still applies.
         changed = rows.to_list()
         changed[-1]["question"] = "tampered outside selected prefix"
-        Dataset.from_list(changed).to_parquet(str(parquet))
+        # Releases use immutable snapshots. A separate path also prevents HF's
+        # metadata-keyed cache from masking an in-place rewrite on filesystems
+        # whose modification times have insufficient resolution.
+        tampered = tmp_path / "tampered-bundle" / "data"
+        tampered.mkdir(parents=True)
+        Dataset.from_list(changed).to_parquet(str(tampered / parquet.name))
         with pytest.raises(ValueError, match="fingerprint"):
-            load_ccpc_dataset(dataset_path=str(snapshot), max_samples=1)
+            load_ccpc_dataset(dataset_path=str(tampered.parent), max_samples=1)
 
 
 def test_public_ccpc_bundle_identity_remains_pinned():
