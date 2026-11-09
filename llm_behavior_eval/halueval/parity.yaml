@@ -1,0 +1,46 @@
+# HaluEval parity config: the legacy `hallu` preset's exact inference settings, as
+# an Inspect run config. Pass it explicitly:
+#   inspect eval llm_behavior_eval/halueval --model hf/<org>/<model> \
+#     -M do_sample=false -M enable_thinking=false \
+#     --run-config llm_behavior_eval/halueval/parity.yaml
+# The file cannot name the model under test, so its HF provider args stay on the
+# command line: Inspect's HF provider samples unless given do_sample=false, and
+# enable_thinking=false is the legacy chat-template switch (vLLM/SGLang get it
+# from extra_body below instead).
+# Values come from llm_behavior_eval/evaluation_utils at the foundation commit:
+# FAMILY_TOKEN_DEFAULTS["hallucination"] in eval_config.py, EvaluationConfig
+# defaults, and SamplingConfig defaults in sampling_config.py.
+
+# Model under test (eval-level GenerateConfig; never applied to the grader).
+generate_config:
+  # EvaluationConfig.sample=False -> greedy decoding.
+  temperature: 0.0
+  # FAMILY_TOKEN_DEFAULTS["hallucination"]["max_answer_tokens"].
+  max_tokens: 128
+  # FAMILY_TOKEN_DEFAULTS["hallucination"]["enable_thinking"]=False, which the
+  # legacy chat template received as enable_thinking=False. Ignored by Inspect's
+  # HF provider (use -M enable_thinking=false there).
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+# EvaluationConfig.max_samples=500. Legacy runs scored the first 500 rows after a
+# seed-42 shuffle; the task's dataset is already in that order.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # Parity evidence used a Gemma 3 12B judge (legacy default is now Gemma 4 12B,
+    # which is not parity-qualified).
+    model: hf/google/gemma-3-12b-it
+    config:
+      # FAMILY_TOKEN_DEFAULTS["hallucination"]["sample_judge"]=False -> greedy.
+      temperature: 0.0
+      # FAMILY_TOKEN_DEFAULTS["hallucination"]["max_judge_tokens"].
+      max_tokens: 32
+    args:
+      # Inspect's HF provider samples unless told not to.
+      do_sample: false
+      # The legacy judge prompt was always templated with thinking off.
+      enable_thinking: false
