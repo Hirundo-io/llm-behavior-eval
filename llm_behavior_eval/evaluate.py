@@ -340,6 +340,29 @@ def main(
             help="""Model engine to use for model inference. "vllm" or "transformers". DO NOT combine with the inference_engine argument.""",
         ),
     ] = "transformers",
+    vllm_tensor_parallel_size: Annotated[
+        int | None,
+        typer.Option(
+            "--vllm-tensor-parallel-size",
+            min=1,
+            help="Evaluated-model tensor parallelism; defaults to local GPU count.",
+        ),
+    ] = None,
+    vllm_pipeline_parallel_size: Annotated[
+        int,
+        typer.Option(
+            "--vllm-pipeline-parallel-size",
+            min=1,
+            help="Evaluated-model pipeline stages; does not affect the judge.",
+        ),
+    ] = 1,
+    vllm_distributed_executor_backend: Annotated[
+        Literal["ray", "mp"] | None,
+        typer.Option(
+            "--vllm-distributed-executor-backend",
+            help="Evaluated-model worker backend; ray uses an existing Ray cluster.",
+        ),
+    ] = None,
     vllm_max_model_len: Annotated[
         int | None,
         typer.Option(
@@ -405,6 +428,13 @@ def main(
             help="Maximum LoRA rank for vLLM.",
         ),
     ] = DEFAULT_MAX_LORA_RANK,
+    vllm_lora_target_module: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--vllm-lora-target-module",
+            help="Restrict evaluated-model LoRA wrapping to this module suffix; repeat for each target.",
+        ),
+    ] = None,
     vllm_language_model_only: Annotated[
         bool,
         typer.Option(
@@ -653,6 +683,9 @@ def main(
     using_vllm = any([arg == "vllm" for arg in vllm_related_args])
     if using_vllm:
         vllm_config = VllmConfig(
+            tensor_parallel_size=vllm_tensor_parallel_size,
+            pipeline_parallel_size=vllm_pipeline_parallel_size,
+            distributed_executor_backend=vllm_distributed_executor_backend,
             max_model_len=vllm_max_model_len,
             judge_max_model_len=vllm_judge_max_model_len
             if vllm_judge_max_model_len is not None
@@ -663,6 +696,7 @@ def main(
             gpu_memory_utilization=vllm_gpu_memory_utilization,
             enable_lora=lora_path_or_repo_id is not None,
             max_lora_rank=vllm_max_lora_rank,
+            lora_target_modules=vllm_lora_target_module,
             language_model_only=vllm_language_model_only,
             enforce_eager=vllm_enforce_eager,
         )

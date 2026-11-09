@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
 from torch import cuda
 
 from .vllm_types import TokenizerModeOption
@@ -23,10 +25,16 @@ class VllmConfig(BaseModel):
         load_format: Checkpoint load format hint forwarded to vLLM (optional).
         enable_lora: Whether to enable LoRA.
         max_lora_rank: The maximum LoRA rank (do not set too high to avoid wasting memory).
+        lora_target_modules: Optional evaluated-model LoRA module suffixes. None
+            lets vLLM wrap all supported layers. Match the adapter's actual targets.
         language_model_only: Whether evaluated-model loads omit multimodal encoders
             and load only the language model. Judge loads always omit multimodal
             encoders. This setting has no effect on text-only architectures.
         enforce_eager: Whether to enforce eager execution (useful for CPU-only setups or for saving memory on CUDA graphs).
+        tensor_parallel_size: Evaluated-model tensor parallelism. None uses local GPU count.
+        pipeline_parallel_size: Evaluated-model pipeline stages (e.g. number of nodes).
+        distributed_executor_backend: Evaluated-model worker backend. Use ray for an
+            existing multi-node Ray cluster. These three settings do not affect judges.
     """
 
     max_model_len: int | None = None
@@ -37,5 +45,17 @@ class VllmConfig(BaseModel):
     gpu_memory_utilization: float = DEFAULT_VLLM_GPU_MEMORY_UTILIZATION
     enable_lora: bool = False
     max_lora_rank: int = 128
+    lora_target_modules: list[str] | None = Field(default=None, min_length=1)
     language_model_only: bool = False
     enforce_eager: bool = not cuda.is_available()
+    tensor_parallel_size: int | None = Field(default=None, ge=1)
+    pipeline_parallel_size: int = Field(default=1, ge=1)
+    distributed_executor_backend: Literal["ray", "mp"] | None = None
+
+    @field_validator("lora_target_modules")
+    @classmethod
+    def validate_lora_target_modules(cls, value: list[str] | None) -> list[str] | None:
+        """Reject blank module names instead of silently omitting adapter layers."""
+        if value is not None and any(not item.strip() for item in value):
+            raise ValueError("LoRA target module names must not be blank")
+        return value
