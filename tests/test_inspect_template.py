@@ -12,6 +12,8 @@ from inspect_ai.model import GenerateConfig
 from llm_behavior_eval.common.parity import parity_config_path, read_parity_config
 from llm_behavior_eval.common.target_metrics import (
     TARGET_METRICS_FILE,
+    load_target_metrics,
+    missing_target_metrics,
     read_target_metrics_file,
 )
 from llm_behavior_eval.inspect_template.task import inspect_template
@@ -79,11 +81,17 @@ def test_parity_config_cli(tmp_path, mock_parity_config):
         ],
         capture_output=True,
         text=True,
+        # Not the repository root: `python -m` puts the working directory first
+        # on sys.path, where the source-tree egg-info hides the install metadata
+        # Inspect needs to name the task llm_behavior_eval/inspect_template.
+        cwd=tmp_path,
     )
     assert result.returncode == 0, result.stderr
     logs = list_eval_logs(str(tmp_path / "logs"))
     assert len(logs) == 1
-    assert_parity_recorded(read_eval_log(logs[0]).eval)
+    log = read_eval_log(logs[0])
+    assert_parity_recorded(log.eval)
+    assert missing_target_metrics(log) == []
 
 
 def test_parity_config_python(tmp_path, mock_parity_config):
@@ -118,11 +126,14 @@ def test_template_target_metrics_match_eval_metric_names(tmp_path):
     path = parity_config_path(TEMPLATE).with_name(TARGET_METRICS_FILE)
     targets = read_target_metrics_file(path)
     assert list(targets) == ["llm_behavior_eval/inspect_template"]
+    assert (
+        load_target_metrics()["llm_behavior_eval/inspect_template"]
+        == (targets["llm_behavior_eval/inspect_template"])
+    )
     logs = inspect_eval(
         inspect_template(), model="mockllm/model", log_dir=str(tmp_path), display="none"
     )
-    assert logs[0].status == "success"
-    assert logs[0].results is not None
-    produced = {name for score in logs[0].results.scores for name in score.metrics}
-    expected = {m["name"] for m in targets["llm_behavior_eval/inspect_template"]}
-    assert expected <= produced
+    assert logs[0].status == "success", logs[0].error
+    # Every target name is found in the written .eval log as inspect-brief
+    # reads it: by log.eval.task, then as a key of a scorer's metrics.
+    assert missing_target_metrics(logs[0].location) == []

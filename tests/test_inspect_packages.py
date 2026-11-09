@@ -22,6 +22,7 @@ from llm_behavior_eval.common.target_metrics import (
     TARGET_METRICS_FILE,
     load_target_metrics,
     main,
+    missing_target_metrics,
     read_target_metrics_file,
     target_metrics_files,
     write_target_metrics,
@@ -105,20 +106,32 @@ def test_shipped_benchmarks_are_discovered():
 
 
 def run_registry_with_extra_packages(
-    tmp_path: Path, packages: dict[str, str]
+    tmp_path: Path,
+    packages: dict[str, str],
+    modules: dict[str, dict[str, str]] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Import ``_registry`` in a fresh interpreter with extra benchmark packages.
 
     The extra packages live outside the source tree and join
     ``llm_behavior_eval`` through its ``__path__``, as a new package directory
-    would.
+    would. ``modules`` adds further modules to a package; its task module
+    imports them, as a benchmark's task module imports its scorer and solver.
     """
     extra = tmp_path / "extra"
     for package, task_name in packages.items():
+        extra_modules = (modules or {}).get(package, {})
+        imports = "".join(
+            f"import llm_behavior_eval.{package}.{Path(filename).stem}\n"
+            for filename in extra_modules
+        )
         write_package(
             extra,
             package,
-            {"__init__.py": "", "task.py": TASK_SOURCE.format(name=task_name)},
+            {
+                "__init__.py": "",
+                "task.py": imports + TASK_SOURCE.format(name=task_name),
+                **extra_modules,
+            },
         )
     script = textwrap.dedent(
         f"""
@@ -161,6 +174,101 @@ def test_registry_rejects_duplicate_task_names(tmp_path):
     assert "registered by both" in result.stderr
 
 
+REGISTERED_SOURCES = {
+    "metric": """\
+from inspect_ai.scorer import metric
+
+
+@metric
+def {name}():
+    def compute(scores):
+        return 0.0
+
+    return compute
+""",
+    "scorer": """\
+from inspect_ai.scorer import Score, accuracy, scorer
+
+
+@scorer(metrics=[accuracy()])
+def {name}():
+    async def score(state, target):
+        return Score(value=1)
+
+    return score
+""",
+    "solver": """\
+from inspect_ai.solver import solver
+
+
+@solver
+def {name}():
+    async def solve(state, generate):
+        return state
+
+    return solve
+""",
+}
+
+
+@pytest.mark.parametrize("kind", sorted(REGISTERED_SOURCES))
+def test_registry_rejects_a_name_defined_by_two_packages(tmp_path, kind):
+    # Inspect's registry keeps the last object registered under a name, so a
+    # second benchmark reusing a metric, scorer or solver name would silently
+    # replace the first one's when a log is rescored.
+    source = REGISTERED_SOURCES[kind].format(name="shared_name")
+    result = run_registry_with_extra_packages(
+        tmp_path,
+        {"aa_fake_bench": "aa_fake_bench", "zz_fake_bench": "zz_fake_bench"},
+        {
+            "aa_fake_bench": {"parts.py": source},
+            "zz_fake_bench": {"other_parts.py": source},
+        },
+    )
+    assert result.returncode != 0
+    assert (
+        f"{kind} 'llm_behavior_eval/shared_name' is defined by "
+        "llm_behavior_eval.aa_fake_bench.parts, "
+        "llm_behavior_eval.zz_fake_bench.other_parts"
+    ) in result.stderr
+
+
+def test_registry_accepts_package_specific_names(tmp_path):
+    result = run_registry_with_extra_packages(
+        tmp_path,
+        {"aa_fake_bench": "aa_fake_bench", "zz_fake_bench": "zz_fake_bench"},
+        {
+            package: {
+                "parts.py": "\n\n".join(
+                    source.format(name=f"{package}_{kind}")
+                    for kind, source in REGISTERED_SOURCES.items()
+                )
+            }
+            for package in ("aa_fake_bench", "zz_fake_bench")
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert {"aa_fake_bench", "zz_fake_bench"} <= set(json.loads(result.stdout)["all"])
+
+
+def test_shipped_registry_names_are_defined_once():
+    definitions = _registry.registry_definitions()
+    assert definitions[("task", "llm_behavior_eval/inspect_template")] == [
+        "llm_behavior_eval.inspect_template.task"
+    ]
+    # Shared objects are attributed to common, not to the benchmarks importing them.
+    assert definitions[("scorer", "llm_behavior_eval/judge_scorer")] == [
+        "llm_behavior_eval.common.judge"
+    ]
+    # @metric wraps the factory in an Inspect-internal function; the definition
+    # is still attributed to the module that wrote it.
+    assert definitions[("metric", "llm_behavior_eval/field_rate")] == [
+        "llm_behavior_eval.common.metrics"
+    ]
+    assert {key: m for key, m in definitions.items() if len(m) > 1} == {}
+    _registry.check_unique_registry_names()
+
+
 def test_registry_exports_sorted_task_names():
     assert "inspect_template" in _registry.__all__
     assert _registry.__all__ == sorted(_registry.__all__)
@@ -171,6 +279,63 @@ def test_registry_exports_sorted_task_names():
 def test_every_registered_task_has_target_metrics_and_vice_versa():
     registered = {f"llm_behavior_eval/{name}" for name in _registry.__all__}
     assert set(load_target_metrics()) == registered
+
+
+@pytest.fixture(scope="module")
+def template_log_path(tmp_path_factory) -> Path:
+    """A real ``.eval`` log of the registered template task, as written to disk."""
+    from inspect_ai import eval as inspect_eval
+
+    log_dir = tmp_path_factory.mktemp("template_log")
+    [log] = inspect_eval(
+        "llm_behavior_eval/inspect_template",
+        model="mockllm/model",
+        log_dir=str(log_dir),
+        display="none",
+    )
+    assert log.status == "success", log.error
+    return Path(log.location)
+
+
+def test_missing_target_metrics_finds_the_template_targets(template_log_path):
+    assert missing_target_metrics(template_log_path) == []
+    assert missing_target_metrics(str(template_log_path)) == []
+
+
+def test_missing_target_metrics_reads_metric_keys_not_names(template_log_path):
+    from inspect_ai.log import read_eval_log
+
+    log = read_eval_log(str(template_log_path))
+    assert log.results is not None
+    [score] = log.results.scores
+    # A single-value metric is keyed by its plain name, but EvalMetric.name is
+    # the registry-qualified name. inspect-brief reads the key.
+    assert score.metrics["field_rate"].name == "llm_behavior_eval/field_rate"
+    task = log.eval.task
+    targets = {
+        task: [
+            metric("field_rate"),
+            metric("llm_behavior_eval/field_rate"),
+            metric("not_emitted"),
+        ]
+    }
+    assert missing_target_metrics(log, targets) == [
+        "llm_behavior_eval/field_rate",
+        "not_emitted",
+    ]
+
+
+def test_missing_target_metrics_rejects_logs_brief_would_not_match(template_log_path):
+    from inspect_ai.log import read_eval_log
+
+    log = read_eval_log(str(template_log_path))
+    assert log.eval.task == "llm_behavior_eval/inspect_template"
+    # inspect-brief selects targets by log.eval.task; an unknown task would
+    # silently get every metric instead of its targets.
+    with pytest.raises(ValueError, match="has no target metrics"):
+        missing_target_metrics(log, {"llm_behavior_eval/other": [metric("m")]})
+    with pytest.raises(ValueError, match="not 'success'"):
+        missing_target_metrics(log.model_copy(update={"status": "error"}))
 
 
 def test_no_root_target_metrics_file():

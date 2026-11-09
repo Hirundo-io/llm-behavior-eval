@@ -54,7 +54,17 @@ Each benchmark is a regular subpackage `llm_behavior_eval/<benchmark>/` (it has 
 
 Its tests live outside the package, in `tests/test_inspect_<benchmark>.py`:
 registry discovery, dataset conversion, scorer, parity-config tests, and a check
-that its `target_metrics.json` names match the metric names in a real `.eval` log.
+that inspect-brief finds every `target_metrics.json` name in a real `.eval` log
+(`missing_target_metrics`, see [Target metrics](#target-metrics)).
+
+Registry names are global. Inspect keeps one registry per object type, keyed by
+`llm_behavior_eval/<name>`, and a later registration under a name silently
+replaces the earlier one; `inspect score` and anything else that rebuilds a
+metric, scorer or solver from a log then runs the wrong benchmark's code. Name
+them after the package: `<benchmark>_metrics`, `<benchmark>_scorer`,
+`<benchmark>_<step>` for solvers. A single metric that returns a mapping keeps
+the reported names plain (`accuracy`, `stderr`, ...) while its registry name
+stays package specific.
 
 Rules: no imports between benchmarks; use absolute imports in task files
 (Inspect also loads them by file path). `llm_behavior_eval/inspect_template/` is
@@ -75,7 +85,9 @@ root-level metrics file, the root `README.md`, `.gitignore` or `pyproject.toml`:
   Tasks register under the `llm_behavior_eval/` namespace, are bound as
   attributes of `_registry` and listed in its `__all__` (sorted). A task module
   that fails to import fails registration, as an explicit import would; two
-  packages registering the same task name raise an error. Packages without a
+  packages registering the same task name raise an error, and so does any
+  metric, scorer or solver name defined by two modules
+  (`_registry.check_unique_registry_names()`). Packages without a
   `task` module (`common/`, shared helpers) are not benchmarks.
 * **Target metrics are per package.** `llm_behavior_eval/<benchmark>/target_metrics.json`
   holds only that benchmark's entries; `common.target_metrics` merges them.
@@ -172,6 +184,32 @@ report shows, in inspect-brief's format:
 
 List one key per registered task (usually one, named after the package). Metric
 order is kept; merged keys are sorted.
+
+inspect-brief selects a log's targets by `log.eval.task` and finds a metric when
+its name is a **key** of some `log.results.scores[i].metrics` mapping. Inspect
+writes a single-value metric under its unqualified registry name (but sets that
+entry's `EvalMetric.name` to the qualified `llm_behavior_eval/<metric>`), each
+entry of a mapping-valued metric under the mapping key (entries whose value is
+`None` are dropped), and metrics of a `{"key": [...]}` metrics dict under
+qualified names, which inspect-brief cannot match. Check the real log, not the
+metric definitions:
+
+```python
+from llm_behavior_eval.common.target_metrics import missing_target_metrics
+
+[log] = inspect_eval("llm_behavior_eval/<benchmark>", model="mockllm/model", ...)
+assert missing_target_metrics(log.location) == []
+```
+
+`missing_target_metrics(log)` takes an `EvalLog` or a `.eval` path, mirrors
+inspect-brief's lookup and returns the names it would report as not found. It
+raises when inspect-brief would not apply the targets at all: the log did not
+succeed, or its task is not a key of the merged target metrics. Run the task by
+its registered name or its `@task` function. `python -m inspect_ai` started from
+the repository root puts the source tree first on `sys.path`, where setuptools'
+egg-info hides the install metadata Inspect needs to prefix names, so the log's
+task becomes `<benchmark>` and the targets do not apply; use the `inspect`
+command or another working directory.
 
 ## Setting inference options per role
 

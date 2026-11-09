@@ -16,17 +16,23 @@ validates it, and merges the entries into one mapping with sorted keys. A task
 key defined twice, within one file or across packages, is an error. Tools that
 need a single file path call ``write_target_metrics(path)``, or run
 ``python -m llm_behavior_eval.common.target_metrics --output PATH``.
+
+``missing_target_metrics(log)`` checks a finished ``.eval`` log the way
+inspect-brief reads it; benchmark tests assert it returns ``[]``.
 """
 
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from llm_behavior_eval.common.packages import ROOT_PACKAGE, package_dirs, subpackages
 
 TARGET_METRICS_FILE = "target_metrics.json"
 _METRIC_KEYS = {"name", "is_percentage", "is_higher_better", "is_normalized"}
+
+if TYPE_CHECKING:
+    from inspect_ai.log import EvalLog
 
 TargetMetrics = dict[str, list[dict[str, Any]]]
 
@@ -110,6 +116,54 @@ def load_target_metrics(root: str = ROOT_PACKAGE) -> TargetMetrics:
             sources[task] = path
             merged[task] = metrics
     return dict(sorted(merged.items()))
+
+
+def missing_target_metrics(
+    log: "EvalLog | str | Path", targets: TargetMetrics | None = None
+) -> list[str]:
+    """Target metric names inspect-brief would report as not found in ``log``.
+
+    ``log`` is an ``EvalLog`` or the path of a ``.eval`` file. ``targets``
+    defaults to ``load_target_metrics()``. The lookup mirrors inspect-brief's
+    (``inspect_brief.core.score_values`` and ``target_score_values``):
+
+    * the target list is selected by ``log.eval.task``, the registered task
+      name (``llm_behavior_eval/<task>``) when the task ran by name or from its
+      ``@task`` function;
+    * a metric is found when its name is a **key** of some
+      ``log.results.scores[i].metrics`` mapping. ``EvalMetric.name`` is not
+      used: for a single-value metric it is the registry-qualified name
+      (``llm_behavior_eval/<metric>``), so comparing target names with it
+      checks the wrong field.
+
+    Inspect keys a single-value metric by its unqualified registry name and
+    each entry of a mapping-valued metric by the mapping key; it drops mapping
+    entries whose value is ``None``. Returns the missing names in target
+    order, so a passing check is ``== []``.
+
+    Raises ``ValueError`` when inspect-brief would not look the names up at
+    all: the log did not succeed, or its task has no target metrics (then
+    inspect-brief reports every metric instead of the targets).
+    """
+    if not isinstance(log, (str, Path)):
+        eval_log = log
+    else:
+        from inspect_ai.log import read_eval_log
+
+        eval_log = read_eval_log(str(log))
+    if targets is None:
+        targets = load_target_metrics()
+    task = eval_log.eval.task
+    if eval_log.status != "success":
+        raise ValueError(f"{task} log status is {eval_log.status!r}, not 'success'")
+    if task not in targets:
+        raise ValueError(
+            f"Task {task!r} has no target metrics; inspect-brief selects them by "
+            f"log.eval.task. Known tasks: {sorted(targets)}"
+        )
+    scores = eval_log.results.scores if eval_log.results else []
+    found = {name for score in scores for name in score.metrics}
+    return [m["name"] for m in targets[task] if m["name"] not in found]
 
 
 def write_target_metrics(path: str | Path, root: str = ROOT_PACKAGE) -> Path:
