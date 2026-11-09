@@ -33,7 +33,7 @@ keywords = [
 requires-python = ">=3.10.12,<3.14"
 # Please only install Python >=3.10.12 or >=3.11.4 or >=3.12 to avoid GHSA-4xh5-x5gv-qwph vulnerability
 dependencies = [
-  "inspect-ai>=0.3.288,<0.3.289; python_version >= '3.11'",
+  "inspect-ai>=0.3.287,<0.3.288; python_version >= '3.11'",
   # Inspect OpenAI-compatible grader transport (not installed by Inspect itself).
   "openai>=3.4,<4; python_version >= '3.11'",
   "datasets>=5.0.1,<6.0.0",

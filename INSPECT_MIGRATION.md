@@ -1,8 +1,9 @@
 # Native Inspect foundation (LLM-156)
 
 Legacy CLI, evaluators, and public imports remain available. No benchmark has
-migrated in this layer; each benchmark arrives in its own PR. Inspect 0.3.288 is
-tested and pinned to `<0.3.289`. Every Inspect behavior described below was
+migrated in this layer; each benchmark arrives in its own PR. Inspect 0.3.287 is
+tested and pinned to `<0.3.288`. New dependencies are locked to releases at
+least 7 days old. Every Inspect behavior described below was
 checked against that version's source and is covered by tests in
 `tests/test_inspect_foundation.py`, `tests/test_inspect_packages.py` and
 `tests/test_inspect_template.py`.
@@ -216,7 +217,7 @@ command or another working directory.
 Inspect keeps the two roles apart. Eval-level GenerateConfig (CLI flags,
 `--generate-config`, `eval(**kwargs)`) applies **only to the model under test**.
 The grader gets only its role's GenerateConfig, plus operational settings
-(`max_connections`, `max_retries`, `timeout`, `cache`). In 0.3.288 this is
+(`max_connections`, `max_retries`, `timeout`, `cache`). In 0.3.287 this is
 `Model._resolve_config`. `-M`/`model_args` also reach only the model under test.
 
 ### Model under test
@@ -351,7 +352,7 @@ illustrative values.
 
 ## Legacy flag mapping
 
-The mapping below was checked against installed Inspect 0.3.288 provider source.
+The mapping below was checked against installed Inspect 0.3.287 provider source.
 Local GPU execution and full benchmark parity are not claimed by CPU tests. `-M`
 applies to the model under test; put the same keys under the grader's
 `model_args` (inline) or `args` (run config) for the judge.
