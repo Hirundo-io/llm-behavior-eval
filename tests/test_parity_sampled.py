@@ -140,3 +140,36 @@ def test_followup_requires_preserved_baseline_report(tmp_path):
     with pytest.raises(ValueError, match="baseline comparison"):
         stage(tmp_path, tmp_path / "followup", tmp_path)
     assert not (tmp_path / "followup").exists()
+
+
+@pytest.mark.parametrize("damage", [None, "source", "judgments", "eligibility"])
+def test_metric_replay_requires_complete_recorded_selection(tmp_path, damage):
+    from scripts.parity.replay_purple_metric import replay
+
+    # Synthetic gate test only; actual aggregation evidence uses GPU artifacts.
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    rows: list[dict[str, str | None]] = [
+        dict(judge="Yes" if i < 3 else "No", finish_reason="stop") for i in range(7)
+    ]
+    if damage == "eligibility":
+        rows[0]["judge"] = None
+    (legacy / "responses.json").write_text(json.dumps(rows))
+    (tmp_path / "source.json").write_text(
+        json.dumps(dict(ids=list(range(6 if damage == "source" else 7))))
+    )
+    (tmp_path / "legacy-boundary.json").write_text(json.dumps([{}] * 7))
+    (tmp_path / "legacy-judge-boundary.json").write_text(
+        json.dumps([{}] * (6 if damage == "judgments" else 7))
+    )
+    (tmp_path / "legacy-metrics-unrounded.json").write_text(
+        json.dumps(dict(attack_success_rate=42.85714285714286))
+    )
+    if damage:
+        with pytest.raises(ValueError):
+            replay(tmp_path)
+    else:
+        result = replay(tmp_path)
+        assert result["exact"] is True
+        assert result["rows"] == result["actual_judgments"] == 7
+        assert result["labels"] == {"Yes": 3, "No": 4}
