@@ -97,37 +97,40 @@ def main() -> None:
         answers = [model(i["answer"], i["case"]) for i in identities]
 
         async def answer_all():
-            logs = []
-            for task, answer, grader in zip(tasks, answers, graders, strict=True):
-                logs.extend(
-                    await eval_async(
-                        task,
-                        model=answer,
-                        model_roles={"grader": grader},
-                        score=False,
-                        max_connections=1,
-                        max_tasks=1,
-                        max_samples=1 if args.ordered else None,
-                        log_dir=str(args.log_dir),
-                    )
+            failed = []
+            for root, task, answer, grader in zip(
+                args.roots, tasks, answers, graders, strict=True
+            ):
+                logs = await eval_async(
+                    task,
+                    model=answer,
+                    model_roles={"grader": grader},
+                    score=False,
+                    max_connections=1,
+                    max_tasks=1,
+                    max_samples=1 if args.ordered else None,
+                    log_dir=str(args.log_dir),
                 )
-            return logs
+                if len(logs) != 1:
+                    raise ValueError("Missing or ambiguous task log")
+                log = logs[0]
+                if log.status != "success":
+                    failed.append(str(log.error))
+                    continue
+                saved = read_eval_log(log.location)
+                expected = json.loads((root / "source.json").read_text())["ids"]
+                samples = saved.samples or []
+                if len(samples) != len(expected) or {s.id for s in samples} != set(
+                    expected
+                ):
+                    raise ValueError("Batch log does not match source identity")
+                # Checkpoint each completed task before another expensive task
+                # starts. A later failure must not hide successful answer logs.
+                (root / "answer-log.txt").write_text(log.location)
+            if failed:
+                raise RuntimeError("Failed tasks: " + "; ".join(failed))
 
-        logs = asyncio.run(answer_all())
-        if len(logs) != len(tasks):
-            raise ValueError("Missing task logs")
-        failed = []
-        for root, log in zip(args.roots, logs, strict=True):
-            if log.status != "success":
-                failed.append(str(log.error))
-                continue
-            saved = read_eval_log(log.location)
-            expected = json.loads((root / "source.json").read_text())["ids"]
-            if {s.id for s in saved.samples or []} != set(expected):
-                raise ValueError("Batch log does not match source identity")
-            (root / "answer-log.txt").write_text(log.location)
-        if failed:
-            raise RuntimeError("Failed tasks: " + "; ".join(failed))
+        asyncio.run(answer_all())
     else:
 
         async def judge_all() -> None:

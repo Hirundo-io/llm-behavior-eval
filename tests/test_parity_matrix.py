@@ -252,3 +252,66 @@ def test_ordered_samples_follow_pinned_ids_without_rewriting_log():
     assert [sample.id for sample in log.samples] == [0, 1, 2]
     with pytest.raises(ValueError, match="uniquely match"):
         ordered_samples(log, [2, 2, 1])
+
+
+def test_batch_checkpoints_completed_task_before_later_failure(tmp_path, monkeypatch):
+    from inspect_ai import Task
+    from inspect_ai.dataset import Sample
+    from inspect_ai.log import read_eval_log
+    from inspect_ai.model import get_model
+    from inspect_ai.solver import generate
+
+    from scripts.parity import qualify_native_batch
+    from scripts.parity.compare import digest
+
+    roots = []
+    for family in ("halueval", "medhallu"):
+        root = tmp_path / family
+        (root / "dataset").mkdir(parents=True)
+        parquet = root / "dataset/train.parquet"
+        parquet.write_bytes(b"identity fixture; task factory supplies local samples")
+        (root / "source.json").write_text(
+            json.dumps(dict(ids=[family], parquet_sha256=digest(parquet)))
+        )
+        (root / "identity-config.json").write_text(
+            json.dumps(dict(case=family, answer="answer", judge="judge", samples=1))
+        )
+        roots.append(root)
+
+        def factory(*, _family=family, **kwargs):
+            return Task(dataset=[Sample(id=_family, input="Q")], solver=generate())
+
+        monkeypatch.setattr(qualify_native_batch._registry, family, factory)
+    monkeypatch.setattr(
+        qualify_native_batch,
+        "get_model",
+        lambda *a, **k: get_model("mockllm/checkpoint"),
+    )
+    evaluate = qualify_native_batch.eval_async
+    calls = 0
+
+    async def fail_later(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("later task failed")
+        return await evaluate(*args, **kwargs)
+
+    monkeypatch.setattr(qualify_native_batch, "eval_async", fail_later)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "qualify_native_batch",
+            "answer",
+            *map(str, roots),
+            "--log-dir",
+            str(tmp_path / "logs"),
+            "--ordered",
+        ],
+    )
+    with pytest.raises(RuntimeError, match="later task failed"):
+        qualify_native_batch.main()
+    saved = read_eval_log((roots[0] / "answer-log.txt").read_text())
+    assert saved.status == "success"
+    assert [sample.id for sample in saved.samples] == ["halueval"]
+    assert not (roots[1] / "answer-log.txt").exists()

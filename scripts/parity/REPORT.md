@@ -448,3 +448,11 @@ compiled old/new must be freshly paired, and a successful candidate will run all
 boundary evidence remain separately scoped. The outer eager controller is
 paused; an already-started Med-Hallu eager phase was interrupted and its partial
 artifacts/logs preserved, never counted as a result. No engine code was rewritten.
+
+Compiled XSTest's first two fresh old/new rows pass exactly, including actual
+answer token IDs/text, all refusal diagnostics, judge input IDs/raw outputs,
+and actual response order. Its judge inputs reach 1491 tokens. Other compiled
+family probes remain pending. Grouped native answers now checkpoint each
+successful task immediately; a real Inspect mock-log regression verifies that
+a subsequent task failure cannot hide that completed artifact. **33 focused
+tests** and focused lint/type checks pass; these tests do not establish GPU parity.
