@@ -5,7 +5,7 @@ import socket
 import pytest
 from inspect_ai import eval as inspect_eval
 from inspect_ai.log import read_eval_log
-from inspect_ai.model import ModelOutput, get_model
+from inspect_ai.model import ModelOutput, ModelUsage, get_model
 
 from llm_behavior_eval import _registry, list_dataset_presets
 from llm_behavior_eval.target_metrics import target_metrics
@@ -18,6 +18,7 @@ def test_registered_task(name, tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     monkeypatch.setenv("INSPECT_BRIEF_ENABLED", "false")
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", str(tmp_path / "token-cache"))
 
     def no_network(*args, **kwargs):
         raise AssertionError("Smoke attempted network access")
@@ -42,10 +43,17 @@ def test_registered_task(name, tmp_path, monkeypatch):
     }[name]
     calls = []
 
+    def mock_output(model: str, content: str) -> ModelOutput:
+        output = ModelOutput.from_content(model, content)
+        # Otherwise MockLLM estimates usage with tiktoken, which downloads its
+        # vocabulary on a cold machine. This smoke tests task wiring, not usage.
+        output.usage = ModelUsage(input_tokens=1, output_tokens=1, total_tokens=2)
+        return output
+
     def grade(messages, tools, choice, config):
         calls.append(messages)
         assert "secret-reasoning" not in str(messages)
-        return ModelOutput.from_content("mockllm/grader", verdict)
+        return mock_output("mockllm/grader", verdict)
 
     log = inspect_eval(
         f"llm_behavior_eval/{name}",
@@ -54,9 +62,7 @@ def test_registered_task(name, tmp_path, monkeypatch):
         model=get_model(
             "mockllm/model",
             custom_outputs=[
-                ModelOutput.from_content(
-                    "mockllm/model", "<think>secret-reasoning</think>answer"
-                )
+                mock_output("mockllm/model", "<think>secret-reasoning</think>answer")
                 for _ in range(2)
             ],
         ),
@@ -64,7 +70,7 @@ def test_registered_task(name, tmp_path, monkeypatch):
         log_dir=str(tmp_path / "logs"),
         display="none",
     )[0]
-    assert log.status == "success", log.error
+    assert log.status == "success", log.error.traceback if log.error else None
     assert calls
     saved = read_eval_log(str(next((tmp_path / "logs").glob("*.eval"))))
     assert saved.eval.task == f"llm_behavior_eval/{name}"

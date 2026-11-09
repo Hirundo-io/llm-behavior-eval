@@ -339,7 +339,7 @@ def test_registration_and_lazy_import(tmp_path):
     )
     assert registered.returncode == 0, registered.stderr
     listed = subprocess.run(
-        [sys.executable, "-m", "inspect_ai", "list", "tasks"],
+        [sys.executable, "-m", "inspect_ai", "list", "tasks", "llm_behavior_eval"],
         capture_output=True,
         text=True,
     )

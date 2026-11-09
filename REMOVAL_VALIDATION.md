@@ -137,3 +137,17 @@ Parent integration validation: **23 bundle, discovery, and removal tests passed*
 The tampering test uses a separate immutable snapshot path so HF's metadata-keyed
 dataset cache cannot mask an in-place rewrite on a filesystem with coarse
 modification timestamps. Production loaders and qualified scoring are unchanged.
+
+CI follow-up: configure pytest's checkout import path and maintained test directory
+so console-script invocation can import examples and parity tooling without
+collecting ignored experiment copies. Offline smoke outputs include deterministic
+mock usage; Inspect's default mock usage estimator otherwise downloads a tiktoken
+vocabulary on a cold machine. The socket network guard remains enabled. Existing
+test typing corrections are folded into their introducing PR layers. No production
+benchmark or qualification evidence is changed by these CI fixes.
+The CLI discovery regression also limits `inspect list tasks` to the package
+directory, avoiding unrelated Python files inside local validation environments.
+The corrected complete suite also passes in a clean locked Python 3.12 reporting
+environment: **431 passed, 18 optional skips**, with Ruff, Pyrefly and lock checks
+passing. This run uses the console `pytest` entry point without `PYTHONPATH`;
+`results/pr-stack/ci312-full-final.log` records the local result.

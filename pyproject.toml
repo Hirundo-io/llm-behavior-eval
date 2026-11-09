@@ -118,3 +118,7 @@ unfixable = ["F401"]
 
 [tool.pyrefly]
 min-severity = "warn"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
