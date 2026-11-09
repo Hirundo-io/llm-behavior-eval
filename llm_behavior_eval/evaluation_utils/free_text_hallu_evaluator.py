@@ -68,18 +68,14 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
         completed_samples = sum(
             len(generation.input_texts) for generation in completed_generations
         )
-        completed_batches = len(completed_generations)
 
         generations: list[_HalluGenerationRecord] = list(completed_generations)
-        remaining = self.num_samples - completed_samples
-        if remaining <= 0:
-            return generations
 
-        for batch_index, batch in enumerate(
-            tqdm(self.eval_loader, desc="Generating answers", unit="batch")
+        for batch in tqdm(
+            self._remaining_generation_batches(completed_samples),
+            desc="Generating answers",
+            unit="batch",
         ):
-            if batch_index < completed_batches:
-                continue
             input_ids = batch["test_input_ids"]
             attention_mask = batch["test_attention_mask"]
 
@@ -107,9 +103,6 @@ class FreeTextHaluEvaluator(FreeTextSharedEvaluator):
                     }
                 ]
             )
-            remaining -= len(input_texts)
-            if remaining <= 0:
-                break
         return generations
 
     def _grade_batch(

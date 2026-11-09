@@ -175,19 +175,14 @@ candidate_uncertain: "<yes|no>"
         completed_samples = sum(
             len(generation.questions) for generation in completed_generations
         )
-        completed_batches = len(completed_generations)
 
         generation_records: list[_BiasGenerationRecord] = list(completed_generations)
-        remaining = self.num_samples - completed_samples
 
-        if remaining <= 0:
-            return generation_records
-
-        for batch_index, batch in enumerate(
-            tqdm(self.eval_loader, desc="Generating answers", unit="batch")
+        for batch in tqdm(
+            self._remaining_generation_batches(completed_samples),
+            desc="Generating answers",
+            unit="batch",
         ):
-            if batch_index < completed_batches:
-                continue
             input_ids = batch["test_input_ids"]
             attention_mask = batch["test_attention_mask"]
             correct_answer_ids = batch["gt_answers"]
@@ -221,10 +216,6 @@ candidate_uncertain: "<yes|no>"
                     }
                 ]
             )
-
-            remaining -= len(questions)
-            if remaining <= 0:
-                break
 
         return generation_records
 
