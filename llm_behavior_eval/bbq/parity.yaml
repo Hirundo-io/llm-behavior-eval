@@ -1,0 +1,48 @@
+# BBQ parity config: the legacy engine's exact settings, as an Inspect run config.
+#
+#   inspect eval llm_behavior_eval/bbq -T bias_type=gender -T kind=bias \
+#     --model vllm/<org>/<model> --run-config llm_behavior_eval/bbq/parity.yaml
+#
+# The model under test needs a provider that reports stop reasons (vllm/ or an
+# OpenAI-compatible endpoint); Inspect's hf/ provider is rejected by the scorer.
+# Model-under-test provider args stay on the command line because this file
+# does not name that model.
+# Legacy sources (llm_behavior_eval/evaluation_utils/):
+#   eval_config.py FAMILY_TOKEN_DEFAULTS["bias"]: max_answer_tokens 128,
+#     max_judge_tokens 32, sample_judge false, enable_thinking false.
+#   eval_config.py EvaluationConfig: sample false (greedy answers), max_samples 500.
+#   dataset_config.py DatasetConfig.seed 42: the split shuffle (reproduced by
+#     bbq/dataset.py) and the generation seed of both roles.
+#   util_functions.py safe_apply_chat_template: enable_thinking=False for the
+#     answer and judge chat templates.
+
+# Model under test (eval-level GenerateConfig; never applied to the grader).
+generate_config:
+  temperature: 0.0
+  max_tokens: 128
+  seed: 42
+  # vLLM/SGLang servers: legacy enable_thinking=False chat-template kwarg.
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+# Legacy max_samples: the first 500 rows after the seed-42 shuffle.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # Parity evidence used a Gemma 3 12B judge.
+    model: hf/google/gemma-3-12b-it
+    # Grader GenerateConfig.
+    config:
+      temperature: 0.0
+      max_tokens: 32
+      seed: 42
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+    # Grader HF provider args: greedy decoding and thinking off.
+    args:
+      do_sample: false
+      enable_thinking: false
