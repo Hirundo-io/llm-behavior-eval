@@ -49,6 +49,15 @@ def main() -> None:
         scope="Three actual generations plus one rejected-effort request; provider/scorer integration only",
         parser_selection="Explicit user-supplied upstream parser via Inspect model args; no package dispatch",
         dataset_sha256={p.name: digest(p) for p in args.dataset.glob("*.parquet")},
+        answer_metadata_sha256={
+            name: digest(Path(args.answer) / name)
+            for name in ("config.json", "chat_template.jinja", "tokenizer_config.json")
+            if (Path(args.answer) / name).exists()
+        },
+        answer_quantization=json.loads(
+            (Path(args.answer) / "config.json").read_text()
+        ).get("quantization_config"),
+        activation_dtype="bfloat16",
     )
     settings_path = root / "settings.json"
     if args.phase == "answer":
