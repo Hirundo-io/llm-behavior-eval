@@ -1,68 +1,113 @@
-import gc
-import logging
-from pathlib import Path
+"""Run legacy presets as native Inspect tasks, with per-role settings.
 
-import torch
-from transformers.trainer_utils import set_seed
+Presets choose tasks and task arguments only. Every inference setting below is
+the user's choice, passed through Inspect for each role; the benchmarks set
+none. Drop a setting to fall through to the serving stack's defaults.
 
-from llm_behavior_eval import (
-    DatasetConfig,
-    DatasetType,
-    EvaluateFactory,
-    EvaluationConfig,
-    PreprocessConfig,
-)
+    python examples/presets_customization.py --preset bias:gender --preset hallu-med
+    python examples/presets_customization.py --preset refusal:all --print-commands
+
+Credentials belong in the provider's environment (for example HF_TOKEN or
+<SERVICE>_API_KEY for openai-api/<service>/<model>), never in task arguments.
+To reproduce legacy results instead, run each task with its benchmark's
+parity.yaml (see INSPECT_MIGRATION.md).
+"""
+
+import argparse
+import shlex
+
+from inspect_ai import Task
+from inspect_ai import eval as inspect_eval
+from inspect_ai.model import GenerateConfig, get_model
+
+from llm_behavior_eval import _registry, get_dataset_preset
+
+ANSWER_MODEL = "hf/meta-llama/Llama-3.1-8B-Instruct"
+GRADER_MODEL = "hf/google/gemma-4-12B-it"
 
 
-def main() -> None:
-    # Customize here
-    model = "meta-llama/Llama-3.1-8B-Instruct"
-    model_token = None  # Don't forget to set this to your HuggingFace token after accepting the terms of service for the gated model
-    judge_model = "google/gemma-4-12B-it"
-    judge_token = None  # Don't forget to set this to your HuggingFace token after accepting the terms of service for the gated model
-    result_dir = Path(__file__).resolve().parents[1] / "results"
-    # Choose a specific dataset from hirundo-io datasets collections
-    dataset_id = "hirundo-io/bbq-gender-bias-free-text"
+def preset_tasks(preset_names: list[str]) -> list[Task]:
+    """One task per preset asset, created from its registered ``@task`` function.
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-8s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+    Calling the registered function keeps the log's task name
+    ``llm_behavior_eval/<task>``, which inspect-brief's targets are keyed by.
+    """
+    tasks = []
+    for name in preset_names:
+        for mapping in get_dataset_preset(name).inspect_tasks:
+            task_function = getattr(
+                _registry, mapping.task_name.removeprefix("llm_behavior_eval/")
+            )
+            tasks.append(task_function(**dict(mapping.task_args)))
+    return tasks
+
+
+def preset_commands(
+    preset_names: list[str], answer_model: str, grader_model: str
+) -> list[str]:
+    """The same runs as ``inspect eval`` commands with the same per-role settings."""
+    commands = []
+    for name in preset_names:
+        for mapping in get_dataset_preset(name).inspect_tasks:
+            commands.append(
+                shlex.join(
+                    [
+                        "inspect",
+                        "eval",
+                        mapping.task_name,
+                        *mapping.cli_args,
+                        "--model",
+                        answer_model,
+                        "-M",
+                        "do_sample=false",
+                        "--temperature",
+                        "0",
+                        "--max-tokens",
+                        "512",
+                        "--model-role",
+                        f"grader={{model: {grader_model}, temperature: 0.0, "
+                        "max_tokens: 64, model_args: {do_sample: false}}",
+                    ]
+                )
+            )
+    return commands
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--preset", action="append", dest="presets")
+    parser.add_argument("--model", default=ANSWER_MODEL)
+    parser.add_argument("--grader", default=GRADER_MODEL)
+    parser.add_argument("--limit", type=int, default=200)
+    parser.add_argument("--log-dir", default="results/inspect")
+    parser.add_argument("--print-commands", action="store_true")
+    args = parser.parse_args(argv)
+    presets = args.presets or ["bias:gender", "hallu-med"]
+
+    if args.print_commands:
+        for command in preset_commands(presets, args.model, args.grader):
+            print(command)
+        return
+
+    # Grader role: its own model, GenerateConfig and provider arguments. The
+    # eval-level settings below never reach it.
+    grader = get_model(
+        args.grader,
+        config=GenerateConfig(temperature=0.0, max_tokens=64),
+        do_sample=False,  # Inspect's HF provider samples unless told otherwise.
+        memoize=False,
     )
-
-    dataset_config = DatasetConfig(
-        file_path=dataset_id,
-        dataset_type=DatasetType.BIAS if "-bias-" in dataset_id else DatasetType.UNBIAS,
-        preprocess_config=PreprocessConfig(
-            max_length=256, gt_max_length=32, preprocess_batch_size=512
-        ),
+    inspect_eval(
+        preset_tasks(presets),
+        # Model under test: eval-level GenerateConfig and provider arguments.
+        model=args.model,
+        model_args={"do_sample": False},
+        temperature=0.0,
+        max_tokens=512,
+        model_roles={"grader": grader},
+        limit=args.limit,
+        log_dir=args.log_dir,
     )
-
-    eval_config = EvaluationConfig(
-        max_samples=200,  # set to None to run full dataset
-        batch_size=32,
-        sample=False,
-        max_answer_tokens=128,
-        model_path_or_repo_id=model,
-        model_token=model_token,
-        judge_batch_size=64,
-        max_judge_tokens=32,
-        judge_path_or_repo_id=judge_model,
-        judge_token=judge_token,
-        use_4bit_judge=False,
-        results_dir=result_dir,
-    )
-
-    if dataset_config.seed is not None:
-        set_seed(dataset_config.seed)
-    elif eval_config.sampling_config.seed is not None:
-        set_seed(eval_config.sampling_config.seed)
-    evaluator = EvaluateFactory.create_evaluator(eval_config, dataset_config)
-    with torch.inference_mode():
-        evaluator.evaluate()
-    del evaluator
-    gc.collect()
-    torch.cuda.empty_cache()
 
 
 if __name__ == "__main__":

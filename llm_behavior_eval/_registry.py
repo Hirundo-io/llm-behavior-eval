@@ -19,6 +19,12 @@ After the task modules are imported, every registry object defined in a
 ``llm_behavior_eval`` module is checked, and a name defined by two modules
 raises ``RuntimeError``. Give benchmark metrics, scorers and solvers a
 package-specific name (``<benchmark>_metrics``, ``<benchmark>_scorer``, ...).
+
+Reporting hooks are not benchmarks: ``hooks/`` has no ``task`` module, so
+discovery skips it. The opt-in MLflow hook (``hooks.mlflow``) is imported
+explicitly after discovery, before the registry-name check. Inspect imports
+every ``inspect_ai`` entry point when an eval starts, so the hook is available
+to any task; it stays inert unless ``LLM_BEHAVIOR_EVAL_MLFLOW_ENABLED`` is set.
 """
 
 import sys
@@ -127,6 +133,9 @@ def check_unique_registry_names(root: str = _ROOT) -> None:
 
 
 _TASKS = _register_tasks()
+# Hooks are not benchmarks, so discovery does not import them. Register the
+# opt-in MLflow reporting hook explicitly; it imports MLflow only when enabled.
+import_module(f"{_ROOT}.hooks.mlflow")
 check_unique_registry_names()
 globals().update(_TASKS)
 __all__ = list(_TASKS)  # pyrefly: ignore[unresolvable-dunder-all]

@@ -7,7 +7,6 @@ from typing import Any
 import pytest
 
 import llm_behavior_eval.evaluation_utils.base_evaluator as base_evaluator_module
-from llm_behavior_eval.evaluate import _behavior_presets
 from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
 from llm_behavior_eval.evaluation_utils.enums import DatasetType
 from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
@@ -16,6 +15,7 @@ from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
     FreeTextBiasEvaluator,
     _BiasGenerationRecord,
 )
+from llm_behavior_eval.presets import expand_dataset_preset
 
 
 @pytest.mark.parametrize(
@@ -30,7 +30,7 @@ from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
     ],
 )
 def test_bloom_behavior_presets(behavior: str, dataset_id: str) -> None:
-    assert _behavior_presets(behavior) == [dataset_id]
+    assert expand_dataset_preset(behavior) == [dataset_id]
 
 
 @pytest.mark.parametrize(
@@ -47,36 +47,36 @@ def test_bloom_behavior_presets(behavior: str, dataset_id: str) -> None:
     ],
 )
 def test_bloom_ambiguous_only_behavior_presets(behavior: str, dataset_id: str) -> None:
-    assert _behavior_presets(behavior) == [dataset_id]
+    assert expand_dataset_preset(behavior) == [dataset_id]
 
 
 @pytest.mark.parametrize(
     ("behavior", "kind"),
     [
         ("bloom:bias:all", "bias"),
-        (" BLOOM : UNBIAS : ALL ", "unbias"),
+        ("BLOOM:UNBIAS:ALL", "unbias"),
     ],
 )
 def test_bloom_behavior_presets_all(behavior: str, kind: str) -> None:
-    assert _behavior_presets(behavior) == [
+    assert expand_dataset_preset(behavior) == [
         f"hirundo-io/bloom-{bias_type}-{kind}-free-text"
         for bias_type in ("age", "gender", "race")
     ]
 
 
 def test_bloom_behavior_preset_rejects_invalid_kind() -> None:
-    with pytest.raises(ValueError, match="bloom:bias:<type>"):
-        _behavior_presets("bloom:neutral:age")
+    with pytest.raises(ValueError, match="Unknown behavior preset"):
+        expand_dataset_preset("bloom:neutral:age")
 
 
 def test_bloom_behavior_preset_rejects_invalid_type() -> None:
-    with pytest.raises(ValueError, match="BLOOM supports: age, gender, race, all"):
-        _behavior_presets("bloom:bias:religion")
+    with pytest.raises(ValueError, match="Unknown behavior preset"):
+        expand_dataset_preset("bloom:bias:religion")
 
 
 def test_bloom_ambiguous_only_behavior_preset_rejects_unbias() -> None:
-    with pytest.raises(ValueError, match="bloom:bias:<type>:ambiguous"):
-        _behavior_presets("bloom:unbias:gender:ambiguous")
+    with pytest.raises(ValueError, match="Unknown behavior preset"):
+        expand_dataset_preset("bloom:unbias:gender:ambiguous")
 
 
 def test_factory_routes_bloom_to_free_text_bias_evaluator(

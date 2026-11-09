@@ -55,7 +55,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mlflow = ["mlflow>=2.0.0"]
+# inspect-brief summarizes Inspect .eval logs into a CSV; it requires Python 3.12+.
+brief = ["inspect-brief>=0.1.1,<0.2; python_version >= '3.12'"]
+# The MLflow reporting hook logs synchronously through MlflowClient (2.8+).
+mlflow = ["mlflow>=2.8.0"]
 # vLLM publishes Linux wheels only. Torch pins Triton and the CUDA runtime together.
 vllm = [
   "vllm>=0.30.0,<0.31; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
@@ -71,7 +74,7 @@ dev = [
   "pytest>=8.3.5",
   "pyyaml>=6.0.2",
   "pre-commit>=4.3.0",
-  "llm-behavior-eval[mlflow,vllm,gcs,azure]",
+  "llm-behavior-eval[mlflow,vllm,gcs,azure,brief]",
   "pyrefly>=0.63.1",
   "types-PyYAML",
   "types-tqdm",
@@ -133,7 +136,6 @@ unfixable = ["F401"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["S"]
-"hirundo_notion_tools/test_*.py" = ["S"]
 
 [tool.pyrefly]
 min-severity = "warn"

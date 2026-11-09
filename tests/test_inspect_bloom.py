@@ -194,13 +194,13 @@ def test_all_split_identities_match_current_presets(monkeypatch, bias_type, kind
 @pytest.mark.parametrize("kind", ["bias", "unbias"])
 def test_all_expansion_matches_legacy(source, kind):
     from llm_behavior_eval.bloom.dataset import BIAS_TYPES, dataset
-    from llm_behavior_eval.evaluate import _behavior_presets
     from llm_behavior_eval.evaluation_utils.enums import BLOOM_BIAS_TYPES
+    from llm_behavior_eval.presets import expand_dataset_preset
 
     source([dict(question="q", answer="a")])
     assert set(BIAS_TYPES) == BLOOM_BIAS_TYPES
-    assert [dataset(t, kind).name for t in BIAS_TYPES] == _behavior_presets(
-        f" BLOOM : {kind.upper()} : ALL "
+    assert [dataset(t, kind).name for t in BIAS_TYPES] == expand_dataset_preset(
+        f"BLOOM:{kind.upper()}:ALL"
     )
 
 
