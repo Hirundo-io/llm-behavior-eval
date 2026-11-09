@@ -2,11 +2,11 @@
 
 import asyncio
 import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import torch
 from inspect_ai.model import (
     ChatMessageSystem,
     ChatMessageUser,
@@ -15,13 +15,15 @@ from inspect_ai.model import (
     get_model,
 )
 from inspect_ai.solver import TaskState
-from transformers import AutoModelForCausalLM
 
 from llm_behavior_eval.common.preprocessing import (
     load_tokenizer,
     preprocess,
     validate_hf,
 )
+
+torch = pytest.importorskip("torch")
+AutoModelForCausalLM = pytest.importorskip("transformers").AutoModelForCausalLM
 
 CAP = dict(truncation=True, max_length=1024, add_special_tokens=True)
 
@@ -185,29 +187,14 @@ def test_refusal_hf_metadata_and_original_log(hf, tmp_path, monkeypatch):
 
 
 def test_mixed_batch_padding_and_legacy_targets(hf):
-    from llm_behavior_eval.evaluation_utils.custom_dataset import (
-        free_text_preprocess_function,
-    )
-
     model, tokenizer, captured = hf
     questions = ["short", "long " * 1600]
     targets: list[str] = ["target " * 500] * 2
     stereotypes: list[str] = ["stereotype " * 500] * 2
     independent: list[str] = ["independent " * 500] * 2
-    legacy = free_text_preprocess_function(
-        dict(
-            question=questions,
-            answer=targets,
-            stereotyped_answer=stereotypes,
-            system_prompt=["Be helpful."] * 2,
-            judge_question=independent,
-        ),
-        tokenizer,
-        1024,
-        256,
-        True,
-        enable_thinking=False,
-    )
+    legacy = json.loads(
+        (Path(__file__).parent / "golden/preprocessing_baseline.json").read_text()
+    )["mixed"][Path(tokenizer.name_or_path).name]
     messages = [
         [ChatMessageSystem(content="Be helpful."), ChatMessageUser(content=q + "\n")]
         for q in questions
@@ -239,7 +226,7 @@ def test_mixed_batch_padding_and_legacy_targets(hf):
             ("target", "gt_answers"),
             ("stereotype", "stereotyped_answers"),
         ]:
-            assert result[key]["input_ids"] == legacy[old][index].tolist()
+            assert result[key]["input_ids"] == legacy[old][index]
         assert result["judge_question"] == tokenizer.decode(
             legacy["judge_questions"][index], skip_special_tokens=True
         )

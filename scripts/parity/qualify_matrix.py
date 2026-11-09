@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.parity.capture import capture_judge_responses
+from scripts.parity.historical import legacy_module
 from scripts.parity.ordered import ordered_samples
 
 
@@ -160,14 +161,24 @@ def main() -> None:
     if hashlib.sha256(parquet.read_bytes()).hexdigest() != source["parquet_sha256"]:
         raise ValueError("Pinned dataset bytes changed")
     if args.phase == "legacy":
-        from llm_behavior_eval.evaluation_utils.base_evaluator import (
-            FreeTextSharedEvaluator,
-        )
-        from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
-        from llm_behavior_eval.evaluation_utils.enums import DatasetType
-        from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
-        from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
-        from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+        FreeTextSharedEvaluator = legacy_module(
+            "llm_behavior_eval.evaluation_utils.base_evaluator"
+        ).FreeTextSharedEvaluator
+        DatasetConfig = legacy_module(
+            "llm_behavior_eval.evaluation_utils.dataset_config"
+        ).DatasetConfig
+        DatasetType = legacy_module(
+            "llm_behavior_eval.evaluation_utils.enums"
+        ).DatasetType
+        EvaluationConfig = legacy_module(
+            "llm_behavior_eval.evaluation_utils.eval_config"
+        ).EvaluationConfig
+        EvaluateFactory = legacy_module(
+            "llm_behavior_eval.evaluation_utils.evaluate_factory"
+        ).EvaluateFactory
+        VllmConfig = legacy_module(
+            "llm_behavior_eval.evaluation_utils.vllm_config"
+        ).VllmConfig
 
         evaluator = EvaluateFactory.create_evaluator(
             EvaluationConfig(
@@ -231,9 +242,9 @@ def main() -> None:
 
         evaluator.save_results = capture_metrics
         if family in {"xstest", "orbench"}:
-            from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
-                FreeTextRefusalEvaluator,
-            )
+            FreeTextRefusalEvaluator = legacy_module(
+                "llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator"
+            ).FreeTextRefusalEvaluator
 
             if not isinstance(evaluator, FreeTextRefusalEvaluator):
                 raise TypeError("Expected refusal evaluator")

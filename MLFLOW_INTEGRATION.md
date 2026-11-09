@@ -6,7 +6,7 @@ passes a source run ID and checkpoint artifact subfolder. The platform's
 inspect-mlflow integration is not proven to preserve that contract. Its reporting
 queue stall is documented in [INFRA-321](https://linear.app/hirundo/issue/INFRA-321).
 This implementation is only an Inspect hook, with no evaluation engine or model
-loading. Legacy classes remain temporarily for parity until LLM-171.
+loading. Legacy classes and runtime are removed in 0.2.0.
 
 ## Enable
 

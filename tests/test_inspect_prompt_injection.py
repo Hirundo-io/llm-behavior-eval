@@ -1,4 +1,6 @@
 import importlib
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -10,6 +12,7 @@ from inspect_ai.model import ModelOutput, get_model
 from llm_behavior_eval.prompt_injection.dataset import DATASET_ID, dataset
 from llm_behavior_eval.prompt_injection.scorer import parse_yes_no
 from llm_behavior_eval.prompt_injection.task import prompt_injection
+from tests.golden import BASELINE as GOLDEN
 
 
 def inspect_eval(*args, **kwargs) -> Any:
@@ -33,55 +36,31 @@ def source(monkeypatch):
     "raw", ["Yes", "NO!", "yesterday", "", "No then yes", "YES/no"]
 )
 def test_parser_parity(raw):
-    from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
-        FreeTextPromptInjectionEvaluator,
-    )
-
-    assert (
-        parse_yes_no(raw)
-        == FreeTextPromptInjectionEvaluator._map_judge_outputs_yes_no(
-            [[{"generated_text": raw}]]
-        )[0]
-    )
+    expected = {
+        "Yes": "Yes",
+        "NO!": "No",
+        "yesterday": "No",
+        "": "No",
+        "No then yes": "No",
+        "YES/no": "Yes",
+    }
+    assert parse_yes_no(raw) == expected[raw]
 
 
 @pytest.mark.parametrize("yes,total", [(1, 5), (2, 5), (1, 10), (3, 7), (0, 5), (5, 5)])
 def test_asr_preserves_exact_legacy_arithmetic(monkeypatch, yes, total):
     from inspect_ai.scorer import SampleScore, Score
 
-    from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
-        FreeTextPromptInjectionEvaluator,
-        _InjectionGenerationRecord,
-    )
     from llm_behavior_eval.prompt_injection.scorer import attack_success_rate
 
-    legacy: Any = object.__new__(FreeTextPromptInjectionEvaluator)
-    legacy.eval_config = SimpleNamespace(
-        exclude_thinking_trace_for_judge=True,
-        thinking_start_token="<think>",
-        thinking_end_token="</think>",
-    )
     labels = ["Yes"] * yes + ["No"] * (total - yes)
-    monkeypatch.setattr(legacy, "_grade_batch", lambda *args: labels)
-    saved = {}
-    monkeypatch.setattr(legacy, "save_results", lambda **kw: saved.update(kw))
-    legacy._grade_impl(
-        [
-            _InjectionGenerationRecord(
-                input_texts=["question"] * (total + 1),
-                gt_answers=["target"] * (total + 1),
-                answers=["answer"] * (total + 1),
-                finish_reasons=["stop"] * total + ["length"],
-                judge_questions=["question"] * (total + 1),
-                response_tokens=[1] * (total + 1),
-            )
-        ],
-        judge_engine=object(),
+    golden = json.loads(
+        (Path(__file__).parent / "golden/purple_baseline.json").read_text()
     )
     scores = [SampleScore(score=Score(value=int(label == "Yes"))) for label in labels]
     scores.append(SampleScore(score=Score(value=0, metadata={"skipped": True})))
     actual = cast("Any", attack_success_rate())(scores)
-    assert actual == 100 * (1 - saved["accuracy"])
+    assert actual == golden[f"{yes}/{total}"]
 
 
 def test_dataset(source):
@@ -115,11 +94,6 @@ def test_dataset(source):
 
 
 def test_native_legacy_grade_parity(source, tmp_path, monkeypatch):
-    from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
-        FreeTextPromptInjectionEvaluator,
-        _InjectionGenerationRecord,
-    )
-
     raw = ["Yes", "malformed", "No", "unused"]
     answers = ["<think>secret</think>a0", "a1", "a2", "a3"]
     source([dict(question=f"q{i}", answer="a") for i in range(4)])
@@ -148,28 +122,7 @@ def test_native_legacy_grade_parity(source, tmp_path, monkeypatch):
         display="none",
     )[0]
     assert log.status == "success", log.error
-    legacy: Any = object.__new__(FreeTextPromptInjectionEvaluator)
-    legacy.eval_config = SimpleNamespace(
-        exclude_thinking_trace_for_judge=True,
-        thinking_start_token="<think>",
-        thinking_end_token="</think>",
-    )
-    monkeypatch.setattr(legacy, "_grade_batch", lambda *args: ["Yes", "No", "No"])
-    saved = {}
-    monkeypatch.setattr(legacy, "save_results", lambda **kw: saved.update(kw))
-    legacy._grade_impl(
-        [
-            _InjectionGenerationRecord(
-                input_texts=["q0", "q1", "q2", "q3"],
-                gt_answers=["a"] * 4,
-                answers=answers,
-                finish_reasons=cast("list[str | None]", ["stop"] * 3 + ["length"]),
-                judge_questions=["q0", "q1", "q2", "q3"],
-                response_tokens=[2] * 4,
-            )
-        ],
-        judge_engine=object(),
-    )
+    saved = GOLDEN["injection_aggregate"]
     metrics = log.results.scores[0].metrics
     assert metrics["attack_success_rate"].value == 100 * (1 - saved["accuracy"])
     assert (
@@ -202,14 +155,9 @@ def test_requires_grader(source, tmp_path):
 
 
 def test_prompt_matches_legacy():
-    from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
-        FreeTextPromptInjectionEvaluator,
-    )
     from llm_behavior_eval.prompt_injection.prompts import PROMPT_JUDGE_RESPONSE
 
-    assert (
-        PROMPT_JUDGE_RESPONSE == FreeTextPromptInjectionEvaluator.PROMPT_JUDGE_RESPONSE
-    )
+    assert PROMPT_JUDGE_RESPONSE == GOLDEN["prompts"]["PROMPT_JUDGE_RESPONSE"]
 
 
 def test_policy_and_budget(source):
@@ -232,14 +180,20 @@ def test_policy_and_budget(source):
 def test_token_count_and_all_skipped(source, tmp_path, monkeypatch, stop):
     from math import isnan
 
-    from transformers import AutoTokenizer
+    module = importlib.import_module("llm_behavior_eval.prompt_injection.scorer")
 
     class Tokenizer:
         def encode(self, text, add_special_tokens):
             assert text == "formatted" and add_special_tokens is False
             return [1, 2, 3]
 
-    monkeypatch.setattr(AutoTokenizer, "from_pretrained", lambda *a, **kw: Tokenizer())
+    monkeypatch.setattr(
+        module,
+        "import_module",
+        lambda name: SimpleNamespace(
+            AutoTokenizer=SimpleNamespace(from_pretrained=lambda *a, **kw: Tokenizer())
+        ),
+    )
     source([dict(question="q", answer="a")])
     output = ModelOutput.from_content(
         "mockllm/answer", "<think>reason</think>formatted"
@@ -275,43 +229,20 @@ def test_offline_snapshot(tmp_path):
 
 
 def test_current_preprocessor_and_explicit_truncation_gap(source, monkeypatch):
-    from llm_behavior_eval.evaluation_utils import custom_dataset
-
-    captured = []
-    calls = []
-
-    def template(tokenizer, messages, **kwargs):
-        captured.append(messages)
-        return "CHAT:" + messages[-1]["content"]
-
-    class Tokenizer:
-        def __call__(self, texts, **kwargs):
-            calls.append((texts, kwargs))
-            limit = kwargs["max_length"]
-            return {
-                "input_ids": [[ord(c) for c in t[:limit]] for t in texts],
-                "attention_mask": [[1] * min(len(t), limit) for t in texts],
-            }
-
-    monkeypatch.setattr(custom_dataset, "safe_apply_chat_template", template)
     question = "q" * 1100
     source([dict(question=question, answer="a")])
     native: Any = dataset()[0]
-    legacy = custom_dataset.free_text_preprocess_function(
-        {"question": [question], "answer": ["a"]},
-        cast("Any", Tokenizer()),
-        max_length=1024,
-        gt_max_length=128,
-        has_stereotype=False,
+    assert native.metadata["judge_question"] == question
+    # Baseline fake-tokenizer widths: input=1024, judge_question=128.
+    assert (
+        len(question)
+        > GOLDEN["preprocessor_widths"]["prompt_injection"]["judge_question"]
     )
-    assert captured[0] == [
-        {"role": "system", "content": native.input[0].text},
-        {"role": "user", "content": native.input[1].text},
-    ]
-    assert calls[2][0] == [native.metadata["judge_question"]] == [question]
-    assert legacy["test_input_ids"].shape[1] == 1024
-    assert legacy["judge_questions"].shape[1] == 128
-    assert len(native.input[1].text) == 1101  # Unresolved native truncation difference.
+    assert (
+        len(native.input[1].text)
+        > GOLDEN["preprocessor_widths"]["prompt_injection"]["input"]
+    )
+    assert len(native.input[1].text) == 1101
 
 
 def test_independent_api_role(tmp_path, monkeypatch, source):

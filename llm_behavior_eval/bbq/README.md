@@ -6,7 +6,7 @@ Configure the grader's HF model arguments independently as well (Python example
 below); its tokenizer requires `enable_thinking=False`, `do_sample=False`.
 The task rejects missing grader roles. Gemma 4 12B is recommended, never implicitly
 loaded or replaced with the evaluated model. Native Inspect generates and scores;
-legacy CLI and evaluator APIs are unchanged.
+legacy CLI and evaluator APIs are removed in 0.2.0.
 
 One parameterized task selects one split. `bias_type` accepts gender, race,
 nationality, physical, age, religion; `kind` accepts bias or unbias. Run six task
@@ -79,7 +79,7 @@ or stereotype count is zero; unbias multiplies by `1-accuracy`.
 
 ## Parity boundaries
 
-Deterministic tests compare against the actual legacy `_grade_impl` with fixed
+Deterministic tests compare against frozen legacy `_grade_impl` outputs with fixed
 judge results and no inference; this is not live-model parity. GPU, provider,
 quantization and fixed parity model acceptance remain unverified.
 

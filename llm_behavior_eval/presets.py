@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from .evaluation_utils.enums import (
+from .common.preset_constants import (
     BBQ_BIAS_TYPES,
     BIAS_KINDS,
     BLOOM_BIAS_TYPES,

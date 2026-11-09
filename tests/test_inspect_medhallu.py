@@ -11,6 +11,7 @@ from inspect_ai.model import ModelOutput, get_model
 from llm_behavior_eval.medhallu.dataset import DATASET_ID, PARITY_GAPS, dataset
 from llm_behavior_eval.medhallu.prompts import SYSTEM_MESSAGE
 from llm_behavior_eval.medhallu.task import medhallu
+from tests.golden import BASELINE as GOLDEN
 
 
 def test_dataset(tmp_path):
@@ -95,34 +96,14 @@ def test_native_task(tmp_path):
 
 
 def test_documented_tokenizer_parity_gaps(monkeypatch, tmp_path):
-    from llm_behavior_eval.evaluation_utils import custom_dataset
-
-    class Tokenizer:
-        def __call__(self, texts, *, max_length, **kwargs):
-            ids = [[ord(c) for c in text[:max_length]] for text in texts]
-            return {"input_ids": ids, "attention_mask": [[1] * len(row) for row in ids]}
-
-    monkeypatch.setattr(
-        custom_dataset,
-        "safe_apply_chat_template",
-        lambda tokenizer, messages, **kwargs: "TEMPLATE:" + str(messages),
-    )
+    # Baseline fake-tokenizer widths were 1024/256; native retains raw text.
     question, target = "q" * 1200, "a" * 300
-    legacy = custom_dataset.free_text_preprocess_function(
-        {"question": [question], "answer": [target]},
-        cast("Any", Tokenizer()),
-        1024,
-        256,
-        False,
-    )
-    assert legacy["test_input_ids"].shape[1] == 1024
-    assert legacy["gt_answers"].shape[1] == 256
-    decoded = "".join(chr(c) for c in legacy["test_input_ids"][0])
-    assert decoded.startswith("TEMPLATE:") and decoded != question
     path = tmp_path / "long"
     Dataset.from_list([{"question": question, "answer": target}]).save_to_disk(path)
     sample = dataset(dataset_path=str(path))[0]
     assert sample.input == question and sample.target == target
+    assert len(question) > GOLDEN["preprocessor_widths"]["medhallu"]["input"]
+    assert len(target) > GOLDEN["preprocessor_widths"]["medhallu"]["target"]
     assert sample.metadata is not None
     assert len(sample.metadata["parity_gaps"]) == 3
 
@@ -210,10 +191,6 @@ def test_loader_identity_and_token(monkeypatch):
 
 
 def test_selection_matches_legacy(monkeypatch):
-    from types import SimpleNamespace
-
-    from llm_behavior_eval.evaluation_utils import base_evaluator
-
     source = Dataset.from_list(
         [
             {"question": f"q{i}", "answer": f"a{i}", "source_index": i}
@@ -222,44 +199,8 @@ def test_selection_matches_legacy(monkeypatch):
     )
     module = importlib.import_module("llm_behavior_eval.medhallu.dataset")
     monkeypatch.setattr(module, "load_hf_dataset", lambda *args, **kwargs: source)
-    monkeypatch.setattr(
-        base_evaluator,
-        "CustomDataset",
-        lambda *args, **kwargs: SimpleNamespace(
-            preprocess=lambda *args, **kwargs: source
-        ),
-    )
-    monkeypatch.setattr(base_evaluator, "DataLoader", lambda *args, **kwargs: None)
-    legacy = SimpleNamespace(
-        dataset_config=SimpleNamespace(
-            file_path="offline",
-            dataset_type=None,
-            dataset_id=DATASET_ID,
-            preprocess_config=None,
-            seed=42,
-        ),
-        eval_config=SimpleNamespace(
-            model_token=None,
-            dataset_token=None,
-            max_answer_tokens=128,
-            enable_thinking=False,
-            enable_thinking_arg_name="enable_thinking",
-            thinking_start_token="<think>",
-            thinking_end_token="</think>",
-            pass_max_answer_tokens=False,
-            max_samples=500,
-        ),
-        tokenizer=None,
-        trust_remote_code=False,
-        data_collator=None,
-        eval_engine=SimpleNamespace(
-            set_dataset=lambda ds: None, get_batch_size=lambda: 1
-        ),
-    )
-    base_evaluator.BaseEvaluator.prepare_dataloader(cast("Any", legacy))
+    expected = GOLDEN["medhallu_order"]
     actual = dataset()
-    assert [s.id for s in actual] == [
-        f"{DATASET_ID}:{i}" for i in legacy.eval_dataset["source_index"]
-    ]
-    assert [s.input for s in actual] == list(legacy.eval_dataset["question"])
-    assert [s.target for s in actual] == list(legacy.eval_dataset["answer"])
+    assert [s.id for s in actual] == [f"{DATASET_ID}:{i}" for i in expected]
+    assert [s.input for s in actual] == [f"q{i}" for i in expected]
+    assert [s.target for s in actual] == [f"a{i}" for i in expected]

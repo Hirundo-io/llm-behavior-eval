@@ -27,12 +27,12 @@ ensure_uv() {
 ensure_uv
 
 if [[ ! -d "${VENV_PATH}" ]]; then
-  uv venv "${VENV_PATH}"
+  uv venv --python 3.12 "${VENV_PATH}"
 fi
 
 VENV_PYTHON="${VENV_PATH}/bin/python"
 
-EXTRAS_REQUESTED="${LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS:-brief}" # e.g. "brief,mlflow" or "brief,mlflow,vllm"
+EXTRAS_REQUESTED="${LLM_BEHAVIOR_EVAL_INSTALL_EXTRAS:-brief,mlflow}" # e.g. "brief,mlflow" or "brief,mlflow,vllm"
 INSTALL_TARGET="."
 
 if [[ -n "${EXTRAS_REQUESTED}" ]]; then

@@ -62,7 +62,7 @@ resolve that sibling selection gap separately.
 
 ## Parity evidence and limits
 
-Deterministic fixtures compare current legacy parser, prompt, normalized source
+Deterministic fixtures compare frozen legacy parser, prompt, normalized source
 selection, all metric denominators and sample diagnostics. Native mock and
 loopback API tests exercise Inspect generation/scoring and independent roles.
 These do not establish live-model, GPU or provider parity.

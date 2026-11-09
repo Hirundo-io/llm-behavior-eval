@@ -43,7 +43,7 @@ def formatted_answer_field(family: str, scorer: str) -> str:
 
 def main() -> None:
     from inspect_ai.log import read_eval_log, write_eval_log
-    from transformers import AutoTokenizer
+    from transformers import AutoTokenizer  # type: ignore[missing-import]
 
     from llm_behavior_eval import _registry
 

@@ -1,10 +1,12 @@
 # Native Inspect foundation (LLM-156)
 
-Native Inspect is the public execution path. The legacy CLI is retired (LLM-168);
-legacy evaluator/config imports remain deprecated for parity validation. All nine
-benchmark tasks are integrated. Inspect 0.3.288 is tested and pinned to `<0.3.289`; revalidate provider
-contracts before widening this range. Inspect requires Python 3.11+, so its
-mandatory dependency has a Python-version marker; Python 3.10 remains legacy-only.
+Native Inspect is the only execution path in 0.2.0. All legacy evaluator,
+configuration, model-loading and engine APIs are removed, without forwarding
+aliases. Python 3.12–3.13 and Inspect 0.3.288 are supported. Install optional
+`[tokenizers]`, `[hf]`, `[vllm]`, `[brief]`, or `[mlflow]` as needed; base and dev
+installations do not pull model runtimes. The tested local provider pairing is
+vLLM 0.30 / Transformers 5.20.2. Official parser selection belongs to user/provider
+configuration; this package has no model-to-parser map or custom parsers.
 
 ```sh
 uv venv .venv --python 3.13
@@ -99,7 +101,7 @@ Local GPU execution and full benchmark parity are not claimed by CPU tests.
 | batch_size / judge_batch_size | HF `batch_size` model arg independently on each role; vLLM uses server scheduling and Inspect max_connections, not legacy batches |
 | vLLM max_model_len, gpu_memory_utilization, tokenizer, config_format, load_format, language_model_only | Server args via `-M name=value`; passed through, support depends on vLLM/model. Gemma 4 still needs GPU validation. |
 | vllm-max-lora-rank | vLLM `-M max_lora_rank=...`; native adapter model syntax `vllm/base:adapter-path` |
-| mlflow://, s3://, gs://, git:// adapters | Pre-resolve using legacy `util_functions.maybe_download_adapter` in a separate setup step, then pass local adapter path. No URI resolver/custom provider in this foundation; resolver import can load legacy dependencies. HF adapter parity is unverified. |
+| mlflow://, s3://, gs://, git:// adapters | Pre-resolve using provider-supported tooling, then pass the local adapter path. The legacy download helper is removed. HF adapter parity is unverified. |
 | HF thinking | `-M enable_thinking=false -M do_sample=false`; refusal answer uses true. Set grader args separately. HF accepts no custom thinking keyword and does not implement Muse Glimmer SafeApplyChatTemplate. |
 | vLLM thinking | GenerateConfig `extra_body={"chat_template_kwargs":{"enable_thinking":false}}`; use `thinking_args` for answer and judge. Custom keyword supported in this dictionary. |
 
@@ -158,9 +160,12 @@ vLLM lazily without weights. They are not GPU inference tests.
 Track LLM-141 for sequential vLLM eval lifecycle. This version uses server-backed
 vLLM, but repeated real GPU evaluations still need a regression test before
 claiming that issue fixed; mock/API sequential calls do not establish that.
-Benchmark parity, GPU/quantization/LoRA testing, Muse Glimmer support, and optional
-Inspect-brief integration remain follow-up work. Keep the legacy engine until
-benchmark-by-benchmark semantic comparisons pass.
+The user-approved representative parity gate passed: 31 configurations × 100
+rows, with 7,448 actual judge calls per side, exact inputs/raw outputs/order/metrics.
+See `scripts/parity/REPORT.md` for authoritative scope and supplementary evidence.
+This does not establish all-model/backend parity, HF GPU score equality, or
+strict GPT-OSS thinking-off support. Historical oracle runs require frozen
+commit `5cce36cba76a99271f234973853216cbb511a709`, not this installation.
 
 
 ## LLM-168 entry-point decision and consumer migration
@@ -234,41 +239,23 @@ or `Accuracy (%)` columns. Consumers must select metrics explicitly and respect
 the reporter's units; do not blindly apply legacy percentage scaling.
 The Notion uploader and its legacy CSV tests are removed, not adapted.
 
-LLM-167 owns MLflow integration and rewriting `examples/mlflow_example.py`.
-That example remains legacy-only and must not be presented as a native workflow;
-no MLflow callbacks or adapters are added here. LLM-166 owns reporting docs and
-optional dependencies; this change does not touch pyproject.toml.
+The opt-in native MLflow hook and `examples/mlflow_example.py` report finalized
+Inspect metrics/artifacts; they do not restore the legacy engine or CSV writers.
+See MLFLOW_INTEGRATION.md for configuration.
 
 Platform/SDK notification is **pending**: communicate CLI exit-2 retirement,
-deprecated evaluator/config imports, unchanged asset tuple API plus new native
+removed evaluator/config imports, unchanged asset tuple API plus new native
 mapping, native log metadata, removed Notion uploader, and long-form report
 schema. No Slack/email notification is authorized or sent. Keep that acceptance
 criterion open until the parent coordinates downstream migration.
 
-### LLM-168 implementation evidence
-
-- Focused CLI/catalog suite: 47 passed (all preset expansions, native constructor
-  signatures, mixed-task example and independent grader, both module entry points).
-- Existing BLOOM/UNQOVER identity/catalog subset: 11 passed, 48 deselected.
-- Repository `ruff check .`, `ruff format --check --diff`, and `git diff --check`
-  pass. Targeted pyrefly on changed native entry-point/catalog/example/tests:
-  zero diagnostics.
-- Full pyrefly was run but is not clean: 86 diagnostics in this minimal environment,
-  including missing torch/Transformers/MLflow/vLLM dependencies and existing native
-  test typing issues. Full semantic/GPU parity is not claimed. A broader benchmark
-  test attempt encountered missing legacy dependencies and runtime setup failures;
-  a follow-up broad run was interrupted after stalling. Only the passing focused
-  results above are release evidence for this change.
-- Legacy factory/config tests formerly mixed into CLI tests are preserved in
-  `tests/test_legacy_entrypoint_contracts.py`. Their full dependency environment
-  remains required. No PR, release, or downstream notification is part of this change.
 ## Brief reporting integration (LLM-166)
 
 Native reporting now uses the existing inspect-brief 0.1.1 hook/CLI and packaged
 `target_metrics.json`; see README for setup and downstream schema migration.
-The `[brief]` extra requires Python 3.12+ via a dependency marker. No new execution
-framework or CSV writer is introduced. Legacy comparison/reporting code remains
-until parent-coordinated retirement. CCPC adds the shared incomplete-response
+The `[brief]` extra and base package support Python 3.12–3.13. No new execution
+framework or CSV writer is introduced. Legacy comparison execution requires
+the frozen checkout documented in scripts/parity/README.md. CCPC adds the shared incomplete-response
 metric; refusal dictionary scores now export that metric under the distinct
 `incomplete_response_rate` key instead of the ambiguous `refusal_stat` key.
 
@@ -342,7 +329,7 @@ non-padding IDs and decoded judge text do not establish tensor or generation
 equality. Required live checks remain: short/mixed-length batches with both pad
 policies, long inputs, thinking on/off, independent uncapped judges, and full
 benchmark scores across all splits. No live HF/GPU parity or divergence acceptance
-is claimed; the retained legacy engine remains the oracle.
+is claimed; the frozen pre-removal checkout remains the historical oracle.
 
 CPU implementation validation (2026-11-08): 264 tests passed across all nine
 benchmark modules, production preprocessing, the native HF boundary suite and
@@ -357,3 +344,29 @@ sandboxed Inspect log reading stalled. Raw output stays ignored in
 `results/hf-tests.txt`. Weight stubs replaced model loading only; the installed
 Inspect HF rendering, tokenization, batching and generation dispatch executed.
 This evidence establishes CPU boundary behavior, not live model parity.
+
+## Platform bundled-asset release prerequisite
+
+0.2.0 is **not a drop-in upgrade** for the platform worker pinned to 0.1.12.
+Before pairing a platform release with this package, migrate the calls in
+`server/unlearning_llm/eval.py` from
+`EvaluateFactory`/`EvaluationConfig`/`DatasetConfig` to native Inspect tasks,
+and change `server/unlearning_llm/bundled_asset_release.py`'s CCPC constants import to
+`llm_behavior_eval.ccpc.contract`. Do not upgrade the worker package alone.
+
+The public `list_dataset_presets()[...].dataset_ids` asset catalog is preserved,
+including logical `chinese_censorship` mapping to pinned `hirundo-io/ccpc-500`.
+Native loaders accept bundle-local raw HF snapshot/Parquet layouts as well as
+`save_to_disk` snapshots. CCPC still validates all 500 source rows and their pinned
+fingerprint before applying a sample cap. Offline regression tests cover all nine
+tasks, stable IDs and tampering beyond the selected prefix.
+
+The companion platform change must preserve exact release-manifest/version
+pairing and asset digests, map each logical dataset ID to its local bundle path,
+and supply the bundled answer tokenizer path through `compatibility_tokenizer`
+(and `response_tokenizer` where exact response counts are needed). Configure
+answer/judge provider paths and official parser arguments explicitly for the
+bundled models; a local dataset path alone does not configure model tokenization.
+The platform checkout is not modified here. Parent coordination of the worker,
+bundle builder and release manifest is a prerequisite to release, not evidence
+of compatibility supplied by this removal commit.

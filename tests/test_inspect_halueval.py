@@ -13,7 +13,6 @@ from inspect_ai.scorer import Metric, SampleScore, Score, Target
 from inspect_ai.solver import TaskState
 
 from llm_behavior_eval.common.metrics import incomplete_response_rate
-from llm_behavior_eval.hallucination.prompts import GRADER_TEMPLATE
 from llm_behavior_eval.hallucination.scorer import (
     accuracy,
     empty_responses,
@@ -22,6 +21,7 @@ from llm_behavior_eval.hallucination.scorer import (
 )
 from llm_behavior_eval.halueval.dataset import DATASET_ID, PARITY_GAPS, dataset
 from llm_behavior_eval.halueval.task import halueval
+from tests.golden import BASELINE as GOLDEN
 
 
 @pytest.mark.parametrize(
@@ -29,18 +29,19 @@ from llm_behavior_eval.halueval.task import halueval
     ["A", "B", "C", "garbage", "", "AA", "a", "B then A", "(A)", "<think>B</think>A"],
 )
 def test_parse_legacy(raw):
-    from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
-        GRADER_TEMPLATE as LEGACY_TEMPLATE,
-    )
-    from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
-        FreeTextHaluEvaluator,
-    )
-
-    assert (
-        parse_grade(raw)
-        == FreeTextHaluEvaluator._map_judge_outputs([[{"generated_text": raw}]])[0]
-    )
-    assert GRADER_TEMPLATE == LEGACY_TEMPLATE
+    expected = {
+        "A": "CORRECT",
+        "B": "INCORRECT",
+        "C": "NOT_ATTEMPTED",
+        "garbage": "NOT_ATTEMPTED",
+        "": "NOT_ATTEMPTED",
+        "AA": "NOT_ATTEMPTED",
+        "a": "NOT_ATTEMPTED",
+        "B then A": "INCORRECT",
+        "(A)": "CORRECT",
+        "<think>B</think>A": "INCORRECT",
+    }
+    assert parse_grade(raw) == expected[raw]
 
 
 def test_dataset(tmp_path):
@@ -68,14 +69,6 @@ def test_dataset(tmp_path):
 
 
 def test_native_scorer_and_legacy_aggregate(monkeypatch):
-    from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
-        GRADER_TEMPLATE as LEGACY_TEMPLATE,
-    )
-    from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
-        FreeTextHaluEvaluator,
-        _HalluGenerationRecord,
-    )
-
     module = importlib.import_module("llm_behavior_eval.hallucination.scorer")
     raw = iter(["A", "B", "garbage", "C"])
     calls = []
@@ -112,7 +105,7 @@ def test_native_scorer_and_legacy_aggregate(monkeypatch):
             )
         )
     assert len(calls) == 4
-    assert calls[0] == LEGACY_TEMPLATE.format(
+    assert calls[0] == GOLDEN["prompts"]["GRADER_TEMPLATE"].format(
         question="question", target="gold", predicted_answer="answer"
     )
     assert scores[0].score.metadata is not None
@@ -123,27 +116,7 @@ def test_native_scorer_and_legacy_aggregate(monkeypatch):
         (s.score.metadata or {}).get("grade") == "NOT_ATTEMPTED" for s in scores[4:]
     )
 
-    legacy = FreeTextHaluEvaluator.__new__(FreeTextHaluEvaluator)
-    legacy.num_samples = len(stops)
-    monkeypatch.setattr(legacy, "_format_answers", lambda answers: answers)
-    monkeypatch.setattr(
-        legacy,
-        "_grade_batch",
-        lambda *args: ["CORRECT", "INCORRECT", "NOT_ATTEMPTED", "NOT_ATTEMPTED"],
-    )
-    saved = {}
-    monkeypatch.setattr(legacy, "save_results", lambda **kwargs: saved.update(kwargs))
-    legacy._grade_impl(
-        [
-            _HalluGenerationRecord(
-                answers=["answer"] * len(stops),
-                input_texts=["question"] * len(stops),
-                gt_answers=["gold"] * len(stops),
-                finish_reasons=["length" if s == "max_tokens" else s for s in stops],
-            )
-        ],
-        cast("Any", object()),
-    )
+    saved = GOLDEN["halueval_aggregate"]
     assert rate(accuracy())(scores) == pytest.approx(100 * saved["accuracy"])
     assert rate(empty_responses())(scores) == saved["empty_responses"] == 5
     assert rate(incomplete_response_rate())(scores) == saved["incomplete_response_rate"]
@@ -202,34 +175,14 @@ def test_native_task(tmp_path):
 
 
 def test_documented_tokenizer_parity_gaps(monkeypatch, tmp_path):
-    from llm_behavior_eval.evaluation_utils import custom_dataset
-
-    class Tokenizer:
-        def __call__(self, texts, *, max_length, **kwargs):
-            ids = [[ord(c) for c in text[:max_length]] for text in texts]
-            return {"input_ids": ids, "attention_mask": [[1] * len(row) for row in ids]}
-
-    monkeypatch.setattr(
-        custom_dataset,
-        "safe_apply_chat_template",
-        lambda tokenizer, messages, **kwargs: "TEMPLATE:" + str(messages),
-    )
+    # Baseline fake-tokenizer widths were 1024/256; native retains raw text.
     question, target = "q" * 1200, "a" * 300
-    legacy = custom_dataset.free_text_preprocess_function(
-        {"question": [question], "answer": [target]},
-        cast("Any", Tokenizer()),
-        1024,
-        256,
-        False,
-    )
-    assert legacy["test_input_ids"].shape[1] == 1024
-    assert legacy["gt_answers"].shape[1] == 256
-    decoded = "".join(chr(c) for c in legacy["test_input_ids"][0])
-    assert decoded.startswith("TEMPLATE:") and decoded != question
     path = tmp_path / "long"
     Dataset.from_list([{"question": question, "answer": target}]).save_to_disk(path)
     sample = dataset(dataset_path=str(path))[0]
     assert sample.input == question and sample.target == target
+    assert len(question) > GOLDEN["preprocessor_widths"]["halueval"]["input"]
+    assert len(target) > GOLDEN["preprocessor_widths"]["halueval"]["target"]
     assert sample.metadata is not None
     assert len(sample.metadata["parity_gaps"]) == 3
 

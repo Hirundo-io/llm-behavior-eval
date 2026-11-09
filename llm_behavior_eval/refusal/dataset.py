@@ -5,16 +5,7 @@ from typing import cast
 from inspect_ai.dataset import MemoryDataset, Sample
 
 from llm_behavior_eval.common.dataset import load_hf_dataset, to_inspect_dataset
-
-
-def normalize_refusal_label(raw_label: object) -> str:
-    """Retain the source label contract without importing legacy runtime helpers."""
-    label = str(raw_label).strip().lower()
-    if label not in {"safe", "unsafe"}:
-        raise ValueError(
-            f"Refusal dataset label must be 'safe' or 'unsafe', got {raw_label!r}"
-        )
-    return label
+from llm_behavior_eval.refusal.contract import normalize_refusal_label
 
 
 def refusal_dataset(

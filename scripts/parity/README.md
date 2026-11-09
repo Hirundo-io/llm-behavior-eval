@@ -1,3 +1,16 @@
+# Post-removal execution boundary
+
+Version 0.2.0 contains no legacy engine. To reproduce historical legacy phases,
+use a separate checkout and its comparison environment at exact commit
+`5cce36cba76a99271f234973853216cbb511a709` (including the Purple arithmetic fix).
+Run `reuse_legacy.py`, `tokenizer_audit.py`, and the legacy modes of
+`live_generation.py`, `qualify_hallu.py`, and `qualify_matrix.py` there.
+These files document historical execution and must not be treated as native
+fallbacks. Do not copy legacy modules into the installed package.
+Read-only `compare.py`, reports, settings/identity audits, recorded judge checks,
+and native Inspect replay remain usable in the current checkout. Existing report
+observations and committed evidence are unchanged. No new GPU run is needed.
+
 # LLM-169 evidence protocol v1
 
 Run from the repository root with `.venv/bin/python scripts/parity/compare.py manifest.json --output report.json`.

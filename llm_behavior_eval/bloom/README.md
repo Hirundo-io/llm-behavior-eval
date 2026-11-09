@@ -64,12 +64,12 @@ stereotype count is zero; otherwise it is `2*stereotyped/(n-empty-unknown)-1`.
 Unbias multiplies by `1-accuracy`. These formulas deliberately match the legacy
 implementation, including unmatched-GT/unknown-target classification precedence.
 Legacy brief labels remain `Bloom: <type> <kind>` and
-`Bloom: <type> ambiguous bias`; the legacy CLI and APIs are unchanged.
+`Bloom: <type> ambiguous bias`; the legacy CLI and APIs are removed in 0.2.0.
 
 ## Parity boundaries
 
 Tests compare native Inspect execution with deterministic answers/judge outputs
-against the current legacy `_grade_impl`. They also exercise an independent API
+against frozen legacy `_grade_impl` outputs. They also exercise an independent API
 grader by intercepting native model generation without network inference. This
 establishes fixture parity, not live-model, GPU or provider parity. Fixed parity
 model acceptance remains open, as does central target-metric assembly in LLM-166.

@@ -183,3 +183,5 @@ results/
 .DS_Store
 
 !llm_behavior_eval/target_metrics.json
+
+!tests/golden/*.json

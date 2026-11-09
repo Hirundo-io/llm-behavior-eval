@@ -14,39 +14,58 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from transformers import AutoTokenizer
-
-from llm_behavior_eval.evaluation_utils.censorship_utils import (
-    calculate_censorship_metrics,
-)
-from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
-from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
-from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
-from llm_behavior_eval.evaluation_utils.free_text_bias_evaluator import (
-    FreeTextBiasEvaluator,
-    _BiasGenerationRecord,
-)
-from llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator import (
-    FreeTextCensorshipEvaluator,
-    _CensorshipGenerationRecord,
-)
-from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
-    FreeTextHaluEvaluator,
-    _HalluGenerationRecord,
-)
-from llm_behavior_eval.evaluation_utils.free_text_injection_evaluator import (
-    FreeTextPromptInjectionEvaluator,
-    _InjectionGenerationRecord,
-)
-from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
-    FreeTextRefusalEvaluator,
-    _RefusalGenerationRecord,
-)
 from scripts.parity.compare import digest
+from scripts.parity.historical import legacy_module
+from scripts.parity.recorded_judgments import RecordedJudgments
+
+calculate_censorship_metrics = legacy_module(
+    "llm_behavior_eval.evaluation_utils.censorship_utils"
+).calculate_censorship_metrics
+DatasetConfig = legacy_module(
+    "llm_behavior_eval.evaluation_utils.dataset_config"
+).DatasetConfig
+EvaluationConfig = legacy_module(
+    "llm_behavior_eval.evaluation_utils.eval_config"
+).EvaluationConfig
+EvaluateFactory = legacy_module(
+    "llm_behavior_eval.evaluation_utils.evaluate_factory"
+).EvaluateFactory
+FreeTextBiasEvaluator = legacy_module(
+    "llm_behavior_eval.evaluation_utils.free_text_bias_evaluator"
+).FreeTextBiasEvaluator
+_BiasGenerationRecord = legacy_module(
+    "llm_behavior_eval.evaluation_utils.free_text_bias_evaluator"
+)._BiasGenerationRecord
+FreeTextCensorshipEvaluator = legacy_module(
+    "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator"
+).FreeTextCensorshipEvaluator
+_CensorshipGenerationRecord = legacy_module(
+    "llm_behavior_eval.evaluation_utils.free_text_censorship_evaluator"
+)._CensorshipGenerationRecord
+FreeTextHaluEvaluator = legacy_module(
+    "llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator"
+).FreeTextHaluEvaluator
+_HalluGenerationRecord = legacy_module(
+    "llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator"
+)._HalluGenerationRecord
+FreeTextPromptInjectionEvaluator = legacy_module(
+    "llm_behavior_eval.evaluation_utils.free_text_injection_evaluator"
+).FreeTextPromptInjectionEvaluator
+_InjectionGenerationRecord = legacy_module(
+    "llm_behavior_eval.evaluation_utils.free_text_injection_evaluator"
+)._InjectionGenerationRecord
+FreeTextRefusalEvaluator = legacy_module(
+    "llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator"
+).FreeTextRefusalEvaluator
+_RefusalGenerationRecord = legacy_module(
+    "llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator"
+)._RefusalGenerationRecord
 
 
 @lru_cache(maxsize=3)
 def judge_tokenizer(path: str) -> Any:
+    from transformers import AutoTokenizer  # type: ignore[missing-import]
+
     tokenizer: Any = AutoTokenizer.from_pretrained(path, local_files_only=True)
     if tokenizer is None:
         raise ValueError("Recorded judge tokenizer did not load")
@@ -54,33 +73,6 @@ def judge_tokenizer(path: str) -> Any:
     if not tokenizer.pad_token:
         tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
-
-
-class RecordedJudgments:
-    """Consume actual recorded responses only after checking their prompt IDs."""
-
-    def __init__(self, tokenizer: Any, observations: list[dict[str, Any]]) -> None:
-        self.tokenizer = tokenizer
-        self.observations = observations
-        self.consumed = 0
-
-    def __call__(
-        self, engine: Any, prompts: list[str], repetition_penalty: float = 1.0
-    ) -> list:
-        result = []
-        for prompt in prompts:
-            if self.consumed >= len(self.observations):
-                raise ValueError("Recorded judge evidence exhausted")
-            row = self.observations[self.consumed]
-            if self.tokenizer.encode(prompt) != row["input_token_ids"]:
-                raise ValueError(
-                    f"Replayed judge prompt differs at request {self.consumed}"
-                )
-            result.append(
-                [dict(generated_text=row["answer"], finish_reason=row["finish_reason"])]
-            )
-            self.consumed += 1
-        return result
 
 
 def reuse_legacy(primary: Path, output: Path) -> dict[str, Any]:
