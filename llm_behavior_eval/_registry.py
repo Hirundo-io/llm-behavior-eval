@@ -127,6 +127,9 @@ def check_unique_registry_names(root: str = _ROOT) -> None:
 
 
 _TASKS = _register_tasks()
+# Hooks are not benchmarks, so discovery does not import them. Register the
+# opt-in MLflow reporting hook explicitly; it imports MLflow only when enabled.
+import_module(f"{_ROOT}.hooks.mlflow")
 check_unique_registry_names()
 globals().update(_TASKS)
 __all__ = list(_TASKS)  # pyrefly: ignore[unresolvable-dunder-all]
