@@ -182,6 +182,40 @@ def test_judge(tmp_path, stop, judge_text, expected):
     assert bool(score.metadata.get("parse_error")) == (judge_text == "invalid")
 
 
+@pytest.mark.parametrize("judge_text", ["SCORE: nan", "SCORE: inf", "SCORE: -inf"])
+def test_judge_rejects_non_finite_scores(tmp_path, judge_text):
+    from inspect_ai import Task
+    from inspect_ai.dataset import Sample
+
+    from llm_behavior_eval.common.judge import judge_scorer
+
+    logs = inspect_eval(
+        Task(
+            dataset=[Sample(input="question", target="answer")],
+            scorer=judge_scorer("{answer}", r"SCORE:\s*(\S+)"),
+        ),
+        model=get_model("mockllm/model"),
+        model_roles={
+            "grader": get_model(
+                "mockllm/judge",
+                custom_outputs=[ModelOutput.from_content("mockllm/judge", judge_text)],
+            )
+        },
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    assert logs[0].status == "success"
+    assert logs[0].samples
+    assert logs[0].samples[0].scores
+    score = logs[0].samples[0].scores["judge_scorer"]
+    assert score.value == 0
+    assert score.metadata
+    assert "not finite" in score.metadata["parse_error"]
+    assert logs[0].results
+    metrics = logs[0].results.scores[0].metrics
+    assert math.isnan(metrics["field_rate"].value)
+
+
 def test_openai_compatible_grader(tmp_path):
     requests = []
 

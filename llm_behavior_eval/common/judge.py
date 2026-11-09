@@ -1,5 +1,6 @@
 """Native Inspect grader role with explicit parsing and legacy answer formatting."""
 
+import math
 import re
 from collections.abc import Callable
 
@@ -45,8 +46,9 @@ def judge_scorer(
 ) -> Scorer:
     """Format {question}/{answer}/{target}/{metadata}; regex group 1 feeds parse.
 
-    Requires an independent grader role. Invalid/skipped scores have value 0 but
-    are excluded by field_rate; raw judge text and status remain in metadata.
+    Requires an independent grader role. Invalid (including non-finite) and
+    skipped scores have value 0 but are excluded by field_rate; raw judge text
+    and status remain in metadata.
     Benchmark scorers may wrap this scorer and supply their own metrics.
     """
     regex = re.compile(pattern)
@@ -86,6 +88,8 @@ def judge_scorer(
                 raise ValueError("Judge response did not match pattern")
             parsed = match.group(1)
             value = parse(parsed)
+            if not math.isfinite(value):
+                raise ValueError(f"Judge score is not finite: {parsed!r}")
         except (ValueError, IndexError) as exc:
             metadata["parse_error"] = str(exc)
             return Score(value=0, answer=raw, explanation=str(exc), metadata=metadata)
