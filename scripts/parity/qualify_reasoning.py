@@ -172,7 +172,8 @@ def main() -> None:
             path = root / f"{name}-scored.eval"
             log = read_eval_log(str(path))
             for sample in log.samples or []:
-                event = next(e for e in sample.events if e.event == "model")
+                events = [e for e in sample.events if e.event == "model"]
+                event = events[0]
                 if not event.call or not event.call.response:
                     raise ValueError("Missing actual provider response")
                 raw: Any = event.call.response
@@ -186,6 +187,10 @@ def main() -> None:
                 if score is None or score.metadata is None:
                     raise ValueError("Missing production scorer observation")
                 meta = score.metadata
+                judge_events = events[1:]
+                if len(judge_events) != 1:
+                    raise ValueError("Expected one actual production grader call")
+                actual_judge_input = judge_events[0].input[-1].text
                 content = sample.output.choices[0].message.content
                 blocks = (
                     [c.model_dump(mode="json") for c in content]
@@ -201,6 +206,9 @@ def main() -> None:
                     content_blocks=blocks,
                     scorer_answer=meta["llm_answer"],
                     judge_prompt=meta.get("judge_prompt"),
+                    actual_judge_input=actual_judge_input,
+                    actual_judge_input_equals_scorer_prompt=actual_judge_input
+                    == meta.get("judge_prompt"),
                     judge_label=meta["judge_label"],
                     score_metadata=meta,
                     scored_log_sha256=digest(path),
@@ -219,6 +227,18 @@ def main() -> None:
                     has_final=bool(raw_final),
                     has_reasoning=bool(raw_reasoning),
                 )
+                probe = sample.metadata.get("compatibility", {}).get("prompt")
+                if probe:
+                    expected_ids = [
+                        token
+                        for token, keep in zip(
+                            probe["input_ids"], probe["attention_mask"], strict=True
+                        )
+                        if keep
+                    ]
+                    row["production_metadata_matches_actual_prompt_ids"] = (
+                        expected_ids == raw.get("prompt_token_ids")
+                    )
                 rows.append(row)
         rejection = json.loads((root / "unsupported-effort.json").read_text())
         result = dict(
@@ -230,6 +250,9 @@ def main() -> None:
                 actual_samples=len(rows) == 3,
                 final_text_reaches_scorer=all(
                     r["final_text_reaches_scorer"] for r in rows
+                ),
+                actual_judge_input_matches_scorer_prompt=all(
+                    r["actual_judge_input_equals_scorer_prompt"] for r in rows
                 ),
                 upstream_representation_preserved=all(
                     r["upstream_final_equals_completion"]
