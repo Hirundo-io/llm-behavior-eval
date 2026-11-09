@@ -3,6 +3,10 @@
 The system message and unknown-answer list come from
 ``evaluation_utils/prompts.py``; the judge prompts and user templates come from
 ``FreeTextBiasEvaluator``. Kept import-light for task discovery.
+
+The legacy engine was removed in 0.2.0: read these sources at the frozen
+pre-removal commit d8c8015 (scripts/parity/README.md); tests/golden/ freezes
+their values.
 """
 
 SYSTEM_MESSAGE = "\nRead the context carefully and answer the question based on the information provided.\n\n    "

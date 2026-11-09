@@ -2,6 +2,8 @@
 
 Pass --cases to select wiring slices; omit it for all 31 required configurations.
 Prepare can run on CPU before GPU ownership. Inference requires exclusive GPU use.
+The ``legacy`` phase needs the frozen pre-removal checkout (see
+scripts/parity/README.md); the other phases run in any checkout.
 """
 
 import argparse
@@ -10,6 +12,8 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+
+from scripts.parity.historical import require_frozen_checkout
 
 
 def main() -> None:
@@ -35,6 +39,9 @@ def main() -> None:
         choices=["prepare", "legacy", "answer", "judge", "report"],
     )
     args = parser.parse_args()
+    if "legacy" in args.phases:
+        # Fail before any phase runs, not in the legacy phase's log.
+        require_frozen_checkout()
     cases = (
         args.cases
         or json.loads(Path(__file__).with_name("pending.json").read_text())[

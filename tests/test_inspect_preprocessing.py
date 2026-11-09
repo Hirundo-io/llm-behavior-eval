@@ -1,14 +1,16 @@
 """Opt-in legacy text preprocessing: legacy equivalence, opt-in wiring, parity configs.
 
+Legacy values are frozen outputs of the removed engine (tests/golden/).
+
 CPU only. The tiny tokenizer runs everywhere; the pinned Gemma 3 and Qwen3
 snapshots are optional and skip when absent. None of this is GPU evidence.
 """
 
+import hashlib
 import importlib
 import inspect
 import json
 from pathlib import Path
-from typing import Any, cast
 
 import pytest
 import yaml
@@ -26,6 +28,7 @@ from llm_behavior_eval.common.preprocessing import (
     render_chat,
     roundtrip,
 )
+from tests.golden import golden
 from tests.legacy_tokenizers import pinned_tokenizer, tiny_tokenizer
 from tests.native_fixtures import local_task_dataset
 
@@ -58,25 +61,26 @@ def tiny(tmp_path) -> Path:
     return tiny_tokenizer(tmp_path)
 
 
-def legacy_preprocess(tokenizer: Any, thinking: bool, **row: str) -> dict[str, Any]:
-    from llm_behavior_eval.evaluation_utils.custom_dataset import (
-        free_text_preprocess_function,
-    )
+def legacy_views(tokenizer: str, side: str, thinking: bool, long: bool):
+    """Frozen legacy free_text_preprocess_function ids for this case (non-pad).
 
-    return free_text_preprocess_function(
-        {key: [value] for key, value in row.items()},
-        tokenizer,
-        LEGACY_PROMPT_MAX_LENGTH,
-        LEGACY_TEXT_MAX_LENGTH,
-        "stereotyped_answer" in row,
-        enable_thinking=thinking,
-    )
+    Captured from the legacy engine (tests/golden/preprocessing.json; see
+    tests/golden/README.md) for the same tokenizer and row.
+    """
+    key = f"{tokenizer}-{side}-{str(thinking).lower()}-{'long' if long else 'short'}"
+    return golden("preprocessing")["views"][key]
+
+
+def row_digest(row: dict[str, str]) -> str:
+    return hashlib.sha256(json.dumps(row, sort_keys=True).encode()).hexdigest()
 
 
 @pytest.mark.parametrize("side", ["left", "right"])
 @pytest.mark.parametrize("thinking", [False, True])
 @pytest.mark.parametrize("long", [False, True])
-def test_views_equal_legacy_preprocessing(tokenizer_path, side, thinking, long):
+def test_views_equal_legacy_preprocessing(
+    request, tokenizer_path, side, thinking, long
+):
     tokenizer = load_tokenizer(str(tokenizer_path))
     previous = tokenizer.truncation_side
     tokenizer.truncation_side = side
@@ -89,7 +93,9 @@ def test_views_equal_legacy_preprocessing(tokenizer_path, side, thinking, long):
             system_prompt="You are helpful.\n",
             judge_question=" Independent question " * (500 if long else 1),
         )
-        legacy = legacy_preprocess(tokenizer, thinking, **row)
+        name = request.node.callspec.params["tokenizer_path"]
+        legacy = legacy_views(name, side, thinking, long)
+        assert row_digest(row) == legacy["row_sha256"]
         rendered = render_chat(
             tokenizer,
             [
@@ -104,11 +110,9 @@ def test_views_equal_legacy_preprocessing(tokenizer_path, side, thinking, long):
             max_length=LEGACY_PROMPT_MAX_LENGTH,
             add_special_tokens=True,
         )
-        pad = tokenizer.pad_token_id
-        expected = [int(t) for t in legacy["test_input_ids"][0] if int(t) != pad]
-        assert prompt["input_ids"] == expected
+        assert prompt["input_ids"] == legacy["test_input_ids"]
         assert prompt["decoded"] == tokenizer.decode(
-            legacy["test_input_ids"][0], skip_special_tokens=True
+            legacy["test_input_ids"], skip_special_tokens=True
         )
         if long:
             assert len(prompt["input_ids"]) == LEGACY_PROMPT_MAX_LENGTH
@@ -124,7 +128,7 @@ def test_views_equal_legacy_preprocessing(tokenizer_path, side, thinking, long):
                 add_special_tokens=False,
             )
             assert view["decoded"] == tokenizer.decode(
-                legacy[legacy_key][0], skip_special_tokens=True
+                legacy[legacy_key], skip_special_tokens=True
             )
     finally:
         tokenizer.truncation_side = previous
@@ -260,10 +264,8 @@ def test_opt_in_records_views_without_settings_or_input_changes(
 
 
 def test_hallucination_judge_prompt_matches_legacy(tiny, tmp_path, monkeypatch):
-    from llm_behavior_eval.evaluation_utils.free_text_hallu_evaluator import (
-        GRADER_TEMPLATE,
-    )
-
+    # Frozen legacy free_text_hallu_evaluator.GRADER_TEMPLATE.
+    grader_template = golden("preprocessing")["hallucination_grader_template"]
     monkeypatch.setenv("INSPECT_BRIEF_ENABLED", "false")
     dataset = local_task_dataset("halueval", tmp_path, monkeypatch)
     calls = []
@@ -286,7 +288,7 @@ def test_hallucination_judge_prompt_matches_legacy(tiny, tmp_path, monkeypatch):
     views = log.samples[0].metadata[METADATA_KEY]
     completion = log.samples[0].output.completion
     assert calls == [
-        GRADER_TEMPLATE.format(
+        grader_template.format(
             question=views["prompt"]["decoded"],
             target=views["texts"]["target"]["decoded"],
             predicted_answer=completion,
@@ -296,8 +298,8 @@ def test_hallucination_judge_prompt_matches_legacy(tiny, tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("name", list(BENCHMARKS))
 def test_parity_config_matches_package_and_legacy_thinking(name):
-    from llm_behavior_eval.evaluation_utils.eval_config import FAMILY_TOKEN_DEFAULTS
-
+    # Frozen legacy eval_config.FAMILY_TOKEN_DEFAULTS.
+    family_defaults = golden("preprocessing")["family_token_defaults"]
     path = parity_config_path(f"llm_behavior_eval.{name}")
     config = yaml.safe_load(path.read_text())
     thinking = config["generate_config"]["extra_body"]["chat_template_kwargs"][
@@ -305,8 +307,8 @@ def test_parity_config_matches_package_and_legacy_thinking(name):
     ]
     solver = importlib.import_module(f"llm_behavior_eval.{name}.solver")
     assert thinking is solver.LEGACY_THINKING
-    family = cast("Any", BENCHMARKS[name])
-    assert thinking is FAMILY_TOKEN_DEFAULTS[family]["enable_thinking"]
+    family = BENCHMARKS[name]
+    assert thinking is family_defaults[family]["enable_thinking"]
     header = path.read_text().split("\n\n")[0]
     # One parity command: run config, -M provider args and the -T opt-in.
     assert f"--run-config llm_behavior_eval/{name}/parity.yaml" in header
@@ -335,16 +337,11 @@ def test_run_config_cannot_carry_task_args_without_naming_the_task(tmp_path):
 
 @pytest.mark.parametrize("thinking", [False, True])
 def test_qwen3_thinking_render_matches_legacy(thinking):
-    from llm_behavior_eval.evaluation_utils.util_functions import (
-        safe_apply_chat_template,
-    )
-
+    # Frozen legacy util_functions.safe_apply_chat_template renders.
+    legacy = golden("preprocessing")["qwen3_render"][str(thinking).lower()]
     tokenizer = load_tokenizer(str(pinned_tokenizer("qwen3")))
     messages = [
         {"role": "system", "content": "Be helpful."},
         {"role": "user", "content": "question\n"},
     ]
-    legacy = safe_apply_chat_template(
-        tokenizer, [dict(m) for m in messages], enable_thinking=thinking
-    )
     assert render_chat(tokenizer, messages, legacy_thinking=thinking) == legacy

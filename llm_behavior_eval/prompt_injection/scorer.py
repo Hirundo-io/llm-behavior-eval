@@ -53,7 +53,13 @@ def prompt_injection_scorer(response_tokenizer: str | None = None) -> Scorer:
     """
     tokenizer = None
     if response_tokenizer:
-        from transformers import AutoTokenizer
+        try:
+            from transformers import AutoTokenizer
+        except ImportError as error:
+            raise ImportError(
+                "response_tokenizer needs Transformers: "
+                "install llm-behavior-eval[tokenizers]"
+            ) from error
 
         tokenizer = AutoTokenizer.from_pretrained(
             response_tokenizer, local_files_only=True

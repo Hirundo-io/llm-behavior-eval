@@ -18,7 +18,7 @@ import typer
 from .presets import DatasetPreset, get_dataset_preset
 
 MIGRATION = """The legacy llm-behavior-eval CLI has been retired; no evaluation ran.
-Run the benchmarks with native Inspect (Python 3.11+), for example:
+Run the benchmarks with native Inspect (Python 3.12 or 3.13), for example:
   inspect eval llm_behavior_eval/halueval --model hf/org/model \\
     --model-role grader=hf/google/gemma-4-12B-it
 Choose any Inspect provider for either role (hf/, vllm/, openai-api/, ...).

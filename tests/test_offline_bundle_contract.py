@@ -1,4 +1,8 @@
-"""Platform-style raw HF snapshot bundles retain native identities offline."""
+"""Platform-style raw HF snapshot bundles keep native sample identities offline.
+
+Ported from the earlier LLM-171 layer (694f110) to the self-contained layout:
+tasks no longer take ``max_samples``, so whole fixture splits are compared.
+"""
 
 import pytest
 from datasets import Dataset, load_from_disk
@@ -8,21 +12,27 @@ from llm_behavior_eval.ccpc import contract
 from llm_behavior_eval.ccpc.dataset import load_ccpc_dataset
 from tests.native_fixtures import local_task_dataset
 
+BENCHMARKS = [
+    "bbq",
+    "bloom",
+    "unqover",
+    "halueval",
+    "medhallu",
+    "prompt_injection",
+    "orbench",
+    "xstest",
+    "ccpc",
+]
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        "bbq",
-        "bloom",
-        "unqover",
-        "halueval",
-        "medhallu",
-        "prompt_injection",
-        "orbench",
-        "xstest",
-        "ccpc",
-    ],
-)
+
+def _signature(sample):
+    content = sample.input
+    if not isinstance(content, str):
+        content = [(message.role, message.text) for message in content]
+    return sample.id, content, sample.target
+
+
+@pytest.mark.parametrize("name", BENCHMARKS)
 def test_raw_snapshot_parquet_preserves_native_ids(name, tmp_path, monkeypatch):
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     monkeypatch.setenv("HF_DATASETS_OFFLINE", "1")
@@ -37,21 +47,16 @@ def test_raw_snapshot_parquet_preserves_native_ids(name, tmp_path, monkeypatch):
     parquet = data / f"{split}-00000-of-00001.parquet"
     rows.to_parquet(str(parquet))
     task = getattr(_registry, name)
-    expected = task(dataset_path=str(source), max_samples=1).dataset
-    actual = task(dataset_path=str(snapshot), max_samples=1).dataset
+    expected = task(dataset_path=str(source)).dataset
+    actual = task(dataset_path=str(snapshot)).dataset
 
-    def signature(sample):
-        content = sample.input
-        if not isinstance(content, str):
-            content = [(message.role, message.text) for message in content]
-        return sample.id, content, sample.target
-
-    assert [signature(s) for s in actual] == [signature(s) for s in expected]
+    assert len(actual) == len(expected) > 0
+    assert [_signature(s) for s in actual] == [_signature(s) for s in expected]
     assert actual.name == expected.name
     if name == "ccpc":
-        # Corrupt a row outside the requested cap: full-source pin still applies.
+        # A changed row fails the full-source pin.
         changed = rows.to_list()
-        changed[-1]["question"] = "tampered outside selected prefix"
+        changed[-1]["question"] = "tampered row"
         # Releases use immutable snapshots. A separate path also prevents HF's
         # metadata-keyed cache from masking an in-place rewrite on filesystems
         # whose modification times have insufficient resolution.
@@ -59,7 +64,7 @@ def test_raw_snapshot_parquet_preserves_native_ids(name, tmp_path, monkeypatch):
         tampered.mkdir(parents=True)
         Dataset.from_list(changed).to_parquet(str(tampered / parquet.name))
         with pytest.raises(ValueError, match="fingerprint"):
-            load_ccpc_dataset(dataset_path=str(tampered.parent), max_samples=1)
+            load_ccpc_dataset(dataset_path=str(tampered.parent))
 
 
 def test_public_ccpc_bundle_identity_remains_pinned():

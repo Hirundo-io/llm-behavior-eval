@@ -35,13 +35,15 @@ from llm_behavior_eval.common.target_metrics import (
     missing_target_metrics,
     read_target_metrics_file,
 )
-from llm_behavior_eval.evaluation_utils import censorship_utils as legacy
-from llm_behavior_eval.evaluation_utils.eval_config import (
-    FAMILY_TOKEN_DEFAULTS,
-    EvaluationConfig,
-)
+from tests.golden import golden
 
 CCPC = "llm_behavior_eval.ccpc"
+# Frozen outputs of the removed legacy engine (censorship_utils, eval_config);
+# see tests/golden/README.md.
+LEGACY = golden("ccpc")
+# Legacy censorship_dataset_fingerprint of the synthetic 500-row sources below
+# ("问题 {i}" questions for ``rows``, "q{i}" for the CLI snapshot).
+LEGACY_FINGERPRINTS = LEGACY["fingerprints"]
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +62,7 @@ def rows(monkeypatch):
     )
     # Synthetic rows: patch only the expected fingerprint, explicitly. Production
     # validation (schema, count, IDs, fingerprint check) still runs unchanged.
-    fingerprint = legacy.censorship_dataset_fingerprint(data)
+    fingerprint = LEGACY_FINGERPRINTS["问题 "]
     monkeypatch.setattr(dataset, "CCPC_DATASET_FINGERPRINT", fingerprint)
     monkeypatch.setattr(dataset, "load_dataset", lambda *a, **kw: data)
     return data
@@ -69,7 +71,7 @@ def rows(monkeypatch):
 def test_contract():
     for key in vars(contract):
         if key.startswith("CCPC_"):
-            assert getattr(contract, key) == getattr(legacy, key)
+            assert contract.__dict__[key] == LEGACY["contract"][key]
 
 
 @pytest.mark.parametrize(
@@ -77,7 +79,8 @@ def test_contract():
     ["True", " FALSE\n", "true.", "yes", "", "<think>x</think>True", "True\nFalse"],
 )
 def test_parser(text):
-    expected = legacy.parse_censorship_judgment(text)
+    # Frozen legacy parse_censorship_judgment outputs.
+    expected = LEGACY["parser"][text]
     assert parse_verdict(text) == (
         NOANSWER if expected is None else CORRECT if expected else INCORRECT
     )
@@ -85,9 +88,9 @@ def test_parser(text):
 
 @pytest.mark.parametrize("raw", [[], ["True"], ["True", "False"], ["True", "oops"]])
 def test_metrics(raw):
-    expected = legacy.calculate_censorship_metrics(
-        [legacy.parse_censorship_judgment(x) for x in raw]
-    )
+    # Frozen legacy calculate_censorship_metrics(parsed raw); NaN stored as "nan".
+    (frozen,) = [case["metrics"] for case in LEGACY["metrics"] if case["raw"] == raw]
+    expected = [math.nan if old == "nan" else old for old in frozen]
     scores = [
         SampleScore(score=Score(value=0, metadata={"verdict": parse_verdict(x)}))
         for x in raw
@@ -166,8 +169,9 @@ def test_production_fingerprint_rejects_unpinned_rows(monkeypatch):
         }
     )
     monkeypatch.setattr(dataset, "load_dataset", lambda *a, **kw: data)
-    assert dataset.CCPC_DATASET_FINGERPRINT == legacy.CCPC_DATASET_FINGERPRINT
-    with pytest.raises(ValueError, match=legacy.CCPC_DATASET_FINGERPRINT):
+    legacy_fingerprint = LEGACY["contract"]["CCPC_DATASET_FINGERPRINT"]
+    assert dataset.CCPC_DATASET_FINGERPRINT == legacy_fingerprint
+    with pytest.raises(ValueError, match=legacy_fingerprint):
         dataset.load_ccpc_dataset()
 
 
@@ -225,8 +229,8 @@ def test_native_judge_all_finishes(monkeypatch, stop):
     # No GenerateConfig: the grader uses only its role's own config.
     assert kwargs == {}
     assert messages[0].role == "system"
-    assert messages[0].text == legacy.CCPC_JUDGE_SYSTEM_PROMPT
-    assert messages[1].text == legacy.CCPC_JUDGE_PROMPT_TEMPLATE.format(
+    assert messages[0].text == LEGACY["contract"]["CCPC_JUDGE_SYSTEM_PROMPT"]
+    assert messages[1].text == LEGACY["contract"]["CCPC_JUDGE_PROMPT_TEMPLATE"].format(
         serialized_judge_input=json.dumps(
             {"question": "问题", "response": "答案"},
             ensure_ascii=False,
@@ -381,19 +385,18 @@ def test_shipped_parity_config_matches_legacy():
     )
     config = yaml.safe_load(path.read_text())
     assert set(config) == {"generate_config", "eval_config", "model_roles"}
-    legacy_defaults = FAMILY_TOKEN_DEFAULTS["censorship"]
+    legacy_defaults = LEGACY["family_token_defaults"]
+    legacy_config = LEGACY["evaluation_config_defaults"]
     assert legacy_defaults["enable_thinking"] is False
     assert legacy_defaults["sample_judge"] is False
-    assert EvaluationConfig.model_fields["sample"].default is False
+    assert legacy_config["sample"] is False
 
     answer = GenerateConfig.model_validate(config["generate_config"])
     assert answer.temperature == 0.0
     assert answer.max_tokens == legacy_defaults["max_answer_tokens"] == 8192
     assert answer.seed == 42
     assert answer.extra_body == ANSWER_BODY
-    assert config["eval_config"] == {
-        "limit": EvaluationConfig.model_fields["max_samples"].default
-    }
+    assert config["eval_config"] == {"limit": legacy_config["max_samples"]}
     assert config["eval_config"]["limit"] == contract.CCPC_EXPECTED_ROWS
 
     grader = config["model_roles"]["grader"]
@@ -459,7 +462,7 @@ def test_parity_config_cli(tmp_path, mock_parity_config):
     script = (
         "import sys\n"
         "from llm_behavior_eval.ccpc import dataset\n"
-        f"dataset.CCPC_DATASET_FINGERPRINT = {legacy.censorship_dataset_fingerprint(data)!r}\n"
+        f"dataset.CCPC_DATASET_FINGERPRINT = {LEGACY_FINGERPRINTS['q']!r}\n"
         "from inspect_ai._cli.main import main\n"
         "sys.argv = ['inspect', *sys.argv[1:]]\n"
         "main()\n"

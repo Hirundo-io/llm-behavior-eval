@@ -6,6 +6,10 @@ No successful phase alone constitutes a parity result; compare captured evidence
 Native phases configure both roles only from the benchmark's ``parity.yaml``
 (see ``parity_models``) and turn on the benchmark's opt-in legacy text
 preprocessing with ``legacy_tokenizer`` set to the answer snapshot.
+
+The ``legacy`` phase runs the legacy engine, which llm-behavior-eval 0.2.0
+removed: run it from the frozen pre-removal checkout
+(``scripts.parity.historical.FROZEN_COMMIT``; see scripts/parity/README.md).
 """
 
 import argparse
@@ -17,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.parity.capture import capture_judge_responses
+from scripts.parity.historical import legacy_module, require_frozen_checkout
 from scripts.parity.ordered import ordered_samples
 
 
@@ -73,6 +78,8 @@ def main() -> None:
         "--judge-content-format", choices=["auto", "string"], default="auto"
     )
     args = parser.parse_args()
+    if args.phase == "legacy":
+        require_frozen_checkout()
     # Match the retained load_vllm_model environment for native subprocesses.
     os.environ.setdefault("VLLM_USE_AOT_COMPILE", "0")
     if args.samples <= 0:
@@ -162,14 +169,16 @@ def main() -> None:
     if hashlib.sha256(parquet.read_bytes()).hexdigest() != source["parquet_sha256"]:
         raise ValueError("Pinned dataset bytes changed")
     if args.phase == "legacy":
-        from llm_behavior_eval.evaluation_utils.base_evaluator import (
-            FreeTextSharedEvaluator,
-        )
-        from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
-        from llm_behavior_eval.evaluation_utils.enums import DatasetType
-        from llm_behavior_eval.evaluation_utils.eval_config import EvaluationConfig
-        from llm_behavior_eval.evaluation_utils.evaluate_factory import EvaluateFactory
-        from llm_behavior_eval.evaluation_utils.vllm_config import VllmConfig
+        # The legacy engine exists only in the frozen pre-removal checkout.
+        legacy = "llm_behavior_eval.evaluation_utils"
+        FreeTextSharedEvaluator = legacy_module(
+            f"{legacy}.base_evaluator"
+        ).FreeTextSharedEvaluator
+        DatasetConfig = legacy_module(f"{legacy}.dataset_config").DatasetConfig
+        DatasetType = legacy_module(f"{legacy}.enums").DatasetType
+        EvaluationConfig = legacy_module(f"{legacy}.eval_config").EvaluationConfig
+        EvaluateFactory = legacy_module(f"{legacy}.evaluate_factory").EvaluateFactory
+        VllmConfig = legacy_module(f"{legacy}.vllm_config").VllmConfig
 
         evaluator = EvaluateFactory.create_evaluator(
             EvaluationConfig(
@@ -233,9 +242,9 @@ def main() -> None:
 
         evaluator.save_results = capture_metrics
         if family in {"xstest", "orbench"}:
-            from llm_behavior_eval.evaluation_utils.free_text_refusal_evaluator import (
-                FreeTextRefusalEvaluator,
-            )
+            FreeTextRefusalEvaluator = legacy_module(
+                f"{legacy}.free_text_refusal_evaluator"
+            ).FreeTextRefusalEvaluator
 
             if not isinstance(evaluator, FreeTextRefusalEvaluator):
                 raise TypeError("Expected refusal evaluator")

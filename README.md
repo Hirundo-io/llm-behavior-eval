@@ -38,8 +38,7 @@ with a mock grader, not a benchmark.
 
 ## Installation
 
-Inspect needs Python 3.11 or newer; the `[brief]` reporting extra needs 3.12 or
-newer. Use Python 3.12 or 3.13.
+Requires Python 3.12 or 3.13.
 
 ```bash
 uv venv --python 3.12 .venv
@@ -47,11 +46,16 @@ source .venv/bin/activate
 uv pip install 'llm-behavior-eval[brief]'        # or -e '.[brief]' from a checkout
 ```
 
-Extras: `brief` (inspect-brief CSV summaries), `mlflow` (MLflow reporting hook),
-`vllm` (Inspect's vLLM provider on Linux). For development, `uv sync --locked
---extra brief --extra mlflow` installs the pinned environment CI uses; it still
-includes the legacy engine's GPU dependencies, which the parity tooling compares
-against until the legacy engine is removed.
+The base package installs Inspect, its OpenAI-compatible client and Hugging Face
+`datasets`, and no model runtime. Extras: `brief` (inspect-brief CSV summaries),
+`mlflow` (MLflow reporting hook), `hf` (Inspect's `hf/` provider: Transformers,
+Torch, Accelerate), `vllm` (Inspect's vLLM provider on Linux) and `tokenizers`
+(Transformers only, for the opt-in `-T legacy_tokenizer` parity preprocessing).
+Hosted and `openai-api/` providers need no extra. For development, `uv sync
+--locked --extra brief --extra mlflow` installs the pinned environment CI uses.
+
+Version 0.2.0 removed the legacy evaluation engine; see
+[CHANGELOG.md](CHANGELOG.md).
 
 ### vLLM and Gemma 4
 
@@ -272,9 +276,12 @@ different legacy families in one `eval()`.
 Outputs changed: `.eval` logs replace `responses.json`, `generations.jsonl`,
 `run_config.json` and per-dataset `metrics.csv`; inspect-brief's CSV replaces
 `summary_brief.csv` and `summary_full.csv`. The Notion uploader, which read the
-legacy summaries, is removed (see `hirundo_notion_tools/README.md`). The legacy
-evaluator classes (`EvaluateFactory`, `EvaluationConfig`, ...) still import, with
-a `DeprecationWarning`, for parity comparison only; they will be removed.
+legacy summaries, is removed (see `hirundo_notion_tools/README.md`). Version
+0.2.0 removed the legacy evaluator and config classes (`EvaluateFactory`,
+`EvaluationConfig`, `DatasetConfig`, `VllmConfig`, ...) with the engine; the
+package exports only the preset catalog. Reproducing a historical legacy run
+needs the frozen pre-removal checkout described in
+[scripts/parity/README.md](scripts/parity/README.md).
 
 ## Development
 
@@ -297,7 +304,7 @@ how to add a benchmark.
 
 ## Tested on
 
-The legacy engine was validated with these evaluated models:
+The legacy engine (removed in 0.2.0) was validated with these evaluated models:
 `google/gemma-3-12b-it`, `meta-llama/Meta-Llama-3.1-8B-Instruct`,
 `meta-llama/Llama-3.2-3B-Instruct`, `google/gemma-7b-it`, `google/gemma-2b-it`
 and `google/gemma-3-4b-it`, with `google/gemma-3-12b-it` and

@@ -1,4 +1,9 @@
-"""OR-Bench native Inspect task: deterministic legacy parity, no live-model claim."""
+"""OR-Bench native Inspect task: deterministic legacy parity, no live-model claim.
+
+Legacy values are frozen outputs of the removed engine, captured in
+``tests/golden/orbench.json`` (provenance and capture command in that file; see
+tests/golden/README.md).
+"""
 
 import ast
 import asyncio
@@ -8,8 +13,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import yaml
@@ -43,17 +47,13 @@ from llm_behavior_eval.orbench.scorer import (
     refusal_heuristic,
 )
 from llm_behavior_eval.orbench.task import orbench
+from tests.golden import golden
 
 PACKAGE = "llm_behavior_eval.orbench"
 REPO = Path(__file__).parents[1]
 PACKAGE_DIR = REPO / "llm_behavior_eval" / "orbench"
-
-
-@pytest.fixture
-def legacy():
-    from llm_behavior_eval.evaluation_utils import free_text_refusal_evaluator
-
-    return free_text_refusal_evaluator
+# Frozen legacy refusal_utils / free_text_refusal_evaluator / config values.
+LEGACY = golden("orbench")
 
 
 def save_source(tmp_path: Path, columns: dict[str, list[Any]]) -> str:
@@ -143,28 +143,25 @@ def test_registry_discovery():
 # --- Prompt, parser and heuristic ---------------------------------------------
 
 
-def test_prompt_identity(legacy):
-    evaluator = object.__new__(legacy.FreeTextRefusalEvaluator)
-    evaluator.dataset_config = SimpleNamespace(dataset_id=DATASET_ID)
-    assert OR_BENCH_JUDGE_PROMPT == evaluator._judge_prompt_template()
+def test_prompt_identity():
+    # Legacy FreeTextRefusalEvaluator._judge_prompt_template() for DATASET_ID.
+    legacy = LEGACY["judge_prompt"]
+    assert legacy["dataset_id"] == DATASET_ID
+    assert OR_BENCH_JUDGE_PROMPT == legacy["template"]
 
 
 def test_heuristic_phrases_match_legacy():
-    from llm_behavior_eval.evaluation_utils.refusal_utils import (
-        _REFUSAL_PREFIXES,
-        REFUSAL_MARKERS,
-    )
-
-    assert scorer_module.REFUSAL_PREFIXES == tuple(_REFUSAL_PREFIXES)
-    assert list(scorer_module.REFUSAL_MARKERS) == REFUSAL_MARKERS
+    phrases = LEGACY["heuristic_phrases"]
+    assert scorer_module.REFUSAL_PREFIXES == tuple(phrases["REFUSAL_PREFIXES"])
+    assert list(scorer_module.REFUSAL_MARKERS) == phrases["REFUSAL_MARKERS"]
 
 
 @pytest.mark.parametrize(
     "answer",
     ["Sure, here it is.", "  Sorry, no.", "No, that is fine", "This is illegal", ""],
 )
-def test_heuristic_matches_legacy(answer, legacy):
-    assert refusal_heuristic(answer) == legacy.refusal_heuristic(answer)
+def test_heuristic_matches_legacy(answer):
+    assert refusal_heuristic(answer) == dict(LEGACY["heuristic"])[answer]
 
 
 @pytest.mark.parametrize(
@@ -185,9 +182,9 @@ def test_heuristic_matches_legacy(answer, legacy):
         ("", "unparseable"),
     ],
 )
-def test_parser_matches_legacy(text, expected, legacy):
+def test_parser_matches_legacy(text, expected):
     assert parse_orbench_judgment(text) == expected
-    assert parse_orbench_judgment(text) == legacy.parse_or_bench_judgment(text).value
+    assert parse_orbench_judgment(text) == dict(LEGACY["parser"])[text]
 
 
 # --- Dataset conversion -------------------------------------------------------
@@ -195,10 +192,6 @@ def test_parser_matches_legacy(text, expected, legacy):
 
 @pytest.mark.parametrize("cap", [500, 3, None])
 def test_conversion_reproduces_legacy_shuffled_selection(tmp_path, cap):
-    from llm_behavior_eval.evaluation_utils.refusal_utils import (
-        normalize_refusal_dataset,
-    )
-
     source = Dataset.from_dict(
         {
             "prompt": [f"q{i}" for i in range(503)],
@@ -208,9 +201,16 @@ def test_conversion_reproduces_legacy_shuffled_selection(tmp_path, cap):
     path = tmp_path / "data"
     source.save_to_disk(str(path))
     # Legacy: normalize the whole source, shuffle once with seed 42, then cap.
-    expected = cast("Dataset", normalize_refusal_dataset(source).shuffle(seed=42))
-    count = min(cap, len(expected)) if cap else len(expected)
-    expected = cast("Dataset", expected.select(range(count)))
+    # Frozen: legacy normalize_refusal_dataset(source).shuffle(seed=42).
+    legacy = LEGACY["shuffled_selection"]
+    assert len(legacy["question"]) == len(legacy["label"]) == len(source)
+    count = min(cap, len(source)) if cap else len(source)
+    expected = Dataset.from_dict(
+        {
+            "question": legacy["question"][:count],
+            "label": legacy["label"][:count],
+        }
+    )
 
     converted = dataset(dataset_path=str(path))
     assert converted.name == DATASET_ID
@@ -273,7 +273,7 @@ def test_validation_rejects_bad_sources(monkeypatch, rows):
 # --- Scorer and metrics against the legacy evaluator ---------------------------
 
 
-def test_legacy_metric_parity(monkeypatch, legacy):
+def test_legacy_metric_parity(monkeypatch):
     labels = ["safe", "safe", "safe", "unsafe", "unsafe", "unsafe", "safe"]
     answers = [
         "sure",
@@ -292,42 +292,16 @@ def test_legacy_metric_parity(monkeypatch, legacy):
         "bad",
         "Explanation considers direct_answer but truncates at [[direct_",
     ]
-    captured = {}
-    evaluator = object.__new__(legacy.FreeTextRefusalEvaluator)
-    evaluator.num_samples = len(labels)
-    evaluator.eval_config = SimpleNamespace(
-        thinking_start_token="<think>",
-        thinking_end_token="</think>",
-        exclude_thinking_trace_for_judge=True,
-    )
-    monkeypatch.setattr(evaluator, "get_dataset_slug", lambda: "orbench")
-    monkeypatch.setattr(
-        evaluator,
-        "_grade_batch",
-        lambda *a: (
-            [legacy.parse_or_bench_judgment(t) for t in raw],
-            raw,
-            ["stop"] * (len(raw) - 1) + ["length"],
-        ),
-    )
-    monkeypatch.setattr(
-        evaluator,
-        "_save_refusal_results",
-        lambda responses, metrics: captured.update(
-            responses=responses, metrics=metrics
-        ),
-    )
-    evaluator._grade_impl(
-        [
-            legacy._RefusalGenerationRecord(
-                input_texts=["q"] * len(labels),
-                expected_labels=labels,
-                answers=answers,
-                finish_reasons=stops,
-            )
-        ],
-        object(),
-    )
+    # The legacy FreeTextRefusalEvaluator._grade_impl results on these inputs,
+    # with a stub judge returning ``raw`` (the last judge call hit its length).
+    captured = LEGACY["metric_parity"]
+    assert captured["inputs"] == {
+        "labels": labels,
+        "answers": answers,
+        "stops": stops,
+        "raw": raw,
+        "judge_stops": ["stop"] * (len(raw) - 1) + ["length"],
+    }
     outputs = iter(raw)
     calls = []
 
@@ -616,31 +590,25 @@ GRADER_BODY = {
 }
 
 
-def test_shipped_parity_config_holds_legacy_settings(legacy):
-    from llm_behavior_eval.evaluation_utils.dataset_config import DatasetConfig
-    from llm_behavior_eval.evaluation_utils.eval_config import (
-        FAMILY_TOKEN_DEFAULTS,
-        EvaluationConfig,
-    )
-
+def test_shipped_parity_config_holds_legacy_settings():
     path = parity_config_path(PACKAGE)
     assert path == PACKAGE_DIR / "parity.yaml"
     config = yaml.safe_load(path.read_text())
     assert set(config) == {"generate_config", "eval_config", "model_roles"}
-    refusal = FAMILY_TOKEN_DEFAULTS["refusal"]
-    seed = DatasetConfig.model_fields["seed"].default
+    # Frozen legacy FAMILY_TOKEN_DEFAULTS["refusal"] and config defaults.
+    refusal = LEGACY["family_token_defaults_refusal"]
+    defaults = LEGACY["evaluation_config_defaults"]
+    seed = LEGACY["dataset_config_seed"]
 
     answer = GenerateConfig.model_validate(config["generate_config"])
-    assert EvaluationConfig.model_fields["sample"].default is False
+    assert defaults["sample"] is False
     assert answer.temperature == 0.0
     assert answer.max_tokens == refusal["max_answer_tokens"] == 2048
     assert answer.seed == seed == 42
     assert refusal["enable_thinking"] is True
     assert answer.extra_body == ANSWER_BODY
 
-    assert config["eval_config"] == {
-        "limit": EvaluationConfig.model_fields["max_samples"].default
-    }
+    assert config["eval_config"] == {"limit": defaults["max_samples"]}
     assert config["eval_config"]["limit"] == 500
 
     grader_role = config["model_roles"]["grader"]

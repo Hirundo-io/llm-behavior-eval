@@ -3,6 +3,10 @@
 Sources: ``evaluation_utils/prompts.py`` (system message, unknown answers) and
 ``evaluation_utils/free_text_bias_evaluator.py`` (judge prompts and user
 messages, regexes).
+
+The legacy engine was removed in 0.2.0: read these sources at the frozen
+pre-removal commit d8c8015 (scripts/parity/README.md); tests/golden/ freezes
+their values.
 """
 
 import re

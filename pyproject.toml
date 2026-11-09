@@ -10,7 +10,7 @@ llm_behavior_eval = "llm_behavior_eval._registry"
 
 [project]
 name = "llm-behavior-eval"
-version = "0.1.12"
+version = "0.2.0"
 description = "Evaluate large-language models for undesirable behaviors such as bias."
 authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
 readme = "README.md"
@@ -30,42 +30,40 @@ keywords = [
   "bias evaluation",
   "bias in LLMs",
 ]
-requires-python = ">=3.10.12,<3.14"
-# Please only install Python >=3.10.12 or >=3.11.4 or >=3.12 to avoid GHSA-4xh5-x5gv-qwph vulnerability
+requires-python = ">=3.12,<3.14"
 dependencies = [
-  "inspect-ai>=0.3.288,<0.3.289; python_version >= '3.11'",
+  "inspect-ai>=0.3.288,<0.3.289",
+  # inspect-ai 0.3.288 imports acp.helpers, which agent-client-protocol 1.0
+  # removed; its own requirement (>=0.12.0) has no upper bound.
+  "agent-client-protocol>=0.12.0,<1",
   # Inspect OpenAI-compatible grader transport (not installed by Inspect itself).
-  "openai>=3.4,<4; python_version >= '3.11'",
+  "openai>=3.4,<4",
   "datasets>=5.0.1,<6.0.0",
-  "numpy<3.0.0",
-  "pandas<3.0.0",
-  "pydantic<3.0.0",
-  "pydantic_settings<3.0.0",
-  "tqdm",
-  "torch<3.0.0",
-  # Gemma 4 uses guarded per-layer configs; keep the tested vLLM/Transformers pair.
-  "transformers>=5.20.2,<5.21",
-  "networkx<4.0.0",
-  # Typer 0.27 bundles Click; older Typer loses argument help with Click 8.5.
+  # The retired CLI's migration notice. Typer 0.27 bundles Click; older Typer
+  # loses argument help with Click 8.5.
   "typer>=0.27.3,<0.28",
-  "accelerate<2.0.0",
-  "bitsandbytes<1.0.0; platform_system != \"Darwin\"",
-  "protobuf<7.0.0",                                    # needed for Mistral models
-  "sentencepiece<1.0.0",                               # needed for Mistral models
 ]
 
 [project.optional-dependencies]
-# inspect-brief summarizes Inspect .eval logs into a CSV; it requires Python 3.12+.
-brief = ["inspect-brief>=0.1.1,<0.2; python_version >= '3.12'"]
+# inspect-brief summarizes Inspect .eval logs into a CSV.
+brief = ["inspect-brief>=0.1.1,<0.2"]
 # The MLflow reporting hook logs synchronously through MlflowClient (2.8+).
 mlflow = ["mlflow>=2.8.0"]
-# vLLM publishes Linux wheels only. Torch pins Triton and the CUDA runtime together.
+# Tokenizers for the opt-in legacy text preprocessing (-T legacy_tokenizer).
+# Gemma 4 uses guarded per-layer configs; keep the tested vLLM/Transformers pair.
+tokenizers = [
+  "transformers>=5.20.2,<5.21",
+  "sentencepiece<1.0.0",        # Mistral tokenizers
+  "protobuf<7.0.0",             # Mistral tokenizers
+]
+# Inspect's hf/ provider loads models with Transformers and Torch.
+hf = ["llm-behavior-eval[tokenizers]", "torch<3.0.0", "accelerate<2.0.0"]
+# Inspect's vllm/ provider. vLLM publishes Linux wheels only. Torch pins Triton
+# and the CUDA runtime together.
 vllm = [
+  "transformers>=5.20.2,<5.21",
   "vllm>=0.30.0,<0.31; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
 ]
-gcs = ["google-cloud-storage"]
-azure = ["azure-storage-blob","azure-identity"]
-gpt-oss = ["opencv-python-headless>=4.12.0.88"]
 
 [dependency-groups]
 dev = [
@@ -74,10 +72,10 @@ dev = [
   "pytest>=8.3.5",
   "pyyaml>=6.0.2",
   "pre-commit>=4.3.0",
-  "llm-behavior-eval[mlflow,vllm,gcs,azure,brief]",
+  # Provider, tokenizer and reporting tests run in the development environment.
+  "llm-behavior-eval[mlflow,hf,vllm,brief]",
   "pyrefly>=0.63.1",
   "types-PyYAML",
-  "types-tqdm",
 ]
 
 [tool.uv.sources]
@@ -93,7 +91,7 @@ exclude = ["results*"]
 "*" = ["parity.yaml", "README.md", "target_metrics.json"]
 
 [tool.bumpver]
-current_version = "0.1.12"
+current_version = "0.2.0"
 version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
 
 [tool.bumpver.file_patterns]

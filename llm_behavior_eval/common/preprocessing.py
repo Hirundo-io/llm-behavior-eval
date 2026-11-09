@@ -31,7 +31,7 @@ from typing import Any
 
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 
-# Legacy engine tokenization (evaluation_utils/custom_dataset.py,
+# Legacy engine tokenization (evaluation_utils/custom_dataset.py at d8c8015,
 # free_text_preprocess_function): prompts use max_length=1024 with special
 # tokens; targets, stereotypes and judge questions use gt_max_length=256 without.
 LEGACY_PROMPT_MAX_LENGTH = 1024
@@ -40,7 +40,7 @@ METADATA_KEY = "legacy_text"
 SCHEMA = "legacy-text-v1"
 
 # Templates whose legacy rendering differed from a plain apply_chat_template
-# (evaluation_utils/util_functions.py SafeApplyChatTemplate): Nemotron
+# (evaluation_utils/util_functions.py SafeApplyChatTemplate at d8c8015): Nemotron
 # "/no_think" injection, Muse Glimmer reasoning surgery, and the Gemma v1
 # system-role merge. They fail loudly instead of producing a wrong prompt.
 _UNSUPPORTED_TEMPLATE_MARKERS = {
@@ -60,7 +60,12 @@ def load_tokenizer(path: str, revision: str | None = None) -> Any:
     cache together with an immutable 40-character commit ``revision``. Nothing
     is downloaded during an evaluation.
     """
-    from transformers import AutoTokenizer
+    try:
+        from transformers import AutoTokenizer
+    except ImportError as error:
+        raise ImportError(
+            "legacy_tokenizer needs Transformers: install llm-behavior-eval[tokenizers]"
+        ) from error
 
     if revision is not None and not _REVISION.fullmatch(revision):
         raise ValueError(

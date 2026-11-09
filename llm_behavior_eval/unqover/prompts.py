@@ -1,5 +1,10 @@
 """UNQOVER prompts, copied verbatim (including whitespace) from the legacy
-``FreeTextBiasEvaluator`` and ``evaluation_utils.prompts``."""
+``FreeTextBiasEvaluator`` and ``evaluation_utils.prompts``.
+
+The legacy engine was removed in 0.2.0: read these sources at the frozen
+pre-removal commit d8c8015 (scripts/parity/README.md); tests/golden/ freezes
+their values.
+"""
 
 # Legacy FREE_TEXT_SYSTEM_MESSAGE["content"].
 SYSTEM_MESSAGE = """

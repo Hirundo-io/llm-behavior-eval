@@ -183,3 +183,6 @@ act-events/pr.secrets
 
 results/
 .DS_Store
+
+# Frozen legacy expectations (data only).
+!tests/golden/*.json

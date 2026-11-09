@@ -1,6 +1,8 @@
 """XSTest: deterministic legacy parity and native Inspect wiring.
 
-No live model or provider parity is claimed here.
+Legacy values are frozen outputs of the removed engine, captured in
+``tests/golden/xstest.json`` (provenance and capture command in that file; see
+tests/golden/README.md). No live model or provider parity is claimed here.
 """
 
 import ast
@@ -53,23 +55,12 @@ from llm_behavior_eval.xstest.metrics import (
 from llm_behavior_eval.xstest.prompts import XSTEST_JUDGE_PROMPT
 from llm_behavior_eval.xstest.scorer import parse_xstest_judgment, xstest_scorer
 from llm_behavior_eval.xstest.task import xstest
+from tests.golden import golden
 
 PACKAGE = "llm_behavior_eval.xstest"
 DATASET_ID = "hirundo-io/XSTest"
-
-
-@pytest.fixture
-def legacy():
-    from llm_behavior_eval.evaluation_utils import free_text_refusal_evaluator
-
-    return free_text_refusal_evaluator
-
-
-@pytest.fixture
-def legacy_utils():
-    from llm_behavior_eval.evaluation_utils import refusal_utils
-
-    return refusal_utils
+# Frozen legacy refusal_utils / free_text_refusal_evaluator / eval_config values.
+LEGACY = golden("xstest")
 
 
 def save_dataset(path: Path, columns: dict[str, list[Any]]) -> str:
@@ -96,11 +87,13 @@ def metric_values(log: EvalLog) -> dict[str, float]:
 # Copied semantics: prompt, heuristic, labels and parsing match the legacy engine.
 
 
-def test_copied_legacy_constants(legacy_utils):
-    assert XSTEST_JUDGE_PROMPT == legacy_utils.XSTEST_JUDGE_PROMPT
-    assert REFUSAL_PREFIXES == legacy_utils._REFUSAL_PREFIXES
-    assert list(REFUSAL_MARKERS) == legacy_utils.REFUSAL_MARKERS
-    assert xstest_dataset.DATASET_ID == legacy_utils.XSTEST_DATASET
+def test_copied_legacy_constants():
+    constants = LEGACY["constants"]
+    assert XSTEST_JUDGE_PROMPT == constants["XSTEST_JUDGE_PROMPT"]
+    # Legacy _REFUSAL_PREFIXES was a tuple, REFUSAL_MARKERS a list.
+    assert REFUSAL_PREFIXES == tuple(constants["REFUSAL_PREFIXES"])
+    assert list(REFUSAL_MARKERS) == constants["REFUSAL_MARKERS"]
+    assert xstest_dataset.DATASET_ID == constants["XSTEST_DATASET"]
 
 
 @pytest.mark.parametrize(
@@ -115,8 +108,8 @@ def test_copied_legacy_constants(legacy_utils):
         "3_partial_refusal then 1_full_compliance",
     ],
 )
-def test_parser(text, legacy):
-    assert parse_xstest_judgment(text) == legacy.parse_xstest_judgment(text).value
+def test_parser(text):
+    assert parse_xstest_judgment(text) == dict(LEGACY["parser"])[text]
 
 
 @pytest.mark.parametrize(
@@ -131,25 +124,25 @@ def test_parser(text, legacy):
         "No.",
     ],
 )
-def test_heuristic(answer, legacy):
-    assert refusal_heuristic(answer) == legacy.refusal_heuristic(answer)
+def test_heuristic(answer):
+    assert refusal_heuristic(answer) == dict(LEGACY["heuristic"])[answer]
 
 
 @pytest.mark.parametrize("label", ["safe", " SAFE ", "Unsafe", 1, None, "other"])
-def test_labels(label, monkeypatch, legacy_utils):
+def test_labels(label, monkeypatch):
     monkeypatch.setattr(
         xstest_dataset,
         "load_hf_dataset",
         lambda *a, **kw: [{"prompt": "q", "label": label}],
     )
-    try:
-        expected = legacy_utils.normalize_refusal_label(label)
-    except ValueError:
+    # Legacy normalize_refusal_label: the normalized label, or a ValueError.
+    [legacy] = [case for case in LEGACY["labels"] if case["label"] == label]
+    if "error" in legacy:
         with pytest.raises(ValueError, match="label"):
             xstest_dataset.dataset()
     else:
         metadata = xstest_dataset.dataset()[0].metadata
-        assert metadata == {"label": expected, "dataset_id": DATASET_ID}
+        assert metadata == {"label": legacy["normalized"], "dataset_id": DATASET_ID}
 
 
 @pytest.mark.parametrize(
@@ -215,7 +208,7 @@ def test_legacy_shuffle_before_limit(tmp_path, monkeypatch):
 # Scoring and metrics match the legacy evaluator on the same fixture.
 
 
-def test_legacy_metric_parity(monkeypatch, legacy):
+def test_legacy_metric_parity(monkeypatch):
     labels = ["safe", "safe", "safe", "unsafe", "unsafe", "unsafe", "safe"]
     answers = [
         "sure",
@@ -228,42 +221,15 @@ def test_legacy_metric_parity(monkeypatch, legacy):
     ]
     stops = ["stop", "length", "weird", "stop", "length", None, "stop"]
     raw = ["1_full_compliance", "3_partial_refusal", "2_full_refusal", "bad", "bad"]
-    captured = {}
-    evaluator = object.__new__(legacy.FreeTextRefusalEvaluator)
-    evaluator.num_samples = len(labels)
-    evaluator.eval_config = SimpleNamespace(
-        thinking_start_token="<think>",
-        thinking_end_token="</think>",
-        exclude_thinking_trace_for_judge=True,
-    )
-    monkeypatch.setattr(evaluator, "get_dataset_slug", lambda: "xstest")
-    monkeypatch.setattr(
-        evaluator,
-        "_grade_batch",
-        lambda *a: (
-            [legacy.parse_xstest_judgment(t) for t in raw],
-            raw,
-            ["stop"] * len(raw),
-        ),
-    )
-    monkeypatch.setattr(
-        evaluator,
-        "_save_refusal_results",
-        lambda responses, metrics: captured.update(
-            responses=responses, metrics=metrics
-        ),
-    )
-    evaluator._grade_impl(
-        [
-            legacy._RefusalGenerationRecord(
-                input_texts=["q"] * len(labels),
-                expected_labels=labels,
-                answers=answers,
-                finish_reasons=stops,
-            )
-        ],
-        object(),
-    )
+    # The legacy FreeTextRefusalEvaluator._grade_impl results on these inputs,
+    # with a stub judge returning ``raw``.
+    captured = LEGACY["metric_parity"]
+    assert captured["inputs"] == {
+        "labels": labels,
+        "answers": answers,
+        "stops": stops,
+        "raw": raw,
+    }
     outputs = iter(raw)
     calls = []
 
@@ -657,12 +623,8 @@ def test_shipped_parity_config_holds_legacy_settings():
 
 
 def test_parity_config_matches_legacy_defaults():
-    from llm_behavior_eval.evaluation_utils.eval_config import (
-        FAMILY_TOKEN_DEFAULTS,
-        EvaluationConfig,
-    )
-
-    legacy = FAMILY_TOKEN_DEFAULTS["refusal"]
+    legacy = LEGACY["family_token_defaults_refusal"]
+    defaults = LEGACY["evaluation_config_defaults"]
     config = yaml.safe_load(parity_config_path(PACKAGE).read_text())
     grader = config["model_roles"]["grader"]
     assert config["generate_config"]["max_tokens"] == legacy["max_answer_tokens"]
@@ -674,10 +636,8 @@ def test_parity_config_matches_legacy_defaults():
         ]
         is legacy["enable_thinking"]
     )
-    assert EvaluationConfig.model_fields["sample"].default is False
-    assert config["eval_config"]["limit"] == (
-        EvaluationConfig.model_fields["max_samples"].default
-    )
+    assert defaults["sample"] is False
+    assert config["eval_config"]["limit"] == defaults["max_samples"]
 
 
 @pytest.fixture

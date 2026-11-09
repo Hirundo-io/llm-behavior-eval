@@ -8,6 +8,35 @@ benchmark's `parity.yaml`; the answer model's provider args go on the command
 line (`-M`); and each benchmark has an **opt-in** legacy text preprocessing,
 turned on with `-T legacy_tokenizer`.
 
+## Frozen pre-removal checkout
+
+Version 0.2.0 contains no legacy engine. Everything that runs it needs a separate
+checkout of the last commit with the engine,
+**`d8c80154c1e6ae90e2896811685d7c1a9bf89e68`** (the LLM-169 qualification head,
+#208; `FROZEN_COMMIT` in [historical.py](historical.py)), with that checkout's own
+locked environment:
+
+```sh
+git worktree add ../llm-behavior-eval-legacy d8c80154c1e6ae90e2896811685d7c1a9bf89e68
+cd ../llm-behavior-eval-legacy
+uv venv --python 3.12 .venv && uv sync --locked --extra brief --extra mlflow --extra vllm
+```
+
+Run there, not in this checkout:
+
+* the `legacy` phase of `qualify_matrix.py` (and `run_matrix.py --phases ... legacy`);
+* `reuse_legacy.py`;
+* `python -m scripts.parity.removal_baseline`, which recaptures the frozen legacy
+  expectations in `tests/golden/` (copy `scripts/parity/historical.py` and
+  `scripts/parity/removal_baseline/` into that checkout first; it refuses a
+  modified `llm_behavior_eval/` and records the checkout's commit as provenance).
+
+In a 0.2.0 checkout these exit with a message naming this commit. Do not copy
+legacy modules into the installed package. Everything else here (native phases,
+`compare.py`, the reports, settings and identity audits, recorded-judgment checks
+and `replay_redesign.py`) runs in the current checkout. The committed evidence and
+its numbers are unchanged by the removal.
+
 ## Evidence status
 
 The representative GPU qualification in [REPORT.md](REPORT.md) (31 configurations
@@ -121,8 +150,9 @@ below add them and do everything else from `parity.yaml`.
 
 ## Running the qualification matrix (requires GPUs)
 
-Freeze this checkout and a legacy checkout that still has `evaluation_utils/`
-(this layer, or any commit before #209). Provision the pinned models with
+Freeze this checkout and the frozen pre-removal checkout (above), which has both
+the legacy engine and the native tasks; run the matrix there when it includes the
+`legacy` phase. Provision the pinned models with
 `provision_models.py`, then for each case (or all 31) run, in separate
 processes:
 

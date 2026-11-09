@@ -2,7 +2,7 @@
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,7 @@ def report(payload: dict[str, Any]) -> None:
     try:
         folder = config["subfolder"]
         if folder == "timestamp":
-            folder = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            folder = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         if folder and (
             folder.startswith("/") or any(p in {".", ".."} for p in folder.split("/"))
         ):
