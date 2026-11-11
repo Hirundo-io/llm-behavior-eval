@@ -1,7 +1,9 @@
+import importlib.util
 import json
 import math
 import subprocess
 import sys
+import types
 from collections.abc import Iterator
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -87,6 +89,22 @@ def hf_stub(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Any, list[_Loaded
     monkeypatch.setattr(hf, "AutoModelForCausalLM", loader("model"))
     monkeypatch.setattr(hf, "AutoTokenizer", loader("tokenizer"))
     yield hf, calls
+
+
+@pytest.fixture
+def transformer_lens_stub(monkeypatch: pytest.MonkeyPatch) -> type:
+    # Load the real transformer_lens provider over a stub package: no weights.
+    hooked_transformer = type("HookedTransformer", (), {})
+    package = types.ModuleType("transformer_lens")
+    vars(package)["HookedTransformer"] = hooked_transformer
+    monkeypatch.setitem(sys.modules, "transformer_lens", package)
+    name = "inspect_ai.model._providers.transformer_lens"
+    spec = importlib.util.find_spec(name)
+    assert spec is not None and spec.loader is not None
+    provider = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, name, provider)
+    spec.loader.exec_module(provider)
+    return hooked_transformer
 
 
 @pytest.mark.parametrize(
@@ -360,6 +378,48 @@ def test_verdict_ignores_grader_reasoning(
     assert score.metadata["raw_judge_text"] == grader_reply.completion
 
 
+@pytest.mark.parametrize(
+    "grader_text",
+    [
+        "<think>A wrong answer would get SCORE: 0",
+        "<think>Draft.</think>\nSCORE: 1\n<think>Unless SCORE: 0",
+    ],
+    ids=["unclosed", "reopened"],
+)
+def test_truncated_grader_reasoning_is_a_parse_error(
+    tmp_path: Path, grader_text: str
+) -> None:
+    # The grader was cut off inside its reasoning: it gave no final answer,
+    # so the verdict-like text in the trace must not be scored.
+    grader_reply = judge_output(grader_text)
+    grader_reply.choices[0].stop_reason = "max_tokens"
+    logs = inspect_eval(
+        inspect_template(),
+        model=get_model("mockllm/model", custom_outputs=[answer_output("stop")]),
+        model_roles={
+            "grader": get_model("mockllm/judge", custom_outputs=[grader_reply])
+        },
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    assert logs[0].status == "success", logs[0].error
+    assert logs[0].samples
+    assert logs[0].samples[0].scores
+    score = logs[0].samples[0].scores["judge_scorer"]
+    assert score.value == 0
+    assert score.metadata
+    assert "unclosed thinking block" in score.metadata["parse_error"]
+    assert score.metadata["raw_judge_text"] == grader_text
+    assert math.isnan(eval_metrics(logs[0])["field_rate"])
+
+
+def test_unclosed_answer_thinking_is_kept() -> None:
+    # The legacy rule for the answer under test is unchanged: an unclosed
+    # trace keeps the whole answer.
+    answer = "<think>A wrong answer would get SCORE: 0"
+    assert strip_thinking(answer) == answer
+
+
 @pytest.mark.parametrize("epochs", [1, 2])
 def test_metrics_aggregate_every_epoch(tmp_path: Path, epochs: int) -> None:
     # Inspect's epoch reducers keep only the first epoch's metadata. Here
@@ -436,18 +496,51 @@ def test_only_stop_fails_on_hf_models_under_test(
     assert math.isnan(eval_metrics(logs[0])["incomplete_response_rate"])
 
 
+def test_only_stop_fails_on_transformer_lens_models_under_test(
+    tmp_path: Path, transformer_lens_stub: type
+) -> None:
+    # The real transformer_lens provider (stub model) never sets stop_reason.
+    model = get_model(
+        "transformer_lens/stub",
+        memoize=False,
+        tl_model=transformer_lens_stub(),
+        tl_generate_args={},
+    )
+    logs = inspect_eval(
+        only_stop_task(True, "unknown"),
+        model=model,
+        model_roles=grader_roles(),
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    assert logs[0].status == "error"
+    assert logs[0].error
+    assert "StopReasonUnavailableError" in logs[0].error.traceback
+    assert "transformer_lens/stub" in logs[0].error.message
+    assert "transformer_lens/ provider" in logs[0].error.message
+
+
 def test_require_stop_reason_is_provider_based() -> None:
     def state(model: str) -> TaskState:
         return TaskState(
             model=ModelName(model), sample_id=1, epoch=1, input="q", messages=[]
         )
 
-    for name in ("hf/org/repo", "hf/local"):
-        with pytest.raises(StopReasonUnavailableError, match="hf/ provider"):
+    for name, provider in [
+        ("hf/org/repo", "hf"),
+        ("hf/local", "hf"),
+        ("nnterp/org/repo", "nnterp"),
+        ("transformer_lens/gpt2", "transformer_lens"),
+    ]:
+        with pytest.raises(StopReasonUnavailableError, match=f"{provider}/ provider"):
             require_stop_reason(state(name))
     for name in ("vllm/org/repo", "openai-api/airgap/judge", "mockllm/model"):
         require_stop_reason(state(name))
-    assert judge_module.NO_STOP_REASON_PROVIDERS == {"hf"}
+    assert judge_module.NO_STOP_REASON_PROVIDERS == {
+        "hf",
+        "nnterp",
+        "transformer_lens",
+    }
 
 
 def test_only_stop_skips_unknown_stop_reasons_elsewhere(tmp_path: Path) -> None:

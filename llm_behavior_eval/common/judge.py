@@ -34,12 +34,13 @@ THINKING_TASK_ARGS: Mapping[str, bool | str | None] = MappingProxyType(
 )
 """Task arguments, with their defaults, that every benchmark ``@task`` exposes."""
 
-NO_STOP_REASON_PROVIDERS = frozenset({"hf"})
+NO_STOP_REASON_PROVIDERS = frozenset({"hf", "nnterp", "transformer_lens"})
 """Inspect providers that cannot tell a finished answer from a truncated one.
 
-Inspect's ``hf/`` provider leaves every ``stop_reason`` at ``"unknown"`` and
-reports the padded batch length as each answer's output token count, so the
-stop reason cannot be recovered after the fact either.
+Inspect's ``hf/``, ``nnterp/`` and ``transformer_lens/`` providers leave every
+``stop_reason`` at ``"unknown"``. ``hf/`` also reports the padded batch length
+as each answer's output token count, so the stop reason cannot be recovered
+after the fact either.
 """
 
 
@@ -104,6 +105,23 @@ def strip_thinking(
     return answer
 
 
+def _grader_final_answer(reply: str) -> str:
+    """Return the grader's final answer, without its inline thinking trace.
+
+    Unlike ``strip_thinking`` for the answer under test, a reply that ends
+    inside an open trace (for example, cut off at ``max_tokens``) is an error:
+    the grader never gave a final answer, and any verdict in the trace is only
+    an intermediate thought.
+
+    Raises:
+        ValueError: The last ``<think>`` marker has no ``</think>`` after it.
+    """
+    start = reply.rfind(THINKING_START)
+    if start != -1 and THINKING_END not in reply[start + len(THINKING_START) :]:
+        raise ValueError("Judge response ends inside an unclosed thinking block")
+    return strip_thinking(reply)
+
+
 @scorer(metrics=[field_rate(), incomplete_response_rate()])
 def judge_scorer(
     prompt: str,
@@ -122,10 +140,12 @@ def judge_scorer(
     scorer passes none. The verdict regex is applied to the grader's final
     answer: an inline ``<think>...</think>`` trace in the grader's reply is
     removed first (structured reasoning never reaches ``completion``), and the
-    full reply stays in ``raw_judge_text``.
+    full reply stays in ``raw_judge_text``. A reply that ends inside an
+    unclosed ``<think>`` trace has no final answer and is a parse error.
 
-    Invalid (unmatched, unparsable or non-finite) and skipped scores have value 0
-    with ``parse_error``/``skipped`` metadata, and are excluded by ``field_rate``.
+    Invalid (unclosed, unmatched, unparsable or non-finite) and skipped scores
+    have value 0 with ``parse_error``/``skipped`` metadata, and are excluded by
+    ``field_rate``.
     The answer's stop reason is kept in score metadata. Benchmark scorers may
     wrap this scorer and supply their own metrics.
 
@@ -147,7 +167,8 @@ def judge_scorer(
 
     Raises:
         StopReasonUnavailableError: From the scorer, when ``only_stop`` is set
-            and the model under test runs on Inspect's ``hf/`` provider.
+            and the model under test runs on a provider in
+            ``NO_STOP_REASON_PROVIDERS``, such as Inspect's ``hf/``.
     """
     regex = re.compile(pattern)
 
@@ -180,8 +201,8 @@ def judge_scorer(
         result = await grader.generate(rendered)
         raw = result.completion
         metadata["raw_judge_text"] = raw
-        match = regex.search(strip_thinking(raw))
         try:
+            match = regex.search(_grader_final_answer(raw))
             if match is None:
                 raise ValueError("Judge response did not match pattern")
             parsed = match.group(1)
