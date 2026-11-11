@@ -5,6 +5,9 @@ build-backend = "setuptools.build_meta"
 [project.scripts]
 llm-behavior-eval = "llm_behavior_eval.evaluate:app"
 
+[project.entry-points.inspect_ai]
+llm_behavior_eval = "llm_behavior_eval._registry"
+
 [project]
 name = "llm-behavior-eval"
 version = "0.1.12"
@@ -30,6 +33,9 @@ keywords = [
 requires-python = ">=3.10.12,<3.14"
 # Please only install Python >=3.10.12 or >=3.11.4 or >=3.12 to avoid GHSA-4xh5-x5gv-qwph vulnerability
 dependencies = [
+  "inspect-ai>=0.3.287,<0.3.288; python_version >= '3.11'",
+  # Inspect OpenAI-compatible grader transport (not installed by Inspect itself).
+  "openai>=3.4,<4; python_version >= '3.11'",
   "datasets>=5.0.1,<6.0.0",
   "numpy<3.0.0",
   "pandas<3.0.0",
@@ -71,12 +77,21 @@ dev = [
   "types-tqdm",
 ]
 
+[tool.uv]
+# Dependency cooldown: resolve only releases at least 7 days old.
+exclude-newer = "7 days"
+
 [tool.uv.sources]
 llm-behavior-eval = { path = ".", editable = true }
 
 [tool.setuptools.packages.find]
 include = ["llm_behavior_eval*"]
 exclude = ["results*"]
+
+[tool.setuptools.package-data]
+# Benchmark-owned parity configs, READMEs and target metrics ship with each
+# benchmark package.
+"*" = ["parity.yaml", "README.md", "target_metrics.json"]
 
 [tool.bumpver]
 current_version = "0.1.12"
@@ -120,9 +135,25 @@ fixable = ["ALL"]
 # Disable fix for unused imports possibly needed for export.
 unfixable = ["F401"]
 
+[tool.ruff.lint.isort]
+# tests/inspect_helpers.py, imported through pytest's pythonpath.
+known-local-folder = ["inspect_helpers"]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/*.py" = ["S"]
 "hirundo_notion_tools/test_*.py" = ["S"]
 
 [tool.pyrefly]
 min-severity = "warn"
+# tests/ is on pytest's pythonpath, for the shared inspect_helpers module.
+search-path = [".", "tests"]
+
+[tool.pytest.ini_options]
+# The default prepend mode puts the repository root first on sys.path for each
+# test module. setuptools' source-tree llm_behavior_eval.egg-info then shadows
+# the editable install's dist-info, which has the PEP 610 metadata that Inspect
+# uses to namespace registry names. importlib mode leaves sys.path unchanged.
+addopts = ["--import-mode=importlib"]
+# Shared test helpers (tests/inspect_helpers.py) import as top-level modules.
+# Only tests/ is added: the repository root would bring back the egg-info.
+pythonpath = ["tests"]
