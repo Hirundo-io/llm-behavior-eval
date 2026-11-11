@@ -228,7 +228,8 @@ def parse_verdict(
         ValueError: The reply ends inside an unclosed thinking trace
             (``UnclosedThinkingError``), the pattern does not match or has no
             group 1, ``parse`` rejects the text, or the value is not finite
-            (``nan``, ``inf``). The message says which.
+            (``nan``, ``inf``). The message says which and is never empty,
+            because ``field_rate`` only excludes truthy ``parse_error``s.
     """
     regex = re.compile(pattern)
     match = regex.search(grader_final_answer(reply))
@@ -236,10 +237,16 @@ def parse_verdict(
         raise ValueError("Judge response did not match pattern")
     try:
         parsed = match.group(1)
-        value = parse(parsed)
     except IndexError as exc:
-        # A pattern without group 1, or a parse that indexes past its input.
-        raise ValueError(str(exc)) from exc
+        raise ValueError(f"Judge pattern has no group 1: {exc}") from exc
+    try:
+        value = parse(parsed)
+    except (IndexError, ValueError) as exc:
+        # A parse that rejects the text, or indexes past it. Keep its message
+        # when it has one; a bare exception still yields a non-empty message.
+        raise ValueError(
+            str(exc) or f"Judge verdict rejected by parse: {parsed!r}"
+        ) from exc
     if not math.isfinite(value):
         raise ValueError(f"Judge score is not finite: {parsed!r}")
     return value, parsed

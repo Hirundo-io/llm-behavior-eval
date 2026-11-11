@@ -330,6 +330,36 @@ def test_judge(
     assert bool(score.metadata.get("parse_error")) == (judge_text == "invalid")
 
 
+def _reject_silently(value: str) -> float:
+    raise ValueError()
+
+
+def test_parse_rejection_without_message_is_a_parse_error(tmp_path: Path) -> None:
+    logs = inspect_eval(
+        Task(
+            dataset=[Sample(input="question", target="answer")],
+            scorer=judge_scorer("{answer}", r"SCORE:\s*(\S+)", parse=_reject_silently),
+        ),
+        model=get_model("mockllm/model"),
+        model_roles={
+            "grader": get_model(
+                "mockllm/judge", custom_outputs=[judge_output("SCORE: bad")]
+            )
+        },
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    assert logs[0].status == "success"
+    assert logs[0].samples
+    assert logs[0].samples[0].scores
+    score = logs[0].samples[0].scores["judge_scorer"]
+    assert score.metadata
+    assert score.metadata["parse_error"] == "Judge verdict rejected by parse: 'bad'"
+    assert logs[0].results
+    # Excluded from the denominator, not counted as a 0 verdict.
+    assert math.isnan(logs[0].results.scores[0].metrics["field_rate"].value)
+
+
 @pytest.mark.parametrize("judge_text", ["SCORE: nan", "SCORE: inf", "SCORE: -inf"])
 def test_judge_rejects_non_finite_scores(tmp_path: Path, judge_text: str) -> None:
     logs = inspect_eval(
