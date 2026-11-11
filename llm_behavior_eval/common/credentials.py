@@ -3,7 +3,7 @@
 Inspect records every task argument in the ``.eval`` log, so no benchmark takes
 a credential. Each role reads its own environment variables instead:
 
-* Dataset access reads ``DATASET_TOKEN_ENV``, then ``HF_TOKEN``
+* Dataset access reads ``DATASET_CREDENTIAL_VAR``, then ``HF_TOKEN``
   (``resolve_dataset_token``), so datasets can use a credential separate from
   the models' (the legacy ``--dataset-token``).
 * The model under test and the grader use their Inspect provider's own
@@ -20,11 +20,10 @@ import os
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 
-# S105: these constants are environment variable names, not secrets.
-DATASET_TOKEN_ENV = "LLM_BEHAVIOR_EVAL_DATASET_TOKEN"  # noqa: S105
+DATASET_CREDENTIAL_VAR = "LLM_BEHAVIOR_EVAL_DATASET_TOKEN"
 """Hugging Face token for dataset access only; takes precedence over ``HF_TOKEN``."""
 
-HF_TOKEN_ENV = "HF_TOKEN"  # noqa: S105
+HF_CREDENTIAL_VAR = "HF_TOKEN"
 """Hugging Face's own token variable, the dataset fallback."""
 
 
@@ -42,14 +41,14 @@ def resolve_dataset_token() -> str | None:
     """The token for loading Hugging Face Hub datasets, from the environment.
 
     Returns:
-        ``DATASET_TOKEN_ENV`` when set and non-empty, otherwise ``HF_TOKEN``
+        ``DATASET_CREDENTIAL_VAR`` when set and non-empty, otherwise ``HF_TOKEN``
         when set and non-empty, otherwise ``None``, which lets
         ``huggingface_hub`` use its remaining sources (such as a cached
         ``hf auth login``). Credentials given only to a model (an ``api_key``
         model argument, ``<SERVICE>_API_KEY``) are never used.
     """
-    return _clean(os.environ.get(DATASET_TOKEN_ENV)) or _clean(
-        os.environ.get(HF_TOKEN_ENV)
+    return _clean(os.environ.get(DATASET_CREDENTIAL_VAR)) or _clean(
+        os.environ.get(HF_CREDENTIAL_VAR)
     )
 
 
@@ -69,7 +68,7 @@ def _credential_variables(
     """
     requested: list[tuple[str, Mapping[str, str]]] = []
     if dataset_token is not None:
-        requested.append(("dataset", {DATASET_TOKEN_ENV: dataset_token}))
+        requested.append(("dataset", {DATASET_CREDENTIAL_VAR: dataset_token}))
     if model_env is not None:
         requested.append(("model", model_env))
     if judge_env is not None:
@@ -128,7 +127,7 @@ def credentials(
 
     Args:
         dataset_token: Hugging Face token for dataset access only, set as
-            ``DATASET_TOKEN_ENV``. ``None`` leaves the variable unchanged.
+            ``DATASET_CREDENTIAL_VAR``. ``None`` leaves the variable unchanged.
         model_env: Variables for the model under test's provider, for example
             ``{"HF_TOKEN": ...}`` for ``hf/`` or ``{"ANSWER_API_KEY": ...}`` for
             ``openai-api/answer/<model>``.

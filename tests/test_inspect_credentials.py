@@ -12,8 +12,8 @@ from inspect_ai.model import get_model
 from inspect_ai.solver import generate
 
 from llm_behavior_eval.common.credentials import (
-    DATASET_TOKEN_ENV,
-    HF_TOKEN_ENV,
+    DATASET_CREDENTIAL_VAR,
+    HF_CREDENTIAL_VAR,
     credentials,
     resolve_dataset_token,
 )
@@ -34,8 +34,8 @@ HF_SENTINEL = "hf_ENVIRONMENT_SENTINEL_NOT_A_REAL_SECRET"
 
 # Variables these tests set; each test starts with all of them unset.
 MANAGED = (
-    DATASET_TOKEN_ENV,
-    HF_TOKEN_ENV,
+    DATASET_CREDENTIAL_VAR,
+    HF_CREDENTIAL_VAR,
     "ANSWER_API_KEY",
     "ANSWER_BASE_URL",
     "AIRGAP_API_KEY",
@@ -73,9 +73,9 @@ def test_dataset_token_precedence(
     expected: str | None,
 ) -> None:
     if dataset is not None:
-        monkeypatch.setenv(DATASET_TOKEN_ENV, dataset)
+        monkeypatch.setenv(DATASET_CREDENTIAL_VAR, dataset)
     if hf is not None:
-        monkeypatch.setenv(HF_TOKEN_ENV, hf)
+        monkeypatch.setenv(HF_CREDENTIAL_VAR, hf)
     assert resolve_dataset_token() == expected
 
 
@@ -83,9 +83,9 @@ def test_dataset_token_precedence(
     ("variables", "expected"),
     [
         ({}, {}),
-        ({HF_TOKEN_ENV: "hf-env"}, {"token": "hf-env"}),
+        ({HF_CREDENTIAL_VAR: "hf-env"}, {"token": "hf-env"}),
         (
-            {DATASET_TOKEN_ENV: "dataset-env", HF_TOKEN_ENV: "hf-env"},
+            {DATASET_CREDENTIAL_VAR: "dataset-env", HF_CREDENTIAL_VAR: "hf-env"},
             {"token": "dataset-env"},
         ),
     ],
@@ -115,71 +115,80 @@ def test_snapshot_loads_ignore_the_dataset_token(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     Dataset.from_list([{"id": "a"}]).save_to_disk(tmp_path / "snapshot")
-    monkeypatch.setenv(DATASET_TOKEN_ENV, DATASET_SENTINEL)
+    monkeypatch.setenv(DATASET_CREDENTIAL_VAR, DATASET_SENTINEL)
     assert len(load_hf_dataset("org/id", dataset_path=str(tmp_path / "snapshot"))) == 1
 
 
 def test_credentials_set_and_restore(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(HF_TOKEN_ENV, "ambient")
+    monkeypatch.setenv(HF_CREDENTIAL_VAR, "ambient")
     monkeypatch.setenv("UNRELATED", "kept")
     with credentials(
         dataset_token="dataset",
-        model_env={HF_TOKEN_ENV: "model"},
+        model_env={HF_CREDENTIAL_VAR: "model"},
         judge_env={"AIRGAP_API_KEY": "judge"},
     ):
-        assert os.environ[DATASET_TOKEN_ENV] == "dataset"
-        assert os.environ[HF_TOKEN_ENV] == "model"
+        assert os.environ[DATASET_CREDENTIAL_VAR] == "dataset"
+        assert os.environ[HF_CREDENTIAL_VAR] == "model"
         assert os.environ["AIRGAP_API_KEY"] == "judge"
         # Changes to managed variables inside the block are discarded.
         os.environ["AIRGAP_API_KEY"] = "changed"
-        del os.environ[HF_TOKEN_ENV]
-    assert environment() == {name: None for name in MANAGED} | {HF_TOKEN_ENV: "ambient"}
+        del os.environ[HF_CREDENTIAL_VAR]
+    assert environment() == {name: None for name in MANAGED} | {
+        HF_CREDENTIAL_VAR: "ambient"
+    }
     assert os.environ["UNRELATED"] == "kept"
 
 
 def test_credentials_none_leaves_variables_unchanged(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(DATASET_TOKEN_ENV, "ambient")
+    monkeypatch.setenv(DATASET_CREDENTIAL_VAR, "ambient")
     with credentials():
-        assert os.environ[DATASET_TOKEN_ENV] == "ambient"
+        assert os.environ[DATASET_CREDENTIAL_VAR] == "ambient"
     with credentials(dataset_token=None, model_env={}, judge_env=None):
-        assert os.environ[DATASET_TOKEN_ENV] == "ambient"
-    assert os.environ[DATASET_TOKEN_ENV] == "ambient"
+        assert os.environ[DATASET_CREDENTIAL_VAR] == "ambient"
+    assert os.environ[DATASET_CREDENTIAL_VAR] == "ambient"
 
 
 def test_nested_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(HF_TOKEN_ENV, "ambient")
-    with credentials(dataset_token="outer", model_env={HF_TOKEN_ENV: "outer"}):
+    monkeypatch.setenv(HF_CREDENTIAL_VAR, "ambient")
+    with credentials(dataset_token="outer", model_env={HF_CREDENTIAL_VAR: "outer"}):
         with credentials(dataset_token="inner", judge_env={"AIRGAP_API_KEY": "inner"}):
-            assert os.environ[DATASET_TOKEN_ENV] == "inner"
-            assert os.environ[HF_TOKEN_ENV] == "outer"
+            assert os.environ[DATASET_CREDENTIAL_VAR] == "inner"
+            assert os.environ[HF_CREDENTIAL_VAR] == "outer"
             assert os.environ["AIRGAP_API_KEY"] == "inner"
-        assert os.environ[DATASET_TOKEN_ENV] == "outer"
-        assert os.environ[HF_TOKEN_ENV] == "outer"
+        assert os.environ[DATASET_CREDENTIAL_VAR] == "outer"
+        assert os.environ[HF_CREDENTIAL_VAR] == "outer"
         assert "AIRGAP_API_KEY" not in os.environ
-    assert environment() == {name: None for name in MANAGED} | {HF_TOKEN_ENV: "ambient"}
+    assert environment() == {name: None for name in MANAGED} | {
+        HF_CREDENTIAL_VAR: "ambient"
+    }
 
 
 def test_credentials_restore_on_exception(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(HF_TOKEN_ENV, "ambient")
+    monkeypatch.setenv(HF_CREDENTIAL_VAR, "ambient")
     with pytest.raises(RuntimeError, match="boom"):
         with credentials(dataset_token="outer"):
             with credentials(
                 dataset_token="inner",
-                model_env={HF_TOKEN_ENV: "model"},
+                model_env={HF_CREDENTIAL_VAR: "model"},
                 judge_env={"AIRGAP_API_KEY": "judge"},
             ):
                 raise RuntimeError("boom")
     # Previously unset variables are removed again, set ones restored.
-    assert environment() == {name: None for name in MANAGED} | {HF_TOKEN_ENV: "ambient"}
+    assert environment() == {name: None for name in MANAGED} | {
+        HF_CREDENTIAL_VAR: "ambient"
+    }
 
 
 @pytest.mark.parametrize(
     "arguments",
     [
-        {"model_env": {HF_TOKEN_ENV: "model"}, "judge_env": {HF_TOKEN_ENV: "judge"}},
-        {"dataset_token": "dataset", "model_env": {DATASET_TOKEN_ENV: "other"}},
+        {
+            "model_env": {HF_CREDENTIAL_VAR: "model"},
+            "judge_env": {HF_CREDENTIAL_VAR: "judge"},
+        },
+        {"dataset_token": "dataset", "model_env": {DATASET_CREDENTIAL_VAR: "other"}},
         {"dataset_token": ""},
         {"dataset_token": " \n"},
         {"judge_env": {"AIRGAP_API_KEY": ""}},
@@ -191,7 +200,7 @@ def test_credentials_restore_on_exception(monkeypatch: pytest.MonkeyPatch) -> No
 def test_invalid_credentials_change_nothing(
     monkeypatch: pytest.MonkeyPatch, arguments: dict[str, Any]
 ) -> None:
-    monkeypatch.setenv(HF_TOKEN_ENV, "ambient")
+    monkeypatch.setenv(HF_CREDENTIAL_VAR, "ambient")
     before = dict(os.environ)
     with pytest.raises(ValueError) as error:
         with credentials(**arguments):
@@ -204,10 +213,10 @@ def test_invalid_credentials_change_nothing(
 
 def test_same_value_for_two_roles_is_allowed() -> None:
     with credentials(
-        model_env={HF_TOKEN_ENV: "shared"}, judge_env={HF_TOKEN_ENV: "shared"}
+        model_env={HF_CREDENTIAL_VAR: "shared"}, judge_env={HF_CREDENTIAL_VAR: "shared"}
     ):
-        assert os.environ[HF_TOKEN_ENV] == "shared"
-    assert HF_TOKEN_ENV not in os.environ
+        assert os.environ[HF_CREDENTIAL_VAR] == "shared"
+    assert HF_CREDENTIAL_VAR not in os.environ
 
 
 def test_non_string_credentials_are_rejected() -> None:
@@ -218,11 +227,11 @@ def test_non_string_credentials_are_rejected() -> None:
 
 
 def test_dataset_and_model_credentials_are_separate() -> None:
-    with credentials(dataset_token="dataset", model_env={HF_TOKEN_ENV: "model"}):
+    with credentials(dataset_token="dataset", model_env={HF_CREDENTIAL_VAR: "model"}):
         # The dataset uses its own credential, the hf/ model HF_TOKEN.
         assert resolve_dataset_token() == "dataset"
-        assert os.environ[HF_TOKEN_ENV] == "model"
-    with credentials(model_env={HF_TOKEN_ENV: "model"}):
+        assert os.environ[HF_CREDENTIAL_VAR] == "model"
+    with credentials(model_env={HF_CREDENTIAL_VAR: "model"}):
         # Without a dataset credential, datasets fall back to HF_TOKEN.
         assert resolve_dataset_token() == "model"
     with credentials(judge_env={"AIRGAP_API_KEY": "judge"}):
@@ -257,7 +266,7 @@ def test_eval_separates_credentials_and_logs_none(
 
     monkeypatch.setattr(datasets, "load_dataset", load)
     # Set in the environment directly, outside the context manager.
-    monkeypatch.setenv(HF_TOKEN_ENV, HF_SENTINEL)
+    monkeypatch.setenv(HF_CREDENTIAL_VAR, HF_SENTINEL)
     with (
         local_openai_judge("2") as answer,
         local_openai_judge("SCORE: 1") as judge,
@@ -287,9 +296,9 @@ def test_eval_separates_credentials_and_logs_none(
     assert judge.authorizations == [f"Bearer {JUDGE_SENTINEL}"]
     for sentinel in (DATASET_SENTINEL, MODEL_SENTINEL, JUDGE_SENTINEL, HF_SENTINEL):
         assert_no_credentials_logged(log, sentinel)
-    for name in (DATASET_TOKEN_ENV, "ANSWER_API_KEY", "AIRGAP_API_KEY"):
+    for name in (DATASET_CREDENTIAL_VAR, "ANSWER_API_KEY", "AIRGAP_API_KEY"):
         assert name not in os.environ
-    assert os.environ[HF_TOKEN_ENV] == HF_SENTINEL
+    assert os.environ[HF_CREDENTIAL_VAR] == HF_SENTINEL
 
 
 def test_per_model_api_keys_are_not_logged(tmp_path: Path) -> None:
@@ -352,7 +361,7 @@ def test_hf_models_take_separate_tokens_through_api_key(
 
     monkeypatch.setattr(hf, "AutoModelForCausalLM", loader("model"))
     monkeypatch.setattr(hf, "AutoTokenizer", loader("tokenizer"))
-    monkeypatch.setenv(HF_TOKEN_ENV, HF_SENTINEL)
+    monkeypatch.setenv(HF_CREDENTIAL_VAR, HF_SENTINEL)
     get_model("hf/org/answer", api_key="answer-token", memoize=False, device="cpu")
     get_model("hf/org/judge", api_key="judge-token", memoize=False, device="cpu")
     # Without api_key, no token is passed and huggingface_hub reads HF_TOKEN.

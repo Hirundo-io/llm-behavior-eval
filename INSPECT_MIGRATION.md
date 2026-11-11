@@ -158,7 +158,7 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
 * `credentials.resolve_dataset_token()` returns the dataset credential from the
   environment. `credentials.credentials(*, dataset_token=None, model_env=None,
   judge_env=None)` sets credential variables for a `with` block and restores
-  them (see [Credentials](#credentials)). `credentials.DATASET_TOKEN_ENV` is
+  them (see [Credentials](#credentials)). `credentials.DATASET_CREDENTIAL_VAR` is
   `"LLM_BEHAVIOR_EVAL_DATASET_TOKEN"`.
 * `dataset.legacy_order(num_rows, seed=LEGACY_SHUFFLE_SEED)` returns source row
   positions in the legacy engine's `Dataset.shuffle(seed=42)` order. Convert
@@ -175,11 +175,14 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
   model under test. **The scorer passes no GenerateConfig**: the grader uses only
   its role's config. `only_stop=True` skips answers whose stop reason is not
   `stop`, and raises `StopReasonUnavailableError` when the model under test runs
-  on Inspect's `hf/` provider (see [Stop reasons](#stop-reasons)). The thinking
+  on a provider that reports no stop reasons, such as Inspect's `hf/` (see
+  [Stop reasons](#stop-reasons)). The thinking
   arguments are the benchmark's [task arguments](#thinking-trace-task-arguments).
   The verdict regex runs on the grader's final answer, after its inline
   `<think>...</think>` trace is removed (always, whatever the task arguments);
-  `raw_judge_text` keeps the whole reply.
+  `raw_judge_text` keeps the whole reply. A grader reply that ends inside an
+  unclosed `<think>` trace (for example, cut off at `max_tokens`) has no final
+  answer, so it is a `parse_error` even if the trace contains a verdict.
   Unmatched, unparsable and non-finite (`nan`, `inf`) grades become
   `parse_error` scores. Skips and parse errors have placeholder value 0 and are
   excluded by `field_rate`; never average them with a plain mean. Score metadata
@@ -192,7 +195,7 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
   defaults (see [below](#thinking-trace-task-arguments)).
 * `judge.require_stop_reason(state)` raises `StopReasonUnavailableError` when the
   model under test runs on a provider in `judge.NO_STOP_REASON_PROVIDERS`
-  (`{"hf"}`). Benchmark scorers that filter or score on `stop_reason` without
+  (`{"hf", "nnterp", "transformer_lens"}`). Benchmark scorers that filter or score on `stop_reason` without
   `judge_scorer(only_stop=True)` call it first.
 * `metrics.field_rate(field=None, *, metadata_key=None, metadata_value=None)`
   averages scalar scores, or one field of dict scores, over eligible epoch
@@ -338,7 +341,7 @@ The grader gets only its role's GenerateConfig, plus operational settings
 | CLI flags | `--temperature 0 --max-tokens 128` (also `--top-p`, `--top-k`, `--seed`, `--reasoning-effort`, `--reasoning-tokens`, `--extra-body`, ...) |
 | CLI file | `--generate-config answer.yaml`, a YAML/JSON mapping of GenerateConfig fields, for example `temperature: 0.0` and `max_tokens: 128`. Unknown keys are rejected. Flags override file values. |
 | Provider args | `-M name=value`, or `--model-config args.yaml` |
-| Python | `eval(task, model="hf/org/repo", model_args={"do_sample": False}, temperature=0.0, max_tokens=128)` |
+| Python | `eval(task, model="vllm/org/repo", model_args={"max_model_len": 8192}, temperature=0.0, max_tokens=128)` |
 
 ### Grader role
 
@@ -360,7 +363,7 @@ from the environment, or takes `base_url`/`api_key` as model args.
 export AIRGAP_BASE_URL=http://judge.internal:8000/v1
 export AIRGAP_API_KEY=...   # or a placeholder for a no-auth server
 inspect eval llm_behavior_eval/<benchmark> \
-  --model hf/org/answer -M do_sample=false --temperature 0 --max-tokens 128 \
+  --model vllm/org/answer --temperature 0 --max-tokens 128 \
   --model-role 'grader={model: openai-api/airgap/judge, temperature: 0.0, max_tokens: 32}'
 ```
 
@@ -377,8 +380,7 @@ grader = get_model(
 )
 eval(
     "llm_behavior_eval/<benchmark>",
-    model="hf/local",
-    model_args={"model_path": "/models/answer", "do_sample": False},
+    model="vllm//models/answer",
     model_roles={"grader": grader},
     temperature=0.0,
     max_tokens=128,
@@ -441,18 +443,18 @@ them to its scorer, which passes them to `judge_scorer` or `strip_thinking`
 ### Stop reasons
 
 `judge_scorer(only_stop=True)` and `incomplete_response_rate` read the answer's
-stop reason. Inspect's `hf/` provider cannot report one: it leaves every
-`stop_reason` at `unknown` and reports the padded batch length as every answer's
-output token count, so a finished answer cannot be told from a truncated one,
-even after the fact. Therefore:
+stop reason. Inspect's `hf/`, `nnterp/` and `transformer_lens/` providers cannot
+report one: they leave every `stop_reason` at `unknown`. `hf/` also reports the
+padded batch length as every answer's output token count, so a finished answer
+cannot be told from a truncated one, even after the fact. Therefore:
 
-* `only_stop=True` with an `hf/` model under test raises
+* `only_stop=True` with a model under test on one of these providers raises
   `StopReasonUnavailableError` (the eval fails) instead of skipping every answer.
   Serve the model with `vllm/` or an OpenAI-compatible endpoint. Scorers that
   filter on the stop reason themselves call `require_stop_reason(state)`.
 * `incomplete_response_rate` counts `max_tokens` and `model_length` as
   incomplete and leaves `unknown` (and missing) stop reasons out of its
-  denominator. On `hf/` it is NaN, not 0.
+  denominator. On these providers it is NaN, not 0.
 * Elsewhere, an `unknown` answer under `only_stop=True` is skipped.
 
 The parity evidence was produced with the model under test served by vLLM,
@@ -471,7 +473,7 @@ CLI reader would silently resolve to the last value; the error names the key
 and, for YAML, its line. Every shipped `parity.yaml` is checked by the tests.
 
 ```sh
-inspect eval llm_behavior_eval/<benchmark> --model hf/org/answer -M do_sample=false \
+inspect eval llm_behavior_eval/<benchmark> --model vllm/org/answer \
   --run-config llm_behavior_eval/<benchmark>/parity.yaml
 ```
 
@@ -484,8 +486,7 @@ from llm_behavior_eval.common.parity import parity_config_path, read_parity_conf
 
 eval(
     "llm_behavior_eval/<benchmark>",
-    model="hf/org/answer",
-    model_args={"do_sample": False},
+    model="vllm/org/answer",
     **read_parity_config(parity_config_path("llm_behavior_eval.<benchmark>")),
 )
 ```
@@ -493,8 +494,10 @@ eval(
 Like the CLI, `read_parity_config` constructs the grader model, which may load its
 weights. To keep parity settings with another judge endpoint, copy the file and
 change the grader's `model`, `args` or `base_url`. Model-under-test provider args
-such as `-M do_sample=false` stay on the command line because the file does not
-name that model. `inspect_template/parity.yaml` shows the format with
+such as `-M max_model_len=8192` stay on the command line because the file does
+not name that model. Benchmarks that grade only finished answers need a model
+under test that reports stop reasons, so these examples serve it with `vllm/`
+(see [Stop reasons](#stop-reasons)). `inspect_template/parity.yaml` shows the format with
 illustrative values.
 
 ## Credentials
@@ -558,7 +561,7 @@ with credentials(
 ):
     eval(
         "llm_behavior_eval/<benchmark>",
-        model=get_model("hf/org/answer", memoize=False),
+        model=get_model("vllm/org/answer", memoize=False),
         model_roles={"grader": get_model("openai-api/airgap/judge", memoize=False)},
     )
 ```
@@ -589,9 +592,9 @@ variable unchanged.
   it read then. Build models inside the block with `get_model(...,
   memoize=False)`, as above, or use a separate process.
 
-### Mapping from `main` (LLM-148)
+### Mapping from `main`
 
-On `main`, LLM-148 (PR #186) added `--dataset-token` (`dataset_token` in the
+On `main`, PR #186 added `--dataset-token` (`dataset_token` in the
 evaluation config, excluded from saved configs), independent of
 `--model-token` and `--judge-token`. Without it, datasets used the loader's
 default authentication (`HF_TOKEN` or a cached login) and never the model
@@ -632,8 +635,9 @@ none of which appear in its `.eval` log.
   instead of the model's own `generation_config.json` limit. vLLM, SGLang and
   `openai-api` send no limit when unset; some hosted providers (for example
   Anthropic, Together, Groq) substitute their own Inspect default.
-* **Inspect's HF provider reports no stop reason.** See
-  [Stop reasons](#stop-reasons): `only_stop` scorers fail on `hf/`, and
+* **Inspect's HF provider reports no stop reason** (nor do `nnterp/` and
+  `transformer_lens/`). See [Stop reasons](#stop-reasons): `only_stop` scorers
+  fail on them, and
   `incomplete_response_rate` is NaN.
 * **Grading is non-deterministic unless you override it.** Model-recommended
   generation defaults for judges are often sampling (for example
@@ -665,7 +669,7 @@ applies to the model under test; put the same keys under the grader's
 | `--exclude-thinking-trace-for-judge` / `--include-thinking-trace-for-judge`, `--thinking-start-token`, `--thinking-end-token` | `-T exclude_thinking_trace_for_judge=true/false`, `-T thinking_start_token=...`, `-T thinking_end_token=...`. Stripping defaults to **on** with `<think>`/`</think>`; legacy defaulted to off. |
 | `--dataset-path` | Benchmark task parameter `-T dataset_path=...`. |
 | `--dataset-token` | No task parameter. Set `LLM_BEHAVIOR_EVAL_DATASET_TOKEN` (falls back to `HF_TOKEN`), or `credentials(dataset_token=...)` in Python; see [Credentials](#credentials). |
-| `--model-token`, `--judge-token` | No task parameter. Each role's provider variable, or Inspect's per-model `api_key`; see [Mapping from `main`](#mapping-from-main-llm-148). |
+| `--model-token`, `--judge-token` | No task parameter. Each role's provider variable, or Inspect's per-model `api_key`; see [Mapping from `main`](#mapping-from-main). |
 | max_samples | `--limit N` / `eval(limit=N)`, or `eval_config.limit` in a parity config. Without a limit, Inspect runs the full split. |
 | use-4bit / use-4bit-judge | HF forwards remaining model args to Transformers. Use Python `quantization_config=BitsAndBytesConfig(load_in_4bit=True)`; no portable boolean CLI alias is implemented. Requires compatible bitsandbytes/GPU. Not vLLM. |
 | device_map | HF `-M device=auto` (Inspect supplies this as device_map); don't pass device_map again |

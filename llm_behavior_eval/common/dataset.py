@@ -44,7 +44,7 @@ def load_hf_dataset(
     There is no token parameter. Benchmarks call this with their task
     arguments, and Inspect records every task argument in the ``.eval`` log, so
     gated Hub datasets authenticate from the environment:
-    ``credentials.resolve_dataset_token`` reads ``DATASET_TOKEN_ENV``
+    ``credentials.resolve_dataset_token`` reads ``DATASET_CREDENTIAL_VAR``
     (``LLM_BEHAVIOR_EVAL_DATASET_TOKEN``), then ``HF_TOKEN``. Without either,
     no token is passed and ``datasets`` uses its own sources (such as a cached
     ``hf auth login``). Snapshot directories take no token.
