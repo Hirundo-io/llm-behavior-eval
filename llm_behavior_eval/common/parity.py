@@ -38,21 +38,50 @@ class DuplicateKeyError(ValueError):
 class _StrictSafeLoader(yaml.SafeLoader):
     """``yaml.SafeLoader`` that rejects repeated keys in any mapping."""
 
-    def construct_mapping(
-        self, node: yaml.MappingNode, deep: bool = False
-    ) -> dict[Any, Any]:
+    def construct_document(self, node: yaml.Node) -> Any:
+        # Validate the composed graph before construction: SafeLoader's
+        # ``flatten_mapping`` merges ``<<`` sources into their target in place,
+        # so after construction starts a merge source's own keys can no longer
+        # be told apart from the keys merged into it.
+        self._reject_duplicate_keys(node)
+        return super().construct_document(node)
+
+    def _reject_duplicate_keys(self, root: yaml.Node) -> None:
+        """Reject a key repeated within any one mapping of the document.
+
+        Every original mapping is checked once, including merge sources given
+        inline, through an alias or in a sequence. Merge keys (``<<``) are not
+        compared: a mapping may hold several, and its explicit keys may
+        override merged ones, as YAML defines.
+        """
+        seen: set[int] = set()
+        pending = [root]
+        while pending:
+            node = pending.pop()
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            if isinstance(node, yaml.SequenceNode):
+                pending.extend(node.value)
+            elif isinstance(node, yaml.MappingNode):
+                self._reject_duplicate_mapping_keys(node)
+                for key_node, value_node in node.value:
+                    pending.extend((key_node, value_node))
+
+    def _reject_duplicate_mapping_keys(self, node: yaml.MappingNode) -> None:
         first_lines: dict[Any, int] = {}
         for key_node, _ in node.value:
-            # Merge keys (``<<: *anchor``) may legitimately repeat and be
-            # overridden by explicit keys; YAML defines that precedence.
-            if key_node.tag == _YAML_MERGE_TAG:
+            # Only scalar keys are compared; SafeLoader rejects the unhashable
+            # collection keys itself.
+            if key_node.tag == _YAML_MERGE_TAG or not isinstance(
+                key_node, yaml.ScalarNode
+            ):
                 continue
             key = self.construct_object(key_node, deep=True)
             try:
                 first_line = first_lines.get(key)
             except TypeError:
-                # Unhashable key: let SafeLoader raise its own error.
-                break
+                continue
             line = key_node.start_mark.line + 1
             if first_line is not None:
                 raise DuplicateKeyError(
@@ -60,7 +89,6 @@ class _StrictSafeLoader(yaml.SafeLoader):
                     f"{line} (first set at line {first_line})"
                 )
             first_lines[key] = line
-        return super().construct_mapping(node, deep=deep)
 
 
 def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

@@ -238,6 +238,54 @@ def test_yaml_merge_keys_may_be_overridden(tmp_path: Path) -> None:
     assert config["generate_config"] == {"temperature": 0.0, "max_tokens": 128}
 
 
+@pytest.mark.parametrize(
+    ("text", "line"),
+    [
+        ("generate_config:\n  <<: {temperature: 0, temperature: 1}\n", 2),
+        ("generate_config:\n  <<: &base {temperature: 0, temperature: 1}\n", 2),
+        (
+            "base: &base {temperature: 0, temperature: 1}\n"
+            "generate_config:\n  <<: *base\n",
+            1,
+        ),
+        (
+            "bases:\n  - &base {temperature: 0, temperature: 1}\n"
+            "generate_config:\n  <<: [*base]\n",
+            2,
+        ),
+    ],
+    ids=["inline", "anchored_inline", "anchored", "merge_sequence"],
+)
+def test_yaml_merge_sources_reject_duplicate_keys(
+    tmp_path: Path, text: str, line: int
+) -> None:
+    path = tmp_path / "parity.yaml"
+    path.write_text(text)
+    # Plain YAML would silently keep the last value.
+    assert yaml.safe_load(text)["generate_config"] == {"temperature": 1}
+    message = (
+        f"{path}: duplicate key 'temperature' at line {line} (first set at line {line})"
+    )
+    with pytest.raises(DuplicateKeyError) as error:
+        read_parity_config(path)
+    assert str(error.value) == message
+
+
+def test_nested_yaml_merge_overrides_are_not_duplicates(tmp_path: Path) -> None:
+    # ``inner`` overrides a key it merges itself. generate_config merges
+    # ``inner`` before ``inner`` is built; that must not make the override
+    # look like a repeated key.
+    path = tmp_path / "parity.yaml"
+    path.write_text(
+        "base: &base {temperature: 0.0}\n"
+        "outer:\n  inner: &inner {<<: *base, temperature: 1.0}\n"
+        "generate_config: {<<: [*inner, *base], max_tokens: 8}\n"
+    )
+    config = load_run_config(path)
+    assert config["outer"]["inner"] == {"temperature": 1.0}
+    assert config["generate_config"] == {"temperature": 1.0, "max_tokens": 8}
+
+
 def test_missing_parity_config() -> None:
     with pytest.raises(FileNotFoundError):
         parity_config_path("llm_behavior_eval.common")
