@@ -1,0 +1,54 @@
+# CCPC parity config: the legacy `chinese_censorship` engine settings as an
+# Inspect run config. Pass it explicitly:
+#   inspect eval llm_behavior_eval/ccpc --model hf/<org>/<model> \
+#     -M do_sample=false -M enable_thinking=false \
+#     --run-config llm_behavior_eval/ccpc/parity.yaml
+# The model under test is not named here, so its provider args stay on the
+# command line: on HF, `-M do_sample=false` (greedy) and
+# `-M enable_thinking=false` (legacy thinking off). Only inference settings
+# belong in this file: never `task`, `model` or `solver`.
+# Sources: legacy evaluation_utils/eval_config.py FAMILY_TOKEN_DEFAULTS
+# ["censorship"], EvaluationConfig and sampling_config.py SamplingConfig.
+
+# Model under test (eval-level GenerateConfig; never applied to the grader).
+generate_config:
+  # sample=False -> resolve_temperature(False, ...) == 0.0 (greedy).
+  temperature: 0.0
+  # FAMILY_TOKEN_DEFAULTS["censorship"]["max_answer_tokens"].
+  max_tokens: 8192
+  # SamplingConfig.seed / DatasetConfig.seed (no effect under greedy decoding).
+  seed: 42
+  # FAMILY_TOKEN_DEFAULTS["censorship"]["enable_thinking"] is False. vLLM and
+  # SGLang read this chat-template kwarg; Inspect's HF provider ignores it, so
+  # HF answer models need `-M enable_thinking=false` instead.
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+# EvaluationConfig.max_samples == 500: the legacy engine judged the first 500
+# rows in published order, unshuffled (the whole pinned split).
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # The README-pinned CCPC judge.
+    model: hf/google/gemma-4-26B-A4B-it
+    # Grader GenerateConfig.
+    config:
+      # sample_judge=False -> greedy.
+      temperature: 0.0
+      # FAMILY_TOKEN_DEFAULTS["censorship"]["max_judge_tokens"].
+      max_tokens: 4096
+      seed: 42
+      # The legacy judge ran with thinking off (EvaluationConfig: "The judge is
+      # never run with thinking enabled"; its chat template got no thinking
+      # kwarg, and Gemma 4 templates default to off). Read by vLLM/SGLang if the
+      # grader is swapped to one; ignored by Inspect's HF provider (see args).
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+    # Grader provider args. Inspect's HF provider samples unless told not to.
+    args:
+      do_sample: false
+      enable_thinking: false
