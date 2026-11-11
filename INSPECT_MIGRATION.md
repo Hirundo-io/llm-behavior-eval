@@ -268,6 +268,9 @@ not here.
   `parity.yaml`. `parity.read_parity_config(path)` returns `inspect_ai.eval()`
   keyword arguments, parsed by Inspect's own `--run-config` reader. It rejects
   files that set `task`, `model`, `solver`, `tags`, `metadata` or `sandbox`.
+  That reader is private (`inspect_ai._cli.eval.parse_run_config`); the
+  package's only use of it is the adapter `parity.inspect_run_config_kwargs`,
+  whose contract test pins its signature and parsed result.
 
 Sample limits are Inspect's: `--limit N`, `eval(limit=N)`, or `eval_config.limit`
 in a run config. There is no task-level sample cap.

@@ -1,3 +1,4 @@
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -6,11 +7,12 @@ import pytest
 import yaml
 from inspect_ai import eval as inspect_eval
 from inspect_ai.log import EvalSpec
-from inspect_ai.model import GenerateConfig
+from inspect_ai.model import GenerateConfig, Model
 
 from llm_behavior_eval.common.parity import (
     PARITY_CONFIG_FILE,
     DuplicateKeyError,
+    inspect_run_config_kwargs,
     load_run_config,
     parity_config_path,
     read_parity_config,
@@ -23,7 +25,12 @@ from llm_behavior_eval.common.target_metrics import (
 )
 from llm_behavior_eval.inspect_template.task import inspect_template
 
-from inspect_helpers import assert_no_credentials_logged, only_log, run_inspect_cli
+from inspect_helpers import (
+    assert_no_credentials_logged,
+    generation_settings,
+    only_log,
+    run_inspect_cli,
+)
 from inspect_helpers import mock_parity_config as write_mock_parity_config
 
 TEMPLATE = "llm_behavior_eval.inspect_template"
@@ -91,6 +98,42 @@ def test_parity_config_python(tmp_path: Path, mock_parity_config: Path) -> None:
     )
     assert logs[0].status == "success"
     assert_parity_recorded(logs[0].eval)
+
+
+@pytest.mark.parametrize("suffix", ["yaml", "json"])
+def test_inspect_run_config_adapter_contract(
+    tmp_path: Path, mock_parity_config: Path, suffix: str
+) -> None:
+    # inspect_run_config_kwargs wraps Inspect's private --run-config reader.
+    # Pin its signature and the parsed result of a representative parity
+    # config, so an Inspect upgrade that moves or changes it fails here.
+    from inspect_ai._cli.eval import parse_run_config
+    from inspect_ai._util.error import PrerequisiteError
+
+    parameters = list(inspect.signature(parse_run_config).parameters.values())
+    assert [(p.name, p.kind) for p in parameters] == [
+        ("config", inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    path = tmp_path / f"run.{suffix}"
+    config = load_run_config(mock_parity_config)
+    path.write_text(json.dumps(config) if suffix == "json" else yaml.safe_dump(config))
+    kwargs = inspect_run_config_kwargs(path)
+    roles = kwargs.pop("model_roles")
+    # Eval-level GenerateConfig fields and eval options are flattened.
+    assert kwargs == {"temperature": 0.0, "max_tokens": 128, "limit": 500}
+    assert list(roles) == ["grader"]
+    grader = roles["grader"]
+    assert isinstance(grader, Model)
+    assert str(grader) == "mockllm/model"
+    assert generation_settings(grader.config) == {"temperature": 0.0, "max_tokens": 32}
+    # Inspect's validation errors pass through unchanged.
+    bad = tmp_path / f"bad.{suffix}"
+    bad_config = {"generate_config": {"temperatur": 0.0}}
+    bad.write_text(
+        json.dumps(bad_config) if suffix == "json" else yaml.safe_dump(bad_config)
+    )
+    with pytest.raises(PrerequisiteError, match="temperatur"):
+        inspect_run_config_kwargs(bad)
 
 
 @pytest.mark.parametrize(

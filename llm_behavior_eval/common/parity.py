@@ -150,13 +150,42 @@ def parity_config_path(package: str) -> Path:
     return path
 
 
+def inspect_run_config_kwargs(path: str | Path) -> dict[str, Any]:
+    """``inspect_ai.eval()`` keyword arguments from Inspect's own run-config reader.
+
+    This adapter is the package's only use of a private Inspect API. Inspect
+    has no public run-config reader, and ``inspect_ai._cli.eval.parse_run_config``
+    is exactly what ``inspect eval --run-config`` calls, so Python and CLI runs
+    resolve a file identically; reimplementing it would let them drift.
+    ``test_inspect_run_config_adapter_contract`` pins its signature and the
+    parsed result of a representative parity config, and
+    ``test_parity_config_python``/``test_parity_config_cli`` compare it with
+    the CLI, so an Inspect upgrade that moves or changes it fails loudly.
+
+    Args:
+        path: A YAML or JSON run-config file.
+
+    Returns:
+        ``inspect_ai.eval()`` keyword arguments. Like the CLI, the grader
+        role is constructed as a ``Model``, which may load its weights.
+
+    Raises:
+        PrerequisiteError: Inspect rejects the run config.
+    """
+    from inspect_ai._cli.eval import parse_run_config
+
+    return parse_run_config(str(path))
+
+
 def read_parity_config(path: str | Path) -> dict[str, Any]:
     """Keyword arguments for ``inspect_ai.eval()`` from a parity run config.
 
     The file is first checked with ``load_run_config``, which rejects repeated
-    keys. Parsing is then delegated to Inspect's own ``--run-config`` reader, so
-    Python and CLI runs resolve the file identically. Like the CLI, this
-    constructs the grader model, which may load its weights.
+    keys, and for keys that are not inference settings. Parsing is then
+    delegated to Inspect's own ``--run-config`` reader
+    (``inspect_run_config_kwargs``), so Python and CLI runs resolve the file
+    identically. Like the CLI, this constructs the grader model, which may load
+    its weights.
 
     Args:
         path: A YAML or JSON run-config file.
@@ -171,12 +200,6 @@ def read_parity_config(path: str | Path) -> dict[str, Any]:
             ``solver``, ``tags``, ``metadata`` or ``sandbox``.
         PrerequisiteError: Inspect rejects the run config.
     """
-    # Inspect has no public run-config reader. This private one is what
-    # `inspect eval --run-config` calls, so Python and CLI runs agree;
-    # test_parity_config_python and test_parity_config_cli fail if an Inspect
-    # upgrade moves or changes it.
-    from inspect_ai._cli.eval import parse_run_config
-
     raw = load_run_config(path)
     if not isinstance(raw, dict):
         raise ValueError(f"{path} must contain a mapping")
@@ -185,4 +208,4 @@ def read_parity_config(path: str | Path) -> dict[str, Any]:
         raise ValueError(
             f"{path} sets {forbidden}; parity configs hold only inference settings"
         )
-    return parse_run_config(str(path))
+    return inspect_run_config_kwargs(path)
