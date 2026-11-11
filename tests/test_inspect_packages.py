@@ -243,9 +243,9 @@ def test_registry_rejects_a_name_defined_by_two_packages(
     )
     assert result.returncode != 0
     assert (
-        f"{kind} 'llm_behavior_eval/shared_name' is defined by "
-        "llm_behavior_eval.aa_fake_bench.parts, "
-        "llm_behavior_eval.zz_fake_bench.other_parts"
+        f"{kind} 'llm_behavior_eval/shared_name' names 2 different objects, "
+        "bound in [llm_behavior_eval.aa_fake_bench.parts] and "
+        "[llm_behavior_eval.zz_fake_bench.other_parts]"
     ) in result.stderr
 
 
@@ -268,21 +268,40 @@ def test_registry_accepts_package_specific_names(tmp_path: Path) -> None:
 
 
 def test_shipped_registry_names_are_defined_once() -> None:
-    definitions = _registry.registry_definitions()
-    assert definitions[("task", "llm_behavior_eval/inspect_template")] == [
-        "llm_behavior_eval.inspect_template.task"
+    objects = _registry.registry_objects()
+    # Importing an object binds the same object: one entry, every binder listed.
+    assert objects[("task", "llm_behavior_eval/inspect_template")] == [
+        ["llm_behavior_eval._registry", "llm_behavior_eval.inspect_template.task"]
     ]
-    # Shared objects are attributed to common, not to the benchmarks importing them.
-    assert definitions[("scorer", "llm_behavior_eval/judge_scorer")] == [
-        "llm_behavior_eval.common.judge"
+    assert objects[("scorer", "llm_behavior_eval/judge_scorer")] == [
+        ["llm_behavior_eval.common.judge", "llm_behavior_eval.inspect_template.scorer"]
     ]
-    # @metric wraps the factory in an Inspect-internal function; the definition
-    # is still attributed to the module that wrote it.
-    assert definitions[("metric", "llm_behavior_eval/field_rate")] == [
-        "llm_behavior_eval.common.metrics"
+    assert objects[("metric", "llm_behavior_eval/field_rate")] == [
+        ["llm_behavior_eval.common.judge", "llm_behavior_eval.common.metrics"]
     ]
-    assert {key: m for key, m in definitions.items() if len(m) > 1} == {}
+    assert {key: b for key, b in objects.items() if len(b) > 1} == {}
     _registry.check_unique_registry_names()
+
+
+def test_registry_rejects_a_module_level_instance_beside_its_factory(
+    tmp_path: Path,
+) -> None:
+    # Only decorated factories may be bound at module level: an instance
+    # carries its factory's registry name, and is reported rather than
+    # attributed through Inspect internals.
+    result = run_registry_with_extra_packages(
+        tmp_path,
+        {"aa_fake_bench": "aa_fake_bench"},
+        {
+            "aa_fake_bench": {
+                "parts.py": "from llm_behavior_eval.common.metrics import "
+                "field_rate\n\nDEFAULT_RATE = field_rate()\n"
+            }
+        },
+    )
+    assert result.returncode != 0
+    assert "metric 'llm_behavior_eval/field_rate' names 2 different" in (result.stderr)
+    assert "created instances" in result.stderr
 
 
 def test_registry_exports_sorted_task_names() -> None:

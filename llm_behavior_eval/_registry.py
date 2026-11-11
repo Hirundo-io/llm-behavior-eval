@@ -15,14 +15,14 @@ Inspect keeps one registry per object type, keyed by ``<package>/<name>``, and
 the last registration under a name wins. A metric, scorer or solver that two
 modules define under the same name would therefore make ``inspect score`` (and
 anything else that rebuilds objects from a log) run the wrong benchmark's code.
-After the task modules are imported, every registry object defined in a
-``llm_behavior_eval`` module is checked, and a name defined by two modules
-raises ``RuntimeError``. Give benchmark metrics, scorers and solvers a
+After the task modules are imported, every registry object bound at the top
+level of a ``llm_behavior_eval`` module is compared by identity (imports bind
+the same object), and two different objects under one ``(type, name)`` raise
+``RuntimeError``. Give benchmark metrics, scorers and solvers a
 package-specific name (``<benchmark>_metrics``, ``<benchmark>_scorer``, ...).
 """
 
 import sys
-from collections.abc import Callable
 from importlib import import_module
 from typing import Any
 
@@ -69,89 +69,73 @@ def _register_tasks() -> dict[str, Any]:
     return dict(sorted(tasks.items()))
 
 
-def _defining_module(value: Callable[..., Any]) -> str | None:
-    """The module that defines a registered object.
+def registry_objects(root: str = _ROOT) -> dict[tuple[str, str], list[list[str]]]:
+    """Distinct Inspect registry objects bound at the top level of ``root``'s modules.
 
-    Decorators built with ``functools.wraps`` (``@task``, ``@scorer``,
-    ``@solver``) keep the decorated function's ``__module__``; ``@metric``
-    returns an Inspect-internal wrapper that holds the decorated function in
-    its closure. Follow ``__wrapped__`` and closure cells to the first callable
-    defined outside ``inspect_ai``.
-    """
-    pending: list[Callable[..., Any]] = [value]
-    seen: set[int] = set()
-    while pending:
-        current = pending.pop(0)
-        if id(current) in seen:
-            continue
-        seen.add(id(current))
-        module = getattr(current, "__module__", None)
-        if isinstance(module, str) and module.split(".")[0] != "inspect_ai":
-            return module
-        wrapped = getattr(current, "__wrapped__", None)
-        if wrapped is not None:
-            pending.append(wrapped)
-        for cell in getattr(current, "__closure__", None) or ():
-            try:
-                contents = cell.cell_contents
-            except ValueError:  # an empty cell
-                continue
-            if callable(contents):
-                pending.append(contents)
-    return None
-
-
-def registry_definitions(root: str = _ROOT) -> dict[tuple[str, str], list[str]]:
-    """Inspect registry objects defined in ``root``'s imported modules.
-
-    Maps ``(type, registry name)`` to the sorted names of the modules whose
-    top level defines an object registered under it. Objects a module merely
-    imports are attributed to the module that defines them. Only modules that
-    are already imported are inspected.
+    Maps ``(type, registry name)`` to one entry per distinct object (by
+    identity) registered under that name, each entry the sorted names of the
+    modules that bind it. A module that imports an object binds the same
+    object, so imports never add entries; two definitions of one name are two
+    entries. Only modules that are already imported are inspected, and only
+    Inspect's public ``registry_info`` is used.
 
     Args:
         root: Package whose imported modules are inspected.
 
     Returns:
-        ``(type, registry name)`` to the sorted defining module names.
+        ``(type, registry name)`` to the binding modules of each distinct
+        object, sorted.
     """
-    definitions: dict[tuple[str, str], set[str]] = {}
+    found: dict[tuple[str, str], dict[int, set[str]]] = {}
     for module_name, module in list(sys.modules.items()):
         if module is None or not module_name.startswith(f"{root}."):
             continue
         for value in list(vars(module).values()):
             info = _registry_entry(value)
-            if info is None or _defining_module(value) != module_name:
+            if info is None:
                 continue
-            definitions.setdefault((info.type, info.name), set()).add(module_name)
-    return {key: sorted(modules) for key, modules in sorted(definitions.items())}
+            objects = found.setdefault((info.type, info.name), {})
+            objects.setdefault(id(value), set()).add(module_name)
+    return {
+        key: sorted(sorted(modules) for modules in objects.values())
+        for key, objects in sorted(found.items())
+    }
 
 
 def check_unique_registry_names(root: str = _ROOT) -> None:
-    """Fail when two modules define the same registry name.
+    """Fail when two different objects are registered under one name.
+
+    Registry objects bound at a module's top level must be the decorated
+    factories (``@task``, ``@scorer``, ``@solver``, ``@metric``); bind created
+    instances, such as ``field_rate()``, inside functions or containers.
 
     Args:
         root: Package whose imported modules are inspected.
 
     Raises:
-        RuntimeError: Some ``(type, name)`` is defined by more than one module.
+        RuntimeError: Some ``(type, name)`` names more than one object.
     """
     duplicates = [
-        f"{kind} {name!r} is defined by {', '.join(modules)}"
-        for (kind, name), modules in registry_definitions(root).items()
-        if len(modules) > 1
+        f"{kind} {name!r} names {len(bindings)} different objects, bound in "
+        + " and ".join(f"[{', '.join(modules)}]" for modules in bindings)
+        for (kind, name), bindings in registry_objects(root).items()
+        if len(bindings) > 1
     ]
     if duplicates:
         raise RuntimeError(
             "Inspect registry names must be unique; the last definition would "
-            "silently replace the others: " + "; ".join(duplicates)
+            "silently replace the others: "
+            + "; ".join(duplicates)
+            + ". Give each benchmark's metrics, scorers and solvers a "
+            "package-specific name, and bind only decorated factories (not "
+            "created instances) at module level."
         )
 
 
 _TASKS = _register_tasks()
 check_unique_registry_names()
-globals().update(_TASKS)
-# Task names are discovered at import time, so no static form of __all__ can
-# list them: pyrefly reports unresolvable-dunder-all for list(...), [*...] and
-# sorted(...) alike. Benchmark tests read __all__, so keep it and the ignore.
-__all__ = list(_TASKS)  # pyrefly: ignore[unresolvable-dunder-all]
+# Tasks are discovered at import time, so they and __all__ are bound
+# dynamically. __all__ is declared for type checkers, which cannot resolve a
+# computed __all__ (pyrefly: unresolvable-dunder-all).
+__all__: list[str]
+globals().update(_TASKS, __all__=list(_TASKS))

@@ -118,8 +118,11 @@ root-level metrics file, the root `README.md`, `.gitignore` or `pyproject.toml`:
   attributes of `_registry` and listed in its `__all__` (sorted). A task module
   that fails to import fails registration, as an explicit import would; two
   packages registering the same task name raise an error, and so does any
-  metric, scorer or solver name defined by two modules
-  (`_registry.check_unique_registry_names()`). Packages without a
+  `(type, name)` under which two different objects are bound at module level
+  (`_registry.check_unique_registry_names()`, which compares objects by
+  identity through Inspect's public `registry_info`, so imports are fine).
+  Bind only decorated factories at module level, never created instances such
+  as `field_rate()`. Packages without a
   `task` module (`common/`, shared helpers) are not benchmarks.
 * **Target metrics are per package.** `llm_behavior_eval/<benchmark>/target_metrics.json`
   holds only that benchmark's entries; `common.target_metrics` merges them.
