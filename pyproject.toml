@@ -77,6 +77,10 @@ dev = [
   "types-tqdm",
 ]
 
+[tool.uv]
+# Dependency cooldown: resolve only releases at least 7 days old.
+exclude-newer = "7 days"
+
 [tool.uv.sources]
 llm-behavior-eval = { path = ".", editable = true }
 
