@@ -5,8 +5,8 @@ migrated in this layer; each benchmark arrives in its own PR. Inspect 0.3.287 is
 tested and pinned to `<0.3.288`. New dependencies are locked to releases at
 least 7 days old. Every Inspect behavior described below was
 checked against that version's source and is covered by tests in
-`tests/test_inspect_foundation.py`, `tests/test_inspect_packages.py` and
-`tests/test_inspect_template.py`.
+`tests/test_inspect_foundation.py`, `tests/test_inspect_packages.py`,
+`tests/test_inspect_template.py` and `tests/test_inspect_common_contracts.py`.
 Revalidate before widening the pin. Inspect requires Python 3.11+, so its
 dependency has a Python-version marker and Inspect tests are not collected on
 Python 3.10, which remains legacy-only.
@@ -240,12 +240,23 @@ not here.
 * `metrics.field_rate(field=None, *, metadata_key=None, metadata_value=None)`
   averages scalar scores, or one field of dict scores, over eligible epoch
   observations, optionally restricted to a score-metadata subgroup.
+  **Denominator contract** (pinned by `test_field_rate_denominator_contract`):
+  every (sample, epoch) score is an observation, left out of numerator and
+  denominator when (1) its metadata has a truthy `skipped`, (2) a truthy
+  `parse_error`, (3) with `metadata_key` set, the metadata does not map it to
+  `metadata_value` (a missing key is `None`), or (4) the value read is not an
+  `int`/`float` (strings, lists, a dict without `field`, any dict when `field`
+  is `None`; with `field` set a scalar value is read as is). Everything else
+  counts, including `bool` (1/0) and 0. Values are not checked for finiteness,
+  so a `nan`/`inf` that reaches the metric propagates (`judge_scorer` already
+  makes non-finite verdicts parse errors).
   `metrics.incomplete_response_rate()` is the share of observations with a known
-  stop reason that stopped at `max_tokens` or `model_length`. Empty denominators
-  yield NaN. Both are `@metric(scores="unreduced")`.
+  stop reason that stopped at `max_tokens` or `model_length`; observations whose
+  `stop_reason` is missing, `None` or `unknown` leave its denominator. Use it
+  rather than a benchmark copy. Empty denominators yield NaN. Both are
+  `@metric(scores="unreduced")`.
 * `metrics.scores_by_sample(scores)` groups an unreduced metric's observations by
-  `sample_id`, in first-seen order. `metrics.reduced_metrics(task_or_scorer)`
-  lists the metrics that are not unreduced. `metrics.EPOCH_SCORES` is
+  `sample_id`, in first-seen order. `metrics.EPOCH_SCORES` is
   `"unreduced"`; `metrics.INCOMPLETE_STOP_REASONS` and
   `metrics.UNKNOWN_STOP_REASON` name the stop reasons above.
 * `packages.benchmark_packages(root="llm_behavior_eval")` returns the sorted

@@ -45,6 +45,26 @@ def field_rate(
 ) -> Metric:
     """Mean scalar or dict-field score over the eligible epoch observations.
 
+    Denominator contract (pinned by ``test_field_rate_denominator_contract``).
+    Every (sample, epoch) score is one observation; one is left out of both
+    numerator and denominator when, checked in this order:
+
+    1. its metadata has a truthy ``skipped`` (``judge_scorer(only_stop=True)``
+       skipping an unfinished answer);
+    2. its metadata has a truthy ``parse_error`` (an unclosed grader trace, an
+       unmatched, unparsable or non-finite verdict);
+    3. ``metadata_key`` is set and its metadata does not map that key to
+       ``metadata_value`` (a missing key counts as ``None``);
+    4. the value read is not an ``int`` or ``float``: a dict score without
+       ``field``, a dict read with ``field=None``, a string, ``None`` or a
+       list. With ``field`` set, a scalar score value is read as is.
+
+    Everything else counts, including ``bool`` values (as 1 or 0) and value 0.
+    Values are not checked for finiteness: a ``nan`` or ``inf`` that reaches
+    this metric propagates into the mean (``judge_scorer`` already turns
+    non-finite verdicts into parse errors). The placeholder value 0 of skipped
+    and parse-error scores is never averaged. An empty denominator yields NaN.
+
     Args:
         field: Key to read when a score value is a dict. ``None`` reads scalar
             values.
@@ -53,9 +73,8 @@ def field_rate(
         metadata_value: The subgroup value ``metadata_key`` must have.
 
     Returns:
-        A metric that averages the numeric values of every (sample, epoch)
-        score, excluding skipped and unparsed scores and other subgroups, or
-        NaN when none remain.
+        A metric that averages the eligible (sample, epoch) values, or NaN
+        when none remain.
     """
 
     def compute(scores: list[SampleScore]) -> float:
