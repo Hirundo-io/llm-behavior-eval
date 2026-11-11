@@ -22,7 +22,7 @@ from typer.testing import CliRunner
 
 from llm_behavior_eval import _registry
 from llm_behavior_eval.common.judge import THINKING_TASK_ARGS
-from llm_behavior_eval.common.metrics import EPOCH_SCORES, reduced_metrics
+from llm_behavior_eval.common.metrics import EPOCH_SCORES
 from llm_behavior_eval.common.packages import benchmark_packages, subpackages
 from llm_behavior_eval.common.target_metrics import (
     TARGET_METRICS_FILE,
@@ -33,6 +33,8 @@ from llm_behavior_eval.common.target_metrics import (
     target_metrics_files,
     write_target_metrics,
 )
+
+from inspect_helpers import reduced_metrics
 
 REPO = Path(__file__).parents[1]
 PACKAGE_DIR = REPO / "llm_behavior_eval"
@@ -310,7 +312,7 @@ def test_every_benchmark_metric_sees_every_epoch() -> None:
     # The epoch layout (INSPECT_MIGRATION.md, "Epochs"): every metric defined
     # here is unreduced, and so is every metric a scorer declares, including
     # Inspect built-ins. Task-level metrics= lists are checked by each
-    # benchmark's own test with common.metrics.reduced_metrics(task).
+    # benchmark's own test with inspect_helpers.reduced_metrics(task).
     metrics = package_registry_objects("metric")
     assert "llm_behavior_eval/field_rate" in metrics
     assert [

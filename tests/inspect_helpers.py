@@ -11,7 +11,7 @@ import subprocess
 import sys
 import threading
 import zipfile
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,7 +27,9 @@ from inspect_ai import eval as inspect_eval
 from inspect_ai.log import EvalLog, list_eval_logs, read_eval_log
 from inspect_ai.model import GenerateConfig, Model, ModelOutput, get_model
 from inspect_ai.scorer import Metric, SampleScore, Score
+from inspect_ai.util import registry_info
 
+from llm_behavior_eval.common.metrics import EPOCH_SCORES
 from llm_behavior_eval.common.parity import load_run_config, parity_config_path
 
 GENERATION_FIELDS = (
@@ -63,6 +65,48 @@ def rate(metric: Metric) -> Callable[[list[SampleScore]], float]:
 def mapping(metric: Metric) -> Callable[[list[SampleScore]], dict[str, float]]:
     """``metric`` typed as returning a mapping of named values."""
     return cast("Callable[[list[SampleScore]], dict[str, float]]", metric)
+
+
+def reduced_metrics(target: Task | Callable[..., Any]) -> list[str]:
+    """Metrics that would receive epoch-reduced scores.
+
+    For a task, checks the metrics Inspect computes for each of its scorers
+    (``Task(metrics=...)`` when given, otherwise each scorer's own). For a
+    scorer, or a ``@scorer`` factory, checks its declared metrics. Inspect
+    built-ins such as ``accuracy()`` and ``stderr()`` are reduced. Benchmark
+    tests assert that this is empty for their tasks.
+
+    Args:
+        target: A constructed task, a scorer or a ``@scorer`` factory.
+
+    Returns:
+        Sorted registry names of the metrics not declared
+        ``@metric(scores="unreduced")``.
+    """
+    scorers = (target.scorer or []) if isinstance(target, Task) else [target]
+    names: set[str] = set()
+    for scorer in scorers:
+        # Inspect stores a scorer's metrics, or the task's metrics= override,
+        # under this registry metadata key (scorer_metrics() reads it).
+        declared = registry_info(scorer).metadata.get("metrics", [])
+        for item in _flatten_metrics(declared):
+            info = registry_info(item)
+            if info.metadata.get("scores") != EPOCH_SCORES:
+                names.add(info.name)
+    return sorted(names)
+
+
+def _flatten_metrics(
+    metrics: list[Metric | dict[str, list[Metric]]] | dict[str, list[Metric]],
+) -> Iterator[Metric]:
+    """Every metric in Inspect's ``metrics`` shapes (a list, a dict, or both)."""
+    groups = [metrics] if isinstance(metrics, dict) else metrics
+    for group in groups:
+        if isinstance(group, dict):
+            for members in group.values():
+                yield from members
+        else:
+            yield group
 
 
 def eval_metrics(log: EvalLog) -> dict[str, Any]:

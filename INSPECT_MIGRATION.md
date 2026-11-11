@@ -77,6 +77,7 @@ Generic test helpers live in `tests/inspect_helpers.py` (importable as
 | `generation_settings(config)` | The inference fields a `GenerateConfig` sets; `{}` means nothing was set. |
 | `eval_metrics(log)` | Metrics of a successful log's single, unreduced `EvalScore`. |
 | `sample_scores(log, scorer)` | Every sample's `Score` from one scorer, in log order. |
+| `reduced_metrics(task_or_scorer)` | Registry names of the metrics a task or scorer computes that are not `@metric(scores="unreduced")`; assert it is `[]` (see [Epochs](#epochs)). |
 | `rate(metric)`, `mapping(metric)` | A metric typed as returning a float or a mapping, to call it on `SampleScore`s directly. |
 | `only_log(log_dir)` | The one `.eval` log in a directory. |
 | `run_inspect_cli(*args, cwd=...)` | `python -m inspect_ai ... --display none`; asserts it succeeded. Pass a `cwd` other than the repository root (see [Target metrics](#target-metrics)). |
@@ -307,7 +308,7 @@ benchmark reports takes unreduced scores.
 3. Check each metric's formula reads correctly over observations: any
    denominator that was "samples" is now "samples x epochs".
 4. In `tests/test_inspect_<benchmark>.py`, assert
-   `reduced_metrics(<task>(...)) == []`, and add an `epochs=2` eval whose
+   `reduced_metrics(<task>(...)) == []` (from `inspect_helpers`), and add an `epochs=2` eval whose
    epochs differ (for example a truncated then a finished answer) and assert
    the metrics count both. Read metrics from the single
    `[result] = log.results.scores`.

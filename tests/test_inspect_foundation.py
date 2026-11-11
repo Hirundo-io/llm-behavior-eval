@@ -46,7 +46,6 @@ from llm_behavior_eval.common.judge import (
 from llm_behavior_eval.common.metrics import (
     field_rate,
     incomplete_response_rate,
-    reduced_metrics,
     scores_by_sample,
 )
 from llm_behavior_eval.inspect_template.dataset import record_to_sample
@@ -60,6 +59,7 @@ from inspect_helpers import (
     message_text,
     only_log,
     rate,
+    reduced_metrics,
     run_inspect_cli,
     sample_scores,
 )

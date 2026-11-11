@@ -9,7 +9,8 @@ metadata, so ``--epochs N`` aggregates every epoch. When all of a scorer's
 metrics are unreduced, Inspect writes exactly one ``EvalScore`` for that scorer
 (``reducer`` is ``None``), keyed by the same metric names as a single-epoch run.
 A scorer that mixes reduced and unreduced metrics is split into two
-``EvalScore`` entries, so never mix them; ``reduced_metrics`` finds offenders.
+``EvalScore`` entries, so never mix them; the tests' ``reduced_metrics``
+(``tests/inspect_helpers.py``) finds offenders.
 
 Rates and means pool every (sample, epoch) observation; with the same number of
 epochs per sample and no exclusions that equals the mean of per-sample means.
@@ -20,12 +21,9 @@ such as a standard error, must first group a sample's epochs with
 Empty denominators yield NaN.
 """
 
-from collections.abc import Callable, Iterator
 from typing import Any
 
-from inspect_ai import Task
 from inspect_ai.scorer import Metric, SampleScore, metric
-from inspect_ai.util import registry_info
 
 EPOCH_SCORES = "unreduced"
 """The ``scores`` mode every benchmark metric declares: ``@metric(scores=...)``."""
@@ -126,45 +124,3 @@ def scores_by_sample(scores: list[SampleScore]) -> list[list[SampleScore]]:
         key = ("id", sample.sample_id) if sample.sample_id is not None else index
         groups.setdefault(key, []).append(sample)
     return list(groups.values())
-
-
-def reduced_metrics(target: Task | Callable[..., Any]) -> list[str]:
-    """Metrics that would receive epoch-reduced scores.
-
-    For a task, checks the metrics Inspect computes for each of its scorers
-    (``Task(metrics=...)`` when given, otherwise each scorer's own). For a
-    scorer, or a ``@scorer`` factory, checks its declared metrics. Inspect
-    built-ins such as ``accuracy()`` and ``stderr()`` are reduced. Benchmark
-    tests assert that this is empty for their tasks.
-
-    Args:
-        target: A constructed task, a scorer or a ``@scorer`` factory.
-
-    Returns:
-        Sorted registry names of the metrics not declared
-        ``@metric(scores="unreduced")``.
-    """
-    scorers = (target.scorer or []) if isinstance(target, Task) else [target]
-    names: set[str] = set()
-    for scorer in scorers:
-        # Inspect stores a scorer's metrics, or the task's metrics= override,
-        # under this registry metadata key (scorer_metrics() reads it).
-        declared = registry_info(scorer).metadata.get("metrics", [])
-        for item in _flatten_metrics(declared):
-            info = registry_info(item)
-            if info.metadata.get("scores") != EPOCH_SCORES:
-                names.add(info.name)
-    return sorted(names)
-
-
-def _flatten_metrics(
-    metrics: list[Metric | dict[str, list[Metric]]] | dict[str, list[Metric]],
-) -> Iterator[Metric]:
-    """Every metric in Inspect's ``metrics`` shapes (a list, a dict, or both)."""
-    groups = [metrics] if isinstance(metrics, dict) else metrics
-    for group in groups:
-        if isinstance(group, dict):
-            for members in group.values():
-                yield from members
-        else:
-            yield group
