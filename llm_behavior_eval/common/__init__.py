@@ -20,6 +20,11 @@ Shared contracts that change benchmark results, each pinned by
 * Thinking stripping (``judge``): ``strip_thinking`` and
   ``THINKING_TASK_ARGS``, on by default, for the answer under test.
 
+This is a library of building blocks, not a scorer framework. ``judge_scorer``
+and ``field_rate`` are optional conveniences for benchmarks whose verdict and
+denominator fit them; a benchmark's own scorer composes the pieces above
+instead of reimplementing them.
+
 Prompts, datasets and their splits, solvers, scorers, benchmark metrics and
 inference settings belong to each benchmark (or to the user), never here.
 """

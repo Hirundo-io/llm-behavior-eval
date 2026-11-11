@@ -45,6 +45,18 @@ the reporting PR ([#207](https://github.com/Hirundo-io/llm-behavior-eval/pull/20
    `tests/test_inspect_common_contracts.py` pins their exact results.
    Everything else benchmark-specific (prompts, splits, scorers, metrics)
    stays in the benchmark.
+
+   `common/` is a library of building blocks, not a scorer framework. Each
+   benchmark owns its scorer and metrics, because verdict formats and
+   denominators differ. `judge_scorer` and `field_rate` are optional
+   conveniences for a benchmark whose single-verdict format and policies fit
+   them; most benchmarks write their own scorer. A custom scorer **must** use
+   the shared building blocks rather than reimplement them: the `grader` role
+   (`GRADER_ROLE`, `call_grader`), `grader_final_answer` or `parse_verdict`
+   on every grader reply, `strip_thinking` with the `THINKING_TASK_ARGS` task
+   arguments on the answer, `require_stop_reason` before using stop reasons,
+   and `incomplete_response_rate` instead of a copy. Its own metrics follow
+   [Epochs](#epochs).
 4. **No credentials in task arguments.** Inspect writes every task argument
    into the `.eval` log, so no task takes a token, key, secret or password.
    Credentials come from environment variables, set directly or with the
@@ -62,7 +74,7 @@ Each benchmark is a regular subpackage `llm_behavior_eval/<benchmark>/` (it has 
 | `dataset.py` | Loading (`load_hf_dataset(..., split=...)` with the split it scores), full-source validation, `record_to_sample`. |
 | `prompts.py` | System and judge prompts, copied verbatim from the legacy engine. |
 | `solver.py` | Solver chain. No GenerateConfig. |
-| `scorer.py` | Scorer, usually wrapping `common.judge.judge_scorer`. A custom grader flow composes `common.judge`'s public pieces and **must** pass every grader reply through `grader_final_answer` (or `parse_verdict`) before parsing it. Report `incomplete_response_rate` from `common.metrics`, not a copy. |
+| `scorer.py` | The benchmark's own scorer, composed from `common.judge`'s public pieces; it **must** pass every grader reply through `grader_final_answer` (or `parse_verdict`) before parsing it. `common.judge.judge_scorer` is an optional shortcut when its single verdict, `only_stop` eligibility and parse-error policy fit. Report `incomplete_response_rate` from `common.metrics`, not a copy. |
 | `metrics.py` | Benchmark metrics, when `common.metrics` is not enough. Every one is `@metric(scores="unreduced")` (see [Epochs](#epochs)). |
 | `README.md` | What it measures, task arguments, metrics, parity status. |
 | `parity.yaml` | Legacy-engine settings as an Inspect run config (see below). |
@@ -207,7 +219,8 @@ not here.
   `{question}`, `{answer}`, `{target}` and `{metadata}`.
 * `judge.judge_scorer(prompt, pattern, *, parse=float, only_stop=False,
   exclude_thinking_trace_for_judge=True, thinking_start_token="<think>",
-  thinking_end_token="</think>")` calls the `grader` role and parses its reply.
+  thinking_end_token="</think>")`, an optional convenience (see design rule 3),
+  calls the `grader` role and parses its reply.
   Prompt fields are `{question}`, `{answer}`, `{target}`, `{metadata}`. Regex
   group 1 goes to `parse`. The grader role is required and never falls back to the
   model under test. **The scorer passes no GenerateConfig**: the grader uses only
