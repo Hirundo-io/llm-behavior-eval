@@ -37,7 +37,11 @@ Differences from a real benchmark:
 * The task binds a mock grader that always answers `SCORE: 1`. A real benchmark
   binds no grader, so runs fail without `--model-role grader=...`.
 * The dataset is one inline record. A real benchmark loads its full source with
-  `common.dataset.load_hf_dataset` and validates it before conversion.
+  `common.dataset.load_hf_dataset(..., split=...)`, naming the split it scores,
+  and validates it before conversion.
+* The scorer is `common.judge.judge_scorer`. A benchmark with its own grader
+  flow composes `common.judge`'s public pieces instead, and passes every grader
+  reply through `grader_final_answer` (or `parse_verdict`) before parsing it.
 * `target_metrics.json` lists the generic `judge_scorer` metrics. A real
   benchmark lists its own metric names, keyed by its own task name.
 

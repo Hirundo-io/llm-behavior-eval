@@ -1,8 +1,14 @@
-"""Grader call, thinking-trace stripping and answer parsing for judge-based scorers.
+"""Grader call, thinking-trace stripping and verdict parsing for judge-based scorers.
 
 Nothing here sets inference options for either model. The grader is whatever
 model is bound to the ``grader`` role, with whatever GenerateConfig the user gave
 that role; unset options fall through to the serving stack's defaults.
+
+``judge_scorer`` is a thin composition of public pieces that benchmarks with
+their own grader flow use directly: ``strip_thinking`` (answer under test),
+``render_judge_prompt``, ``call_grader``, ``grader_final_answer`` (grader
+reply) and ``parse_verdict``. Any grader reply a benchmark parses itself MUST
+pass through ``grader_final_answer`` (``parse_verdict`` does so) first.
 
 Thinking-trace task arguments: every benchmark ``@task`` takes the arguments in
 ``THINKING_TASK_ARGS``, with exactly these names and defaults, and passes them
@@ -105,21 +111,138 @@ def strip_thinking(
     return answer
 
 
-def _grader_final_answer(reply: str) -> str:
+class UnclosedThinkingError(ValueError):
+    """A grader reply ends inside an open thinking trace, so it has no final answer."""
+
+
+def grader_final_answer(
+    reply: str,
+    *,
+    thinking_start_token: str = THINKING_START,
+    thinking_end_token: str = THINKING_END,
+) -> str:
     """Return the grader's final answer, without its inline thinking trace.
 
-    Unlike ``strip_thinking`` for the answer under test, a reply that ends
-    inside an open trace (for example, cut off at ``max_tokens``) is an error:
-    the grader never gave a final answer, and any verdict in the trace is only
-    an intermediate thought.
+    Every grader reply must pass through this function before a verdict is
+    parsed from it, including in benchmarks that call the grader themselves
+    instead of using ``judge_scorer``. A verdict-like phrase inside the
+    grader's reasoning ("a wrong answer would get SCORE: 0") is only an
+    intermediate thought, never the grade.
+
+    A closed trace (``<think>...</think>``) is removed and the text after the
+    last end marker is returned, stripped. A reply without markers is returned
+    unchanged. Unlike ``strip_thinking`` for the answer under test, a reply
+    whose last start marker has no end marker after it (for example, cut off
+    at ``max_tokens``) is an error: the grader never gave a final answer.
+    Callers record it as a parse error. Structured ``ContentReasoning`` never
+    reaches ``ModelOutput.completion``, so it needs no handling here.
+
+    Args:
+        reply: The grader's reply text (``ModelOutput.completion``).
+        thinking_start_token: Marker that opens the grader's trace.
+        thinking_end_token: Marker that closes the grader's trace.
+
+    Returns:
+        The grader's final answer.
 
     Raises:
-        ValueError: The last ``<think>`` marker has no ``</think>`` after it.
+        UnclosedThinkingError: The reply ends inside an unclosed trace. It is a
+            ``ValueError``, so ``except ValueError`` classifies it as a parse
+            error together with an unmatched or unparsable verdict.
     """
-    start = reply.rfind(THINKING_START)
-    if start != -1 and THINKING_END not in reply[start + len(THINKING_START) :]:
-        raise ValueError("Judge response ends inside an unclosed thinking block")
-    return strip_thinking(reply)
+    start = reply.rfind(thinking_start_token)
+    if (
+        start != -1
+        and thinking_end_token not in reply[start + len(thinking_start_token) :]
+    ):
+        raise UnclosedThinkingError(
+            "Judge response ends inside an unclosed thinking block"
+        )
+    return strip_thinking(
+        reply,
+        thinking_start_token=thinking_start_token,
+        thinking_end_token=thinking_end_token,
+    )
+
+
+def render_judge_prompt(
+    prompt: str, state: TaskState, target: Target, *, answer: str
+) -> str:
+    """Fill the ``{question}``, ``{answer}``, ``{target}`` and ``{metadata}`` fields.
+
+    Args:
+        prompt: Grader prompt template.
+        state: The sample's task state; supplies the question and metadata.
+        target: The sample's target.
+        answer: The answer to grade, usually ``strip_thinking`` of the
+            completion.
+
+    Returns:
+        The rendered prompt.
+    """
+    return prompt.format(
+        question=state.input_text,
+        answer=answer,
+        target=target.text,
+        metadata=state.metadata,
+    )
+
+
+async def call_grader(prompt: str) -> str:
+    """Send ``prompt`` to the ``grader`` role and return its raw reply text.
+
+    The grader role is required: it never falls back to the model under test.
+    No GenerateConfig is passed, so the grader uses only its role's settings.
+    Pass the reply to ``grader_final_answer`` (or ``parse_verdict``, which
+    calls it) before reading a verdict from it.
+
+    Args:
+        prompt: The rendered grader prompt.
+
+    Returns:
+        The grader's ``ModelOutput.completion``.
+    """
+    grader = get_model(role=GRADER_ROLE, required=True)
+    result = await grader.generate(prompt)
+    return result.completion
+
+
+def parse_verdict(
+    reply: str, pattern: str | re.Pattern[str], *, parse: Callable[[str], float] = float
+) -> tuple[float, str]:
+    """Parse a finite verdict from a grader reply's final answer.
+
+    The reply goes through ``grader_final_answer`` first; ``pattern`` is
+    searched in the result, its group 1 is passed to ``parse``, and the value
+    must be finite.
+
+    Args:
+        reply: The grader's raw reply text.
+        pattern: Regex (or compiled pattern) whose group 1 holds the verdict.
+        parse: Converts group 1 to a score; raising ``ValueError`` rejects it.
+
+    Returns:
+        The parsed value and the matched group-1 text.
+
+    Raises:
+        ValueError: The reply ends inside an unclosed thinking trace
+            (``UnclosedThinkingError``), the pattern does not match or has no
+            group 1, ``parse`` rejects the text, or the value is not finite
+            (``nan``, ``inf``). The message says which.
+    """
+    regex = re.compile(pattern)
+    match = regex.search(grader_final_answer(reply))
+    if match is None:
+        raise ValueError("Judge response did not match pattern")
+    try:
+        parsed = match.group(1)
+        value = parse(parsed)
+    except IndexError as exc:
+        # A pattern without group 1, or a parse that indexes past its input.
+        raise ValueError(str(exc)) from exc
+    if not math.isfinite(value):
+        raise ValueError(f"Judge score is not finite: {parsed!r}")
+    return value, parsed
 
 
 @scorer(metrics=[field_rate(), incomplete_response_rate()])
@@ -135,19 +258,25 @@ def judge_scorer(
 ) -> Scorer:
     """Ask the ``grader`` role to judge an answer; regex group 1 feeds ``parse``.
 
+    A thin composition of the public pieces above, so a benchmark with a
+    different policy composes them instead of forking this scorer:
+
+    1. Eligibility (policy): with ``only_stop``, ``require_stop_reason`` and
+       then skip any answer whose stop reason is not ``stop``, without calling
+       the grader (value 0, ``skipped`` metadata).
+    2. ``strip_thinking`` of the answer (the task's thinking arguments), then
+       ``render_judge_prompt`` and ``call_grader``.
+    3. ``parse_verdict`` (``grader_final_answer``, regex, ``parse``, finite
+       check).
+    4. Parse-error classification (policy): any ``ValueError`` from step 3
+       becomes value 0 with ``parse_error`` metadata holding its message.
+
     The grader role is required: it never falls back to the model under test.
     Generation settings come only from the role's own GenerateConfig; this
-    scorer passes none. The verdict regex is applied to the grader's final
-    answer: an inline ``<think>...</think>`` trace in the grader's reply is
-    removed first (structured reasoning never reaches ``completion``), and the
-    full reply stays in ``raw_judge_text``. A reply that ends inside an
-    unclosed ``<think>`` trace has no final answer and is a parse error.
-
-    Invalid (unclosed, unmatched, unparsable or non-finite) and skipped scores
-    have value 0 with ``parse_error``/``skipped`` metadata, and are excluded by
-    ``field_rate``.
-    The answer's stop reason is kept in score metadata. Benchmark scorers may
-    wrap this scorer and supply their own metrics.
+    scorer passes none. The full reply stays in ``raw_judge_text``. Skipped
+    and parse-error scores are excluded by ``field_rate``. The answer's stop
+    reason is kept in score metadata. Benchmark scorers may wrap this scorer
+    and supply their own metrics.
 
     Args:
         prompt: Grader prompt, formatted with ``{question}``, ``{answer}``,
@@ -191,25 +320,13 @@ def judge_scorer(
             thinking_start_token=thinking_start_token,
             thinking_end_token=thinking_end_token,
         )
-        rendered = prompt.format(
-            question=state.input_text,
-            answer=answer,
-            target=target.text,
-            metadata=state.metadata,
+        raw = await call_grader(
+            render_judge_prompt(prompt, state, target, answer=answer)
         )
-        grader = get_model(role=GRADER_ROLE, required=True)
-        result = await grader.generate(rendered)
-        raw = result.completion
         metadata["raw_judge_text"] = raw
         try:
-            match = regex.search(_grader_final_answer(raw))
-            if match is None:
-                raise ValueError("Judge response did not match pattern")
-            parsed = match.group(1)
-            value = parse(parsed)
-            if not math.isfinite(value):
-                raise ValueError(f"Judge score is not finite: {parsed!r}")
-        except (ValueError, IndexError) as exc:
+            value, parsed = parse_verdict(raw, regex, parse=parse)
+        except ValueError as exc:
             metadata["parse_error"] = str(exc)
             return Score(value=0, answer=raw, explanation=str(exc), metadata=metadata)
         return Score(value=value, answer=parsed, explanation=raw, metadata=metadata)

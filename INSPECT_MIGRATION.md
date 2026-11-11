@@ -52,10 +52,10 @@ Each benchmark is a regular subpackage `llm_behavior_eval/<benchmark>/` (it has 
 | File | Contents |
 | --- | --- |
 | `task.py` | The `@task` function. No `config=`, no default grader. Takes the [thinking-trace task arguments](#thinking-trace-task-arguments). |
-| `dataset.py` | Loading, full-source validation, `record_to_sample`. |
+| `dataset.py` | Loading (`load_hf_dataset(..., split=...)` with the split it scores), full-source validation, `record_to_sample`. |
 | `prompts.py` | System and judge prompts, copied verbatim from the legacy engine. |
 | `solver.py` | Solver chain. No GenerateConfig. |
-| `scorer.py` | Scorer, usually wrapping `common.judge.judge_scorer`. |
+| `scorer.py` | Scorer, usually wrapping `common.judge.judge_scorer`. A custom grader flow composes `common.judge`'s public pieces and **must** pass every grader reply through `grader_final_answer` (or `parse_verdict`) before parsing it. Report `incomplete_response_rate` from `common.metrics`, not a copy. |
 | `metrics.py` | Benchmark metrics, when `common.metrics` is not enough. Every one is `@metric(scores="unreduced")` (see [Epochs](#epochs)). |
 | `README.md` | What it measures, task arguments, metrics, parity status. |
 | `parity.yaml` | Legacy-engine settings as an Inspect run config (see below). |
@@ -175,6 +175,25 @@ not here.
 * `dataset.to_inspect_dataset(records, record_to_sample, *, dataset_id)` converts
   every record, in source order, into a `MemoryDataset`. Validate the complete
   source first. Supply stable sample IDs and subgroup metadata.
+* `judge.grader_final_answer(reply, *, thinking_start_token="<think>",
+  thinking_end_token="</think>")` returns the grader's final answer: a closed
+  inline trace is removed (the text after the last end marker, stripped), a
+  reply without markers is unchanged, and a reply whose last start marker is
+  never closed raises `judge.UnclosedThinkingError` (a `ValueError`): the
+  grader gave no final answer, so the caller records a parse error. **Any
+  grader reply a benchmark parses itself (a custom scorer, a multi-step or
+  per-field grader flow) MUST pass through `grader_final_answer` (or
+  `parse_verdict`, which calls it) before parsing.** A verdict inside the
+  grader's reasoning is only an intermediate thought.
+* `judge.parse_verdict(reply, pattern, *, parse=float)` applies
+  `grader_final_answer`, searches `pattern` and returns `(parse(group 1),
+  group 1)`. An unclosed trace, no match, no group 1, a `parse` rejection and
+  a non-finite value (`nan`, `inf`) all raise `ValueError` with a message
+  naming the cause.
+* `judge.call_grader(prompt)` sends a rendered prompt to the required `grader`
+  role, passing no GenerateConfig, and returns the raw reply text.
+  `judge.render_judge_prompt(prompt, state, target, *, answer)` fills
+  `{question}`, `{answer}`, `{target}` and `{metadata}`.
 * `judge.judge_scorer(prompt, pattern, *, parse=float, only_stop=False,
   exclude_thinking_trace_for_judge=True, thinking_start_token="<think>",
   thinking_end_token="</think>")` calls the `grader` role and parses its reply.
@@ -195,6 +214,15 @@ not here.
   `parse_error` scores. Skips and parse errors have placeholder value 0 and are
   excluded by `field_rate`; never average them with a plain mean. Score metadata
   holds the sample metadata, `stop_reason` and `raw_judge_text`.
+  It is a thin composition of the pieces above: (1) eligibility, a **policy**:
+  with `only_stop`, `require_stop_reason` then skip answers not stopped by
+  `stop` without calling the grader (value 0, `skipped`); (2) `strip_thinking`
+  of the answer, `render_judge_prompt`, `call_grader`; (3) `parse_verdict`;
+  (4) parse-error classification, a **policy**: any `ValueError` from step 3
+  becomes value 0 with `parse_error` set to its message. A benchmark whose
+  eligibility or error policy differs composes the pieces itself rather than
+  forking the scorer, and keeps steps 2 and 3 (`tests/test_inspect_common_contracts.py`
+  shows a composed scorer matching `judge_scorer`).
 * `judge.strip_thinking(answer, ...)` keeps only the text after the last end
   marker when both markers are configured and either appears. An unclosed start
   marker keeps the whole answer. Structured `ContentReasoning` is already
