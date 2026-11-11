@@ -1,0 +1,43 @@
+# UNQOVER parity config: the legacy engine's exact settings as an Inspect run
+# config. It applies only when passed explicitly:
+#   inspect eval llm_behavior_eval/unqover -T bias_type=gender \
+#     --model vllm/<org>/<answer-model> \
+#     --run-config llm_behavior_eval/unqover/parity.yaml
+# Sources: evaluation_utils/eval_config.py FAMILY_TOKEN_DEFAULTS["bias"],
+# EvaluationConfig.max_samples, DatasetConfig.seed and safe_apply_chat_template.
+# The model under test needs a provider that reports stop reasons (vllm/ or an
+# OpenAI-compatible endpoint); the scorer rejects Inspect's hf/ provider. The
+# file never names the model under test, so its provider args stay on the
+# command line.
+
+# Model under test. Legacy: max_answer_tokens=128, sample=False (greedy),
+# enable_thinking=False. extra_body carries thinking-off to vLLM/SGLang chat
+# templates.
+generate_config:
+  temperature: 0.0
+  max_tokens: 128
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+# Legacy max_samples=500, taken after shuffle(seed=42). The task's dataset
+# conversion reproduces that shuffle, so the first 500 samples are the same.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # Parity evidence used Gemma 3 12B judges.
+    model: hf/google/gemma-3-12b-it
+    # Legacy: max_judge_tokens=32, sample_judge=False (greedy), judge chat
+    # template rendered with enable_thinking=False.
+    config:
+      temperature: 0.0
+      max_tokens: 32
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+    # HF provider args: greedy decoding and thinking off in the chat template.
+    args:
+      do_sample: false
+      enable_thinking: false
