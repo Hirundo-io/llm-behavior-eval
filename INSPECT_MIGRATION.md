@@ -37,7 +37,14 @@ the reporting PR ([#207](https://github.com/Hirundo-io/llm-behavior-eval/pull/20
 2. **Parity is an explicit config file.** Each benchmark may ship a `parity.yaml`
    with the legacy engine's exact settings. It applies only when passed.
 3. **Benchmarks are self-contained.** `common/` holds benchmark-agnostic
-   mechanics only. Share mechanics, not semantics.
+   mechanics plus a few explicitly documented shared contracts that affect
+   results: verdict extraction (`grader_final_answer`, `parse_verdict`),
+   epoch-aware rates (`field_rate`, `incomplete_response_rate`), the
+   stop-reason guard (`require_stop_reason`) and thinking stripping
+   (`strip_thinking`, `THINKING_TASK_ARGS`).
+   `tests/test_inspect_common_contracts.py` pins their exact results.
+   Everything else benchmark-specific (prompts, splits, scorers, metrics)
+   stays in the benchmark.
 4. **No credentials in task arguments.** Inspect writes every task argument
    into the `.eval` log, so no task takes a token, key, secret or password.
    Credentials come from environment variables, set directly or with the
