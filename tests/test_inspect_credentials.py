@@ -107,8 +107,8 @@ def test_load_hf_dataset_passes_the_resolved_token(
     monkeypatch.setattr(datasets, "load_dataset", load)
     for name, value in variables.items():
         monkeypatch.setenv(name, value)
-    load_hf_dataset("org/gated", revision="abc")
-    assert calls == [{"revision": "abc"} | expected]
+    load_hf_dataset("org/gated", split="train", revision="abc")
+    assert calls == [{"split": "train", "revision": "abc"} | expected]
 
 
 def test_snapshot_loads_ignore_the_dataset_token(
@@ -116,7 +116,14 @@ def test_snapshot_loads_ignore_the_dataset_token(
 ) -> None:
     Dataset.from_list([{"id": "a"}]).save_to_disk(tmp_path / "snapshot")
     monkeypatch.setenv(DATASET_CREDENTIAL_VAR, DATASET_SENTINEL)
-    assert len(load_hf_dataset("org/id", dataset_path=str(tmp_path / "snapshot"))) == 1
+    assert (
+        len(
+            load_hf_dataset(
+                "org/id", split="train", dataset_path=str(tmp_path / "snapshot")
+            )
+        )
+        == 1
+    )
 
 
 def test_credentials_set_and_restore(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -241,7 +248,7 @@ def test_dataset_and_model_credentials_are_separate() -> None:
 
 def credentialed_task() -> Task:
     """A benchmark-shaped task that loads its data from the (patched) Hub."""
-    records = load_hf_dataset("org/gated")
+    records = load_hf_dataset("org/gated", split="train")
     return Task(
         dataset=to_inspect_dataset(records, record_to_sample, dataset_id="org/gated"),
         solver=generate(),

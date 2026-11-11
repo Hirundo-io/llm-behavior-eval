@@ -147,11 +147,19 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
 
 ## Shared API (`llm_behavior_eval.common`)
 
-* `dataset.load_hf_dataset(dataset_id, *, dataset_path=None, revision=None)`
-  loads the complete split of an HF dataset or a `save_to_disk` snapshot.
-  `revision` pins the Hub dataset revision. `dataset_path` changes where data is
-  read from, not the logical id. Selects `train` when present, otherwise
-  requires exactly one split. It takes no token: gated Hub datasets
+Test-only helpers (such as `reduced_metrics`) live in `tests/inspect_helpers.py`,
+not here.
+
+* `dataset.load_hf_dataset(dataset_id, *, split, name=None, dataset_path=None,
+  revision=None)` loads one complete, named split of an HF dataset or a
+  `save_to_disk` snapshot. `split` is required: which split a benchmark scores
+  is the benchmark's decision, and nothing is selected implicitly (there is no
+  "prefer `train`" rule). Hub sources load only that split; a `DatasetDict`
+  snapshot must contain it, or `ValueError` names the available splits; a
+  single-`Dataset` snapshot has no split names and is used as is. `name` is the
+  Hub config (default config when `None`). `revision` pins the Hub dataset
+  revision. `dataset_path` changes where data is read from, not the logical id;
+  `name` and `revision` do not apply to a snapshot. It takes no token: gated Hub datasets
   authenticate with `credentials.resolve_dataset_token()`,
   `LLM_BEHAVIOR_EVAL_DATASET_TOKEN` then `HF_TOKEN` (see
   [Credentials](#credentials)).

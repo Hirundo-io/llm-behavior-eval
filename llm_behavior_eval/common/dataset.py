@@ -1,4 +1,4 @@
-"""Load a complete source split and convert it to an Inspect dataset.
+"""Load a named source split and convert it to an Inspect dataset.
 
 Sample limits are Inspect's job (``--limit`` / ``eval(limit=...)`` or a run
 config's ``eval_config.limit``), so conversion always keeps every record.
@@ -19,14 +19,26 @@ LEGACY_SHUFFLE_SEED = 42
 def load_hf_dataset(
     dataset_id: str,
     *,
+    split: str,
+    name: str | None = None,
     dataset_path: str | None = None,
     revision: str | None = None,
 ) -> Any:
-    """Load the full split of an HF dataset or a ``save_to_disk`` snapshot.
+    """Load one named split of an HF dataset or a ``save_to_disk`` snapshot.
+
+    Which split (and config) a benchmark scores is the benchmark's decision,
+    so ``split`` is required and nothing is selected implicitly.
 
     Args:
         dataset_id: Logical dataset id, used in error messages and loaded from
             the HF Hub unless ``dataset_path`` is given.
+        split: Split to return, such as ``"train"`` or ``"test"``. Hub and
+            ``load_dataset`` sources load only this split. A ``DatasetDict``
+            snapshot must contain it. A single-``Dataset`` snapshot has no
+            split names and is returned as is.
+        name: Dataset config name passed to ``load_dataset``. ``None`` uses
+            the dataset's default config. A snapshot directory is already one
+            config and ignores it.
         dataset_path: Where to read the data instead: a ``save_to_disk``
             directory (detected by ``dataset_dict.json`` or ``state.json``) or
             any source ``datasets.load_dataset`` accepts. It does not change the
@@ -35,11 +47,12 @@ def load_hf_dataset(
             ``load_dataset``; a snapshot directory is already fixed.
 
     Returns:
-        The ``train`` split when present, otherwise the only split.
+        The requested split as a ``datasets.Dataset``.
 
     Raises:
         ValueError: The source is neither a ``Dataset`` nor a ``DatasetDict``,
-            or it has several splits and none is ``train``.
+            or it is a ``DatasetDict`` without ``split``. ``load_dataset``
+            raises its own ``ValueError`` for an unknown Hub split.
 
     There is no token parameter. Benchmarks call this with their task
     arguments, and Inspect records every task argument in the ``.eval`` log, so
@@ -58,7 +71,9 @@ def load_hf_dataset(
     ):
         raw = load_from_disk(source)
     else:
-        options: dict[str, Any] = {}
+        options: dict[str, Any] = {"split": split}
+        if name is not None:
+            options["name"] = name
         if revision is not None:
             options["revision"] = revision
         token = resolve_dataset_token()
@@ -69,13 +84,11 @@ def load_hf_dataset(
         return raw
     if not isinstance(raw, DatasetDict):
         raise ValueError(f"Expected Dataset or DatasetDict for {dataset_id}")
-    if "train" in raw:
-        return raw["train"]
-    if len(raw) == 1:
-        return next(iter(raw.values()))
-    raise ValueError(
-        f"Expected train or exactly one split for {dataset_id}; found {list(raw)}"
-    )
+    if split not in raw:
+        raise ValueError(
+            f"{dataset_id} has no split {split!r}; available splits: {list(raw)}"
+        )
+    return raw[split]
 
 
 def legacy_order(num_rows: int, seed: int = LEGACY_SHUFFLE_SEED) -> list[int]:

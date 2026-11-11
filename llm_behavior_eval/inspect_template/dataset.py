@@ -14,7 +14,8 @@ def record_to_sample(record: dict[str, Any]) -> Sample:
 
 
 def dataset() -> MemoryDataset:
-    # Real benchmarks call common.dataset.load_hf_dataset and validate the
-    # complete source before conversion.
+    # Real benchmarks call common.dataset.load_hf_dataset with an explicit
+    # split= (and name= for a non-default config) and validate the complete
+    # source before conversion.
     records = [{"id": "addition", "question": "What is 1 + 1?", "answer": "2"}]
     return to_inspect_dataset(records, record_to_sample, dataset_id=DATASET_ID)

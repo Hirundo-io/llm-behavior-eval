@@ -1,4 +1,5 @@
 import importlib.util
+import inspect
 import json
 import math
 import subprocess
@@ -7,7 +8,7 @@ import types
 from collections.abc import Iterator
 from importlib.metadata import entry_points
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from datasets import Dataset, DatasetDict
@@ -212,7 +213,9 @@ def test_dataset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         [{"id": str(i), "question": "q", "answer": "a"} for i in range(502)]
     )
     DatasetDict({"test": ds}).save_to_disk(tmp_path / "snapshot")
-    loaded = load_hf_dataset("logical/id", dataset_path=str(tmp_path / "snapshot"))
+    loaded = load_hf_dataset(
+        "logical/id", split="test", dataset_path=str(tmp_path / "snapshot")
+    )
     assert len(loaded) == 502
     # Conversion keeps every record in order; sample limits are Inspect's job.
     converted = to_inspect_dataset(loaded, record_to_sample, dataset_id="logical/id")
@@ -223,25 +226,49 @@ def test_dataset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     calls = []
 
-    def load(source: str, **kwargs: Any) -> DatasetDict:
+    def load(source: str, **kwargs: Any) -> Dataset:
         calls.append((source, kwargs))
-        # datasets types select() loosely; selecting rows of a Dataset is one.
-        return DatasetDict({"train": ds, "test": cast("Dataset", ds.select([0]))})
+        return ds
 
     monkeypatch.setattr(datasets, "load_dataset", load)
     monkeypatch.delenv("LLM_BEHAVIOR_EVAL_DATASET_TOKEN", raising=False)
     monkeypatch.delenv("HF_TOKEN", raising=False)
-    assert len(load_hf_dataset("logical", dataset_path="override")) == 502
+    assert len(load_hf_dataset("logical", split="test", dataset_path="override")) == 502
     # No credential in the environment: no token, datasets uses its own sources
-    # (tests/test_inspect_credentials.py covers the resolved token).
-    assert calls == [("override", {})]
-    load_hf_dataset("logical", revision="abc123")
-    assert calls[-1] == ("logical", {"revision": "abc123"})
-    monkeypatch.setattr(
-        datasets, "load_dataset", lambda *a, **kw: DatasetDict({"a": ds, "b": ds})
+    # (tests/test_inspect_credentials.py covers the resolved token). Only the
+    # requested split is loaded.
+    assert calls == [("override", {"split": "test"})]
+    load_hf_dataset("logical", split="validation", name="cfg", revision="abc123")
+    assert calls[-1] == (
+        "logical",
+        {"split": "validation", "name": "cfg", "revision": "abc123"},
     )
-    with pytest.raises(ValueError, match="exactly one"):
-        load_hf_dataset("logical")
+
+
+def test_dataset_split_is_explicit(tmp_path: Path) -> None:
+    # No implicit "train" preference: a snapshot's split is chosen by name.
+    small = Dataset.from_list([{"id": "0"}])
+    large = Dataset.from_list([{"id": str(i)} for i in range(3)])
+    DatasetDict({"train": small, "test": large}).save_to_disk(tmp_path / "multi")
+    DatasetDict({"test": large}).save_to_disk(tmp_path / "single")
+    multi = str(tmp_path / "multi")
+    assert len(load_hf_dataset("logical", split="train", dataset_path=multi)) == 1
+    assert len(load_hf_dataset("logical", split="test", dataset_path=multi)) == 3
+    single = str(tmp_path / "single")
+    assert len(load_hf_dataset("logical", split="test", dataset_path=single)) == 3
+    # A single-split snapshot is not used under another split's name.
+    with pytest.raises(ValueError, match=r"no split 'train'.*\['test'\]"):
+        load_hf_dataset("logical", split="train", dataset_path=single)
+    with pytest.raises(ValueError, match="no split 'validation'"):
+        load_hf_dataset("logical", split="validation", dataset_path=multi)
+    # A single-Dataset snapshot has no split names and is used as is.
+    small.save_to_disk(tmp_path / "plain")
+    plain = str(tmp_path / "plain")
+    assert len(load_hf_dataset("logical", split="test", dataset_path=plain)) == 1
+    # The split is a required keyword: callers always name it.
+    parameter = inspect.signature(load_hf_dataset).parameters["split"]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is inspect.Parameter.empty
 
 
 @pytest.mark.parametrize("num_rows", [0, 1, 7, 50])
