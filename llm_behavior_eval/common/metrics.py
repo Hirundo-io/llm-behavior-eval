@@ -25,9 +25,14 @@ counts towards ``incomplete_response_rate``.
 
 Rates and means pool every (sample, epoch) observation; with the same number of
 epochs per sample and no exclusions that equals the mean of per-sample means.
-Counts count observations. Statistics that assume independent observations,
-such as a standard error, must first group a sample's epochs with
-``scores_by_sample``.
+Counts count observations. A sample's epochs are not independent, so the
+standard error of a pooled sample-epoch mean clusters them: use Inspect's
+``stderr(cluster=<key>)`` inside an unreduced adapter, where ``<key>`` is a
+**sample metadata** field holding a stable sample id (native clustering reads
+``SampleScore.sample_metadata``, not ``sample_id``). An unweighted standard
+error over per-sample means is a different estimator, and not equivalent when
+exclusions leave samples with unequal epoch counts. ``scores_by_sample`` stays
+for benchmark-specific statistics that need the groups themselves.
 
 Empty denominators yield NaN.
 """
@@ -153,6 +158,10 @@ def incomplete_response_rate() -> Metric:
 
 def scores_by_sample(scores: list[SampleScore]) -> list[list[SampleScore]]:
     """Group a metric's epoch observations by sample.
+
+    For benchmark-specific statistics that need each sample's epochs as a
+    group. A standard error of the pooled mean uses native
+    ``stderr(cluster=...)`` instead (see the module docstring).
 
     Args:
         scores: The ``scores`` an unreduced metric receives: one per sample per

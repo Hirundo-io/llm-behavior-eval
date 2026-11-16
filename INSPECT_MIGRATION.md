@@ -366,7 +366,9 @@ check the converted order against the legacy rows before `--limit`.
   task lists `completion_scorer()`; attach `incomplete_response_rate` to no
   other scorer, since it averages score values and does not read metadata.
 * `metrics.scores_by_sample(scores)` groups an unreduced metric's observations by
-  `sample_id`, in first-seen order. `metrics.EPOCH_SCORES` is
+  `sample_id`, in first-seen order, for benchmark-specific statistics that
+  need the groups; a standard error uses native `stderr(cluster=...)` instead
+  (see [Epochs](#epochs)). `metrics.EPOCH_SCORES` is
   `"unreduced"`; `metrics.INCOMPLETE_STOP_REASONS` and
   `metrics.UNKNOWN_STOP_REASON` name the stop reasons above.
 * `packages.benchmark_packages(root="llm_behavior_eval")` returns the sorted
@@ -477,9 +479,31 @@ So every metric a benchmark reports takes unreduced scores.
   `@metric(scores="unreduced")` adapter, as `field_rate` does.
 * Rates and means pool every (sample, epoch) observation. With the same number
   of epochs per sample and no exclusions, that equals the mean of per-sample
-  means. Counts count observations. A standard error must treat a sample's
-  epochs as one cluster: compute it over per-sample values from
-  `scores_by_sample`.
+  means. Counts count observations.
+* A standard error of a pooled sample-epoch mean treats a sample's epochs as
+  one cluster. Use Inspect's native `stderr(cluster=<key>)` inside a
+  `@metric(scores="unreduced")` adapter, where `<key>` is a **sample
+  metadata** field holding a stable sample id (put it there in
+  `record_to_sample`); native clustering reads `SampleScore.sample_metadata`,
+  not `sample_id`. It applies a finite-cluster correction `C/(C-1)` and
+  reports 0 with fewer than two clusters. An unweighted standard error over
+  per-sample means is a different estimator and is not equivalent when
+  exclusions (unscored epochs) leave samples with unequal epoch counts.
+  `test_clustered_stderr_of_the_pooled_mean` pins the pattern:
+
+  ```python
+  @metric(scores="unreduced")
+  def <benchmark>_stderr() -> Metric:
+      clustered = cast(MetricProtocol, stderr(cluster="sample_key"))
+
+      def compute(scores: list[SampleScore]) -> float:
+          return clustered(scores) if scores else math.nan
+
+      return compute
+  ```
+
+  `scores_by_sample` stays for benchmark-specific statistics that need each
+  sample's epochs as a group.
 
 **Adopting it in a benchmark.**
 
@@ -488,7 +512,7 @@ So every metric a benchmark reports takes unreduced scores.
    around `common.metrics`. Keep the metric names; the log keys do not change.
 2. Remove Inspect built-in metrics from `@scorer(metrics=...)` and
    `Task(metrics=...)`. Replace a built-in `stderr()` with a package metric
-   that clusters by sample (`scores_by_sample`).
+   that wraps `stderr(cluster=<sample metadata key>)` unreduced (above).
 3. Check each metric's formula reads correctly over observations: any
    denominator that was "samples" is now "samples x epochs".
 4. In `tests/test_inspect_<benchmark>.py`, assert

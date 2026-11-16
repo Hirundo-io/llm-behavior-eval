@@ -8,7 +8,7 @@ import types
 from collections.abc import Iterator
 from importlib.metadata import entry_points
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from datasets import Dataset, DatasetDict
@@ -26,7 +26,19 @@ from inspect_ai.model import (
     StopReason,
     get_model,
 )
-from inspect_ai.scorer import SampleScore, Score, accuracy, mean, stderr
+from inspect_ai.scorer import (
+    Metric,
+    MetricProtocol,
+    SampleScore,
+    Score,
+    Scorer,
+    Target,
+    accuracy,
+    mean,
+    metric,
+    scorer,
+    stderr,
+)
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.tool import ToolChoice, ToolInfo
 from inspect_ai.util import registry_info
@@ -199,6 +211,69 @@ def test_scores_by_sample() -> None:
     ]
     assert [group[0].sample_id for group in groups] == ["b", "a", None, None]
     assert scores_by_sample([]) == []
+
+
+@metric(scores="unreduced")
+def foundation_test_clustered_stderr() -> Metric:
+    """The documented pattern: native stderr(cluster=...) in an unreduced adapter."""
+    clustered = cast("MetricProtocol", stderr(cluster="sample_key"))
+
+    def compute(scores: list[SampleScore]) -> float:
+        return cast("float", clustered(scores)) if scores else math.nan
+
+    return compute
+
+
+EPOCH_VALUES = {"s1": [1.0, 0.0], "s2": [1.0, 1.0], "s3": [0.0, math.nan]}
+
+
+@scorer(metrics=[field_rate(), foundation_test_clustered_stderr()])
+def foundation_test_epoch_scorer() -> Scorer:
+    async def score(state: TaskState, target: Target) -> Score:
+        value = EPOCH_VALUES[state.input_text][state.epoch - 1]
+        return (
+            Score.unscored(reason="test") if math.isnan(value) else Score(value=value)
+        )
+
+    return score
+
+
+def test_clustered_stderr_of_the_pooled_mean(tmp_path: Path) -> None:
+    # INSPECT_MIGRATION.md, "Epochs": the standard error of the pooled
+    # (sample, epoch) mean clusters a sample's epochs through a stable id in
+    # the *sample* metadata, which unreduced metrics receive with each
+    # observation. One epoch of s3 is unscored, so epoch counts differ.
+    [log] = inspect_eval(
+        Task(
+            dataset=[
+                Sample(id=key, input=key, metadata={"sample_key": key})
+                for key in EPOCH_VALUES
+            ],
+            scorer=foundation_test_epoch_scorer(),
+        ),
+        model="mockllm/model",
+        epochs=2,
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    metrics = eval_metrics(log)
+    clusters = [
+        [v for v in values if not math.isnan(v)] for values in EPOCH_VALUES.values()
+    ]
+    pooled = [v for values in clusters for v in values]
+    mean = sum(pooled) / len(pooled)
+    assert metrics["field_rate"] == pytest.approx(mean)
+    # Clustered SE with Inspect's finite-cluster correction C / (C - 1).
+    count = len(clusters)
+    variance = sum(sum(v - mean for v in values) ** 2 for values in clusters)
+    expected = math.sqrt(variance * count / (count - 1)) / len(pooled)
+    assert metrics["foundation_test_clustered_stderr"] == pytest.approx(expected)
+    # Not the unweighted SE over per-sample means, which differs when
+    # exclusions leave unequal epoch counts.
+    means = [sum(values) / len(values) for values in clusters]
+    grand = sum(means) / count
+    unweighted = math.sqrt(sum((m - grand) ** 2 for m in means) / (count - 1) / count)
+    assert metrics["foundation_test_clustered_stderr"] != pytest.approx(unweighted)
 
 
 def test_reduced_metrics() -> None:
