@@ -15,6 +15,7 @@ from datasets import Dataset, DatasetDict
 from inspect_ai import Task
 from inspect_ai import eval as inspect_eval
 from inspect_ai.dataset import Sample
+from inspect_ai.log import EvalLog
 from inspect_ai.model import (
     ChatMessage,
     ContentReasoning,
@@ -31,6 +32,7 @@ from inspect_ai.tool import ToolChoice, ToolInfo
 from inspect_ai.util import registry_info
 
 from llm_behavior_eval.common import judge as judge_module
+from llm_behavior_eval.common.completion import completion_scorer
 from llm_behavior_eval.common.dataset import (
     LEGACY_SHUFFLE_SEED,
     legacy_order,
@@ -56,12 +58,14 @@ from inspect_helpers import (
     assert_grader_required,
     eval_metrics,
     generation_settings,
+    is_unscored,
     message_text,
     only_log,
     rate,
     reduced_metrics,
     run_inspect_cli,
     sample_scores,
+    scored_counts,
 )
 
 
@@ -125,45 +129,52 @@ def test_thinking(answer: str, expected: str) -> None:
 
 def test_rates() -> None:
     scores = [
-        SampleScore(
-            score=Score(value=1, metadata={"group": "safe", "stop_reason": "stop"})
-        ),
-        SampleScore(
-            score=Score(
-                value=0,
-                metadata={
-                    "group": "unsafe",
-                    "stop_reason": "max_tokens",
-                    "skipped": True,
-                },
-            )
-        ),
-        SampleScore(score=Score(value=0, metadata={"parse_error": "invalid"})),
+        SampleScore(score=Score(value=1, metadata={"group": "safe"})),
+        SampleScore(score=Score(value=0, metadata={"group": "unsafe"})),
+        SampleScore(score=Score(value=1)),
     ]
-    assert rate(field_rate())(scores) == 1
+    assert rate(field_rate())(scores) == pytest.approx(2 / 3)
     assert rate(field_rate(metadata_key="group", metadata_value="safe"))(scores) == 1
     assert math.isnan(
         rate(field_rate(metadata_key="group", metadata_value="missing"))(scores)
     )
-    # The third score records no stop reason, so it cannot be classified.
-    assert rate(incomplete_response_rate())(scores) == pytest.approx(1 / 2)
-    assert math.isnan(rate(incomplete_response_rate())([]))
     assert rate(field_rate("a"))([SampleScore(score=Score(value={"a": 0.5}))]) == 0.5
+    # completion_scorer values: 1 incomplete, 0 complete.
+    assert rate(incomplete_response_rate())(scores) == pytest.approx(2 / 3)
+    assert math.isnan(rate(incomplete_response_rate())([]))
 
 
-def stopped(reason: str | None) -> SampleScore:
-    return SampleScore(score=Score(value=1, metadata={"stop_reason": reason}))
+def completion_eval(tmp_path: Path, stops: list[StopReason]) -> EvalLog:
+    """Score one answer per stop reason with ``completion_scorer`` alone."""
+    answers = [answer_output(stop) for stop in stops]
+    [log] = inspect_eval(
+        Task(
+            dataset=[Sample(id=i, input="q") for i in range(len(stops))],
+            scorer=completion_scorer(),
+        ),
+        model=get_model("mockllm/model", custom_outputs=answers),
+        log_dir=str(tmp_path),
+        display="none",
+    )
+    return log
 
 
-def test_incomplete_rate_counts_context_limit_and_skips_unknown() -> None:
-    known = [stopped("stop"), stopped("max_tokens"), stopped("model_length")]
-    assert rate(incomplete_response_rate())(known) == pytest.approx(2 / 3)
+def test_incomplete_rate_counts_context_limit_and_skips_unknown(
+    tmp_path: Path,
+) -> None:
+    log = completion_eval(tmp_path / "known", ["stop", "max_tokens", "model_length"])
+    assert eval_metrics(log)["incomplete_response_rate"] == pytest.approx(2 / 3)
     # Inspect's hf/ provider reports "unknown" for every answer. Those answers
-    # leave the denominator instead of counting as complete, and a run with no
-    # known stop reason reports NaN, not 0.
-    unknown = [stopped("unknown"), stopped(None)]
-    assert rate(incomplete_response_rate())([*known, *unknown]) == pytest.approx(2 / 3)
-    assert math.isnan(rate(incomplete_response_rate())(unknown))
+    # are unscored, so they leave the denominator instead of counting as
+    # complete, and a run with no known stop reason reports NaN, not 0.
+    mixed = completion_eval(
+        tmp_path / "mixed", ["stop", "max_tokens", "model_length", "unknown"]
+    )
+    assert eval_metrics(mixed)["incomplete_response_rate"] == pytest.approx(2 / 3)
+    assert scored_counts(mixed) == {"completion_scorer": (3, 1)}
+    unknown = completion_eval(tmp_path / "unknown", ["unknown", "unknown"])
+    assert math.isnan(eval_metrics(unknown)["incomplete_response_rate"])
+    assert scored_counts(unknown) == {"completion_scorer": (0, 2)}
 
 
 def test_scores_by_sample() -> None:
@@ -192,6 +203,7 @@ def test_scores_by_sample() -> None:
 def test_reduced_metrics() -> None:
     # The shared metrics, and so the template, see every epoch.
     assert reduced_metrics(inspect_template()) == []
+    assert reduced_metrics(completion_scorer) == []
     dataset = [Sample(input="question", target="answer")]
     scorer = judge_scorer("{answer}", r"SCORE:\s*(\S+)")
     assert reduced_metrics(Task(dataset=dataset, scorer=scorer)) == []
@@ -290,13 +302,13 @@ def test_legacy_order_matches_legacy_shuffle(num_rows: int) -> None:
     ("stop", "judge_text", "expected"),
     [
         ("stop", "SCORE: 1", 1),
-        ("stop", "invalid", 0),
-        ("max_tokens", "SCORE: 1", 0),
+        ("stop", "invalid", None),
+        ("max_tokens", "SCORE: 1", None),
         ("stop", "SCORE: 0", 0),
     ],
 )
 def test_judge(
-    tmp_path: Path, stop: StopReason, judge_text: str, expected: int
+    tmp_path: Path, stop: StopReason, judge_text: str, expected: int | None
 ) -> None:
     answer = ModelOutput.from_content("mockllm/model", "<think>secret</think>2")
     answer.choices[0].stop_reason = stop
@@ -324,7 +336,8 @@ def test_judge(
     assert logs[0].samples[0].scores
     score = logs[0].samples[0].scores["judge_scorer"]
     assert score.metadata
-    assert score.value == expected
+    # A skipped answer and an unparsable reply are unscored (NaN).
+    assert is_unscored(score) if expected is None else score.value == expected
     assert bool(requests) == (stop == "stop")
     assert score.metadata["raw_judge_text"] == (judge_text if requests else "")
     assert bool(score.metadata.get("parse_error")) == (judge_text == "invalid")
@@ -355,9 +368,11 @@ def test_parse_rejection_without_message_is_a_parse_error(tmp_path: Path) -> Non
     score = logs[0].samples[0].scores["judge_scorer"]
     assert score.metadata
     assert score.metadata["parse_error"] == "Judge verdict rejected by parse: 'bad'"
-    assert logs[0].results
+    assert is_unscored(score)
+    assert score.reason == "grader_failed"
     # Excluded from the denominator, not counted as a 0 verdict.
-    assert math.isnan(logs[0].results.scores[0].metrics["field_rate"].value)
+    assert math.isnan(eval_metrics(logs[0])["field_rate"])
+    assert scored_counts(logs[0]) == {"judge_scorer": (0, 1)}
 
 
 @pytest.mark.parametrize("judge_text", ["SCORE: nan", "SCORE: inf", "SCORE: -inf"])
@@ -381,12 +396,10 @@ def test_judge_rejects_non_finite_scores(tmp_path: Path, judge_text: str) -> Non
     assert logs[0].samples
     assert logs[0].samples[0].scores
     score = logs[0].samples[0].scores["judge_scorer"]
-    assert score.value == 0
+    assert is_unscored(score)
     assert score.metadata
     assert "not finite" in score.metadata["parse_error"]
-    assert logs[0].results
-    metrics = logs[0].results.scores[0].metrics
-    assert math.isnan(metrics["field_rate"].value)
+    assert math.isnan(eval_metrics(logs[0])["field_rate"])
 
 
 def answer_output(stop: StopReason, text: str = "2") -> ModelOutput:
@@ -463,7 +476,7 @@ def test_truncated_grader_reasoning_is_a_parse_error(
     assert logs[0].samples
     assert logs[0].samples[0].scores
     score = logs[0].samples[0].scores["judge_scorer"]
-    assert score.value == 0
+    assert is_unscored(score)
     assert score.metadata
     assert "unclosed thinking block" in score.metadata["parse_error"]
     assert score.metadata["raw_judge_text"] == grader_text
@@ -480,7 +493,8 @@ def test_unclosed_answer_thinking_is_kept() -> None:
 @pytest.mark.parametrize("epochs", [1, 2])
 def test_metrics_aggregate_every_epoch(tmp_path: Path, epochs: int) -> None:
     # Inspect's epoch reducers keep only the first epoch's metadata. Here
-    # epoch 1 is truncated (skipped, incomplete); epoch 2 finishes, graded 1.
+    # epoch 1 is truncated (skipped, so unscored for grading, but incomplete
+    # for completion_scorer); epoch 2 finishes, graded 1.
     answers = [answer_output("max_tokens"), answer_output("stop")]
     logs = inspect_eval(
         inspect_template(),
@@ -501,6 +515,10 @@ def test_metrics_aggregate_every_epoch(tmp_path: Path, epochs: int) -> None:
     }
     assert logs[0].samples
     assert len(logs[0].samples) == epochs
+    assert scored_counts(logs[0]) == {
+        "judge_scorer": (1, epochs - 1),
+        "completion_scorer": (epochs, 0),
+    }
 
 
 @solver
@@ -518,7 +536,10 @@ def only_stop_task(only_stop: bool, stop: StopReason) -> Task:
     return Task(
         dataset=[Sample(input="question", target="answer")],
         solver=canned_answer(stop),
-        scorer=judge_scorer("{answer}", r"SCORE:\s*(\S+)", only_stop=only_stop),
+        scorer=[
+            judge_scorer("{answer}", r"SCORE:\s*(\S+)", only_stop=only_stop),
+            completion_scorer(),
+        ],
     )
 
 
@@ -602,7 +623,7 @@ def test_require_stop_reason_is_provider_based() -> None:
 
 def test_only_stop_skips_unknown_stop_reasons_elsewhere(tmp_path: Path) -> None:
     # A provider that reports stop reasons but not for this answer: skipped,
-    # and left out of the incomplete-response rate.
+    # and left out of the incomplete-response rate (both unscored).
     logs = inspect_eval(
         only_stop_task(True, "unknown"),
         model="mockllm/model",
@@ -613,6 +634,10 @@ def test_only_stop_skips_unknown_stop_reasons_elsewhere(tmp_path: Path) -> None:
     metrics = eval_metrics(logs[0])
     assert math.isnan(metrics["field_rate"])
     assert math.isnan(metrics["incomplete_response_rate"])
+    assert scored_counts(logs[0]) == {
+        "judge_scorer": (0, 1),
+        "completion_scorer": (0, 1),
+    }
 
 
 @pytest.mark.parametrize("exclude", [True, False])

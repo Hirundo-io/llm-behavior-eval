@@ -11,10 +11,15 @@ Shared contracts that change benchmark results, each pinned by
   thinking trace and rejects an unclosed one; ``parse_verdict`` turns an
   unmatched, unparsable or non-finite verdict into a parse error.
   ``judge_scorer`` composes them with its documented eligibility
-  (``only_stop``) and parse-error policy.
+  (``only_stop``) and parse-error policy; skipped and unparsable
+  observations are native ``Score.unscored`` results.
 * Epoch-aware rates (``metrics``): ``field_rate`` and
-  ``incomplete_response_rate`` pool every (sample, epoch) observation, with
-  the documented denominator exclusions.
+  ``incomplete_response_rate`` are thin unreduced adapters over Inspect's
+  ``mean()``/``aggregate()`` that pool every scored (sample, epoch)
+  observation; Inspect leaves unscored ones out.
+* Completion diagnostics (``completion``): ``completion_scorer``, listed by
+  every task beside its grading scorer, reports ``incomplete_response_rate``
+  over every observation with a known stop reason.
 * Stop-reason guard (``judge``): ``require_stop_reason`` refuses providers that
   report no stop reason when a scorer keeps only finished answers.
 * Thinking stripping (``judge``): ``strip_thinking`` and

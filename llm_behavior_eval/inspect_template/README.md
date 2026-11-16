@@ -9,11 +9,11 @@ inspect eval llm_behavior_eval/inspect_template --model mockllm/model
 
 | File | Owns |
 | --- | --- |
-| `task.py` | The `@task`. Sets no GenerateConfig. Takes the thinking-trace task arguments. |
+| `task.py` | The `@task`. Sets no GenerateConfig. Takes the thinking-trace task arguments. Lists the grading scorer and `common.completion.completion_scorer()`. |
 | `dataset.py` | Records and `record_to_sample`. |
 | `prompts.py` | System prompt, judge prompt and the judge's answer pattern. |
 | `solver.py` | Solver chain. Sets no GenerateConfig. |
-| `scorer.py` | Scorer. The template uses `common.judge.judge_scorer` because its single verdict fits; most benchmarks write their own scorer from `common.judge`'s pieces. |
+| `scorer.py` | Grading scorer. The template uses `common.judge.judge_scorer` because its single verdict fits; most benchmarks write their own scorer from `common.judge`'s pieces and return `Score.unscored(...)` for what they cannot grade. |
 | `metrics.py` | Not needed here: `common.metrics` covers the template. A benchmark's metrics are all `@metric(scores="unreduced")`. |
 | `parity.yaml` | Example parity config (illustrative values, no legacy counterpart). |
 | `target_metrics.json` | Example report metrics for `llm_behavior_eval/inspect_template`. |
@@ -39,12 +39,17 @@ Differences from a real benchmark:
 * The dataset is one inline record. A real benchmark loads its full source with
   `common.dataset.load_hf_dataset(..., split=...)`, naming the split it scores,
   and validates it before conversion.
-* The scorer is `common.judge.judge_scorer`, an optional shortcut. A benchmark
-  whose verdict format, eligibility or error policy differs writes its own
-  scorer from `common.judge`'s public pieces, and passes every grader reply
-  through `grader_final_answer` (or `parse_verdict`) before parsing it.
-* `target_metrics.json` lists the generic `judge_scorer` metrics. A real
-  benchmark lists its own metric names, keyed by its own task name.
+* The grading scorer is `common.judge.judge_scorer`, an optional shortcut. A
+  benchmark whose verdict format, eligibility or error policy differs writes
+  its own scorer from `common.judge`'s public pieces, passes every grader
+  reply through `grader_final_answer` (or `parse_verdict`) before parsing it,
+  and returns `Score.unscored(reason=...)`, never a placeholder value, for an
+  observation it cannot grade. `completion_scorer()` stays in every task's
+  scorer list unchanged.
+* `target_metrics.json` lists the generic metrics: `field_rate` (from
+  `judge_scorer`) and `incomplete_response_rate` (from `completion_scorer`).
+  A real benchmark lists its own metric names, keyed by its own task name,
+  plus `incomplete_response_rate`.
 
 Task arguments (every benchmark exposes these, with the same defaults):
 
@@ -61,9 +66,14 @@ a gated Hub dataset authenticates from the environment
 "Credentials"); `load_hf_dataset` takes no token parameter. `tests/test_inspect_packages.py` rejects
 credential-like parameter names on every registered task.
 
-The scorer uses `only_stop=True`, so a model under test served by Inspect's
-`hf/` provider, which reports no stop reasons, fails with
-`StopReasonUnavailableError`. Metrics aggregate every epoch of `--epochs N`.
+The grading scorer uses `only_stop=True`, so a model under test served by
+Inspect's `hf/` provider, which reports no stop reasons, fails with
+`StopReasonUnavailableError`. An answer that did not finish with `stop` is
+unscored for grading (left out of `field_rate`) but still counts in
+`incomplete_response_rate`, which comes from the separate `completion_scorer`.
+Metrics aggregate every (sample, epoch) observation of `--epochs N`; the log
+has one `EvalScore` per scorer, with its `scored_samples` and
+`unscored_samples`.
 
 Inference settings come from the user per role, or from `parity.yaml`:
 

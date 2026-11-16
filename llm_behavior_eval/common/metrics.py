@@ -2,15 +2,26 @@
 
 Epoch layout: every metric a benchmark reports is declared
 ``@metric(scores="unreduced")``. Inspect's epoch reducers keep only the first
-epoch's score metadata, and the metrics here (and most benchmark metrics) read
-metadata such as ``skipped``, ``parse_error`` and ``stop_reason``. Unreduced
-metrics receive one ``SampleScore`` per sample per epoch, each with its own
-metadata, so ``--epochs N`` aggregates every epoch. When all of a scorer's
-metrics are unreduced, Inspect writes exactly one ``EvalScore`` for that scorer
+epoch's score metadata, and benchmark metrics read score metadata such as
+subgroups (``field_rate(metadata_key=...)``). Unreduced metrics receive one
+``SampleScore`` per sample per epoch, each with its own metadata, so
+``--epochs N`` aggregates every epoch. When all of a scorer's metrics are
+unreduced, Inspect writes exactly one ``EvalScore`` for that scorer
 (``reducer`` is ``None``), keyed by the same metric names as a single-epoch run.
 A scorer that mixes reduced and unreduced metrics is split into two
 ``EvalScore`` entries, so never mix them; the tests' ``reduced_metrics``
-(``tests/inspect_helpers.py``) finds offenders.
+(``tests/inspect_helpers.py``) finds offenders. Inspect's own metrics
+(``mean()``, ``aggregate()``, ``stderr()``, ...) default to the reduced view, so
+benchmarks call them inside an unreduced adapter, as ``field_rate`` does.
+
+Unscored observations: a scorer that cannot score an observation (a skipped
+answer, an unparsable grader reply, an unknown stop reason) returns
+``Score.unscored(reason=...)``, whose value is NaN. Inspect drops root-NaN
+scores before it calls any metric of that scorer and records the counts as the
+``EvalScore``'s ``scored_samples`` and ``unscored_samples``. Each scorer's
+denominator is therefore independent: completion diagnostics live in their own
+scorer (``completion.completion_scorer``), so an ungradable answer still
+counts towards ``incomplete_response_rate``.
 
 Rates and means pool every (sample, epoch) observation; with the same number of
 epochs per sample and no exclusions that equals the mean of per-sample means.
@@ -21,9 +32,16 @@ such as a standard error, must first group a sample's epochs with
 Empty denominators yield NaN.
 """
 
-from typing import Any
+from typing import Any, cast
 
-from inspect_ai.scorer import Metric, SampleScore, metric
+from inspect_ai.scorer import (
+    Metric,
+    MetricProtocol,
+    SampleScore,
+    aggregate,
+    mean,
+    metric,
+)
 
 EPOCH_SCORES = "unreduced"
 """The ``scores`` mode every benchmark metric declares: ``@metric(scores=...)``."""
@@ -43,57 +61,66 @@ def field_rate(
     metadata_key: str | None = None,
     metadata_value: Any = None,
 ) -> Metric:
-    """Mean scalar or dict-field score over the eligible epoch observations.
+    """Mean scalar or dict-field score over the scored epoch observations.
 
-    Denominator contract (pinned by ``test_field_rate_denominator_contract``).
-    Every (sample, epoch) score is one observation; one is left out of both
-    numerator and denominator when, checked in this order:
+    A thin unreduced adapter over Inspect's native metrics. Denominator
+    contract (pinned by ``test_field_rate_denominator_contract``):
 
-    1. its metadata has a truthy ``skipped`` (``judge_scorer(only_stop=True)``
-       skipping an unfinished answer);
-    2. its metadata has a truthy ``parse_error`` (an unclosed grader trace, an
-       unmatched, unparsable or non-finite verdict);
-    3. ``metadata_key`` is set and its metadata does not map that key to
-       ``metadata_value`` (a missing key counts as ``None``);
-    4. the value read is not an ``int`` or ``float``: a dict score without
-       ``field``, a dict read with ``field=None``, a string, ``None`` or a
-       list. With ``field`` set, a scalar score value is read as is.
+    1. Unscored observations never count. A scorer that cannot grade an
+       observation returns ``Score.unscored(...)`` (value NaN), and Inspect
+       drops every root-NaN score before it calls any metric of that scorer.
+    2. With ``metadata_key`` set, only observations whose **score** metadata
+       maps it to ``metadata_value`` count (a missing key is ``None``).
+    3. The remaining observations go to native ``mean()``, or with ``field``
+       set to ``aggregate(field, mean(), on_missing="skip")``. So ``mean``'s
+       ``value_to_float`` converts each value: numbers and ``bool`` (1/0) as
+       is, grade letters ``"C"``/``"I"``/``"P"``/``"N"`` to 1/0/0.5/0,
+       ``"yes"``/``"true"`` and ``"no"``/``"false"`` to 1 and 0, numeric
+       strings to their number; anything else (a dict read without
+       ``field``, a list, other text) counts as 0 with a warning. With
+       ``field`` set, a missing or ``None`` key and a per-key NaN are
+       skipped, and a non-dict score value raises ``ValueError``.
 
-    Everything else counts, including ``bool`` values (as 1 or 0) and value 0.
-    Values are not checked for finiteness: a ``nan`` or ``inf`` that reaches
-    this metric propagates into the mean (``judge_scorer`` already turns
-    non-finite verdicts into parse errors). The placeholder value 0 of skipped
-    and parse-error scores is never averaged. An empty denominator yields NaN.
+    An empty denominator yields NaN (native ``mean()`` would report 0).
+    Values are not checked for finiteness, so an ``inf`` that reaches the
+    metric propagates. Every (sample, epoch) observation counts once.
+
+    The subgroup filter stays here rather than in native ``grouped()``:
+    ``grouped`` reads ``SampleScore.sample_metadata`` and reports every
+    group, while this metric reads one subgroup from the score's own
+    metadata, which a scorer may set per observation.
+
+    This replaces an earlier contract in which skipped and parse-error
+    observations were scored 0 with ``skipped``/``parse_error`` metadata that
+    this metric excluded, and non-numeric values were dropped rather than
+    converted. Scorers now return ``Score.unscored`` for them instead.
 
     Args:
-        field: Key to read when a score value is a dict. ``None`` reads scalar
-            values.
+        field: Key to read when score values are dicts. ``None`` reads the
+            scalar value.
         metadata_key: When set, only scores whose metadata maps this key to
             ``metadata_value`` count.
         metadata_value: The subgroup value ``metadata_key`` must have.
 
     Returns:
-        A metric that averages the eligible (sample, epoch) values, or NaN
-        when none remain.
+        A metric that averages the counted (sample, epoch) values, or NaN when
+        none remain.
     """
+    rate = cast(
+        "MetricProtocol",
+        mean() if field is None else aggregate(field, mean(), on_missing="skip"),
+    )
 
     def compute(scores: list[SampleScore]) -> float:
-        values = []
-        for sample in scores:
-            score = sample.score
-            meta = score.metadata or {}
-            if meta.get("skipped") or meta.get("parse_error"):
-                continue
-            if metadata_key is not None and meta.get(metadata_key) != metadata_value:
-                continue
-            value = (
-                score.value.get(field)
-                if isinstance(score.value, dict) and field
-                else score.value
-            )
-            if isinstance(value, (int, float)):
-                values.append(float(value))
-        return sum(values) / len(values) if values else float("nan")
+        if metadata_key is not None:
+            scores = [
+                sample
+                for sample in scores
+                if (sample.score.metadata or {}).get(metadata_key) == metadata_value
+            ]
+        if not scores:
+            return float("nan")
+        return cast("float", rate(scores))
 
     return compute
 
@@ -102,26 +129,24 @@ def field_rate(
 def incomplete_response_rate() -> Metric:
     """Share of answers that ended at the token budget or the context window.
 
+    The metric of ``completion.completion_scorer``, whose value is 1 for an
+    answer stopped by ``max_tokens`` or ``model_length``, 0 for another known
+    stop reason, and unscored when the stop reason is unknown. It is native
+    ``mean()`` over those values, unreduced, with NaN for an empty
+    denominator: a run in which no stop reason is known (any run on
+    Inspect's ``hf/`` provider) reports NaN rather than 0.
+
+    Attach it only to ``completion_scorer``: it averages score values and
+    no longer reads ``stop_reason`` metadata.
+
     Returns:
-        A metric over the (sample, epoch) scores whose ``stop_reason`` metadata
-        is known. An answer stopped by ``max_tokens`` or ``model_length`` is
-        incomplete. Answers whose provider reported ``unknown``, or whose score
-        records no stop reason, cannot be classified and are left out of the
-        denominator, so a run in which no
-        stop reason is known (any run on Inspect's ``hf/`` provider) reports
-        NaN rather than 0.
+        A metric over the (sample, epoch) observations with a known stop
+        reason.
     """
+    rate = cast("MetricProtocol", mean())
 
     def compute(scores: list[SampleScore]) -> float:
-        reasons = [
-            reason
-            for reason in ((s.score.metadata or {}).get("stop_reason") for s in scores)
-            if reason is not None and reason != UNKNOWN_STOP_REASON
-        ]
-        if not reasons:
-            return float("nan")
-        incomplete = sum(reason in INCOMPLETE_STOP_REASONS for reason in reasons)
-        return incomplete / len(reasons)
+        return cast("float", rate(scores)) if scores else float("nan")
 
     return compute
 

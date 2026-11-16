@@ -279,6 +279,15 @@ def test_shipped_registry_names_are_defined_once() -> None:
     assert objects[("metric", "llm_behavior_eval/field_rate")] == [
         ["llm_behavior_eval.common.judge", "llm_behavior_eval.common.metrics"]
     ]
+    assert objects[("scorer", "llm_behavior_eval/completion_scorer")] == [
+        [
+            "llm_behavior_eval.common.completion",
+            "llm_behavior_eval.inspect_template.task",
+        ]
+    ]
+    assert objects[("metric", "llm_behavior_eval/incomplete_response_rate")] == [
+        ["llm_behavior_eval.common.completion", "llm_behavior_eval.common.metrics"]
+    ]
     assert {key: b for key, b in objects.items() if len(b) > 1} == {}
     _registry.check_unique_registry_names()
 
@@ -341,6 +350,7 @@ def test_every_benchmark_metric_sees_every_epoch() -> None:
     ] == []
     scorers = package_registry_objects("scorer")
     assert "llm_behavior_eval/judge_scorer" in scorers
+    assert "llm_behavior_eval/completion_scorer" in scorers
     assert {
         name: reduced_metrics(factory)
         for name, factory in sorted(scorers.items())
@@ -448,7 +458,13 @@ def test_missing_target_metrics_reads_metric_keys_not_names(
 
     log = read_eval_log(str(template_log_path))
     assert log.results is not None
-    [score] = log.results.scores
+    # One EvalScore per scorer: the grading scorer, then completion_scorer.
+    assert [score.name for score in log.results.scores] == [
+        "judge_scorer",
+        "completion_scorer",
+    ]
+    score, completion = log.results.scores
+    assert list(completion.metrics) == ["incomplete_response_rate"]
     # A single-value metric is keyed by its plain name, but EvalMetric.name is
     # the registry-qualified name. inspect-brief reads the key.
     assert score.metrics["field_rate"].name == "llm_behavior_eval/field_rate"

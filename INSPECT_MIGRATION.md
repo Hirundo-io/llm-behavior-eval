@@ -39,9 +39,10 @@ the reporting PR ([#207](https://github.com/Hirundo-io/llm-behavior-eval/pull/20
 3. **Benchmarks are self-contained.** `common/` holds benchmark-agnostic
    mechanics plus a few explicitly documented shared contracts that affect
    results: verdict extraction (`grader_final_answer`, `parse_verdict`),
-   epoch-aware rates (`field_rate`, `incomplete_response_rate`), the
-   stop-reason guard (`require_stop_reason`) and thinking stripping
-   (`strip_thinking`, `THINKING_TASK_ARGS`).
+   epoch-aware rates (`field_rate`, `incomplete_response_rate`), completion
+   diagnostics (`completion_scorer`), the stop-reason guard
+   (`require_stop_reason`) and thinking stripping (`strip_thinking`,
+   `THINKING_TASK_ARGS`).
    `tests/test_inspect_common_contracts.py` pins their exact results.
    Everything else benchmark-specific (prompts, splits, scorers, metrics)
    stays in the benchmark.
@@ -54,9 +55,22 @@ the reporting PR ([#207](https://github.com/Hirundo-io/llm-behavior-eval/pull/20
    the shared building blocks rather than reimplement them: the `grader` role
    (`GRADER_ROLE`, `call_grader`), `grader_final_answer` or `parse_verdict`
    on every grader reply, `strip_thinking` with the `THINKING_TASK_ARGS` task
-   arguments on the answer, `require_stop_reason` before using stop reasons,
-   and `incomplete_response_rate` instead of a copy. Its own metrics follow
-   [Epochs](#epochs).
+   arguments on the answer, and `require_stop_reason` before using stop
+   reasons. Two rules apply to every scorer:
+
+   * **Ungradable observations are `Score.unscored(reason=...)`**, never a
+     placeholder value. A skipped answer, an unparsable or non-finite verdict
+     and an unclosed grader trace keep their diagnostics (the raw reply,
+     error message, stop reason) in `answer`, `explanation` and `metadata`,
+     with value NaN. Inspect leaves NaN scores out of every metric of that
+     scorer and counts them as the `EvalScore`'s `unscored_samples`.
+   * **Every task lists `completion_scorer()`** beside its grading scorer
+     (`scorer=[<benchmark>_scorer(...), completion_scorer()]`) for
+     `incomplete_response_rate`, rather than a copy of it or of the metric.
+     Being its own scorer, its denominator (every observation with a known
+     stop reason) does not lose the observations grading left unscored.
+
+   Its own metrics follow [Epochs](#epochs).
 4. **No credentials in task arguments.** Inspect writes every task argument
    into the `.eval` log, so no task takes a token, key, secret or password.
    Credentials come from environment variables, set directly or with the
@@ -74,7 +88,7 @@ Each benchmark is a regular subpackage `llm_behavior_eval/<benchmark>/` (it has 
 | `dataset.py` | Loading (`load_hf_dataset(..., split=...)` with the split it scores), full-source validation, `record_to_sample`. |
 | `prompts.py` | System and judge prompts, copied verbatim from the legacy engine. |
 | `solver.py` | Solver chain. No GenerateConfig. |
-| `scorer.py` | The benchmark's own scorer, composed from `common.judge`'s public pieces; it **must** pass every grader reply through `grader_final_answer` (or `parse_verdict`) before parsing it. `common.judge.judge_scorer` is an optional shortcut when its single verdict, `only_stop` eligibility and parse-error policy fit. Report `incomplete_response_rate` from `common.metrics`, not a copy. |
+| `scorer.py` | The benchmark's own scorer, composed from `common.judge`'s public pieces; it **must** pass every grader reply through `grader_final_answer` (or `parse_verdict`) before parsing it, and return `Score.unscored(...)` for an observation it cannot grade. `common.judge.judge_scorer` is an optional shortcut when its single verdict, `only_stop` eligibility and parse-error policy fit. The task lists `common.completion.completion_scorer()` beside it for `incomplete_response_rate`, not a copy. |
 | `metrics.py` | Benchmark metrics, when `common.metrics` is not enough. Every one is `@metric(scores="unreduced")` (see [Epochs](#epochs)). |
 | `README.md` | What it measures, task arguments, metrics, parity status. |
 | `parity.yaml` | Legacy-engine settings as an Inspect run config (see below). |
@@ -94,7 +108,9 @@ Generic test helpers live in `tests/inspect_helpers.py` (importable as
 | Helper | Use |
 | --- | --- |
 | `generation_settings(config)` | The inference fields a `GenerateConfig` sets; `{}` means nothing was set. |
-| `eval_metrics(log)` | Metrics of a successful log's single, unreduced `EvalScore`. |
+| `eval_metrics(log)` | Metrics of every scorer of a successful log in one mapping; each scorer must have one unreduced `EvalScore` and metric keys must not repeat. |
+| `scored_counts(log)` | Each scorer's `(scored_samples, unscored_samples)`, by scorer name. |
+| `is_unscored(score)` | Whether a `Score` is `Score.unscored` (a root NaN value). |
 | `sample_scores(log, scorer)` | Every sample's `Score` from one scorer, in log order. |
 | `reduced_metrics(task_or_scorer)` | Registry names of the metrics a task or scorer computes that are not `@metric(scores="unreduced")`; assert it is `[]` (see [Epochs](#epochs)). |
 | `rate(metric)`, `mapping(metric)` | A metric typed as returning a float or a mapping, to call it on `SampleScore`s directly. |
@@ -233,20 +249,29 @@ not here.
   `<think>...</think>` trace is removed (always, whatever the task arguments);
   `raw_judge_text` keeps the whole reply. A grader reply that ends inside an
   unclosed `<think>` trace (for example, cut off at `max_tokens`) has no final
-  answer, so it is a `parse_error` even if the trace contains a verdict.
-  Unmatched, unparsable and non-finite (`nan`, `inf`) grades become
-  `parse_error` scores. Skips and parse errors have placeholder value 0 and are
-  excluded by `field_rate`; never average them with a plain mean. Score metadata
-  holds the sample metadata, `stop_reason` and `raw_judge_text`.
+  answer, so it is a parse error even if the trace contains a verdict.
+  Unmatched, unparsable and non-finite (`nan`, `inf`) grades are parse errors
+  too. Skips and parse errors are native **unscored** results (value NaN):
+  Inspect leaves them out of `field_rate` and every other metric of the
+  scorer, and counts them as `unscored_samples`. A skip has
+  `reason="skipped"` (`judge.SKIPPED_REASON`), the answer as `answer` and
+  `skipped: True` metadata; a parse error has `reason="grader_failed"`
+  (`judge.PARSE_ERROR_REASON`, from Inspect's `ScoreReason`), the raw
+  reply as `answer`, and the message as `explanation` and `parse_error`
+  metadata. Score metadata also holds the sample metadata, `stop_reason` and
+  `raw_judge_text`. Its only metric is `field_rate()`, so the grading
+  denominator is the graded observations with a finite verdict.
   It is a thin composition of the pieces above: (1) eligibility, a **policy**:
   with `only_stop`, `require_stop_reason` then skip answers not stopped by
-  `stop` without calling the grader (value 0, `skipped`); (2) `strip_thinking`
+  `stop` without calling the grader (unscored, `skipped`); (2) `strip_thinking`
   of the answer, `render_judge_prompt`, `call_grader`; (3) `parse_verdict`;
   (4) parse-error classification, a **policy**: any `ValueError` from step 3
-  becomes value 0 with `parse_error` set to its message. A benchmark whose
-  eligibility or error policy differs composes the pieces itself rather than
-  forking the scorer, and keeps steps 2 and 3 (`tests/test_inspect_common_contracts.py`
-  shows a composed scorer matching `judge_scorer`).
+  becomes an unscored result with `parse_error` set to its message. A
+  benchmark whose eligibility or error policy differs composes the pieces
+  itself rather than forking the scorer, keeps steps 2 and 3, and still
+  returns `Score.unscored` for what it cannot grade
+  (`tests/test_inspect_common_contracts.py` shows a composed scorer matching
+  `judge_scorer`).
 * `judge.strip_thinking(answer, ...)` keeps only the text after the last end
   marker when both markers are configured and either appears. An unclosed start
   marker keeps the whole answer. Structured `ContentReasoning` is already
@@ -258,23 +283,39 @@ not here.
   (`{"hf", "nnterp", "transformer_lens"}`). Benchmark scorers that filter or score on `stop_reason` without
   `judge_scorer(only_stop=True)` call it first.
 * `metrics.field_rate(field=None, *, metadata_key=None, metadata_value=None)`
-  averages scalar scores, or one field of dict scores, over eligible epoch
-  observations, optionally restricted to a score-metadata subgroup.
+  is a thin `@metric(scores="unreduced")` adapter over Inspect's native
+  `mean()`, or `aggregate(field, mean(), on_missing="skip")` when `field` is
+  set, optionally restricted to a score-metadata subgroup.
   **Denominator contract** (pinned by `test_field_rate_denominator_contract`):
-  every (sample, epoch) score is an observation, left out of numerator and
-  denominator when (1) its metadata has a truthy `skipped`, (2) a truthy
-  `parse_error`, (3) with `metadata_key` set, the metadata does not map it to
-  `metadata_value` (a missing key is `None`), or (4) the value read is not an
-  `int`/`float` (strings, lists, a dict without `field`, any dict when `field`
-  is `None`; with `field` set a scalar value is read as is). Everything else
-  counts, including `bool` (1/0) and 0. Values are not checked for finiteness,
-  so a `nan`/`inf` that reaches the metric propagates (`judge_scorer` already
-  makes non-finite verdicts parse errors).
-  `metrics.incomplete_response_rate()` is the share of observations with a known
-  stop reason that stopped at `max_tokens` or `model_length`; observations whose
-  `stop_reason` is missing, `None` or `unknown` leave its denominator. Use it
-  rather than a benchmark copy. Empty denominators yield NaN. Both are
-  `@metric(scores="unreduced")`.
+  every scored (sample, epoch) observation counts once. (1) Unscored
+  observations never count: Inspect drops root-NaN scores before calling any
+  metric. (2) With `metadata_key` set, only observations whose **score**
+  metadata maps it to `metadata_value` count (a missing key is `None`); this
+  filter stays in the adapter because native `grouped()` reads
+  `SampleScore.sample_metadata` and reports every group. (3) Values are
+  converted by `mean()`'s `value_to_float`: numbers and `bool` (1/0) as is,
+  grade letters `C`/`I`/`P`/`N` to 1/0/0.5/0, `yes`/`true` and `no`/`false`
+  to 1 and 0, numeric strings to their number, and anything else (a dict read
+  without `field`, a list, other text) as 0 with a warning.
+  With `field` set, a missing or `None` key and a per-key NaN are skipped and
+  a non-dict value raises `ValueError`. An empty denominator is NaN (native
+  `mean()` would report 0); values are not checked for finiteness, so an
+  `inf` propagates. **Semantic change:** `field_rate` used to exclude
+  observations whose metadata had a truthy `skipped` or `parse_error` (scored
+  as placeholder 0s) and to drop non-numeric values; scorers now return
+  `Score.unscored` instead, and the metadata keys no longer affect it.
+* `completion.completion_scorer()` scores the answer under test's stop
+  reason: 1.0 for `max_tokens` or `model_length`
+  (`metrics.INCOMPLETE_STOP_REASONS`), 0.0 for another known reason, and
+  `Score.unscored(reason="scoring_failed")`
+  (`completion.UNKNOWN_STOP_SCORE_REASON`) when the stop reason is `unknown`
+  or there are no choices; metadata records `stop_reason`. It needs no grader and never calls `require_stop_reason`.
+  Its only metric, `metrics.incomplete_response_rate()`, is native `mean()` in
+  an unreduced adapter with NaN for an empty denominator, so its denominator
+  is every (sample, epoch) observation with a known stop reason, including
+  ones whose grading was skipped or unparsable; on `hf/` it is NaN. Every
+  task lists `completion_scorer()`; attach `incomplete_response_rate` to no
+  other scorer, since it averages score values and does not read metadata.
 * `metrics.scores_by_sample(scores)` groups an unreduced metric's observations by
   `sample_id`, in first-seen order. `metrics.EPOCH_SCORES` is
   `"unreduced"`; `metrics.INCOMPLETE_STOP_REASONS` and
@@ -309,25 +350,28 @@ in a run config. There is no task-level sample cap.
 ## Epochs
 
 `--epochs N` runs every sample N times. Inspect's epoch reducers keep only the
-first epoch's score **metadata**, and the benchmark metrics read metadata
-(`skipped`, `parse_error`, `stop_reason`, grades, subgroups). With reduced
-metrics, an N-epoch run silently reports epoch 1's metadata. So every metric a
-benchmark reports takes unreduced scores.
+first epoch's score **metadata**, and benchmark metrics read metadata (grades,
+subgroups), while a mean reducer would average the epochs before metrics see
+them. With reduced metrics, an N-epoch run silently reports epoch 1's metadata.
+So every metric a benchmark reports takes unreduced scores.
 
 **Metric layout.**
 
 * Every metric is declared `@metric(scores="unreduced")`. It receives one
   `SampleScore` per sample per epoch, each with its own metadata; `sample_id`
   repeats across epochs.
-* `log.results.scores` holds exactly one `EvalScore` per scorer, with
-  `reducer` `None` and the same metric keys as a one-epoch run. `--epochs-reducer`
+* `log.results.scores` holds exactly one `EvalScore` per scorer (the grading
+  scorer and `completion_scorer`), with `reducer` `None` and the same metric
+  keys as a one-epoch run. Unscored observations of each epoch are left out
+  per scorer and counted in its `unscored_samples`. `--epochs-reducer`
   does not change these metrics, and `log.reductions` is empty. With one epoch,
   values equal the previous layout's.
 * Never mix reduced and unreduced metrics on one scorer. Inspect then writes two
   `EvalScore` entries for it (a reduced view tagged `mean` and an unreduced
   one), and `log.results.scores[0].metrics` no longer holds every metric.
   Inspect built-ins (`accuracy()`, `mean()`, `stderr()`, ...) are reduced, so
-  don't attach them to a benchmark scorer.
+  don't attach them to a benchmark scorer directly; call them inside a
+  `@metric(scores="unreduced")` adapter, as `field_rate` does.
 * Rates and means pool every (sample, epoch) observation. With the same number
   of epochs per sample and no exclusions, that equals the mean of per-sample
   means. Counts count observations. A standard error must treat a sample's
@@ -347,8 +391,9 @@ benchmark reports takes unreduced scores.
 4. In `tests/test_inspect_<benchmark>.py`, assert
    `reduced_metrics(<task>(...)) == []` (from `inspect_helpers`), and add an `epochs=2` eval whose
    epochs differ (for example a truncated then a finished answer) and assert
-   the metrics count both. Read metrics from the single
-   `[result] = log.results.scores`.
+   the metrics count both. Read metrics with `eval_metrics(log)`, which merges
+   the scorers' single unreduced `EvalScore`s, and unscored counts with
+   `scored_counts(log)`.
 5. `tests/test_inspect_packages.py` must pass with the benchmark merged: it
    checks every metric defined in the package and every metric a scorer
    declares.
@@ -516,7 +561,7 @@ them to its scorer, which passes them to `judge_scorer` or `strip_thinking`
 
 ### Stop reasons
 
-`judge_scorer(only_stop=True)` and `incomplete_response_rate` read the answer's
+`judge_scorer(only_stop=True)` and `completion_scorer` read the answer's
 stop reason. Inspect's `hf/`, `nnterp/` and `transformer_lens/` providers cannot
 report one: they leave every `stop_reason` at `unknown`. `hf/` also reports the
 padded batch length as every answer's output token count, so a finished answer
@@ -526,10 +571,10 @@ cannot be told from a truncated one, even after the fact. Therefore:
   `StopReasonUnavailableError` (the eval fails) instead of skipping every answer.
   Serve the model with `vllm/` or an OpenAI-compatible endpoint. Scorers that
   filter on the stop reason themselves call `require_stop_reason(state)`.
-* `incomplete_response_rate` counts `max_tokens` and `model_length` as
-  incomplete and leaves `unknown` (and missing) stop reasons out of its
-  denominator. On these providers it is NaN, not 0.
-* Elsewhere, an `unknown` answer under `only_stop=True` is skipped.
+* `completion_scorer` counts `max_tokens` and `model_length` as incomplete
+  and makes `unknown` (and missing) stop reasons unscored, so they leave
+  `incomplete_response_rate`'s denominator. On these providers it is NaN, not 0.
+* Elsewhere, an `unknown` answer under `only_stop=True` is skipped (unscored).
 
 The parity evidence was produced with the model under test served by vLLM,
 which reports stop reasons, so these rules do not change it.

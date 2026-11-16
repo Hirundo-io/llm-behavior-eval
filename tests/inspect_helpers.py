@@ -7,6 +7,7 @@ Only Inspect test modules import this file, so it may import ``inspect_ai``.
 """
 
 import json
+import math
 import subprocess
 import sys
 import threading
@@ -110,16 +111,43 @@ def _flatten_metrics(
 
 
 def eval_metrics(log: EvalLog) -> dict[str, Any]:
-    """Metrics of a successful log's single scorer result.
+    """Metrics of every scorer of a successful log, in one mapping.
 
     Every benchmark metric is unreduced (INSPECT_MIGRATION.md, "Epochs"), so
-    the scorer writes exactly one ``EvalScore`` with no reducer.
+    each scorer writes exactly one ``EvalScore`` with no reducer. Metric keys
+    must be unique across scorers (for example ``field_rate`` from the
+    grading scorer and ``incomplete_response_rate`` from
+    ``completion_scorer``).
     """
     assert log.status == "success", log.error
     assert log.results is not None
-    [result] = log.results.scores
-    assert result.reducer is None
-    return {name: metric.value for name, metric in result.metrics.items()}
+    names = [result.name for result in log.results.scores]
+    assert len(names) == len(set(names)), names
+    metrics: dict[str, Any] = {}
+    for result in log.results.scores:
+        assert result.reducer is None
+        for name, metric in result.metrics.items():
+            assert name not in metrics, name
+            metrics[name] = metric.value
+    return metrics
+
+
+def scored_counts(log: EvalLog) -> dict[str, tuple[int | None, int | None]]:
+    """Each scorer's ``(scored_samples, unscored_samples)``, by scorer name.
+
+    Inspect counts (sample, epoch) observations whose value is not NaN as
+    scored; ``Score.unscored`` observations are unscored and reach no metric.
+    """
+    assert log.results is not None
+    return {
+        result.name: (result.scored_samples, result.unscored_samples)
+        for result in log.results.scores
+    }
+
+
+def is_unscored(score: Score) -> bool:
+    """Whether ``score`` is ``Score.unscored`` (a root NaN value)."""
+    return isinstance(score.value, float) and math.isnan(score.value)
 
 
 def sample_scores(log: EvalLog, scorer: str) -> list[Score]:

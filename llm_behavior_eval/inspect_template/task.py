@@ -1,6 +1,7 @@
 from inspect_ai import Task, task
 from inspect_ai.model import ModelOutput, get_model
 
+from llm_behavior_eval.common.completion import completion_scorer
 from llm_behavior_eval.common.judge import THINKING_END, THINKING_START
 from llm_behavior_eval.inspect_template.dataset import dataset
 from llm_behavior_eval.inspect_template.scorer import scorer
@@ -38,9 +39,14 @@ def inspect_template(
         },
         dataset=dataset(),
         solver=solver(),
-        scorer=scorer(
-            exclude_thinking_trace_for_judge=exclude_thinking_trace_for_judge,
-            thinking_start_token=thinking_start_token,
-            thinking_end_token=thinking_end_token,
-        ),
+        # The benchmark's grading scorer, then the shared completion
+        # diagnostics (incomplete_response_rate), which every task lists.
+        scorer=[
+            scorer(
+                exclude_thinking_trace_for_judge=exclude_thinking_trace_for_judge,
+                thinking_start_token=thinking_start_token,
+                thinking_end_token=thinking_end_token,
+            ),
+            completion_scorer(),
+        ],
     )

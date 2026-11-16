@@ -8,7 +8,9 @@ that role; unset options fall through to the serving stack's defaults.
 their own grader flow use directly: ``strip_thinking`` (answer under test),
 ``render_judge_prompt``, ``call_grader``, ``grader_final_answer`` (grader
 reply) and ``parse_verdict``. Any grader reply a benchmark parses itself MUST
-pass through ``grader_final_answer`` (``parse_verdict`` does so) first.
+pass through ``grader_final_answer`` (``parse_verdict`` does so) first. An
+observation a scorer cannot grade (skipped, unparsable) is
+``Score.unscored(...)``, never a placeholder value.
 
 Thinking-trace task arguments: every benchmark ``@task`` takes the arguments in
 ``THINKING_TASK_ARGS``, with exactly these names and defaults, and passes them
@@ -25,9 +27,13 @@ from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
 
-from .metrics import field_rate, incomplete_response_rate
+from .metrics import field_rate
 
 GRADER_ROLE = "grader"
+SKIPPED_REASON = "skipped"
+"""``Score.reason`` of an answer ``judge_scorer(only_stop=True)`` did not grade."""
+PARSE_ERROR_REASON = "grader_failed"
+"""``Score.reason`` of an ungradable grader reply (Inspect's ``ScoreReason``)."""
 THINKING_START = "<think>"
 THINKING_END = "</think>"
 
@@ -228,8 +234,9 @@ def parse_verdict(
         ValueError: The reply ends inside an unclosed thinking trace
             (``UnclosedThinkingError``), the pattern does not match or has no
             group 1, ``parse`` rejects the text, or the value is not finite
-            (``nan``, ``inf``). The message says which and is never empty,
-            because ``field_rate`` only excludes truthy ``parse_error``s.
+            (``nan``, ``inf``). The message says which and is never empty;
+            ``judge_scorer`` records it as the unscored observation's
+            explanation and ``parse_error`` metadata.
     """
     regex = re.compile(pattern)
     match = regex.search(grader_final_answer(reply))
@@ -252,7 +259,7 @@ def parse_verdict(
     return value, parsed
 
 
-@scorer(metrics=[field_rate(), incomplete_response_rate()])
+@scorer(metrics=[field_rate()])
 def judge_scorer(
     prompt: str,
     pattern: str,
@@ -270,20 +277,28 @@ def judge_scorer(
 
     1. Eligibility (policy): with ``only_stop``, ``require_stop_reason`` and
        then skip any answer whose stop reason is not ``stop``, without calling
-       the grader (value 0, ``skipped`` metadata).
+       the grader: ``Score.unscored(reason="skipped")`` with ``skipped``
+       metadata.
     2. ``strip_thinking`` of the answer (the task's thinking arguments), then
        ``render_judge_prompt`` and ``call_grader``.
     3. ``parse_verdict`` (``grader_final_answer``, regex, ``parse``, finite
        check).
     4. Parse-error classification (policy): any ``ValueError`` from step 3
-       becomes value 0 with ``parse_error`` metadata holding its message.
+       becomes ``Score.unscored(reason="grader_failed")`` with the raw reply
+       as ``answer`` and its message as ``explanation`` and ``parse_error``
+       metadata.
 
     The grader role is required: it never falls back to the model under test.
     Generation settings come only from the role's own GenerateConfig; this
     scorer passes none. The full reply stays in ``raw_judge_text``. Skipped
-    and parse-error scores are excluded by ``field_rate``. The answer's stop
-    reason is kept in score metadata. Benchmark scorers may wrap this scorer
-    and supply their own metrics.
+    and parse-error observations are unscored (value NaN), so Inspect leaves
+    them out of every metric of this scorer and counts them as
+    ``unscored_samples``; the grading denominator is the graded observations
+    with a finite verdict. The answer's stop reason is kept in score metadata
+    for diagnostics; the incomplete-response rate comes from
+    ``completion.completion_scorer``, which the task lists beside this
+    scorer. Benchmark scorers may wrap this scorer and supply their own
+    metrics.
 
     Args:
         prompt: Grader prompt, formatted with ``{question}``, ``{answer}``,
@@ -315,8 +330,8 @@ def judge_scorer(
             require_stop_reason(state)
         if only_stop and stop != "stop":
             metadata["skipped"] = True
-            return Score(
-                value=0,
+            return Score.unscored(
+                reason=SKIPPED_REASON,
                 answer=state.output.completion,
                 explanation="Answer did not finish with stop",
                 metadata=metadata,
@@ -335,7 +350,12 @@ def judge_scorer(
             value, parsed = parse_verdict(raw, regex, parse=parse)
         except ValueError as exc:
             metadata["parse_error"] = str(exc)
-            return Score(value=0, answer=raw, explanation=str(exc), metadata=metadata)
+            return Score.unscored(
+                reason=PARSE_ERROR_REASON,
+                answer=raw,
+                explanation=str(exc),
+                metadata=metadata,
+            )
         return Score(value=value, answer=parsed, explanation=raw, metadata=metadata)
 
     return score

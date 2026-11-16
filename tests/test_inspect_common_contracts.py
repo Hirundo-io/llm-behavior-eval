@@ -1,11 +1,13 @@
 """Contract tests for the result-affecting rules shared in ``common/``.
 
 Each test pins exact values, so a change in ``common/`` that shifts any
-benchmark's results fails here first: the ``field_rate`` denominator, the
-grader final-answer rule and the composed ``judge_scorer`` over a native
-multi-epoch eval with adversarial grader replies.
+benchmark's results fails here first: the ``field_rate`` and
+``incomplete_response_rate`` denominators, ``completion_scorer``, the grader
+final-answer rule and the composed ``judge_scorer`` (native unscored results)
+over a native multi-epoch eval with adversarial grader replies.
 """
 
+import asyncio
 import math
 from collections import Counter
 from pathlib import Path
@@ -15,9 +17,11 @@ import pytest
 from inspect_ai import Task
 from inspect_ai import eval as inspect_eval
 from inspect_ai.dataset import Sample
+from inspect_ai.log import EvalLog
 from inspect_ai.model import (
     ChatMessage,
     GenerateConfig,
+    ModelName,
     ModelOutput,
     StopReason,
     get_model,
@@ -26,6 +30,7 @@ from inspect_ai.scorer import SampleScore, Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
 from inspect_ai.tool import ToolChoice, ToolInfo
 
+from llm_behavior_eval.common.completion import completion_scorer
 from llm_behavior_eval.common.judge import (
     UnclosedThinkingError,
     call_grader,
@@ -37,7 +42,13 @@ from llm_behavior_eval.common.judge import (
 )
 from llm_behavior_eval.common.metrics import field_rate, incomplete_response_rate
 
-from inspect_helpers import eval_metrics, rate, sample_scores
+from inspect_helpers import (
+    eval_metrics,
+    is_unscored,
+    rate,
+    sample_scores,
+    scored_counts,
+)
 
 
 def observation(value: Any, **metadata: Any) -> SampleScore:
@@ -45,57 +56,107 @@ def observation(value: Any, **metadata: Any) -> SampleScore:
 
 
 def test_field_rate_denominator_contract() -> None:
-    counted = [
+    # Unscored (NaN) observations never reach a metric: Inspect drops them
+    # before calling it (pinned on a real eval by
+    # test_judge_scorer_adversarial_epochs). Everything a metric receives is
+    # converted by native mean()'s value_to_float.
+    scalar = [
         observation(1),
         observation(0),
         observation(True),  # bool counts as 1
-        observation(0.5, skipped=False),  # only a truthy flag excludes
-        observation(1, parse_error=""),
+        observation(False),
+        observation(0.5),
+        observation("C"),  # native grade letters: C=1, I=0, P=0.5
+        observation("P"),
     ]
-    excluded = [
-        observation(1, skipped=True),
-        observation(1, parse_error="Judge response did not match pattern"),
-        observation(1, skipped=True, parse_error="both"),
-        observation("C"),  # non-numeric
-        observation([1]),
-        observation({"a": 1}),  # a dict score read without field
-    ]
-    assert rate(field_rate())(counted + excluded) == pytest.approx(3.5 / 5)
-    assert math.isnan(rate(field_rate())(excluded))
-    assert math.isnan(rate(field_rate())([]))
+    assert rate(field_rate())(scalar) == pytest.approx(4 / 7)
+    assert math.isnan(rate(field_rate())([]))  # native mean() would say 0
 
-    # field= reads one key of dict scores; a dict without it is excluded and a
-    # scalar score is read as is.
+    # field= delegates to aggregate(field, mean(), on_missing="skip"): a
+    # missing or None key and a per-key NaN are skipped, not counted as 0.
     by_field = [
         observation({"a": 0.25}),
+        observation({"a": True}),
         observation({"b": 1}),
-        observation({"a": "x"}),
-        observation(1),
-        observation({"a": 1}, parse_error="bad"),
+        observation({"a": None}),
+        observation({"a": math.nan}),
     ]
     assert rate(field_rate("a"))(by_field) == pytest.approx(1.25 / 2)
+    assert math.isnan(rate(field_rate("a"))(by_field[2:]))
+    assert math.isnan(rate(field_rate("a"))([]))
+    # ... and a non-dict score value is an error, as in native aggregate().
+    with pytest.raises(ValueError, match="non-dict score value"):
+        rate(field_rate("a"))([observation({"a": 1}), observation(1)])
 
-    # Subgroups: the metadata must map the key to the value; a missing key is
-    # None. Exclusion flags apply inside the subgroup too.
+    # Subgroups: the score metadata must map the key to the value; a missing
+    # key is None. An empty subgroup is NaN.
     groups = [
         observation(1, group="x"),
         observation(0, group="x"),
-        observation(1, group="x", skipped=True),
+        observation({"a": 1}, group="y"),
         observation(1, group="y"),
         observation(0),
     ]
     assert rate(field_rate(metadata_key="group", metadata_value="x"))(groups) == 0.5
-    assert rate(field_rate(metadata_key="group", metadata_value="y"))(groups) == 1
     assert rate(field_rate(metadata_key="group", metadata_value=None))(groups) == 0
     assert math.isnan(
         rate(field_rate(metadata_key="group", metadata_value="z"))(groups)
     )
+    # The filter runs before aggregate(), so other subgroups' scalar values
+    # never reach it.
+    by_group_field = field_rate("a", metadata_key="group", metadata_value="y")
+    assert rate(by_group_field)(groups[:3]) == 1
 
-    # Values are not checked for finiteness: a non-finite value that reaches
-    # field_rate propagates (judge_scorer turns non-finite verdicts into parse
-    # errors before they get here).
-    assert math.isnan(rate(field_rate())([observation(1), observation(math.nan)]))
+    # Values are not checked for finiteness: an inf that reaches field_rate
+    # propagates (judge_scorer makes non-finite verdicts unscored first).
     assert rate(field_rate())([observation(1), observation(math.inf)]) == math.inf
+
+
+def test_incomplete_response_rate_contract() -> None:
+    # completion_scorer's values: 1 incomplete, 0 complete; an unknown stop
+    # reason is unscored and never reaches the metric.
+    assert rate(incomplete_response_rate())(
+        [observation(1.0), observation(0.0), observation(0.0)]
+    ) == pytest.approx(1 / 3)
+    assert math.isnan(rate(incomplete_response_rate())([]))
+
+
+@pytest.mark.parametrize(
+    ("stop", "expected"),
+    [
+        ("stop", 0.0),
+        ("tool_calls", 0.0),
+        ("content_filter", 0.0),
+        ("max_tokens", 1.0),
+        ("model_length", 1.0),
+        ("unknown", None),
+    ],
+)
+def test_completion_scorer_values(stop: StopReason, expected: float | None) -> None:
+    output = ModelOutput.from_content("mockllm/model", "answer")
+    output.choices[0].stop_reason = stop
+    state = TaskState(
+        model=ModelName("mockllm/model"),
+        sample_id=1,
+        epoch=1,
+        input="q",
+        messages=[],
+        output=output,
+    )
+    score = asyncio.run(completion_scorer()(state, Target("")))
+    assert score is not None
+    assert score.metadata == {"stop_reason": stop}
+    if expected is None:
+        assert is_unscored(score)
+        assert score.reason == "scoring_failed"
+    else:
+        assert score.value == expected
+    # No choices at all: unscored as well.
+    state.output = ModelOutput(model="mockllm/model", choices=[])
+    empty = asyncio.run(completion_scorer()(state, Target("")))
+    assert empty is not None
+    assert is_unscored(empty)
+    assert empty.metadata == {"stop_reason": None}
 
 
 @pytest.mark.parametrize(
@@ -192,7 +253,7 @@ PROMPT = "Grade <{answer}>"
 PATTERN = r"SCORE:\s*(\S+)"
 
 
-@scorer(metrics=[field_rate(), incomplete_response_rate()])
+@scorer(metrics=[field_rate()])
 def composed_judge_scorer() -> Scorer:
     """A benchmark-style grader flow built from the public pieces."""
 
@@ -206,7 +267,13 @@ def composed_judge_scorer() -> Scorer:
         try:
             value, parsed = parse_verdict(raw, PATTERN)
         except ValueError as exc:
-            return Score(value=0, metadata=metadata | {"parse_error": str(exc)})
+            # An ungradable reply is unscored, never a placeholder value.
+            return Score.unscored(
+                reason="grader_failed",
+                answer=raw,
+                explanation=str(exc),
+                metadata=metadata | {"parse_error": str(exc)},
+            )
         return Score(value=value, answer=parsed, metadata=metadata)
 
     return score
@@ -214,8 +281,12 @@ def composed_judge_scorer() -> Scorer:
 
 def adversarial_eval(
     tmp_path: Path, *, only_stop: bool, composed: bool = False
-) -> tuple[list[Score], dict[str, Any]]:
-    """Run ``ANSWERS`` for two epochs; return the scores and the log's metrics."""
+) -> tuple[list[Score], list[Score], EvalLog]:
+    """Run ``ANSWERS`` for two epochs.
+
+    Returns the grading scorer's scores, ``completion_scorer``'s scores and
+    the log.
+    """
     calls: Counter[str] = Counter()
     grader_prompts: list[str] = []
 
@@ -245,9 +316,12 @@ def adversarial_eval(
 
     task = Task(
         dataset=[Sample(id=q, input=q, target="t") for q in ANSWERS],
-        scorer=composed_judge_scorer()
-        if composed
-        else judge_scorer(PROMPT, PATTERN, only_stop=only_stop),
+        scorer=[
+            composed_judge_scorer()
+            if composed
+            else judge_scorer(PROMPT, PATTERN, only_stop=only_stop),
+            completion_scorer(),
+        ],
     )
     [log] = inspect_eval(
         task,
@@ -264,13 +338,20 @@ def adversarial_eval(
     assert not any("secret" in prompt for prompt in grader_prompts)
     assert len(grader_prompts) == (7 if only_stop else 8)
     scores = sample_scores(log, "composed_judge_scorer" if composed else "judge_scorer")
-    assert len(scores) == 8
-    return scores, eval_metrics(log)
+    completion = sample_scores(log, "completion_scorer")
+    assert len(scores) == len(completion) == 8
+    return scores, completion, log
+
+
+def scored(scores: list[Score]) -> list[SampleScore]:
+    """The observations Inspect passes to metrics: every score not unscored."""
+    return [SampleScore(score=s) for s in scores if not is_unscored(s)]
 
 
 @pytest.mark.parametrize("only_stop", [True, False])
 def test_judge_scorer_adversarial_epochs(tmp_path: Path, only_stop: bool) -> None:
-    scores, metrics = adversarial_eval(tmp_path, only_stop=only_stop)
+    scores, completion, log = adversarial_eval(tmp_path, only_stop=only_stop)
+    metrics = eval_metrics(log)
     parse_errors = sorted(
         str(s.metadata["parse_error"])
         for s in scores
@@ -284,48 +365,70 @@ def test_judge_scorer_adversarial_epochs(tmp_path: Path, only_stop: bool) -> Non
         "Judge score is not finite: 'inf'",
         "Judge score is not finite: 'nan'",
     ]
-    assert all(
-        s.value == 0 for s in scores if s.metadata and s.metadata.get("parse_error")
-    )
+    # Skips and parse errors are native unscored observations that keep the
+    # raw reply, the error and the stop reason.
+    for s in scores:
+        meta = s.metadata or {}
+        if meta.get("parse_error"):
+            assert is_unscored(s)
+            assert s.reason == "grader_failed"
+            assert s.explanation == meta["parse_error"]
+            assert s.answer == meta["raw_judge_text"] != ""
+        elif meta.get("skipped"):
+            assert is_unscored(s)
+            assert s.reason == "skipped"
+            assert meta["stop_reason"] == "max_tokens"
+            assert meta["raw_judge_text"] == ""
+        else:
+            assert not is_unscored(s)
+            assert s.reason is None
     assert len(skipped) == (1 if only_stop else 0)
-    graded = sorted(
-        s.as_float()
-        for s in scores
-        if s.metadata
-        and not s.metadata.get("parse_error")
-        and not s.metadata.get("skipped")
-    )
+    graded = sorted(s.as_float() for s in scores if not is_unscored(s))
     # only_stop skips the truncated answer; otherwise it is graded 1.
     assert graded == ([0, 1, 1] if only_stop else [0, 1, 1, 1])
     assert metrics == {
+        # The grading denominator is the graded observations with a finite
+        # verdict: three or four of eight.
         "field_rate": pytest.approx(2 / 3 if only_stop else 3 / 4),
-        # One of eight (sample, epoch) answers stopped at max_tokens.
+        # One of eight (sample, epoch) answers stopped at max_tokens. Skipped
+        # and ungradable answers still count here: completion is its own
+        # scorer, so grading's unscored observations do not shrink it.
         "incomplete_response_rate": 1 / 8,
+    }
+    assert scored_counts(log) == {
+        "judge_scorer": (3, 5) if only_stop else (4, 4),
+        "completion_scorer": (8, 0),
     }
     assert {s.metadata["stop_reason"] for s in scores if s.metadata} == {
         "stop",
         "max_tokens",
     }
-    # The pooled rate equals the metric recomputed from the logged scores.
-    observations = [SampleScore(score=s) for s in scores]
-    assert metrics["field_rate"] == pytest.approx(rate(field_rate())(observations))
-    assert rate(incomplete_response_rate())(observations) == 1 / 8
+    # The pooled rates equal the metrics recomputed from the logged scores.
+    assert metrics["field_rate"] == pytest.approx(rate(field_rate())(scored(scores)))
+    assert rate(incomplete_response_rate())(scored(completion)) == 1 / 8
 
 
 def test_composed_pieces_match_judge_scorer(tmp_path: Path) -> None:
     # A custom grader flow composed from the public pieces reproduces
     # judge_scorer (without only_stop) exactly.
-    def outcomes(scores: list[Score]) -> list[tuple[float, str]]:
+    def outcomes(scores: list[Score]) -> list[tuple[float, str, str | None]]:
         return sorted(
-            (s.as_float(), str((s.metadata or {}).get("parse_error", "")))
+            (
+                -1.0 if is_unscored(s) else s.as_float(),
+                str((s.metadata or {}).get("parse_error", "")),
+                s.reason,
+            )
             for s in scores
         )
 
-    reference, reference_metrics = adversarial_eval(
+    reference, _, reference_log = adversarial_eval(
         tmp_path / "reference", only_stop=False
     )
-    composed, composed_metrics = adversarial_eval(
+    composed, _, composed_log = adversarial_eval(
         tmp_path / "composed", only_stop=False, composed=True
     )
     assert outcomes(composed) == outcomes(reference)
-    assert composed_metrics == reference_metrics
+    assert eval_metrics(composed_log) == eval_metrics(reference_log)
+    assert list(scored_counts(composed_log).values()) == list(
+        scored_counts(reference_log).values()
+    )
