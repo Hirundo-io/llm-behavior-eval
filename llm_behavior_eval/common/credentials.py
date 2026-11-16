@@ -1,23 +1,27 @@
-"""Credentials from environment variables, never from task or logged arguments.
+"""Credentials outside task arguments and logged model arguments.
 
 Inspect records every task argument in the ``.eval`` log, so no benchmark takes
-a credential. Each role reads its own environment variables instead:
+a credential:
 
 * Dataset access reads ``DATASET_CREDENTIAL_VAR``, then ``HF_TOKEN``
   (``resolve_dataset_token``), so datasets can use a credential separate from
   the models' (the legacy ``--dataset-token``).
-* The model under test and the grader use their Inspect provider's own
+* The model under test and the grader each take their own credential as an
+  explicit model object: ``get_model(..., api_key=...)``. Inspect never logs
+  ``api_key``, and every model object keeps its own key, so two models whose
+  providers read the same variable (two ``hf/`` models, two accounts) stay
+  separate. Without ``api_key``, a provider reads its own environment
   variables (``HF_TOKEN``, ``OPENAI_API_KEY``, ``<SERVICE>_API_KEY``, ...).
 
-``credentials`` sets these variables for programmatic callers, from ordinary
-Python arguments, for the duration of a ``with`` block. Environment variables
-are process-global: do not overlap contexts that set different credentials in
-one process (threads, concurrent ``eval`` calls); run such evaluations in
-separate processes.
+``credentials`` sets the dataset variable for programmatic callers, from an
+ordinary Python argument, for the duration of a ``with`` block. Environment
+variables are process-global; a provider or subprocess that reads a credential
+only from the environment needs process-level setup instead (an exported
+variable, or one process per credential set).
 """
 
 import os
-from collections.abc import Generator, Mapping
+from collections.abc import Generator
 from contextlib import contextmanager
 
 DATASET_CREDENTIAL_VAR = "LLM_BEHAVIOR_EVAL_DATASET_TOKEN"
@@ -52,119 +56,80 @@ def resolve_dataset_token() -> str | None:
     )
 
 
-def _credential_variables(
-    dataset_token: str | None,
-    model_env: Mapping[str, str] | None,
-    judge_env: Mapping[str, str] | None,
-) -> dict[str, str]:
-    """Validate the requested variables and merge them into one mapping.
-
-    Error messages name variables and roles, never values.
+def _validated_dataset_token(dataset_token: str) -> str:
+    """Reject a value no environment variable can hold; messages omit it.
 
     Raises:
-        TypeError: A name or value is not a string.
-        ValueError: A name or value is empty or contains ``=`` (names) or a
-            NUL character, or two roles set one variable to different values.
+        TypeError: ``dataset_token`` is not a string.
+        ValueError: It is empty, only whitespace, or contains a NUL character.
     """
-    requested: list[tuple[str, Mapping[str, str]]] = []
-    if dataset_token is not None:
-        requested.append(("dataset", {DATASET_CREDENTIAL_VAR: dataset_token}))
-    if model_env is not None:
-        requested.append(("model", model_env))
-    if judge_env is not None:
-        requested.append(("judge", judge_env))
-
-    variables: dict[str, str] = {}
-    owners: dict[str, str] = {}
-    for role, env in requested:
-        for name, value in env.items():
-            if not isinstance(name, str) or not isinstance(value, str):
-                raise TypeError(
-                    f"{role} credential names and values must be strings"
-                    f" (variable {name!r})"
-                )
-            if not name or "=" in name or "\0" in name:
-                raise ValueError(f"invalid environment variable name {name!r}")
-            if not value.strip() or "\0" in value:
-                raise ValueError(
-                    f"{role} credential {name} is empty or contains a NUL"
-                    " character; omit it to leave the variable unchanged"
-                )
-            if name in variables and variables[name] != value:
-                raise ValueError(
-                    f"the {owners[name]} and {role} credentials both set {name}"
-                    " to different values. One process environment cannot hold"
-                    " both; see INSPECT_MIGRATION.md, Credentials, for per-model"
-                    " api_key arguments or separate processes."
-                )
-            variables[name] = value
-            owners.setdefault(name, role)
-    return variables
+    if not isinstance(dataset_token, str):
+        raise TypeError(
+            f"the dataset credential {DATASET_CREDENTIAL_VAR} must be a string"
+        )
+    if not dataset_token.strip() or "\0" in dataset_token:
+        raise ValueError(
+            f"the dataset credential {DATASET_CREDENTIAL_VAR} is empty or contains"
+            " a NUL character; omit it to leave the variable unchanged"
+        )
+    return dataset_token
 
 
 @contextmanager
-def credentials(
-    *,
-    dataset_token: str | None = None,
-    model_env: Mapping[str, str] | None = None,
-    judge_env: Mapping[str, str] | None = None,
-) -> Generator[None]:
-    """Set credential environment variables for the duration of a ``with`` block.
+def credentials(*, dataset_token: str | None = None) -> Generator[None]:
+    """Set the dataset credential for the duration of a ``with`` block.
 
-    Credentials stay ordinary Python arguments: they are never task arguments
-    or logged model arguments, so they never reach the ``.eval`` log. Keep the
-    block open around the whole ``inspect_ai.eval`` call, because datasets
-    load and providers read their variables while it runs.
+    The token stays an ordinary Python argument: it is never a task argument,
+    so it never reaches the ``.eval`` log. Keep the block open while the task
+    is built (``inspect_ai.eval`` builds it), because that is when datasets
+    load. Models take their credentials as ``get_model(..., api_key=...)``,
+    not from this context.
 
-    On exit, normal or by exception, every variable the context set is
-    restored to its previous value, or removed if it was unset before. Changes
-    made inside the block to those variables are discarded; other variables
-    are untouched. Contexts nest; the innermost value wins while it is open.
+    On exit, normal or by exception, ``DATASET_CREDENTIAL_VAR`` is restored to
+    its previous value, or removed if it was unset before; a change made inside
+    the block is discarded. Other variables are untouched. Contexts nest; the
+    innermost value wins while it is open.
 
-    Environment variables are process-global. Do not overlap contexts that set
-    different credentials from several threads or concurrent evaluations in
-    one process; run those in separate processes instead.
+    The variable is process-global: every thread and async task in the
+    process sees it. Do not overlap contexts that set different tokens from
+    several threads or concurrent evaluations in one process; run those in
+    separate processes.
 
     Args:
         dataset_token: Hugging Face token for dataset access only, set as
             ``DATASET_CREDENTIAL_VAR``. ``None`` leaves the variable unchanged.
-        model_env: Variables for the model under test's provider, for example
-            ``{"HF_TOKEN": ...}`` for ``hf/`` or ``{"ANSWER_API_KEY": ...}`` for
-            ``openai-api/answer/<model>``.
-        judge_env: Variables for the grader's provider, for example
-            ``{"AIRGAP_API_KEY": ...}`` for ``openai-api/airgap/<model>``.
 
     Yields:
-        Nothing; the variables are set while the block runs.
+        Nothing; the variable is set while the block runs.
 
     Raises:
-        TypeError: A name or value is not a string.
-        ValueError: A name or value is invalid or empty, or two roles set one
-            variable to different values (for example two ``hf/`` models with
-            different ``HF_TOKEN`` values). Nothing is changed in that case.
+        TypeError: ``dataset_token`` is not a string.
+        ValueError: ``dataset_token`` is empty, only whitespace, or contains a
+            NUL character. Nothing is changed in that case.
 
     Example::
 
-        with credentials(
-            dataset_token=dataset_secret,
-            model_env={"HF_TOKEN": model_secret},
-            judge_env={"AIRGAP_API_KEY": judge_secret},
-        ):
+        with credentials(dataset_token=dataset_secret):
             eval(
                 "llm_behavior_eval/<benchmark>",
-                model="hf/org/answer",
-                model_roles={"grader": "openai-api/airgap/judge"},
+                model=get_model("openai-api/answer/<model>", api_key=model_secret),
+                model_roles={
+                    "grader": get_model(
+                        "openai-api/airgap/<judge>", api_key=judge_secret
+                    )
+                },
             )
     """
-    variables = _credential_variables(dataset_token, model_env, judge_env)
-    previous = {name: os.environ.get(name) for name in variables}
+    if dataset_token is None:
+        yield
+        return
+    value = _validated_dataset_token(dataset_token)
+    previous = os.environ.get(DATASET_CREDENTIAL_VAR)
     try:
-        for name, value in variables.items():
-            os.environ[name] = value
+        os.environ[DATASET_CREDENTIAL_VAR] = value
         yield
     finally:
-        for name, value in previous.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
+        if previous is None:
+            os.environ.pop(DATASET_CREDENTIAL_VAR, None)
+        else:
+            os.environ[DATASET_CREDENTIAL_VAR] = previous

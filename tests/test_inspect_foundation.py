@@ -299,18 +299,6 @@ def test_legacy_order_matches_legacy_shuffle(num_rows: int) -> None:
         assert order == [3, 2, 6, 4, 1, 5, 0]
 
 
-@pytest.fixture
-def hf_dataset_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Keep native ``hf_dataset``'s split cache inside ``tmp_path``."""
-    from inspect_ai.dataset._sources import hf as hf_source
-
-    cache = tmp_path / "inspect_cache"
-    monkeypatch.setattr(
-        hf_source, "inspect_cache_dir", lambda subdir, create=True: cache / subdir
-    )
-    return cache
-
-
 @pytest.mark.parametrize("num_rows", [1, 7, 50])
 def test_native_hf_dataset_shuffle_matches_legacy_order(
     tmp_path: Path, hf_dataset_cache: Path, num_rows: int

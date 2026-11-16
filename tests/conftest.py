@@ -1,5 +1,6 @@
 import sys
 from collections.abc import Iterator
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -31,3 +32,20 @@ def openai_judge() -> Iterator["LocalOpenAIJudge"]:
 
     with local_openai_judge() as judge:
         yield judge
+
+
+@pytest.fixture
+def hf_dataset_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Keep Inspect's ``hf_dataset`` split cache inside ``tmp_path``.
+
+    ``hf_dataset`` saves every split it loads under Inspect's user cache
+    directory; tests redirect it so they neither read a stale copy nor leave
+    one behind.
+    """
+    from inspect_ai.dataset._sources import hf as hf_source
+
+    cache = tmp_path / "inspect_cache"
+    monkeypatch.setattr(
+        hf_source, "inspect_cache_dir", lambda subdir, create=True: cache / subdir
+    )
+    return cache
