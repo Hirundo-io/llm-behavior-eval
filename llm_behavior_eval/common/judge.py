@@ -12,6 +12,22 @@ pass through ``grader_final_answer`` (``parse_verdict`` does so) first. An
 observation a scorer cannot grade (skipped, unparsable) is
 ``Score.unscored(...)``, never a placeholder value.
 
+Native ``inspect_ai.scorer.model_graded_qa`` is the alternative only when its
+semantics fit: the prompt uses its template fields (``{question}``,
+``{criterion}``, ``{answer}``, ``{instructions}``, metadata keys) and tolerates
+its delimiter sanitizing, the verdict is a grade its ``grade_pattern``
+captures (strings such as ``"C"``; no ``parse`` callback or finite check), the
+grader is ``ModelRole(GRADER_ROLE, required=True)`` (its default role falls
+back to the model under test), no ``only_stop`` eligibility is needed, and
+neither the answer nor the grader reply carries inline ``<think>`` text: it
+grades ``state.output.completion`` unstripped and searches the grader's raw
+reply without ``grader_final_answer``, which is acceptable only because
+structured reasoning never reaches ``completion``. Its own metrics are
+reduced, so a benchmark wraps it in a scorer with unreduced metrics. Exact
+parity prompts with ``{question}``/``{answer}``/``{target}``/``{metadata}``,
+numeric ``parse`` with the finite check, ``only_stop``, answer-side thinking
+stripping and rejecting an unclosed grader trace need the pieces here.
+
 Thinking-trace task arguments: every benchmark ``@task`` takes the arguments in
 ``THINKING_TASK_ARGS``, with exactly these names and defaults, and passes them
 unchanged to ``judge_scorer`` or ``strip_thinking``. Stripping is on by default;

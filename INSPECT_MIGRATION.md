@@ -51,7 +51,9 @@ the reporting PR ([#207](https://github.com/Hirundo-io/llm-behavior-eval/pull/20
    benchmark owns its scorer and metrics, because verdict formats and
    denominators differ. `judge_scorer` and `field_rate` are optional
    conveniences for a benchmark whose single-verdict format and policies fit
-   them; most benchmarks write their own scorer. A custom scorer **must** use
+   them; most benchmarks write their own scorer. Inspect's native
+   `model_graded_qa()` is acceptable only within its narrow fit (see
+   [Native model grading](#native-model-grading)). A custom scorer **must** use
    the shared building blocks rather than reimplement them: the `grader` role
    (`GRADER_ROLE`, `call_grader`), `grader_final_answer` or `parse_verdict`
    on every grader reply, `strip_thinking` with the `THINKING_TASK_ARGS` task
@@ -90,7 +92,7 @@ Each benchmark is a regular subpackage `llm_behavior_eval/<benchmark>/` (it has 
 | `dataset.py` | `record_to_sample` and loading of the split it scores: native `hf_dataset(..., sample_fields=record_to_sample, shuffle=LEGACY_SHUFFLE_SEED, token=resolve_dataset_token())` for an ordinary one-to-one Hub dataset, otherwise `load_hf_dataset(..., split=...)`, full-source validation, `legacy_order` and `to_inspect_dataset` (see [Shared API](#shared-api-llm_behavior_evalcommon)). |
 | `prompts.py` | System and judge prompts, copied verbatim from the legacy engine. |
 | `solver.py` | Solver chain. No GenerateConfig. |
-| `scorer.py` | The benchmark's own scorer, composed from `common.judge`'s public pieces; it **must** pass every grader reply through `grader_final_answer` (or `parse_verdict`) before parsing it, and return `Score.unscored(...)` for an observation it cannot grade. `common.judge.judge_scorer` is an optional shortcut when its single verdict, `only_stop` eligibility and parse-error policy fit. The task lists `common.completion.completion_scorer()` beside it for `incomplete_response_rate`, not a copy. |
+| `scorer.py` | The benchmark's own scorer, composed from `common.judge`'s public pieces; it **must** pass every grader reply through `grader_final_answer` (or `parse_verdict`) before parsing it, and return `Score.unscored(...)` for an observation it cannot grade. `common.judge.judge_scorer` is an optional shortcut when its single verdict, `only_stop` eligibility and parse-error policy fit; Inspect's `model_graded_qa()` only when its prompt, letter-grade and no-inline-thinking conditions fit ([Native model grading](#native-model-grading)). The task lists `common.completion.completion_scorer()` beside it for `incomplete_response_rate`, not a copy. |
 | `metrics.py` | Benchmark metrics, when `common.metrics` is not enough. Every one is `@metric(scores="unreduced")` (see [Epochs](#epochs)). |
 | `README.md` | What it measures, task arguments, metrics, parity status. |
 | `parity.yaml` | Legacy-engine settings as an Inspect run config (see below). |
@@ -281,7 +283,9 @@ check the converted order against the legacy rows before `--limit`.
 * `judge.judge_scorer(prompt, pattern, *, parse=float, only_stop=False,
   exclude_thinking_trace_for_judge=True, thinking_start_token="<think>",
   thinking_end_token="</think>")`, an optional convenience (see design rule 3),
-  calls the `grader` role and parses its reply.
+  calls the `grader` role and parses its reply. For when Inspect's own
+  `model_graded_qa()` fits instead, see
+  [Native model grading](#native-model-grading).
   Prompt fields are `{question}`, `{answer}`, `{target}`, `{metadata}`. Regex
   group 1 goes to `parse`. The grader role is required and never falls back to the
   model under test. **The scorer passes no GenerateConfig**: the grader uses only
@@ -391,6 +395,60 @@ check the converted order against the legacy rows before `--limit`.
 
 Sample limits are Inspect's: `--limit N`, `eval(limit=N)`, or `eval_config.limit`
 in a run config. There is no task-level sample cap.
+
+### Native model grading
+
+Inspect's `model_graded_qa()` (`inspect_ai/scorer/_model.py`) already renders
+a template, calls the grader role, extracts a grade with `grade_pattern` and
+returns `Score.unscored(reason="grader_failed")` when nothing matches. A
+benchmark may use it instead of `common.judge` only when **all** of these hold:
+
+* its prompt fits the native template fields: `{question}` (input text),
+  `{criterion}` (the target), `{answer}` (`state.output.completion`),
+  `{instructions}` and each sample metadata key as its own field, and the
+  native sanitizing (`[BEGIN DATA]`/`[END DATA]` in the answer, question,
+  target and metadata are rewritten) does not change a parity prompt;
+* its verdict is a grade the pattern captures, such as `GRADE: C/P/I`.
+  Native grades are strings (`"C"`, `"I"`, `"P"`; a custom pattern's raw
+  capture), with `grading` metadata; `field_rate` maps the letters to
+  1/0/0.5 through `value_to_float`, but native grading neither calls a
+  `parse` callback nor checks finiteness (a capture such as `"nan"` or
+  `"inf"` counts as 0, not unscored);
+* the grader is bound through
+  `model_role=ModelRole(GRADER_ROLE, required=True)`; the default
+  `model_role="grader"` silently falls back to the model under test when no
+  grader is given (a role bound to a list of models becomes a majority-vote
+  panel);
+* it needs no `only_stop` eligibility (no `require_stop_reason`, every
+  answer is graded); and
+* **neither the answer under test nor the grader emits inline `<think>`
+  text.** Native grading puts `state.output.completion` into `{answer}`
+  unchanged, so the task's thinking arguments have no effect, and searches
+  the grader's raw `completion`, bypassing `grader_final_answer`. That is
+  acceptable only because Inspect already excludes structured
+  `ContentReasoning` from `completion`; with inline traces it would break
+  the rule that every grader reply passes through `grader_final_answer`.
+  Otherwise use `common.judge`.
+
+Its own metrics, `accuracy()` and `stderr()`, are reduced, and
+`Task(metrics=...)` would also replace `completion_scorer`'s metric, so wrap
+it in a benchmark scorer with unreduced metrics:
+
+```python
+@scorer(metrics=[field_rate()])
+def <benchmark>_scorer() -> Scorer:
+    return model_graded_qa(
+        template=PROMPT,
+        grade_pattern=GRADE_PATTERN,
+        model_role=ModelRole(GRADER_ROLE, required=True),
+    )
+```
+
+Use `common.judge`'s pieces instead when the benchmark needs exact parity
+prompts with `{question}`/`{answer}`/`{target}`/`{metadata}`, a numeric
+`parse` callback with the finite check, `only_stop`, answer-side thinking
+stripping, or rejection of an unclosed inline grader trace. Do not wrap
+`model_graded_qa` until it duplicates `judge_scorer`.
 
 ## Epochs
 
