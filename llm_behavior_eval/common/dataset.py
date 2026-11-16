@@ -1,5 +1,34 @@
 """Load a named source split and convert it to an Inspect dataset.
 
+Ordinary one-record-to-one-sample Hub benchmarks should use Inspect's native
+``inspect_ai.dataset.hf_dataset`` instead of this module, called in the task
+body::
+
+    hf_dataset(
+        path,
+        split=split,
+        name=name,
+        revision=revision,
+        sample_fields=record_to_sample,
+        shuffle=LEGACY_SHUFFLE_SEED,
+        token=resolve_dataset_token(),
+    )
+
+``shuffle=LEGACY_SHUFFLE_SEED`` applies ``datasets.Dataset.shuffle(seed=42)``
+to the raw split before conversion, exactly the legacy order, so ``--limit N``
+keeps the legacy rows. The token is computed inside the task, never a task
+argument, and reaches ``datasets.load_dataset`` through ``hf_dataset``'s
+keyword arguments; native loading also caches the split and retries transient
+Hub errors. Take stable sample IDs from a record field (or ``auto_id=True``,
+the 1-based source position).
+
+``load_hf_dataset`` + ``legacy_order`` + ``to_inspect_dataset`` remain for
+what ``hf_dataset`` does not do: ``save_to_disk`` snapshots and
+``dataset_path`` overrides, explicit ``DatasetDict`` split validation, and
+benchmarks that validate or transform the full raw dataset before conversion,
+or whose conversion expands or filters records (one record is no longer one
+sample, so where the shuffle happens decides which samples ``--limit`` keeps).
+
 Sample limits are Inspect's job (``--limit`` / ``eval(limit=...)`` or a run
 config's ``eval_config.limit``), so conversion always keeps every record.
 """

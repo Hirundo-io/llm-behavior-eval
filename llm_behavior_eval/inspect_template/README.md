@@ -10,7 +10,7 @@ inspect eval llm_behavior_eval/inspect_template --model mockllm/model
 | File | Owns |
 | --- | --- |
 | `task.py` | The `@task`. Sets no GenerateConfig. Takes the thinking-trace task arguments. Lists the grading scorer and `common.completion.completion_scorer()`. |
-| `dataset.py` | Records and `record_to_sample`. |
+| `dataset.py` | Records and `record_to_sample`. A Hub benchmark loads with native `hf_dataset(..., sample_fields=record_to_sample, shuffle=LEGACY_SHUFFLE_SEED, token=resolve_dataset_token())`, or with `common.dataset` for snapshots and full-source validation. |
 | `prompts.py` | System prompt, judge prompt and the judge's answer pattern. |
 | `solver.py` | Solver chain. Sets no GenerateConfig. |
 | `scorer.py` | Grading scorer. The template uses `common.judge.judge_scorer` because its single verdict fits; most benchmarks write their own scorer from `common.judge`'s pieces and return `Score.unscored(...)` for what they cannot grade. |
@@ -36,9 +36,13 @@ Differences from a real benchmark:
 
 * The task binds a mock grader that always answers `SCORE: 1`. A real benchmark
   binds no grader, so runs fail without `--model-role grader=...`.
-* The dataset is one inline record. A real benchmark loads its full source with
-  `common.dataset.load_hf_dataset(..., split=...)`, naming the split it scores,
-  and validates it before conversion.
+* The dataset is one inline record. A real one-record-to-one-sample Hub
+  benchmark loads it with Inspect's `hf_dataset(path, split=..., name=...,
+  revision=..., sample_fields=record_to_sample, shuffle=LEGACY_SHUFFLE_SEED,
+  token=resolve_dataset_token())`, naming the split it scores. One that
+  accepts a `save_to_disk` snapshot, validates the full source, or expands or
+  filters records uses `common.dataset.load_hf_dataset(..., split=...)`,
+  `legacy_order` and `to_inspect_dataset` (see INSPECT_MIGRATION.md).
 * The grading scorer is `common.judge.judge_scorer`, an optional shortcut. A
   benchmark whose verdict format, eligibility or error policy differs writes
   its own scorer from `common.judge`'s public pieces, passes every grader
@@ -63,7 +67,8 @@ Never add a credential task argument (a token, key, secret or password):
 Inspect writes every task argument into the `.eval` log. A benchmark that loads
 a gated Hub dataset authenticates from the environment
 (`LLM_BEHAVIOR_EVAL_DATASET_TOKEN`, then `HF_TOKEN`; see INSPECT_MIGRATION.md,
-"Credentials"); `load_hf_dataset` takes no token parameter. `tests/test_inspect_packages.py` rejects
+"Credentials"): `hf_dataset(..., token=resolve_dataset_token())` computes
+the token in the task body, and `load_hf_dataset` takes no token parameter. `tests/test_inspect_packages.py` rejects
 credential-like parameter names on every registered task.
 
 The grading scorer uses `only_stop=True`, so a model under test served by

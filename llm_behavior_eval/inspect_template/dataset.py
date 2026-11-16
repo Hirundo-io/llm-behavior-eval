@@ -14,8 +14,11 @@ def record_to_sample(record: dict[str, Any]) -> Sample:
 
 
 def dataset() -> MemoryDataset:
-    # Real benchmarks call common.dataset.load_hf_dataset with an explicit
-    # split= (and name= for a non-default config) and validate the complete
-    # source before conversion.
+    # Real one-record-to-one-sample Hub benchmarks call Inspect's native
+    # hf_dataset(path, split=..., name=..., revision=...,
+    # sample_fields=record_to_sample, shuffle=LEGACY_SHUFFLE_SEED,
+    # token=resolve_dataset_token()). Snapshots, full-source validation and
+    # expanding conversions use common.dataset.load_hf_dataset (explicit
+    # split=), legacy_order and to_inspect_dataset.
     records = [{"id": "addition", "question": "What is 1 + 1?", "answer": "2"}]
     return to_inspect_dataset(records, record_to_sample, dataset_id=DATASET_ID)

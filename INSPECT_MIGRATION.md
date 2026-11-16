@@ -85,7 +85,7 @@ Each benchmark is a regular subpackage `llm_behavior_eval/<benchmark>/` (it has 
 | File | Contents |
 | --- | --- |
 | `task.py` | The `@task` function. No `config=`, no default grader. Takes the [thinking-trace task arguments](#thinking-trace-task-arguments). |
-| `dataset.py` | Loading (`load_hf_dataset(..., split=...)` with the split it scores), full-source validation, `record_to_sample`. |
+| `dataset.py` | `record_to_sample` and loading of the split it scores: native `hf_dataset(..., sample_fields=record_to_sample, shuffle=LEGACY_SHUFFLE_SEED, token=resolve_dataset_token())` for an ordinary one-to-one Hub dataset, otherwise `load_hf_dataset(..., split=...)`, full-source validation, `legacy_order` and `to_inspect_dataset` (see [Shared API](#shared-api-llm_behavior_evalcommon)). |
 | `prompts.py` | System and judge prompts, copied verbatim from the legacy engine. |
 | `solver.py` | Solver chain. No GenerateConfig. |
 | `scorer.py` | The benchmark's own scorer, composed from `common.judge`'s public pieces; it **must** pass every grader reply through `grader_final_answer` (or `parse_verdict`) before parsing it, and return `Score.unscored(...)` for an observation it cannot grade. `common.judge.judge_scorer` is an optional shortcut when its single verdict, `only_stop` eligibility and parse-error policy fit. The task lists `common.completion.completion_scorer()` beside it for `incomplete_response_rate`, not a copy. |
@@ -189,6 +189,46 @@ report "all benchmarks" should skip `llm_behavior_eval/inspect_template`.
 Test-only helpers (such as `reduced_metrics`) live in `tests/inspect_helpers.py`,
 not here.
 
+**Loading a Hub dataset.** An ordinary benchmark whose records convert one to
+one into samples SHOULD use Inspect's native loader, called in the task body:
+
+```python
+from inspect_ai.dataset import hf_dataset
+
+from llm_behavior_eval.common.credentials import resolve_dataset_token
+from llm_behavior_eval.common.dataset import LEGACY_SHUFFLE_SEED
+
+dataset = hf_dataset(
+    "org/dataset",
+    split="test",
+    name=None,  # the config, when not the default
+    revision=None,  # pin a commit for reproducible runs
+    sample_fields=record_to_sample,
+    shuffle=LEGACY_SHUFFLE_SEED,
+    token=resolve_dataset_token(),
+)
+```
+
+`hf_dataset` shuffles the raw split with `datasets.Dataset.shuffle(seed=42)`
+before converting it (an integer `shuffle` is the seed), which is the legacy
+engine's order, so `--limit N` keeps the rows the legacy `max_samples` cap kept
+(`test_native_hf_dataset_shuffle_matches_legacy_order`). Its extra keyword
+arguments go to `datasets.load_dataset`, which is how the token arrives; compute
+it in the task body, never as a task argument (see [Credentials](#credentials)).
+It also caches the loaded split under Inspect's cache directory (without a
+`revision`, a later run reuses that copy; with one, it revalidates against the
+Hub) and retries transient Hub errors. Sample IDs come from `record_to_sample`
+(a stable record field), or `auto_id=True` numbers records by their source
+position, starting at 1. Sample limits stay Inspect's job.
+
+`load_hf_dataset` + `legacy_order` + `to_inspect_dataset` remain for what
+`hf_dataset` does not do: `save_to_disk` snapshots and `-T dataset_path=...`
+overrides, explicit `DatasetDict` split validation, and benchmarks that
+validate or transform the full raw dataset before conversion. Use them too when
+conversion expands or filters records: `--limit` counts samples, not source
+records, so where the shuffle and the cap apply decides which samples run;
+check the converted order against the legacy rows before `--limit`.
+
 * `dataset.load_hf_dataset(dataset_id, *, split, name=None, dataset_path=None,
   revision=None)` loads one complete, named split of an HF dataset or a
   `save_to_disk` snapshot. `split` is required: which split a benchmark scores
@@ -208,9 +248,10 @@ not here.
   them (see [Credentials](#credentials)). `credentials.DATASET_CREDENTIAL_VAR` is
   `"LLM_BEHAVIOR_EVAL_DATASET_TOKEN"`.
 * `dataset.legacy_order(num_rows, seed=LEGACY_SHUFFLE_SEED)` returns source row
-  positions in the legacy engine's `Dataset.shuffle(seed=42)` order. Convert
-  records in that order so `--limit N` keeps the rows the legacy `max_samples`
-  cap kept; keep the source position in the sample ID.
+  positions in the legacy engine's `Dataset.shuffle(seed=42)` order, the order
+  `hf_dataset(shuffle=LEGACY_SHUFFLE_SEED)` produces natively. Convert records
+  in that order so `--limit N` keeps the rows the legacy `max_samples` cap
+  kept; keep the source position in the sample ID.
 * `dataset.to_inspect_dataset(records, record_to_sample, *, dataset_id)` converts
   every record, in source order, into a `MemoryDataset`. Validate the complete
   source first. Supply stable sample IDs and subgroup metadata.
@@ -628,7 +669,7 @@ the shared helpers.
 
 | Role | Variables, in order of precedence | Read by |
 | --- | --- | --- |
-| Dataset (Hub) | `LLM_BEHAVIOR_EVAL_DATASET_TOKEN`, then `HF_TOKEN`; with neither, `huggingface_hub`'s own sources (such as a cached `hf auth login`) | `load_hf_dataset`, through `credentials.resolve_dataset_token()`, when the task is built |
+| Dataset (Hub) | `LLM_BEHAVIOR_EVAL_DATASET_TOKEN`, then `HF_TOKEN`; with neither, `huggingface_hub`'s own sources (such as a cached `hf auth login`) | `credentials.resolve_dataset_token()`, when the task is built: passed as `hf_dataset(..., token=resolve_dataset_token())`, or read by `load_hf_dataset` |
 | Model under test | Its provider's own: `HF_TOKEN` (`hf/`, and Hub downloads by the vLLM server Inspect starts), `<SERVICE>_API_KEY` and `<SERVICE>_BASE_URL` (`openai-api/<service>/...`), `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `VLLM_API_KEY` (vLLM server key), ... | The Inspect provider |
 | Grader | The same, for the grader's provider | The Inspect provider |
 

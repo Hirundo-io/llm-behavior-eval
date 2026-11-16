@@ -14,7 +14,7 @@ import pytest
 from datasets import Dataset, DatasetDict
 from inspect_ai import Task
 from inspect_ai import eval as inspect_eval
-from inspect_ai.dataset import Sample
+from inspect_ai.dataset import Sample, hf_dataset
 from inspect_ai.log import EvalLog
 from inspect_ai.model import (
     ChatMessage,
@@ -33,6 +33,7 @@ from inspect_ai.util import registry_info
 
 from llm_behavior_eval.common import judge as judge_module
 from llm_behavior_eval.common.completion import completion_scorer
+from llm_behavior_eval.common.credentials import resolve_dataset_token
 from llm_behavior_eval.common.dataset import (
     LEGACY_SHUFFLE_SEED,
     legacy_order,
@@ -296,6 +297,91 @@ def test_legacy_order_matches_legacy_shuffle(num_rows: int) -> None:
     if num_rows == 7:
         # Pinned: a datasets upgrade that changes shuffle(seed=42) breaks parity.
         assert order == [3, 2, 6, 4, 1, 5, 0]
+
+
+@pytest.fixture
+def hf_dataset_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Keep native ``hf_dataset``'s split cache inside ``tmp_path``."""
+    from inspect_ai.dataset._sources import hf as hf_source
+
+    cache = tmp_path / "inspect_cache"
+    monkeypatch.setattr(
+        hf_source, "inspect_cache_dir", lambda subdir, create=True: cache / subdir
+    )
+    return cache
+
+
+@pytest.mark.parametrize("num_rows", [1, 7, 50])
+def test_native_hf_dataset_shuffle_matches_legacy_order(
+    tmp_path: Path, hf_dataset_cache: Path, num_rows: int
+) -> None:
+    # INSPECT_MIGRATION.md, "Shared API": for a one-record-to-one-sample
+    # conversion, hf_dataset(shuffle=LEGACY_SHUFFLE_SEED) shuffles the raw
+    # split with datasets.Dataset.shuffle(seed=42) before converting it, so
+    # --limit N keeps exactly the rows the legacy max_samples cap kept.
+    rows = [
+        {"id": f"row-{i}", "question": f"q{i}", "answer": str(i)}
+        for i in range(num_rows)
+    ]
+    source = tmp_path / "rows.jsonl"
+    source.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    native = hf_dataset(
+        "json",
+        split="train",
+        data_files=str(source),
+        cache_dir=str(tmp_path / "hf_cache"),
+        sample_fields=record_to_sample,
+        shuffle=LEGACY_SHUFFLE_SEED,
+    )
+    legacy = to_inspect_dataset(
+        [rows[i] for i in legacy_order(num_rows)],
+        record_to_sample,
+        dataset_id="json",
+    )
+    assert [s.id for s in native] == [s.id for s in legacy]
+    assert [s.input for s in native] == [s.input for s in legacy]
+    assert sorted(str(s.id) for s in native) == sorted(row["id"] for row in rows)
+    assert native.shuffled
+    if num_rows == 7:
+        # The pinned legacy order of test_legacy_order_matches_legacy_shuffle.
+        assert [s.id for s in native] == [f"row-{i}" for i in [3, 2, 6, 4, 1, 5, 0]]
+
+
+def test_native_hf_dataset_passes_the_dataset_token(
+    tmp_path: Path, hf_dataset_cache: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The recommended call computes the token in the task body and passes it
+    # through hf_dataset's **kwargs to datasets.load_dataset; it is never a
+    # task argument and the returned dataset does not keep it.
+    import datasets
+
+    calls: list[dict[str, Any]] = []
+
+    def load(**kwargs: Any) -> Dataset:
+        calls.append(kwargs)
+        return Dataset.from_list([{"id": "a", "question": "q", "answer": "a"}])
+
+    monkeypatch.setattr(datasets, "load_dataset", load)
+    monkeypatch.setenv("LLM_BEHAVIOR_EVAL_DATASET_TOKEN", "hf_DATASET_SENTINEL")
+    native = hf_dataset(
+        "org/gated",
+        split="test",
+        name="cfg",
+        revision="abc123",
+        sample_fields=record_to_sample,
+        shuffle=LEGACY_SHUFFLE_SEED,
+        token=resolve_dataset_token(),
+    )
+    [call] = calls
+    assert {key: call[key] for key in ("path", "name", "split", "revision")} == {
+        "path": "org/gated",
+        "name": "cfg",
+        "split": "test",
+        "revision": "abc123",
+    }
+    assert call["token"] == "hf_DATASET_SENTINEL"
+    assert (native.name, native.location) == ("org/gated", "org/gated")
+    assert [s.id for s in native] == ["a"]
 
 
 @pytest.mark.parametrize(
