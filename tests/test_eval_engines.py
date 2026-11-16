@@ -603,6 +603,13 @@ def test_vllm_config_rejects_invalid_parallelism(kwargs) -> None:
         VllmConfig(**kwargs)
 
 
+def test_vllm_config_strips_lora_target_names() -> None:
+    targets = [" q_proj ", "\to_proj\n"]
+    config = VllmConfig(lora_target_modules=targets)
+    assert config.lora_target_modules == ["q_proj", "o_proj"]
+    assert targets == [" q_proj ", "\to_proj\n"]
+
+
 @pytest.mark.parametrize("pipeline_size,backend", [(1, None), (2, "ray")])
 def test_load_vllm_model_uses_text_generation_defaults(
     monkeypatch: pytest.MonkeyPatch,

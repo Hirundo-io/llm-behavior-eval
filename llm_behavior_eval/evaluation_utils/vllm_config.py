@@ -55,7 +55,10 @@ class VllmConfig(BaseModel):
     @field_validator("lora_target_modules")
     @classmethod
     def validate_lora_target_modules(cls, value: list[str] | None) -> list[str] | None:
-        """Reject blank module names instead of silently omitting adapter layers."""
-        if value is not None and any(not item.strip() for item in value):
+        """Normalize module names and reject blank adapter targets."""
+        if value is None:
+            return None
+        value = [item.strip() for item in value]
+        if any(not item for item in value):
             raise ValueError("LoRA target module names must not be blank")
         return value

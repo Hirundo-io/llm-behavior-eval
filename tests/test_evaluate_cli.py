@@ -482,6 +482,21 @@ def test_vllm_defaults_preserve_vllm_configuration(
     assert vllm_config.distributed_executor_backend is None
 
 
+@pytest.mark.parametrize(
+    "engine_option", ["--model-engine", "--judge-engine", "--inference-engine"]
+)
+def test_cli_omitted_lora_targets_preserve_default(
+    capture_eval_config: list[EvaluationConfig], engine_option: str
+) -> None:
+    result = CliRunner().invoke(
+        evaluate.app, ["fake/model", "prompt-injection", engine_option, "vllm"]
+    )
+    assert result.exit_code == 0, result.output
+    config = capture_eval_config[-1].vllm_config
+    assert config is not None
+    assert config.lora_target_modules is None
+
+
 def test_cli_passes_multinode_parallelism(
     capture_eval_config: list[EvaluationConfig],
 ) -> None:
@@ -499,7 +514,7 @@ def test_cli_passes_multinode_parallelism(
             "--vllm-distributed-executor-backend",
             "ray",
             "--vllm-lora-target-module",
-            "q_proj",
+            " q_proj ",
             "--vllm-lora-target-module",
             "o_proj",
         ],
