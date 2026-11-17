@@ -1,0 +1,16 @@
+{
+  "llm_behavior_eval/inspect_template": [
+    {
+      "name": "field_rate",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ]
+}

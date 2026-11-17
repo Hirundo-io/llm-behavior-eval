@@ -343,3 +343,20 @@ Using the next models as judges:
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for more information.
+
+Native Inspect migration scaffolding is available alongside the legacy engine.
+Native tasks set no inference settings: pass them per role yourself (eval-level
+flags for the model under test, `--model-role grader=...` with its own config for
+the judge), or pass a benchmark's `parity.yaml` with `--run-config` for the legacy
+engine's exact settings. See [Inspect migration and shared API](INSPECT_MIGRATION.md)
+for the benchmark layout, per-role CLI and Python forms, `openai-api` judge setup,
+provider caveats, and remaining parity limitations.
+
+Each native benchmark is a package under `llm_behavior_eval/<benchmark>/` and is
+documented in its own `llm_behavior_eval/<benchmark>/README.md` (task arguments,
+metrics, parity status). `inspect list tasks llm_behavior_eval` lists the
+benchmarks in a source checkout; run one with
+`inspect eval llm_behavior_eval/<benchmark> --model <provider/model> --model-role grader=<provider/judge>`.
+`python -m llm_behavior_eval.common.target_metrics --output targets.json` writes
+the merged report metrics of all benchmarks. Benchmarks are discovered
+automatically, so this README has no per-benchmark list.
