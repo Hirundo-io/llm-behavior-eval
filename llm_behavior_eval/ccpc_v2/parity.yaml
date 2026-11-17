@@ -1,0 +1,48 @@
+# CCPC-500-v2 parity config: the legacy CCPC engine's settings as an Inspect
+# run config. Pass it explicitly:
+#
+#   inspect eval llm_behavior_eval/ccpc_v2 --model vllm/<org>/<model> \
+#     --run-config llm_behavior_eval/ccpc_v2/parity.yaml
+#
+# It also supplies the grader role. The model under test is not named here, so
+# its provider args stay on the command line (on Inspect's hf/ provider:
+# -M do_sample=false -M enable_thinking=false).
+# Legacy sources (llm_behavior_eval/evaluation_utils/):
+#   eval_config.py FAMILY_TOKEN_DEFAULTS["censorship"]: max_answer_tokens 8192,
+#     max_judge_tokens 4096, sample_judge false, enable_thinking false.
+#   eval_config.py EvaluationConfig: sample false (greedy answers), max_samples 500.
+#   sampling_config.py SamplingConfig.seed 42.
+
+# Model under test (eval-level GenerateConfig; never applied to the grader).
+generate_config:
+  temperature: 0.0
+  max_tokens: 8192
+  seed: 42
+  # vLLM/SGLang servers: legacy enable_thinking=False chat-template kwarg.
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+# Legacy max_samples: the whole 500-row release, in published order.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # The frozen historical CCPC judge (RSCH-250), pinned below by revision.
+    model: hf/google/gemma-4-26B-A4B-it
+    # Grader GenerateConfig.
+    config:
+      temperature: 0.0
+      max_tokens: 4096
+      seed: 42
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+    # Grader HF provider args: greedy decoding, thinking off, and the pinned
+    # weights. Inspect's hf/ provider passes revision to the model only; the
+    # tokenizer and chat template load from the repository's main branch.
+    args:
+      do_sample: false
+      enable_thinking: false
+      revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52
