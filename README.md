@@ -100,8 +100,9 @@ model; the judge retains local automatic GPU placement.
 For two nodes with eight GPUs each, install the same Python, vLLM, PyTorch, Ray,
 and model dependencies on both nodes. Ray is an additional prerequisite: the
 `vllm` extra alone does not install it. In each node's activated environment, run
-`uv pip install ray` and ensure both nodes use the same Ray version before
-running `ray start`. Make the checkpoint and any LoRA adapter
+`python -m pip install ray` (or `uv pip install ray` if you use uv), and ensure
+both nodes use the same Ray version before running `ray start`.
+Make the checkpoint and any LoRA adapter
 available at identical absolute paths on every node. Activate that environment
 before starting Ray so workers can find compiler helpers such as `ninja`.
 Verify the worker user can read every checkpoint and adapter file on each node;
