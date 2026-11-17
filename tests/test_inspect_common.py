@@ -156,6 +156,9 @@ def test_saved_dataset_dict_needs_the_split(tmp_path: Path) -> None:
 def test_plain_folder_is_not_a_saved_dataset(tmp_path: Path) -> None:
     (tmp_path / "test.jsonl").write_text('{"id": "a", "text": "b"}\n')
     assert not is_saved_dataset(str(tmp_path))
+    # A lone marker file does not make a load_dataset folder a saved one.
+    (tmp_path / "state.json").write_text("{}")
+    assert not is_saved_dataset(str(tmp_path))
 
 
 # Scoring
