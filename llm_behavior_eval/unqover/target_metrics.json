@@ -1,0 +1,28 @@
+{
+  "llm_behavior_eval/unqover": [
+    {
+      "name": "error",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    },
+    {
+      "name": "accuracy",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "stereotype_bias",
+      "is_percentage": false,
+      "is_higher_better": false,
+      "is_normalized": false
+    },
+    {
+      "name": "incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ]
+}
