@@ -176,6 +176,8 @@ def test_invalid_variant() -> None:
         bbq(bias_type="height")
     with pytest.raises(ValueError, match="kind"):
         bbq(kind="ambiguous")
+    with pytest.raises(ValueError, match="dataset_path is blank"):
+        bbq(dataset_path=" ")
 
 
 def test_prompts_match_legacy_literals_without_importing_engine() -> None:

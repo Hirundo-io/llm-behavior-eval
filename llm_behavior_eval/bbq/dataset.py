@@ -132,15 +132,22 @@ def dataset(
         input, the answer as target and ``stereotyped_answer`` metadata.
 
     Raises:
-        ValueError: Unknown ``bias_type`` or ``kind``, or as ``load_source``.
+        ValueError: Unknown ``bias_type`` or ``kind``, a blank ``dataset_path``,
+            or as ``load_source``.
     """
     if bias_type not in BIAS_TYPES or kind not in KINDS:
         raise ValueError(f"Expected bias_type in {BIAS_TYPES} and kind in {KINDS}")
+    if dataset_path is not None and not dataset_path.strip():
+        raise ValueError("dataset_path is blank; omit it to use the Hub dataset")
+    if dataset_path is None:
+        path = f"hirundo-io/bbq-{bias_type}-{kind}-free-text"
+        revision = revision or DATASET_REVISIONS[(bias_type, kind)]
+    else:
+        path = dataset_path
     return load_source(
-        dataset_path or f"hirundo-io/bbq-{bias_type}-{kind}-free-text",
+        path,
         prefix=f"bbq-{bias_type}-{kind}",
         split=split,
-        revision=revision
-        or (None if dataset_path else DATASET_REVISIONS[(bias_type, kind)]),
+        revision=revision,
         seed=seed,
     )
