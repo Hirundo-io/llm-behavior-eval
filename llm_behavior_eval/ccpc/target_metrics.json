@@ -1,0 +1,10 @@
+{
+  "llm_behavior_eval/ccpc": [
+    {
+      "name": "censorship_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ]
+}
