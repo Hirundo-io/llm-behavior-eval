@@ -1,0 +1,48 @@
+# Med-Hallu parity config: the legacy engine's exact `hallu-med` settings as an
+# Inspect run config. Pass it explicitly:
+#   inspect eval llm_behavior_eval/medhallu --model vllm/<org>/<model> \
+#     --run-config llm_behavior_eval/medhallu/parity.yaml
+# The model under test is chosen on the command line. Serve it with vllm/ or an
+# OpenAI-compatible endpoint: the scorer judges only answers that finished with
+# `stop`, and Inspect's hf/ provider reports no stop reason, so an hf/ model
+# under test fails with StopReasonUnavailableError. The grader may run on hf/.
+# Sources: evaluation_utils/eval_config.py (EvaluationConfig defaults and
+# FAMILY_TOKEN_DEFAULTS["hallucination"]), sampling_config.py, dataset_config.py.
+
+# Model under test (eval-level GenerateConfig; never applied to the grader).
+generate_config:
+  # Legacy `sample=False`: greedy (resolve_temperature returns 0.0).
+  temperature: 0.0
+  # FAMILY_TOKEN_DEFAULTS["hallucination"]["max_answer_tokens"].
+  max_tokens: 128
+  # Legacy generation seed: DatasetConfig.seed.
+  seed: 42
+  # FAMILY_TOKEN_DEFAULTS["hallucination"]["enable_thinking"] = False, passed
+  # to the chat template. vLLM/SGLang read this.
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+# Legacy EvaluationConfig.max_samples = 500. The dataset is already in the
+# legacy seed-42 shuffle order, so this cap selects the legacy samples.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # Parity evidence uses a Gemma 3 12B judge (the legacy default judge is
+    # google/gemma-4-12B-it, which is not parity-qualified).
+    model: hf/google/gemma-3-12b-it
+    # Grader GenerateConfig.
+    config:
+      # FAMILY_TOKEN_DEFAULTS["hallucination"]["sample_judge"] = False: greedy.
+      temperature: 0.0
+      # FAMILY_TOKEN_DEFAULTS["hallucination"]["max_judge_tokens"].
+      max_tokens: 32
+      # Legacy judge seed: DatasetConfig.seed.
+      seed: 42
+    # Grader provider args. Inspect's HF provider samples unless told not to,
+    # and the legacy judge chat template is always rendered with thinking off.
+    args:
+      do_sample: false
+      enable_thinking: false
