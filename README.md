@@ -343,3 +343,19 @@ Using the next models as judges:
 ## License
 
 This project is licensed under the MIT License. See the LICENSE file for more information.
+
+## Native Inspect benchmarks
+
+Native [Inspect](https://inspect.aisi.org.uk/) benchmarks run alongside the
+legacy engine (Python 3.11+). Each is a package under
+`llm_behavior_eval/<benchmark>/` documented in its own README, and Inspect finds
+them through the package's entry point:
+
+```sh
+inspect eval llm_behavior_eval/<benchmark> --model <provider/model> --model-role grader=<provider/judge>
+```
+
+Native tasks set no inference settings: pass them per role yourself, or pass a
+benchmark's `parity.yaml` with `--run-config` for the legacy engine's settings.
+See [INSPECT_MIGRATION.md](INSPECT_MIGRATION.md) for the design rules, layout
+and shared code.
