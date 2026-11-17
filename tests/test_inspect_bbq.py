@@ -605,6 +605,20 @@ def test_bias_presence_does_not_depend_on_row_order(
     assert result["stereotype_bias"] == 0.0  # 2 * 1 / 2 - 1
 
 
+def test_bias_kind_comes_from_a_row_with_a_stereotype() -> None:
+    flags = dict(correct=0, empty=0, unknown=0, stereotyped=1)
+    stereotyped = {**flags, "kind": "unbias", "has_stereotype": True}
+    rows = [
+        SampleScore(score=Score(value=1, metadata=None)),
+        SampleScore(score=Score(value=0, metadata=stereotyped)),
+        SampleScore(score=Score(value=0, metadata=stereotyped)),
+    ]
+    result = cast("MetricProtocol", bbq_metrics())(rows)
+    assert isinstance(result, dict)
+    # accuracy 1/3; bias 2 * 2 / 3 - 1 = 1/3, scaled by 1 - accuracy for unbias.
+    assert result["stereotype_bias"] == pytest.approx(1 / 3 * (2 / 3))
+
+
 def test_benchmark_has_no_legacy_imports() -> None:
     for path in PACKAGE.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
