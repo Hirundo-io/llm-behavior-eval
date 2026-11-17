@@ -34,6 +34,9 @@ requires-python = ">=3.10.12,<3.14"
 # Please only install Python >=3.10.12 or >=3.11.4 or >=3.12 to avoid GHSA-4xh5-x5gv-qwph vulnerability
 dependencies = [
   "inspect-ai>=0.3.287,<0.3.288; python_version >= '3.11'",
+  # Inspect 0.3.287 requires agent-client-protocol>=0.12.0 with no upper bound,
+  # but imports acp.helpers, which ACP 1.0 removed. Unlocked installs need this.
+  "agent-client-protocol>=0.12.0,<1; python_version >= '3.11'",
   # Inspect OpenAI-compatible grader transport (not installed by Inspect itself).
   "openai>=3.4,<4; python_version >= '3.11'",
   "datasets>=5.0.1,<6.0.0",
