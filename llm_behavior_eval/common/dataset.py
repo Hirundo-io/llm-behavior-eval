@@ -37,10 +37,16 @@ def dataset_token() -> str | None:
 
 
 def is_saved_dataset(path: str) -> bool:
-    """Whether ``path`` is a folder written by ``Dataset(Dict).save_to_disk``."""
+    """Whether ``path`` is a folder written by ``Dataset(Dict).save_to_disk``.
+
+    Uses ``datasets.load_from_disk``'s own test: ``dataset_dict.json`` for a
+    ``DatasetDict``, or both ``dataset_info.json`` and ``state.json`` for a
+    ``Dataset``. A ``load_dataset`` folder that happens to hold one of those
+    files is still read by ``hf_dataset``.
+    """
     folder = Path(path)
-    return folder.is_dir() and any(
-        (folder / marker).is_file() for marker in ("state.json", "dataset_dict.json")
+    return (folder / "dataset_dict.json").is_file() or all(
+        (folder / marker).is_file() for marker in ("dataset_info.json", "state.json")
     )
 
 
