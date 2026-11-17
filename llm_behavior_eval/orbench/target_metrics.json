@@ -1,0 +1,28 @@
+{
+  "llm_behavior_eval/orbench": [
+    {
+      "name": "safe_refusal_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    },
+    {
+      "name": "unsafe_refusal_rate",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    },
+    {
+      "name": "judge_unparseable_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ]
+}

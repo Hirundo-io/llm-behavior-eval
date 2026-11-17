@@ -1,0 +1,50 @@
+# OR-Bench parity config: the legacy `refusal:orbench` settings as an Inspect
+# run config. Pass it explicitly (this file does not name the model under test):
+#   inspect eval llm_behavior_eval/orbench --model vllm/<org>/<model> \
+#     -T exclude_thinking_trace_for_judge=false \
+#     --run-config llm_behavior_eval/orbench/parity.yaml
+# The task argument keeps the answer's thinking trace for the judge and the
+# heuristic, the legacy default.
+# Serve the model under test with vllm/ or an OpenAI-compatible endpoint:
+# Inspect's hf/ provider reports no stop reasons, which the OR-Bench scorer needs.
+# Source: legacy evaluation_utils/eval_config.py FAMILY_TOKEN_DEFAULTS["refusal"],
+# EvaluationConfig, SamplingConfig and DatasetConfig.
+
+# Model under test (eval-level GenerateConfig; never applied to the grader).
+generate_config:
+  # Legacy EvaluationConfig.sample=False: greedy decoding.
+  temperature: 0.0
+  # Legacy refusal max_answer_tokens=2048.
+  max_tokens: 2048
+  # Legacy generation seed: DatasetConfig.seed=42.
+  seed: 42
+  # Legacy refusal enable_thinking=True, passed to the chat template as
+  # enable_thinking. This reaches vLLM/SGLang/OpenAI-compatible servers.
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: true
+
+# Legacy EvaluationConfig.max_samples=500, taken after the seed-42 shuffle that
+# the task's dataset conversion reproduces.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # Parity evidence uses Gemma 3 12B judges.
+    model: hf/google/gemma-3-12b-it
+    # Grader GenerateConfig.
+    config:
+      # Legacy refusal sample_judge=False: greedy judging.
+      temperature: 0.0
+      # Legacy refusal max_judge_tokens=128.
+      max_tokens: 128
+      # Legacy judge seed: DatasetConfig.seed=42.
+      seed: 42
+    # Grader provider args. Inspect's HF provider samples unless told not to.
+    # The legacy judge always ran with thinking off (enable_thinking=False).
+    # For a vLLM/OpenAI-compatible judge, drop these args and set
+    # `extra_body: {chat_template_kwargs: {enable_thinking: false}}` in `config`.
+    args:
+      do_sample: false
+      enable_thinking: false
