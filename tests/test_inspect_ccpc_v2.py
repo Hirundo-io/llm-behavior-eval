@@ -1,6 +1,7 @@
 """Native CCPC-500-v2 contracts, on synthetic rows only (the release is private)."""
 
 import ast
+import json
 import math
 from collections.abc import Callable
 from pathlib import Path
@@ -11,6 +12,7 @@ import yaml
 from datasets import Dataset as HFDataset
 from datasets import DatasetDict
 from inspect_ai import eval as inspect_eval
+from inspect_ai._cli.eval import RunConfigInput
 from inspect_ai.log import EvalLog
 from inspect_ai.model import GenerateConfig, ModelOutput, get_model
 from inspect_ai.scorer import MetricProtocol, SampleScore, Score
@@ -30,6 +32,7 @@ from llm_behavior_eval.ccpc_v2.prompts import (
     parse_verdict,
 )
 from llm_behavior_eval.ccpc_v2.task import TASK_VERSION, ccpc_v2
+from llm_behavior_eval.common.scoring import REASONING_MARKUP
 from llm_behavior_eval.common.target_metrics import missing_target_metrics
 from llm_behavior_eval.evaluation_utils import censorship_utils
 
@@ -412,6 +415,231 @@ def test_answer_reasoning_reaches_the_judge_only_when_asked(
     assert message_text(grader.requests[0]["messages"][-1]) == judge_prompt(
         rows[0]["question"], judged
     )
+
+
+LONG = " ".join(["A long final answer."] * 12)
+"""Over 100 characters, so a check that reads only a prefix would miss its end."""
+
+VALID_FINALS = [
+    pytest.param(
+        "<think>plan</think>Final answer.", None, "Final answer.", id="closed"
+    ),
+    pytest.param("Final answer.", "plan", "Final answer.", id="server-parsed"),
+    pytest.param(f"<think>plan</think>{LONG}", None, LONG, id="long"),
+    pytest.param(LONG, "plan", LONG, id="long-server-parsed"),
+]
+INVALID_FINALS = [
+    pytest.param(
+        "<think>plan, then call <tool_call>",
+        None,
+        "stop",
+        ["reasoning_markup"],
+        id="unclosed-ending-in-tool-call",
+    ),
+    pytest.param(
+        "", "plan, then call <tool_call>", "stop", ["blank_final"], id="server-unclosed"
+    ),
+    pytest.param(
+        "plan</think>Final answer.",
+        None,
+        "stop",
+        ["reasoning_markup"],
+        id="closing-tag-only",
+    ),
+    pytest.param(
+        "<think>a</think>Final.<think>b</think>",
+        None,
+        "stop",
+        ["reasoning_markup"],
+        id="second-block",
+    ),
+    pytest.param(
+        f"{LONG}<tool_call>", None, "stop", ["reasoning_markup"], id="long-then-markup"
+    ),
+    # Inspect leaves a closed block with only whitespace after it unparsed.
+    pytest.param(
+        "<think>plan</think>  \n",
+        None,
+        "stop",
+        ["reasoning_markup"],
+        id="blank-after-closed-block",
+    ),
+    pytest.param("  \n", "plan", "stop", ["blank_final"], id="blank-server-parsed"),
+    pytest.param("", "plan", "stop", ["blank_final"], id="missing"),
+    pytest.param("Partial", None, "length", ["stop_reason:max_tokens"], id="truncated"),
+    pytest.param(
+        "<think>plan",
+        None,
+        "length",
+        ["stop_reason:max_tokens", "reasoning_markup"],
+        id="truncated-in-reasoning",
+    ),
+    pytest.param(
+        "Final answer.",
+        None,
+        "content_filter",
+        ["stop_reason:content_filter"],
+        id="content-filter",
+    ),
+]
+
+
+def evaluate_local(
+    tmp_path: Path,
+    task_args: dict[str, Any],
+    content: str,
+    reasoning: str | None = None,
+    finish_reason: str = "stop",
+) -> tuple[EvalLog, list[dict[str, Any]]]:
+    """Run one sample against loopback OpenAI-compatible answer and grader."""
+    with (
+        local_openai_judge(
+            content, reasoning=reasoning, finish_reason=finish_reason
+        ) as answer,
+        local_openai_judge("False") as grader,
+    ):
+        log = evaluate(
+            tmp_path,
+            task_args,
+            limit=1,
+            model=get_model(
+                "openai-api/local/answer", base_url=answer.base_url, api_key="test"
+            ),
+            model_roles={
+                "grader": get_model(
+                    "openai-api/local/grader", base_url=grader.base_url, api_key="test"
+                )
+            },
+        )
+    return log, grader.requests
+
+
+@pytest.mark.parametrize(("content", "reasoning", "final"), VALID_FINALS)
+def test_valid_final_answer_alone_reaches_the_judge(
+    tmp_path: Path,
+    hub: Callable[..., list[Any]],
+    content: str,
+    reasoning: str | None,
+    final: str,
+) -> None:
+    rows = synthetic_rows()
+    hub(rows)
+    log, judged = evaluate_local(
+        tmp_path, {"require_valid_response": True}, content, reasoning
+    )
+    assert [message_text(request["messages"][-1]) for request in judged] == [
+        judge_prompt(rows[0]["question"], final)
+    ]
+    metrics = eval_metrics(log)
+    assert metrics["censorship_rate"] == 0
+    assert metrics["valid_response_rate"] == 1
+
+
+@pytest.mark.parametrize(
+    ("content", "reasoning", "finish_reason", "reasons"), INVALID_FINALS
+)
+def test_invalid_final_answer_is_not_judged_and_fails_closed(
+    tmp_path: Path,
+    hub: Callable[..., list[Any]],
+    content: str,
+    reasoning: str | None,
+    finish_reason: str,
+    reasons: list[str],
+) -> None:
+    hub(synthetic_rows())
+    log, judged = evaluate_local(
+        tmp_path, {"require_valid_response": True}, content, reasoning, finish_reason
+    )
+    assert judged == []
+    metrics = eval_metrics(log)
+    assert math.isnan(metrics["censorship_rate"])
+    assert math.isnan(metrics["stderr"])
+    assert metrics["judged_fraction"] == 0
+    assert metrics["valid_response_rate"] == 0
+    [judge_score] = sample_scores(log, "ccpc_v2_scorer")
+    [validity] = sample_scores(log, "response_validity_scorer")
+    for score_ in (judge_score, validity):
+        assert score_.metadata is not None
+        assert score_.metadata["invalid_reasons"] == reasons
+
+
+def test_default_still_judges_every_answer(
+    tmp_path: Path, hub: Callable[..., list[Any]]
+) -> None:
+    """Off by default: the legacy contract judges even a leaked, unfinished answer."""
+    rows = synthetic_rows()
+    hub(rows)
+    leaked = "<think>plan, then call <tool_call>"
+    log, judged = evaluate_local(tmp_path, {}, leaked, finish_reason="length")
+    assert [message_text(request["messages"][-1]) for request in judged] == [
+        judge_prompt(rows[0]["question"], leaked)
+    ]
+    assert eval_metrics(log) == {
+        "censorship_rate": 0.0,
+        "stderr": 0.0,
+        "judged_fraction": 1.0,
+        "incomplete_response_rate": 1.0,
+    }
+    [judge_score] = sample_scores(log, "ccpc_v2_scorer")
+    assert judge_score.metadata is not None
+    assert "invalid_reasons" not in judge_score.metadata
+
+
+def test_one_invalid_answer_leaves_the_rate_undefined(
+    tmp_path: Path, hub: Callable[..., list[Any]]
+) -> None:
+    hub(synthetic_rows())
+    outputs = iter(["Final answer.", "<think>unfinished", "Final answer."])
+
+    def answer(*args: Any) -> ModelOutput:
+        return ModelOutput.from_content("mockllm/answer", next(outputs))
+
+    log = evaluate(
+        tmp_path,
+        {"require_valid_response": True},
+        model=get_model("mockllm/answer", custom_outputs=answer),
+        max_samples=1,
+    )
+    metrics = eval_metrics(log)
+    assert math.isnan(metrics["censorship_rate"])
+    assert metrics["judged_fraction"] == pytest.approx(2 / 3)
+    assert metrics["valid_response_rate"] == pytest.approx(2 / 3)
+
+
+def test_reasoning_markup_covers_the_qwen3_template() -> None:
+    assert {"<think>", "</think>", "<tool_call>", "</tool_call>"} <= set(
+        REASONING_MARKUP
+    )
+
+
+def test_thinking_on_config_is_separate_and_pinned(
+    tmp_path: Path, hub: Callable[..., list[Any]]
+) -> None:
+    parity = yaml.safe_load((PACKAGE / "parity.yaml").read_text())
+    thinking_on = yaml.safe_load((PACKAGE / "thinking_on.yaml").read_text())
+    for config in (parity, thinking_on):
+        RunConfigInput.model_validate(config)
+    # parity.yaml keeps thinking off and the default (judge-everything) task.
+    assert "task" not in parity
+    assert parity["generate_config"]["extra_body"]["chat_template_kwargs"] == {
+        "enable_thinking": False
+    }
+    assert thinking_on["task"] == {
+        "task": "llm_behavior_eval/ccpc_v2",
+        "args": {"require_valid_response": True},
+    }
+    answer = thinking_on["generate_config"]
+    assert answer["extra_body"]["chat_template_kwargs"] == {"enable_thinking": True}
+    assert answer["reasoning_effort"] == "medium"
+    for key in ("max_tokens", "temperature", "top_p", "seed"):
+        assert key in answer
+    assert "--reasoning-parser qwen3" in (PACKAGE / "thinking_on.yaml").read_text()
+    assert thinking_on["model_roles"] == parity["model_roles"]
+    assert thinking_on["eval_config"] == parity["eval_config"]
+    hub(synthetic_rows())
+    targets = json.loads((PACKAGE / "thinking_on_target_metrics.json").read_text())
+    log = evaluate(tmp_path, thinking_on["task"]["args"])
+    assert missing_target_metrics(log.location, targets) == []
 
 
 def test_dataset_token_stays_out_of_task_args_and_log(

@@ -94,7 +94,7 @@ exclude = ["results*"]
 
 [tool.setuptools.package-data]
 # Each benchmark package ships its README, parity config and target metrics.
-"*" = ["parity.yaml", "README.md", "target_metrics.json"]
+"*" = ["parity.yaml", "thinking_on.yaml", "README.md", "*target_metrics.json"]
 
 [tool.bumpver]
 current_version = "0.1.12"

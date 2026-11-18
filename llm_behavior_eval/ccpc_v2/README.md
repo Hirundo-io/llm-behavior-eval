@@ -27,8 +27,9 @@ rubric, verdict parsing and metrics, and uses the shared foundation
 native benchmark shares: `common.dataset.load_dataset` for the pinned Hub load
 (through `inspect_evals_utils`' retrying `hf_dataset`), local and
 `save_to_disk` sources; and `common.scoring` for the stop reason, the answer
-the judge sees (`judged_answer`), the grader call (`ask_grader`) and
-`completion_scorer()`.
+the judge sees (`judged_answer`), the grader call (`ask_grader`),
+`completion_scorer()`, and the response-validity check
+(`invalid_response_reasons`, `response_validity_scorer()`).
 
 | File | Contents |
 | --- | --- |
@@ -37,7 +38,9 @@ the judge sees (`judged_answer`), the grader call (`ask_grader`) and
 | `scorer.py` | The judge scorer (the task also lists the shared `completion_scorer()`) |
 | `metrics.py` | `censorship_rate`, `stderr`, `judged_fraction`, `incomplete_response_rate` |
 | `task.py` | The task, its version and contract metadata |
-| `parity.yaml` | Legacy settings for both roles as an Inspect run config |
+| `parity.yaml` | Legacy settings for both roles as an Inspect run config (thinking off) |
+| `thinking_on.yaml` | Opt-in thinking-on run config, with response validity required |
+| `target_metrics.json`, `thinking_on_target_metrics.json` | Metrics to report for each config, in inspect-brief's format |
 
 ## Dataset
 
@@ -78,6 +81,7 @@ folder is only read; Inspect caches a `load_dataset` folder under its path.
 | --- | --- | --- |
 | `dataset_path` | none | Local source instead of the pinned Hub dataset |
 | `judge_sees_answer_reasoning` | `false` | Give the judge the answer's parsed reasoning too |
+| `require_valid_response` | `false` | Judge only valid final answers; any invalid answer makes `censorship_rate` NaN (see below) |
 
 ## Grading and metrics
 
@@ -86,7 +90,8 @@ The judge gets the rubric as its system message and a JSON object
 `{"question", "response"}` (non-ASCII kept, compact separators) as its user
 message; its chat template must support a system role. The verdict must be a
 bare `True` or `False` (trimmed, any case); anything else is unparseable.
-Every answer is judged, whatever its stop reason.
+By default every answer is judged, whatever its stop reason (the legacy
+contract); `require_valid_response` changes that, see below.
 
 Metrics are unreduced: each (sample, epoch) is an observation.
 
@@ -95,6 +100,7 @@ Metrics are unreduced: each (sample, epoch) is an observation.
 | `censorship_rate` | Share of judgments that are censored; **NaN if any verdict is unparseable** | lower is better |
 | `stderr` | Standard error of the rate, clustering each sample's epochs; NaN with the rate | diagnostic |
 | `judged_fraction` | Share of judgments with a parseable verdict | diagnostic |
+| `valid_response_rate` | With `require_valid_response` only: share of answers that are valid final answers | higher is better |
 | `incomplete_response_rate` | Share of answers stopped by `max_tokens` or `model_length`, from the shared `completion_scorer`; unscored when the provider reports no stop reason | lower is better |
 
 ## Reasoning (thinking) handling
@@ -112,6 +118,45 @@ with a reasoning parser or turn thinking off per role, as `parity.yaml` does.
 `-T judge_sees_answer_reasoning=true` gives the judge the answer with its
 parsed reasoning, rendered by `common.scoring.judged_answer` as `<reasoning>` blocks,
 as the legacy engine judged the whole answer.
+
+## Thinking on
+
+`thinking_on.yaml` is a separate, opt-in run config for answer models that
+reason before answering. `parity.yaml` and the default contract are unchanged.
+
+```sh
+inspect eval --run-config llm_behavior_eval/ccpc_v2/thinking_on.yaml \
+  --model openai-api/SERVICE/MODEL
+```
+
+- **Server.** Serve the model under test with vLLM's Qwen3 reasoning parser
+  (`--reasoning-parser qwen3`), so the reasoning arrives in its own field and
+  `ModelOutput.completion` is the final answer. Inspect's `hf/` provider
+  cannot run this config: it reports no stop reason, so no answer is valid.
+- **Answer settings.** Thinking on, `reasoning_effort: medium`, sampled
+  decoding (temperature 0.6, top-p 0.95, top-k 20, seed 42), 32768 tokens for
+  reasoning plus answer. Effort and parser match the RSCH-250 Qwen3.8
+  thinking-on run. RSCH-250 does not record that run's sampling or token
+  limit, so these are Qwen's documented thinking-mode settings. Match them to
+  the run before comparing results with it.
+- **Grader.** The same frozen judge and settings as `parity.yaml`.
+- **Validity.** The config sets `require_valid_response: true`.
+  `common.scoring.invalid_response_reasons` rejects an answer when any of
+  these holds:
+  - it did not stop normally (`stop_reason:<reason>`, e.g. `max_tokens`);
+  - its final answer is blank (`blank_final`), as when the server's parser
+    takes an unclosed reasoning block as all reasoning;
+  - the final answer contains `<think>`, `</think>`, `<tool_call>`,
+    `</tool_call>`, `<|im_start|>` or `<|im_end|>` (`reasoning_markup`), as
+    when Inspect leaves an unclosed block, a lone `</think>` or a second block
+    unparsed.
+
+  The whole final answer is checked, however long. A rejected answer is not
+  sent to the judge: its verdict is `None` and its `invalid_reasons` are in
+  metadata, so `censorship_rate` is NaN (fail-closed) and `judged_fraction`
+  and `valid_response_rate` show how many were rejected. Report these with
+  `thinking_on_target_metrics.json`. An answer that discusses chat-template
+  tags literally is also rejected; check `invalid_reasons` before rerunning.
 
 ## Parity
 
