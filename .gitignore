@@ -171,7 +171,7 @@ cython_debug/
 *.json
 !.devcontainer/devcontainer.json
 # Benchmark-owned report metrics ship with each package.
-!llm_behavior_eval/*/target_metrics.json
+!llm_behavior_eval/*/*target_metrics.json
 
 # ACT Secrets
 act-events/pr.secrets
