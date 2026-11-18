@@ -134,11 +134,10 @@ inspect eval --run-config llm_behavior_eval/ccpc_v2/thinking_on.yaml \
   `ModelOutput.completion` is the final answer. Inspect's `hf/` provider
   cannot run this config: it reports no stop reason, so no answer is valid.
 - **Answer settings.** Thinking on, `reasoning_effort: medium`, sampled
-  decoding (temperature 0.6, top-p 0.95, top-k 20, seed 42), 32768 tokens for
-  reasoning plus answer. Effort and parser match the RSCH-250 Qwen3.8
-  thinking-on run. RSCH-250 does not record that run's sampling or token
-  limit, so these are Qwen's documented thinking-mode settings. Match them to
-  the run before comparing results with it.
+  decoding (temperature 1.0, top-p 0.95, top-k 20, min-p 0, presence penalty
+  1.5, repetition penalty 1.0, seed 42), 32768 tokens for reasoning plus
+  answer. These match the saved requests of the RSCH-250 Qwen3.8 thinking-on
+  run.
 - **Grader.** The same frozen judge and settings as `parity.yaml`.
 - **Validity.** The config sets `require_valid_response: true`.
   `common.scoring.invalid_response_reasons` rejects an answer when any of

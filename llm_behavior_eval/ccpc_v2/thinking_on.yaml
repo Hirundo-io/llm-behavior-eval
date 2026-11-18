@@ -11,11 +11,9 @@
 # only. Inspect's hf/ provider cannot run this config: it reports no stop
 # reason, so every answer would be invalid.
 #
-# Effort (medium) and the parser match the RSCH-250 Qwen3.8 thinking-on run.
-# RSCH-250 does not record that run's sampling or token limit, so the decoding
-# below is Qwen's documented thinking-mode setting (sampled, not greedy:
-# greedy decoding in thinking mode can repeat endlessly). Match it to the run
-# before comparing results with it.
+# Effort (medium), the parser, the token limit and the sampled decoding below
+# match the saved requests of the RSCH-250 Qwen3.8 thinking-on run (vLLM 0.23.0,
+# --max-model-len 65536).
 
 task:
   task: llm_behavior_eval/ccpc_v2
@@ -28,13 +26,15 @@ task:
 generate_config:
   # Reasoning and final answer share this budget on vLLM.
   max_tokens: 32768
-  temperature: 0.6
+  temperature: 1.0
   top_p: 0.95
+  presence_penalty: 1.5
   seed: 42
   reasoning_effort: medium
   extra_body:
     top_k: 20
     min_p: 0.0
+    repetition_penalty: 1.0
     chat_template_kwargs:
       enable_thinking: true
 

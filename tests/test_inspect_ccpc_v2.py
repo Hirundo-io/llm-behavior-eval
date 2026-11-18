@@ -628,11 +628,21 @@ def test_thinking_on_config_is_separate_and_pinned(
         "task": "llm_behavior_eval/ccpc_v2",
         "args": {"require_valid_response": True},
     }
-    answer = thinking_on["generate_config"]
-    assert answer["extra_body"]["chat_template_kwargs"] == {"enable_thinking": True}
-    assert answer["reasoning_effort"] == "medium"
-    for key in ("max_tokens", "temperature", "top_p", "seed"):
-        assert key in answer
+    # The settings in the RSCH-250 Qwen3.8 thinking-on run's saved requests.
+    assert thinking_on["generate_config"] == {
+        "max_tokens": 32768,
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "presence_penalty": 1.5,
+        "seed": 42,
+        "reasoning_effort": "medium",
+        "extra_body": {
+            "top_k": 20,
+            "min_p": 0.0,
+            "repetition_penalty": 1.0,
+            "chat_template_kwargs": {"enable_thinking": True},
+        },
+    }
     assert "--reasoning-parser qwen3" in (PACKAGE / "thinking_on.yaml").read_text()
     assert thinking_on["model_roles"] == parity["model_roles"]
     assert thinking_on["eval_config"] == parity["eval_config"]
