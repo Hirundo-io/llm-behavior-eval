@@ -13,7 +13,10 @@ from inspect_ai.dataset import hf_dataset
 from inspect_ai.solver import generate
 
 DATASET_CONFIG = "or-bench-hard-1k"
-DATASET_REVISION = "<SHA>"
+DATASET_REVISION = "e36d8b80e81837c8a8f264bbb2a49f1b32c7e272"
+"""``bench-llm/or-bench`` commit last changed 2024-12-19: 1,319 Hard-1K rows
+(``prompt``, ``category``); ``or-bench-hard-1k.csv`` SHA-256
+``a6e2f1166416efe5901f3bb05c47dc92ab3aca3acfe143693d38b8057d841e6d``."""
 
 
 @task
