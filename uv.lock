@@ -2463,6 +2463,15 @@ wheels = [
 ]
 
 [[package]]
+name = "inspect-evals-orbench"
+version = "0.1.0"
+source = { git = "https://github.com/haeliotang/inspect-evals-orbench?rev=8757ec41608f3930e3c2bc4d5619d09a2381727a#8757ec41608f3930e3c2bc4d5619d09a2381727a" }
+dependencies = [
+    { name = "datasets" },
+    { name = "inspect-ai" },
+]
+
+[[package]]
 name = "inspect-evals-utils"
 version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2964,6 +2973,9 @@ gpt-oss = [
 mlflow = [
     { name = "mlflow" },
 ]
+or-bench = [
+    { name = "inspect-evals-orbench", marker = "python_full_version >= '3.11'" },
+]
 vllm = [
     { name = "vllm", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
@@ -2991,6 +3003,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=5.0.1,<6.0.0" },
     { name = "google-cloud-storage", marker = "extra == 'gcs'" },
     { name = "inspect-ai", marker = "python_full_version >= '3.11'", specifier = ">=0.3.287,<0.3.288" },
+    { name = "inspect-evals-orbench", marker = "python_full_version >= '3.11' and extra == 'or-bench'", git = "https://github.com/haeliotang/inspect-evals-orbench?rev=8757ec41608f3930e3c2bc4d5619d09a2381727a" },
     { name = "inspect-evals-utils", extras = ["huggingface"], marker = "python_full_version >= '3.11'", specifier = ">=0.2.0,<0.3" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.0.0" },
     { name = "networkx", specifier = "<4.0.0" },
@@ -3008,7 +3021,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.27.3,<0.28" },
     { name = "vllm", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'vllm') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'vllm')", specifier = ">=0.30.0,<0.31" },
 ]
-provides-extras = ["mlflow", "vllm", "gcs", "azure", "gpt-oss"]
+provides-extras = ["mlflow", "vllm", "gcs", "azure", "gpt-oss", "or-bench"]
 
 [package.metadata.requires-dev]
 dev = [

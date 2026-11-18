@@ -1,0 +1,10 @@
+{
+  "llm_behavior_eval/or_bench_hard_1k": [
+    {
+      "name": "mean",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ]
+}
