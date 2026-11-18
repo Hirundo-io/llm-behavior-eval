@@ -1,0 +1,12 @@
+# OR-Bench Hard-1K over-refusal. `mean` is the rejection rate.
+# Runs `task.py` here: the upstream `or_bench/or_bench_hard_1k` (external package
+# `inspect-evals-orbench`, the `or-bench` extra) with its Hugging Face dataset pinned to
+# a commit, which the upstream task cannot do.
+# Upstream has no judge default: an unset judge falls back to the model under test, so it is set here.
+#
+#   inspect eval --run-config llm_behavior_eval/or_bench_hard_1k/parity.yaml --model <provider>/<model>
+
+task:
+  task: llm_behavior_eval/or_bench_hard_1k
+  args:
+    judge: "openai/gpt-4o-2024-08-06"
