@@ -40,6 +40,12 @@ dependencies = [
   "inspect-evals-utils[huggingface]>=0.2.0,<0.3; python_version >= '3.11'",
   # Inspect's OpenAI-compatible model transport (not installed by Inspect itself).
   "openai>=3.4,<4; python_version >= '3.11'",
+  # BIPIA's reference checks: Punkt sentence starts for mid-content insertion,
+  # fuzzy matching, emoji and language detection (llm_behavior_eval/bipia).
+  "nltk>=3.9.1,<4; python_version >= '3.11'",
+  "thefuzz>=0.20,<1; python_version >= '3.11'",
+  "emoji>=2.0,<3; python_version >= '3.11'",
+  "langdetect>=1.0.9,<2; python_version >= '3.11'",
   "datasets>=5.0.1,<6.0.0",
   "numpy<3.0.0",
   "pandas<3.0.0",
