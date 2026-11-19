@@ -91,7 +91,7 @@ def bipia(
             chosen_tasks,
             chosen_positions,
             dataset_path=dataset_path,
-            prompt_mode=cast("PromptMode", prompt_mode),
+            prompt_mode=prompt_mode,
             ignore_guidance=ignore_guidance,
             shuffle_seed=shuffle_seed,
         ),
