@@ -1,0 +1,21 @@
+# SEP opt-in run config: the generation settings the authors' evaluation code
+# fixes for the model under test. Pass it explicitly:
+#
+#   inspect eval llm_behavior_eval/sep --model <provider/model> \
+#     --run-config llm_behavior_eval/sep/parity.yaml
+#
+# Source: egozverev/Should-It-Be-Executed-Or-Processed at
+# 7606c0696f20f5aa433169fd2221f76852d1d4f5, model_eval/get_model_outputs.py:
+#   OpenAI models: completions(..., max_tokens=2048), no temperature (API default).
+#   Hugging Face models: pipeline("text-generation", max_new_tokens=2048,
+#     return_full_text=False), no sampling arguments (the model's own
+#     generation_config decides greedy or sampled decoding).
+# The code fixes nothing else (no temperature, top-p or seed), so neither does
+# this config. SEP has no grader.
+#
+# Models without a system role (the paper's Gemma and Starling runs) also need
+# -T system_role=false.
+
+# Model under test (eval-level GenerateConfig).
+generate_config:
+  max_tokens: 2048
