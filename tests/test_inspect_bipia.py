@@ -4,7 +4,10 @@ import asyncio
 import hashlib
 import json
 import math
+import os
+import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, cast
 
@@ -31,6 +34,7 @@ from llm_behavior_eval.bipia.dataset import (
     REPOSITORY_COMMIT,
     SOURCES,
     SourceFile,
+    read_source,
     source_url,
 )
 from llm_behavior_eval.bipia.metrics import bipia_metrics, breakdown_names, slug
@@ -240,20 +244,26 @@ def test_default_task_downloads_the_pinned_files_once(
     assert fetched[5:] == [source_url(bipia_dataset.SOURCES["email"])]
 
 
-def test_cache_fill_stages_in_a_per_process_file(
-    remote: Callable[..., list[str]], tmp_path: Path
+def test_concurrent_cache_misses_both_succeed(
+    remote: Callable[..., list[str]], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     remote()
-    # Another writer's staging file at the old shared path can't interfere.
-    shared = tmp_path / "cache" / "email" / "test.jsonl.partial"
-    shared.mkdir(parents=True)
-    bipia(tasks="email")
+    # Hold both loaders after they have written their staging files, so both
+    # replace into the cache only once the other has staged too.
+    barrier = threading.Barrier(2, timeout=10)
+    replace = os.replace
+
+    def synchronized_replace(source: str, target: Path) -> None:
+        barrier.wait()
+        replace(source, target)
+
+    monkeypatch.setattr(bipia_dataset.os, "replace", synchronized_replace)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: read_source("email", None), range(2)))
     cached = tmp_path / "cache" / "email" / "test.jsonl"
-    assert cached.is_file()
-    assert sorted(path.name for path in cached.parent.iterdir()) == [
-        "test.jsonl",
-        "test.jsonl.partial",
-    ]
+    assert results == [cached.read_bytes()] * 2
+    # No staging file is left behind.
+    assert [path.name for path in cached.parent.iterdir()] == ["test.jsonl"]
 
 
 def test_download_that_fails_its_checksum_is_rejected(

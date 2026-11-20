@@ -17,6 +17,7 @@ file order with ``-<index>`` suffixes.
 import hashlib
 import json
 import os
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -195,12 +196,28 @@ def read_source(name: str, dataset_path: str | None) -> bytes:
             return data
     url = source_url(source)
     data = verify(source, download(url), url)
-    cached.parent.mkdir(parents=True, exist_ok=True)
-    # One staging file per process: concurrent cache fills never share it.
-    partial = cached.with_name(f"{cached.name}.{os.getpid()}.partial")
-    partial.write_bytes(data)
-    partial.replace(cached)
+    store(cached, data)
     return data
+
+
+def store(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` atomically.
+
+    The bytes go to a uniquely named file next to ``path`` first, so
+    concurrent cache fills (other processes or threads) never share a staging
+    file, and ``os.replace`` swaps it in whole.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, staging = tempfile.mkstemp(
+        prefix=f"{path.name}.", suffix=".partial", dir=path.parent
+    )
+    try:
+        with os.fdopen(handle, "wb") as file:
+            file.write(data)
+        os.replace(staging, path)
+    except BaseException:
+        Path(staging).unlink(missing_ok=True)
+        raise
 
 
 def parse_attacks(data: bytes, categories: list[str], origin: str) -> dict[str, str]:
