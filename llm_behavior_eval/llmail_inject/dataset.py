@@ -17,6 +17,7 @@ import gzip
 import hashlib
 import json
 import os
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -165,11 +166,28 @@ def fetch(source: SourceFile, dataset_path: str | None = None) -> bytes:
             return data
     data = download(source.url)
     check_sha256(source, data)
-    cached.parent.mkdir(parents=True, exist_ok=True)
-    partial = cached.with_name(f"{cached.name}.{os.getpid()}.partial")
-    partial.write_bytes(data)
-    partial.replace(cached)
+    store(cached, data)
     return data
+
+
+def store(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` atomically.
+
+    The bytes go to a uniquely named file next to ``path`` first, so
+    concurrent cache fills (other processes or threads) never share a staging
+    file, and ``os.replace`` swaps it in whole.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, staging = tempfile.mkstemp(
+        prefix=f"{path.name}.", suffix=".partial", dir=path.parent
+    )
+    try:
+        with os.fdopen(handle, "wb") as file:
+            file.write(data)
+        os.replace(staging, path)
+    except BaseException:
+        Path(staging).unlink(missing_ok=True)
+        raise
 
 
 def parse_attacks(phase: int, data: bytes) -> list[Attack]:

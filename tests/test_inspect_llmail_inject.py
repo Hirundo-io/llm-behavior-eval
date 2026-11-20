@@ -6,8 +6,10 @@ import gzip
 import hashlib
 import json
 import math
+import os
 import threading
 from collections.abc import Generator, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -368,6 +370,31 @@ def test_download_is_verified_and_cached(
     with pytest.raises(ValueError, match="pinned checksum"):
         llmail_inject()
     assert not stale.exists()
+
+
+def test_concurrent_cache_misses_both_succeed(
+    synthetic: Synthetic, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = llmail_dataset.EMAIL_FILES[1]
+    monkeypatch.setattr(
+        llmail_dataset, "download", lambda url: synthetic.files[source.name]
+    )
+    monkeypatch.setattr(llmail_dataset, "CACHE_DIR", tmp_path / "cache")
+    # Hold both loaders after they have written their staging files, so both
+    # replace into the cache only once the other has staged too.
+    barrier = threading.Barrier(2, timeout=10)
+    replace = os.replace
+
+    def synchronized_replace(staging: str, target: Path) -> None:
+        barrier.wait()
+        replace(staging, target)
+
+    monkeypatch.setattr(llmail_dataset.os, "replace", synchronized_replace)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: llmail_dataset.fetch(source), range(2)))
+    assert results == [synthetic.files[source.name]] * 2
+    # One cache entry and no staging file left behind.
+    assert len(list((tmp_path / "cache").iterdir())) == 1
 
 
 def attacks_bytes(pool: Any, phase: int = 2) -> bytes:
