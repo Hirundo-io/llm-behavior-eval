@@ -3,8 +3,9 @@
 #   inspect eval llm_behavior_eval/bipia --model <provider/model> \
 #     --run-config llm_behavior_eval/bipia/parity.yaml
 #
-# It also supplies the grader role. There is no legacy-engine run of BIPIA;
-# these are the settings of the reference code, microsoft/BIPIA at commit
+# It also supplies the grader role (see the comment there: the reference judge is
+# no longer served). There is no legacy-engine run of BIPIA; the other settings
+# are the reference code's, microsoft/BIPIA at commit
 # a004b69ec0dd446e0afd461d98cb5e96e120a5d0:
 #   README.md "Evaluation": `--gpt_config_file config/{evaluate_llm_name}.yaml`,
 #     "Use gpt35 by default"; config/gpt35.yaml names an OpenAI chat model
@@ -23,13 +24,21 @@ generate_config:
 
 model_roles:
   grader:
-    # The reference README's default evaluator, gpt35. The reference records
-    # no snapshot, so this pins gpt-3.5-turbo-0125, the snapshot OpenAI's
-    # gpt-3.5-turbo alias has pointed to since February 2024; the bare alias
-    # could be retargeted and change verdicts without any change here.
-    model: openai/gpt-3.5-turbo-0125
+    # The reference's judge, GPT-3.5 Turbo ("Use gpt35 by default"), can no
+    # longer be served: OpenAI shut down the gpt-3.5-turbo alias and its last
+    # snapshot, gpt-3.5-turbo-0125, on 2026-10-23. This uses the team's standard
+    # judge instead (the CORE-547 setups' and the legacy engine's default),
+    # greedy with thinking off, with the reference's 32-token judge budget and
+    # its weights pinned to a Hugging Face commit. Verdicts are therefore not
+    # comparable with the paper's.
+    model: vllm/google/gemma-4-12B-it
     config:
       temperature: 0
       max_tokens: 32
-      frequency_penalty: 0
-      presence_penalty: 0
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+    # vllm serve arguments: the pinned weights and tokenizer.
+    args:
+      revision: 43c9d014b231474fa7212dbb48a762566c2b255d
+      tokenizer_revision: 43c9d014b231474fa7212dbb48a762566c2b255d

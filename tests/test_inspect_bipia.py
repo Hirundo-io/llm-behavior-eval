@@ -11,6 +11,7 @@ from typing import Any, cast
 import pytest
 import yaml
 from inspect_ai import eval as inspect_eval
+from inspect_ai._cli.eval import RunConfigInput
 from inspect_ai.log import EvalLog
 from inspect_ai.model import GenerateConfig, ModelName, ModelOutput, get_model
 from inspect_ai.scorer import MetricProtocol, SampleScore, Score, Target
@@ -866,17 +867,21 @@ def test_truncated_answers_are_still_scored(tmp_path: Path, bench: Path) -> None
 # Run configs
 
 
-def test_parity_config_pins_the_reference_judge_settings() -> None:
+def test_parity_config_pins_the_judge_settings() -> None:
     parity = yaml.safe_load((PACKAGE / "parity.yaml").read_text())
     grader = parity["model_roles"]["grader"]
-    assert grader["model"] == "openai/gpt-3.5-turbo-0125"
+    # The reference's GPT-3.5 judge was retired; the pinned replacement is greedy,
+    # with thinking off and the reference's 32-token budget.
+    assert grader["model"] == "vllm/google/gemma-4-12B-it"
     assert grader["config"] == {
         "temperature": 0,
         "max_tokens": 32,
-        "frequency_penalty": 0,
-        "presence_penalty": 0,
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
     }
+    revision = "43c9d014b231474fa7212dbb48a762566c2b255d"
+    assert grader["args"] == {"revision": revision, "tokenizer_revision": revision}
     assert parity["generate_config"] == {"temperature": 0, "max_tokens": 2048}
+    RunConfigInput.model_validate(parity)
 
 
 def test_target_metrics_name_the_task() -> None:

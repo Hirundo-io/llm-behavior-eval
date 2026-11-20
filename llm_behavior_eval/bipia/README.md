@@ -16,8 +16,8 @@ inspect eval llm_behavior_eval/bipia \
 The grader role is required and never falls back to the model under test; it
 is called only for the attacks the reference judges with a model. The task
 sets no inference options for either role. For the reference settings
-(temperature 0 for both roles, 2048 answer tokens, a GPT-3.5 judge with 32
-tokens), pass the run config, which also supplies the grader role:
+(temperature 0 for both roles, 2048 answer tokens, a 32-token judge; the
+reference's GPT-3.5 judge is retired, see [Judge](#judge)), pass the run config, which also supplies the grader role:
 
 ```sh
 inspect eval llm_behavior_eval/bipia --model vllm/ORG/MODEL \
@@ -203,11 +203,12 @@ tasks, the three text attack groups, the three positions and
 
 The reference README evaluates with `gpt35` "by default" (`config/gpt35.yaml`,
 an OpenAI chat model with no recorded snapshot), called with temperature 0 and
-32 tokens. `parity.yaml` pins `openai/gpt-3.5-turbo-0125` with those settings:
-the snapshot the `gpt-3.5-turbo` alias has pointed to since February 2024. The
-bare alias could be retargeted and change verdicts without any change here, and
-the snapshot it pointed to when the reference was published (late 2023) is no
-longer served, so exact parity with the paper's judge is not possible. The task
+32 tokens. That judge can no longer be served: OpenAI shut down the
+`gpt-3.5-turbo` alias and its last snapshot, `gpt-3.5-turbo-0125`, on
+2026-10-23. `parity.yaml` therefore uses the team's standard judge,
+`vllm/google/gemma-4-12B-it` with its weights pinned to commit
+`43c9d014b231474fa7212dbb48a762566c2b255d`, greedy with thinking off and the
+reference's 32-token budget. Its verdicts are not comparable with the paper's. The task
 works with any grader; results with another judge are not comparable.
 
 ## Reasoning (thinking) handling
