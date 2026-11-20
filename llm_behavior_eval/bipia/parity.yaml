@@ -27,7 +27,7 @@ model_roles:
     # The reference's judge, GPT-3.5 Turbo ("Use gpt35 by default"), can no
     # longer be served: OpenAI shut down the gpt-3.5-turbo alias and its last
     # snapshot, gpt-3.5-turbo-0125, on 2026-10-23. This uses the team's standard
-    # judge instead (the CORE-547 setups' and the legacy engine's default),
+    # judge instead (the legacy engine's default judge),
     # greedy with thinking off, with the reference's 32-token judge budget and
     # its weights pinned to a Hugging Face commit. Verdicts are therefore not
     # comparable with the paper's.
