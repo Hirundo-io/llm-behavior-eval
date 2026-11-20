@@ -1,0 +1,20 @@
+# LLMail-Inject challenge settings for the model under test, as an Inspect run
+# config. Opt in explicitly:
+#
+#   inspect eval llm_behavior_eval/llmail_inject --model openai-api/<service>/<model> \
+#     --run-config llm_behavior_eval/llmail_inject/parity.yaml
+#
+# There is no legacy-engine run and no grader. Sources:
+#   Paper (arXiv:2506.09956, Section 2.3) and the Hugging Face dataset card:
+#     "top_p sampling with p = 0.92", generation "limited to 1,000 tokens", and
+#     a fixed seed.
+#   Challenge code (microsoft/llmail-inject-challenge@3da2399, src/agent/):
+#     config.yaml top_p 0.92; llm.py seed=100 on every call. config.yaml sets
+#     max_new_tokens 500; this file follows the paper's 1,000 (see README).
+#   Temperature is not set by the challenge (the API default applies).
+
+# Model under test (eval-level GenerateConfig).
+generate_config:
+  top_p: 0.92
+  max_tokens: 1000
+  seed: 100
