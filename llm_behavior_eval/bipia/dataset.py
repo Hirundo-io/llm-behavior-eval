@@ -16,6 +16,7 @@ file order with ``-<index>`` suffixes.
 
 import hashlib
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -195,7 +196,8 @@ def read_source(name: str, dataset_path: str | None) -> bytes:
     url = source_url(source)
     data = verify(source, download(url), url)
     cached.parent.mkdir(parents=True, exist_ok=True)
-    partial = cached.with_suffix(cached.suffix + ".partial")
+    # One staging file per process: concurrent cache fills never share it.
+    partial = cached.with_name(f"{cached.name}.{os.getpid()}.partial")
     partial.write_bytes(data)
     partial.replace(cached)
     return data

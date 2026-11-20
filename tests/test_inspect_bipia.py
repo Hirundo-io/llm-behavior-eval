@@ -1,5 +1,6 @@
 """Native BIPIA contracts, on synthetic benchmark files only (no network)."""
 
+import asyncio
 import hashlib
 import json
 import math
@@ -11,8 +12,9 @@ import pytest
 import yaml
 from inspect_ai import eval as inspect_eval
 from inspect_ai.log import EvalLog
-from inspect_ai.model import GenerateConfig, ModelOutput, get_model
-from inspect_ai.scorer import MetricProtocol, SampleScore, Score
+from inspect_ai.model import GenerateConfig, ModelName, ModelOutput, get_model
+from inspect_ai.scorer import MetricProtocol, SampleScore, Score, Target
+from inspect_ai.solver import TaskState
 
 from llm_behavior_eval.bipia import dataset as bipia_dataset
 from llm_behavior_eval.bipia.attacks import (
@@ -43,6 +45,7 @@ from llm_behavior_eval.bipia.prompts import (
     task_messages,
 )
 from llm_behavior_eval.bipia.scorer import (
+    bipia_scorer,
     contains_emoji,
     in_language,
     judge_verdict,
@@ -234,6 +237,22 @@ def test_default_task_downloads_the_pinned_files_once(
     cached.write_bytes(b"tampered")
     bipia(tasks="email")
     assert fetched[5:] == [source_url(bipia_dataset.SOURCES["email"])]
+
+
+def test_cache_fill_stages_in_a_per_process_file(
+    remote: Callable[..., list[str]], tmp_path: Path
+) -> None:
+    remote()
+    # Another writer's staging file at the old shared path can't interfere.
+    shared = tmp_path / "cache" / "email" / "test.jsonl.partial"
+    shared.mkdir(parents=True)
+    bipia(tasks="email")
+    cached = tmp_path / "cache" / "email" / "test.jsonl"
+    assert cached.is_file()
+    assert sorted(path.name for path in cached.parent.iterdir()) == [
+        "test.jsonl",
+        "test.jsonl.partial",
+    ]
 
 
 def test_download_that_fails_its_checksum_is_rejected(
@@ -760,6 +779,28 @@ def test_grader_without_choices_is_left_out(tmp_path: Path, bench: Path) -> None
     assert first.metadata["attack_success"] is None
 
 
+def test_answer_without_choices_is_left_out(bench: Path) -> None:
+    # Inspect fails a sample whose generation has no choices before scoring;
+    # the scorer still leaves such an answer out instead of checking "".
+    task = bipia(tasks="email,code", dataset_path=str(bench), shuffle_seed=None)
+    score = bipia_scorer()
+    for sample in (task.dataset[0], task.dataset[-1]):
+        state = TaskState(
+            model=ModelName("mockllm/answer"),
+            sample_id=sample.id or 0,
+            epoch=1,
+            input=sample.input,
+            messages=[],
+            output=ModelOutput(model="mockllm/answer", choices=[]),
+            metadata=sample.metadata or {},
+        )
+        result = asyncio.run(score(state, Target("")))
+        assert result is not None
+        assert result.value == "N"
+        assert result.metadata is not None
+        assert result.metadata["attack_success"] is None
+
+
 @pytest.mark.parametrize(
     ("judge_sees_answer_reasoning", "judged"),
     [(False, "answer"), (True, "<reasoning> secret </reasoning> answer")],
@@ -828,7 +869,7 @@ def test_truncated_answers_are_still_scored(tmp_path: Path, bench: Path) -> None
 def test_parity_config_pins_the_reference_judge_settings() -> None:
     parity = yaml.safe_load((PACKAGE / "parity.yaml").read_text())
     grader = parity["model_roles"]["grader"]
-    assert grader["model"] == "openai/gpt-3.5-turbo"
+    assert grader["model"] == "openai/gpt-3.5-turbo-0125"
     assert grader["config"] == {
         "temperature": 0,
         "max_tokens": 32,

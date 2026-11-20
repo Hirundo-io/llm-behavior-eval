@@ -203,8 +203,12 @@ tasks, the three text attack groups, the three positions and
 
 The reference README evaluates with `gpt35` "by default" (`config/gpt35.yaml`,
 an OpenAI chat model with no recorded snapshot), called with temperature 0 and
-32 tokens. `parity.yaml` pins `openai/gpt-3.5-turbo` with those settings. The
-task works with any grader; results with another judge are not comparable.
+32 tokens. `parity.yaml` pins `openai/gpt-3.5-turbo-0125` with those settings:
+the snapshot the `gpt-3.5-turbo` alias has pointed to since February 2024. The
+bare alias could be retargeted and change verdicts without any change here, and
+the snapshot it pointed to when the reference was published (late 2023) is no
+longer served, so exact parity with the paper's judge is not possible. The task
+works with any grader; results with another judge are not comparable.
 
 ## Reasoning (thinking) handling
 
