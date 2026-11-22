@@ -67,6 +67,9 @@ vllm = [
 gcs = ["google-cloud-storage"]
 azure = ["azure-storage-blob","azure-identity"]
 gpt-oss = ["opencv-python-headless>=4.12.0.88"]
+# OR-Bench Hard-1K (`llm_behavior_eval/or_bench_hard_1k`). Not on PyPI: `tool.uv.sources`
+# pins it to the commit inspect_evals lists under `register/or_bench`.
+or-bench = ["inspect-evals-orbench; python_version >= '3.11'"]
 
 [dependency-groups]
 dev = [
@@ -87,6 +90,7 @@ exclude-newer = "7 days"
 
 [tool.uv.sources]
 llm-behavior-eval = { path = ".", editable = true }
+inspect-evals-orbench = { git = "https://github.com/haeliotang/inspect-evals-orbench", rev = "8757ec41608f3930e3c2bc4d5619d09a2381727a" }
 
 [tool.setuptools.packages.find]
 include = ["llm_behavior_eval*"]
