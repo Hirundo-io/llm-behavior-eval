@@ -3,7 +3,9 @@
 * A pinned Hub load (a ``revision``) goes through ``inspect_evals_utils``'
   ``hf_dataset``, which requires a revision and retries transient Hub errors
   with backoff.
-* A local source without a revision goes through Inspect's ``hf_dataset``.
+* A local source without a revision goes through Inspect's ``hf_dataset``
+  with its split cache off, so a file replaced at the same path is read
+  again rather than served from a cache keyed on the path.
 * A ``save_to_disk`` folder, which neither reads, is read with
   ``datasets.load_from_disk`` and never written to.
 
@@ -48,6 +50,27 @@ def is_saved_dataset(path: str) -> bool:
     return (folder / "dataset_dict.json").is_file() or all(
         (folder / marker).is_file() for marker in ("dataset_info.json", "state.json")
     )
+
+
+def check_unsaved_folder(path: str) -> None:
+    """Reject a data folder that ``datasets.load_dataset`` would misread.
+
+    ``load_dataset`` refuses any folder holding a ``state.json`` and points to
+    ``load_from_disk``, which cannot read it either unless the folder is a
+    complete ``save_to_disk`` snapshot (see ``is_saved_dataset``).
+
+    Raises:
+        ValueError: ``path`` is a folder with a ``state.json`` that is not a
+            ``save_to_disk`` folder.
+    """
+    if (Path(path) / "state.json").is_file():
+        raise ValueError(
+            f"{path} holds a state.json but is not a save_to_disk folder (it "
+            "has no dataset_info.json). datasets reserves that file name for "
+            "save_to_disk folders and will not load this folder's data files: "
+            "rename or remove state.json, or pass a folder written by "
+            "Dataset.save_to_disk."
+        )
 
 
 def load_saved_dataset(
@@ -117,13 +140,26 @@ def load_dataset(
         return load_saved_dataset(
             path, split=split, sample_fields=sample_fields, seed=seed
         )
-    loader = pinned_hf_dataset if revision else hf_dataset
-    return loader(
+    shuffle = seed if seed is not None else False
+    if revision:
+        return pinned_hf_dataset(
+            path,
+            split=split,
+            name=name,
+            revision=revision,
+            sample_fields=sample_fields,
+            shuffle=shuffle,
+            token=dataset_token(),
+        )
+    check_unsaved_folder(path)
+    # Inspect's split cache is keyed on the path and arguments, not the
+    # contents: with it, a file replaced at the same path would be served stale.
+    return hf_dataset(
         path,
         split=split,
         name=name,
-        revision=revision,
         sample_fields=sample_fields,
-        shuffle=seed if seed is not None else False,
+        shuffle=shuffle,
         token=dataset_token(),
+        cached=False,
     )

@@ -77,9 +77,9 @@ package and that file.
 
 | Module | API |
 | --- | --- |
-| `dataset` | `dataset_token()`; `load_dataset(path, *, split, sample_fields, revision=None, name=None, seed=None)`: a pinned Hub load through `inspect_evals_utils`' retrying `hf_dataset`, a local source through Inspect's `hf_dataset`, a `save_to_disk` folder through `load_from_disk` (read-only). With `seed`, HF's `Dataset.shuffle(seed=seed)` runs before conversion on every path; without it, rows keep their published order. |
+| `dataset` | `dataset_token()`; `load_dataset(path, *, split, sample_fields, revision=None, name=None, seed=None)`: a pinned Hub load through `inspect_evals_utils`' retrying `hf_dataset`, a local source through Inspect's `hf_dataset` with its split cache off (a file replaced at the same path is read again; a folder with a stray `state.json` is rejected with an explanation), a `save_to_disk` folder through `load_from_disk` (read-only). With `seed`, HF's `Dataset.shuffle(seed=seed)` runs before conversion on every path; without it, rows keep their published order. |
 | `scoring` | `stop_reason(state)`; `judged_answer(state, include_reasoning=...)`; `grader()` and `ask_grader(system, user)` on the required role with no settings; `completion_scorer()` and its unreduced `incomplete_response_rate` metric (1 for `max_tokens`/`model_length`, 0 for another known stop reason, unscored when the provider reports none). |
-| `target_metrics` | `load_target_metrics()` merges every package's `target_metrics.json`; `missing_target_metrics(log)` lists target names a log lacks, as inspect-brief looks them up. |
+| `target_metrics` | `load_target_metrics()` validates (a JSON object of non-empty metric lists, string names, boolean flags) and merges every package's `target_metrics.json`; `missing_target_metrics(log)` lists target names a log lacks, as inspect-brief looks them up. |
 
 `inspect-evals-utils` (inspect_evals' utilities, without its benchmarks) is a
 dependency: benchmarks may use it directly, for example `create_stable_id` and

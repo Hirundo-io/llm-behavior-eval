@@ -12,7 +12,7 @@ Benchmark tests assert ``missing_target_metrics(log) == []``.
 import json
 from importlib.resources import files
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from inspect_ai.log import EvalLog
@@ -23,25 +23,60 @@ METRIC_KEYS = frozenset({"name", "is_percentage", "is_higher_better", "is_normal
 TargetMetrics = dict[str, list[dict[str, Any]]]
 
 
+def check_target_metrics(data: object, path: object, root: str) -> TargetMetrics:
+    """``data`` as target metrics, or a ``ValueError`` naming the bad field.
+
+    The file must be a JSON object mapping ``<root>/<task>`` keys to non-empty
+    lists of metric objects, each with exactly ``METRIC_KEYS``: a non-empty
+    string ``name`` and boolean flags.
+
+    Raises:
+        ValueError: Any part of ``data`` has the wrong shape or type.
+    """
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: expected a JSON object, got {type(data).__name__}")
+    for task, metrics in data.items():
+        if not task.startswith(f"{root}/"):
+            raise ValueError(f"{path}: task key {task!r} must start with {root}/")
+        if not isinstance(metrics, list) or not metrics:
+            raise ValueError(f"{path}: {task} needs a non-empty list of metrics")
+        for index, metric in enumerate(metrics):
+            where = f"{path}: {task}[{index}]"
+            if not isinstance(metric, dict) or set(metric) != METRIC_KEYS:
+                raise ValueError(
+                    f"{where} needs exactly the keys {sorted(METRIC_KEYS)}"
+                )
+            name = metric["name"]
+            if not isinstance(name, str) or not name:
+                raise ValueError(
+                    f"{where}.name must be a non-empty string, got {name!r}"
+                )
+            for flag in sorted(METRIC_KEYS - {"name"}):
+                if not isinstance(metric[flag], bool):
+                    raise ValueError(
+                        f"{where}.{flag} must be true or false, got {metric[flag]!r}"
+                    )
+    return cast("TargetMetrics", data)
+
+
 def load_target_metrics(root: str = "llm_behavior_eval") -> TargetMetrics:
     """Every subpackage's ``target_metrics.json``, merged and sorted by task.
 
     Raises:
-        ValueError: A file is malformed, or two files declare the same task.
+        ValueError: A file is malformed (see ``check_target_metrics``), or two
+            files declare the same task.
     """
     merged: TargetMetrics = {}
     for package in sorted(files(root).iterdir(), key=lambda entry: entry.name):
         path = package / TARGET_METRICS_FILE
         if not package.is_dir() or not path.is_file():
             continue
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = check_target_metrics(
+            json.loads(path.read_text(encoding="utf-8")), path, root
+        )
         for task, metrics in data.items():
-            if not task.startswith(f"{root}/") or task in merged:
-                raise ValueError(f"{path}: task key {task!r} is invalid or repeated")
-            if not metrics or any(set(m) != METRIC_KEYS for m in metrics):
-                raise ValueError(
-                    f"{path}: {task} needs metrics with {sorted(METRIC_KEYS)}"
-                )
+            if task in merged:
+                raise ValueError(f"{path}: task key {task!r} is repeated")
             merged[task] = metrics
     return dict(sorted(merged.items()))
 
