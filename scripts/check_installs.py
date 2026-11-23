@@ -30,7 +30,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from workspace import EXAMPLE, ROOT, members, requirement_name
+from workspace import EXAMPLE, ROOT, benchmark_dependencies, members
 
 TASK = "llm_behavior_eval/example"
 PROBE = """
@@ -157,12 +157,7 @@ def main() -> None:
     if group is not None:
         # The group's benchmarks are not on PyPI at this version: install the
         # wheels just built (and the sources, for the editable scenario).
-        by_name = {m.name: m for m in members()}
-        benchmarks = [
-            by_name[name]
-            for name in map(requirement_name, group.requirements)
-            if name in by_name and name != "llm-behavior-eval-common"
-        ]
+        benchmarks = benchmark_dependencies(group, members())
         native.extend(wheel(m.name) for m in [group, *benchmarks])
         editable.extend(m.path for m in [group, *benchmarks])
     results = {}

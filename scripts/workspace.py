@@ -143,6 +143,22 @@ def members() -> list[Distribution]:
     return [Distribution(ROOT / member) for member in listed]
 
 
+def benchmark_dependencies(
+    group: Distribution, workspace: list[Distribution]
+) -> list[Distribution]:
+    """The benchmarks in ``workspace`` that ``group`` depends on, in its order.
+
+    Other requirements (``llm-behavior-eval-common``, third-party packages)
+    are left out.
+    """
+    by_name = {member.name: member for member in workspace}
+    return [
+        by_name[name]
+        for name in map(requirement_name, group.requirements)
+        if name in by_name and by_name[name].is_benchmark
+    ]
+
+
 def root_is_editable() -> bool:
     """Whether ``llm-behavior-eval`` is installed editable here (``uv sync``)."""
     import json
