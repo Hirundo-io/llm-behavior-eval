@@ -79,8 +79,17 @@ pip install llm-behavior-eval
 ```
 
 If you use [uv](https://docs.astral.sh/uv/), run `uv venv .venv` and
-`uv pip install llm-behavior-eval` instead. For a local checkout, install with
-`pip install -e .` or `uv pip install -e .`.
+`uv pip install llm-behavior-eval` instead. On Python 3.10 this installs the
+legacy engine only: the native Inspect benchmarks (and
+`llm-behavior-eval-common`) need Python 3.11+ and are skipped by an
+environment marker.
+
+For a local checkout, run `uv sync` with Python 3.11 through 3.13 (the uv
+workspace: this distribution and every native benchmark distribution in its
+directory under `llm_behavior_eval/`, all editable). `uv.lock` covers the
+whole workspace, so it targets Python 3.11+ only; developing on Python 3.10
+is not supported, although the published `llm-behavior-eval` still installs
+there.
 
 ### vLLM extra
 
@@ -347,11 +356,15 @@ This project is licensed under the MIT License. See the LICENSE file for more in
 ## Native Inspect benchmarks
 
 Native [Inspect](https://inspect.aisi.org.uk/) benchmarks run alongside the
-legacy engine (Python 3.11+). Each is a package under
-`llm_behavior_eval/<benchmark>/` documented in its own README, and Inspect finds
-them through the package's entry point:
+legacy engine (Python 3.11+). Each is its own distribution,
+`llm-behavior-eval-<benchmark>`, documented in its own README, and Inspect finds
+it through the distribution's entry point. `llm-behavior-eval` installs every
+merged benchmark; a benchmark's distribution alone installs it with Inspect and
+`llm-behavior-eval-common`, without the legacy engine (no torch or
+transformers):
 
 ```sh
+pip install llm-behavior-eval-<benchmark>
 inspect eval llm_behavior_eval/<benchmark> --model <provider/model> --model-role grader=<provider/judge>
 ```
 
