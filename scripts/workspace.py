@@ -173,12 +173,23 @@ class Distribution:
         ``[tool.llm-behavior-eval] unpublished = "<reason>"``, for example a
         direct Git dependency, which PyPI rejects. No other distribution may
         depend on it (see ``llm_behavior_eval/security/README.md``).
+
+        Raises:
+            ValueError: The key is set but is not a non-empty string (an
+                empty or non-string value would give no reason, or read as
+                published).
         """
-        return (
-            self.pyproject.get("tool", {})
-            .get("llm-behavior-eval", {})
-            .get("unpublished")
-        )
+        settings = self.pyproject.get("tool", {}).get("llm-behavior-eval", {})
+        if "unpublished" not in settings:
+            return None
+        reason = settings["unpublished"]
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(
+                f"{self.path / 'pyproject.toml'}: [tool.llm-behavior-eval] "
+                "unpublished must be "
+                "a non-empty string giving the reason"
+            )
+        return reason
 
     @property
     def requirements(self) -> list[str]:
@@ -227,6 +238,30 @@ def benchmark_dependencies(
     ]
 
 
+def conflicting_packages(pyproject: dict[str, Any]) -> set[str]:
+    """The distributions a ``[tool.uv] conflicts`` entry names, normalized.
+
+    A workspace member declared there conflicts with another (two forks of
+    one distribution, say), so the two cannot share an environment: such a
+    member may stay out of the dev group (see
+    ``llm_behavior_eval/security/README.md``).
+
+    Args:
+        pyproject: The root ``pyproject.toml``, parsed.
+
+    Returns:
+        The ``package`` of every item of every conflict set (items naming an
+        ``extra`` or a ``group`` instead are left out).
+    """
+    conflicts = pyproject.get("tool", {}).get("uv", {}).get("conflicts", [])
+    return {
+        normalize(item["package"])
+        for conflict in conflicts
+        for item in conflict
+        if "package" in item
+    }
+
+
 def root_is_editable() -> bool:
     """Whether ``llm-behavior-eval`` is installed editable here (``uv sync``)."""
     import json
@@ -258,15 +293,34 @@ def benchmark_test_files(distribution: Distribution) -> list[Path]:
     return [ROOT / "tests" / f"test_inspect_{leaf}.py" for leaf in leaves]
 
 
-if __name__ == "__main__":
-    import sys
+def main(argv: list[str] | None = None) -> None:
+    """Print the workspace members' directories, or with ``--unpublished``
+    the names of the members never published.
 
-    if sys.argv[1:] == ["--unpublished"]:
-        # Names of the members never published (deploy_to_pypi.yaml skips them).
-        for member in members():
-            if member.unpublished:
-                print(member.name)
-    else:
-        # The workspace members' directories, one per line (.devcontainer/setup.sh).
-        for member in members():
+    Args:
+        argv: The arguments (``sys.argv[1:]`` by default); an unknown one
+            exits with a usage error.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="List the workspace members' directories, one per line.",
+        allow_abbrev=False,
+    )
+    parser.add_argument(
+        "--unpublished",
+        action="store_true",
+        help="list the names of the members never published instead",
+    )
+    args = parser.parse_args(argv)
+    for member in members():
+        if not args.unpublished:
+            # The members' directories (.devcontainer/setup.sh).
             print(member.path)
+        elif member.unpublished:
+            # The names deploy_to_pypi.yaml skips.
+            print(member.name)
+
+
+if __name__ == "__main__":
+    main()
