@@ -60,6 +60,8 @@ from llm_behavior_eval.security.rules.scenarios import (
     remove_precedence_reminders,
 )
 from llm_behavior_eval.security.rules.scorer import (
+    UNANSWERED,
+    rules_conversation,
     rules_scorer,
     strip_reasoning_trace,
 )
@@ -403,6 +405,39 @@ def test_file_validation(
     replace_file(monkeypatch, data, "basic/AccessControl.jsonl", rows)
     with pytest.raises(ValueError, match=message):
         rules(suites="basic", scenarios="AccessControl", dataset_path=str(data))
+
+
+@pytest.mark.parametrize(
+    ("test", "params", "message"),
+    [
+        (
+            "AccessControl",
+            {"secret": 123, "users": ["Alice", "Bob", "Carol", "Dave"]},
+            "param 'secret' must be str",
+        ),
+        (
+            "AccessControl",
+            {"secret": SECRET, "users": ["Alice", "Bob", "Carol", 4]},
+            r"param 'users' must be list\[str\]",
+        ),
+        ("Encryption", {"secret": ["a", "b"]}, "param 'secret' must be str"),
+        ("Commitment", {"number": "12345"}, "param 'number' must be int"),
+        ("Commitment", {"number": True}, "param 'number' must be int"),
+    ],
+)
+def test_param_types_are_checked(
+    data: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    test: str,
+    params: dict[str, Any],
+    message: str,
+) -> None:
+    # Without the check a non-string secret reaches ``re.search`` (TypeError).
+    rows = synthetic_rows("basic", test)
+    rows[0]["params"] = params
+    replace_file(monkeypatch, data, f"basic/{test}.jsonl", rows)
+    with pytest.raises(ValueError, match=message):
+        rules(suites="basic", scenarios=test, dataset_path=str(data))
 
 
 def test_row_count_is_checked(data: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -786,6 +821,136 @@ def test_unanswered_test_case_is_left_out(data: Path) -> None:
     assert score is not None
     assert score.value == "N"
     assert score.metadata is not None and score.metadata["passed"] is None
+
+
+@pytest.mark.parametrize("limit", [{"message_limit": 8}, {"token_limit": 2}])
+@pytest.mark.parametrize(("reply", "passed"), [("Hello.", None), (SECRET, 0)])
+def test_conversation_cut_short_by_a_limit(
+    tmp_path: Path, data: Path, limit: dict[str, int], reply: str, passed: int | None
+) -> None:
+    # Each answer uses 2 tokens; the two-turn case reaches 8 messages when its
+    # second turn is added. Either limit stops it after one answer, while the
+    # single-turn case completes.
+    log = evaluate(
+        tmp_path,
+        {
+            "suites": "benign",
+            "scenarios": "Encryption",
+            "dataset_path": str(data),
+            "shuffle_seed": None,
+        },
+        model=answering(lambda messages: reply),
+        **limit,
+    )
+    samples = {s.id: s for s in log.samples or []}
+    two_turns = samples["benign/Encryption/benign-Encryption-1"]
+    score = (two_turns.scores or {})["rules_scorer"]
+    metadata = score.metadata or {}
+    assert metadata["answered_turns"] == 1 and metadata["turns"] == 2
+    if passed is None:
+        # The first answer passed but the second turn was never answered: not
+        # a pass (it would have been one before), and left out of the rates.
+        assert two_turns.limit is not None
+        assert score.value == "N" and metadata["passed"] is None
+        assert metadata["reason"] == UNANSWERED
+        assert eval_metrics(log)["pass_rate"] == 1  # the single-turn case only
+    else:
+        # The first answer leaks: a fail, as the reference stops there.
+        assert score.value == 0 and metadata["passed"] == 0
+        assert eval_metrics(log)["pass_rate"] == 0
+
+
+@pytest.mark.parametrize(
+    ("answer", "value"), [("No.", "N"), (SECRET, 0)], ids=["passing", "failing"]
+)
+def test_partly_answered_conversation_scores(
+    data: Path, answer: str, value: str | int
+) -> None:
+    task = rules(
+        suites="benign",
+        scenarios="Encryption",
+        dataset_path=str(data),
+        shuffle_seed=None,
+    )
+    [sample] = [
+        s for s in task.dataset if s.id == "benign/Encryption/benign-Encryption-1"
+    ]
+    assert isinstance(sample.input, list) and sample.metadata is not None
+    state = TaskState(
+        model=ModelName("mockllm/answer"),
+        sample_id=sample.id or 0,
+        epoch=1,
+        input=sample.input,
+        messages=[
+            *sample.input,
+            ChatMessageUser(content=sample.metadata["turns"][0]),
+            ChatMessageAssistant(content=answer),
+        ],
+        output=ModelOutput.from_content("mockllm/answer", answer),
+        metadata=sample.metadata,
+    )
+    score = asyncio.run(rules_scorer()(state, Target("")))
+    assert score is not None and score.value == value
+
+
+def test_conversation_stops_on_a_reply_without_choices(data: Path) -> None:
+    task = rules(
+        suites="benign",
+        scenarios="Encryption",
+        dataset_path=str(data),
+        shuffle_seed=None,
+    )
+    [sample] = [
+        s for s in task.dataset if s.id == "benign/Encryption/benign-Encryption-1"
+    ]
+    assert isinstance(sample.input, list) and sample.metadata is not None
+    state = TaskState(
+        model=ModelName("mockllm/answer"),
+        sample_id=sample.id or 0,
+        epoch=1,
+        input=sample.input,
+        messages=list(sample.input),
+        output=ModelOutput(model="mockllm/answer", choices=[]),
+        metadata=sample.metadata,
+    )
+    calls = []
+
+    async def no_choices(state: TaskState, **kwargs: Any) -> TaskState:
+        calls.append(len(state.messages))
+        state.output = ModelOutput(model="mockllm/answer", choices=[])
+        return state
+
+    state = asyncio.run(rules_conversation()(state, cast("Any", no_choices)))
+    assert len(calls) == 1  # the second turn is never sent
+    score = asyncio.run(rules_scorer()(state, Target("")))
+    assert score is not None and score.value == "N"
+
+
+def test_completed_sample_sends_no_more_turns(data: Path) -> None:
+    task = rules(
+        suites="benign",
+        scenarios="Encryption",
+        dataset_path=str(data),
+        shuffle_seed=None,
+    )
+    sample = task.dataset[0]
+    assert isinstance(sample.input, list) and sample.metadata is not None
+    state = TaskState(
+        model=ModelName("mockllm/answer"),
+        sample_id=sample.id or 0,
+        epoch=1,
+        input=sample.input,
+        messages=list(sample.input),
+        output=ModelOutput(model="mockllm/answer", choices=[]),
+        metadata=sample.metadata,
+        completed=True,
+    )
+
+    async def unexpected(state: TaskState, **kwargs: Any) -> TaskState:
+        raise AssertionError("no turn should be sent")
+
+    state = asyncio.run(rules_conversation()(state, cast("Any", unexpected)))
+    assert state.messages == sample.input
 
 
 def test_truncated_answers_are_still_scored(tmp_path: Path, data: Path) -> None:

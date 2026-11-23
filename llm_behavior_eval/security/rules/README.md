@@ -132,8 +132,15 @@ system message, the rules and the acknowledgement), as the reference does.
 does; no parameter in the pinned suites contains a regular-expression
 metacharacter, so this matches a literal search there.
 
-Every answer is checked whatever its stop reason. A test case the model never
-answered (no generated answer in the log) is left out of the rates.
+Every answer is checked whatever its stop reason. A test case fails as soon as
+one answer fails, however many turns it answered. A test case whose
+conversation ended before every turn was answered without failing (an Inspect
+message, token or time limit reached mid-conversation, a reply with no
+choices, or no answer at all) has no verdict (`N`) and is left out of the
+rates: the reference only passes a test case whose every turn was answered.
+`completion_scorer` (`incomplete_response_rate`) sees the stop reason of the
+last answer only; an earlier answer cut by `max_tokens` is checked as it is
+and does not count there.
 
 ## Metrics
 
@@ -208,6 +215,10 @@ Deviations, all forced or deliberate:
   Transformers wrappers return the empty string). Here Inspect retries
   transient errors and fails the sample on a persistent one, and an empty
   answer is checked as empty (the vLLM path's behavior).
+* **Conversations cut short.** The reference answers every turn (a failed
+  call becomes the answer "missing"). Here an Inspect limit can end a
+  conversation early; one cut short before any answer failed has no verdict
+  (see Scoring). When every turn is answered, the verdicts are unchanged.
 * **Conversation history.** The reference feeds each answer back after
   `remove_cot`, so later turns never see reasoning. Here later turns get the
   assistant message as Inspect recorded it, and the provider decides how to

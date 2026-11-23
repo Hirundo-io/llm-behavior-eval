@@ -20,9 +20,9 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args, get_origin
 
 from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_ai.model import (
@@ -500,6 +500,32 @@ def _test_messages(value: Any, origin: str) -> list[Message]:
     return messages
 
 
+def _fits(value: Any, annotation: Any) -> bool:
+    """Whether a JSON value has a scenario parameter's declared type
+    (``str``, ``int`` or ``list[str]``)."""
+    if get_origin(annotation) is list:
+        [item] = get_args(annotation)
+        return isinstance(value, list) and all(_fits(v, item) for v in value)
+    if annotation is int:
+        return isinstance(value, int) and not isinstance(value, bool)
+    return isinstance(value, annotation)
+
+
+def _mistyped_param(scenario: BaseScenario, params: dict[str, Any]) -> str | None:
+    """The first parameter whose value lacks its declared type, described.
+
+    The checks match parameters as regular expressions and compare them with
+    strings, so a value of another type would raise ``TypeError`` there or
+    never match.
+    """
+    for field in fields(scenario.Params):
+        if field.name in params and not _fits(params[field.name], field.type):
+            expected = field.type
+            name = expected.__name__ if isinstance(expected, type) else expected
+            return f"param {field.name!r} must be {name}"
+    return None
+
+
 def build_sample(
     suite: str,
     test: str,
@@ -512,7 +538,7 @@ def build_sample(
 
     Raises:
         ValueError: The record lacks an ``id`` or ``params``, its parameters
-            do not fit the scenario, it has no user message after its last
+            do not fit the scenario (names or types), it has no user message after its last
             prefilled assistant message, or the scenario rejects one of its
             user messages (the reference raises then).
     """
@@ -533,6 +559,8 @@ def build_sample(
         scenario = SCENARIOS[scenario_name(test)](params)
     except (TypeError, KeyError, IndexError) as error:
         raise ValueError(f"RuLES {origin}: params do not fit the scenario") from error
+    if problem := _mistyped_param(scenario, params):
+        raise ValueError(f"RuLES {origin}: {problem}")
     messages = _test_messages(record.get("messages"), origin)
     last = max(
         (i for i, m in enumerate(messages) if m.role == Role.ASSISTANT), default=-1
