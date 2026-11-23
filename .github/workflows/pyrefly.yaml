@@ -1,4 +1,7 @@
 name: pyrefly
+# Hardening (zizmor checks it in vulnerability-scan.yaml): every action is pinned to a
+# full commit SHA, with its tag in the trailing comment, so a moved or compromised tag
+# can't change what runs; Renovate proposes the updates.
 on:
   - pull_request
   - merge_group
@@ -17,6 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          # No token left in .git/config for later steps (or uploaded artifacts) to read.
           persist-credentials: false
 
       - name: Install uv

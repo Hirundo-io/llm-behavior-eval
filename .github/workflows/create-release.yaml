@@ -1,4 +1,7 @@
 name: Release new version of package
+# Hardening (zizmor checks it in vulnerability-scan.yaml): every action is pinned to a
+# full commit SHA, with its tag in the trailing comment, so a moved or compromised tag
+# can't change what runs; Renovate proposes the updates.
 
 on:
   workflow_dispatch:
@@ -38,6 +41,8 @@ jobs:
           activate-environment: true
 
       - name: Bump version with `bumpver` then push tag
+        # Event fields reach the script as environment variables, never as ${{ }}
+        # expressions inside `run`, so their text can't inject shell commands.
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ github.event.inputs.version }}
