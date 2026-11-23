@@ -5,6 +5,7 @@ from typing import Any
 from inspect_ai import Task, task
 from inspect_ai.scorer import Scorer
 from inspect_ai.solver import generate
+
 from llm_behavior_eval.common.scoring import completion_scorer
 
 from .dataset import BENCHMARKS, DATA_COMMIT, DATA_REPOSITORY, BenchmarkName, dataset

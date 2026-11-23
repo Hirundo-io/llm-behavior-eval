@@ -16,6 +16,7 @@ from inspect_ai._cli.eval import RunConfigInput
 from inspect_ai.log import EvalLog
 from inspect_ai.model import GenerateConfig, Model, ModelOutput, get_model
 from inspect_ai.scorer import MetricProtocol, SampleScore, Score
+
 from llm_behavior_eval.common.target_metrics import missing_target_metrics
 from llm_behavior_eval.security.tensor_trust import dataset as tt_dataset
 from llm_behavior_eval.security.tensor_trust.dataset import (

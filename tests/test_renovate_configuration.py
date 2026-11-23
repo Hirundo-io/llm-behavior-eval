@@ -36,13 +36,13 @@ def test_entry_formats_are_extracted() -> None:
     pattern = manager_pattern(".github/upstream-revisions.env")
     github = (
         "# renovate: datasource=github-digest depName=org/repo currentValue=main\n"
-        "# source: packages/x/src/llm_behavior_eval/x/dataset.py:COMMIT\n"
+        "# source: llm_behavior_eval/x/dataset.py:COMMIT\n"
         f"X_DATA_REV={'a' * 40}\n"
     )
     hub = (
         "# renovate: datasource=git-refs depName=org/data "
         "packageName=https://huggingface.co/datasets/org/data currentValue=main\n"
-        '# source: packages/y/src/llm_behavior_eval/y/dataset.py:REVISIONS["a"]\n'
+        '# source: llm_behavior_eval/security/y/dataset.py:REVISIONS["a"]\n'
         f"Y_DATA_REV={'b' * 40}\n"
     )
     match = pattern.search(github)
@@ -65,7 +65,7 @@ def test_renovate_policy() -> None:
     rules = {rule.get("groupName"): rule for rule in CONFIG["packageRules"]}
     assert set(rules["python"]["matchFileNames"]) == {
         "pyproject.toml",
-        "packages/**/pyproject.toml",
+        "llm_behavior_eval/**/pyproject.toml",
         "uv.lock",
     }
     upstream = rules[None]

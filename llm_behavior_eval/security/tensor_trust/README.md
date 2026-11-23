@@ -21,10 +21,10 @@ inspect eval llm_behavior_eval/tensor_trust_extraction --model <provider/model>
 
 `llm-behavior-eval-tensor-trust` installs these tasks with Inspect and
 `llm-behavior-eval-common`, without the legacy engine (no torch or
-transformers). In this repository the distribution is
-`packages/security/tensor_trust/` and the package
-`llm_behavior_eval.security.tensor_trust`; it is part of the security group
-(`llm-behavior-eval-security`).
+transformers). In this repository the package
+`llm_behavior_eval.security.tensor_trust` is `llm_behavior_eval/security/tensor_trust/`,
+which is also the distribution's project directory; it is part of the security
+group (`llm-behavior-eval-security`).
 
 Scoring is rule-based, as in the paper: there is no grader role. The tasks set
 no inference options; see [Parity](#parity) for the paper's settings.
@@ -181,8 +181,8 @@ code uses 50 tokens for hijacking attacks and for every access code, and 500
 tokens for extraction attacks (`eval_hijacking.py`, `eval_extraction.py`,
 `call_llm.py`). `parity.yaml` holds temperature 0 and 500 tokens for the model
 under test; it is opt-in and names no task. It ships in the package
-(`packages/security/tensor_trust/src/llm_behavior_eval/security/tensor_trust/parity.yaml`
-in a checkout):
+(`llm_behavior_eval/security/tensor_trust/parity.yaml`, in a checkout and in an
+installed package):
 
 ```sh
 PARITY=$(python -c "import importlib.resources as r; print(r.files('llm_behavior_eval.security.tensor_trust') / 'parity.yaml')")

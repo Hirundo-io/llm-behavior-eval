@@ -26,6 +26,7 @@ import re
 
 from inspect_ai.scorer import CORRECT, INCORRECT, Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
+
 from llm_behavior_eval.common.scoring import stop_reason
 
 from .dataset import ACCESS_CODE, ATTACK, BenchmarkName
