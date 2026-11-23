@@ -36,6 +36,7 @@ from llm_behavior_eval.security.llmail_inject.scenario import (
     build_messages,
     retriever,
     tfidf_modules,
+    validate_prompt_defense,
 )
 
 ANALYSIS_REPOSITORY = "microsoft/llmail-inject-challenge-analysis"
@@ -265,6 +266,18 @@ def parse_emails(level: int, data: bytes) -> list[str]:
     return emails
 
 
+def validate_attacks_per_phase(count: int | None) -> None:
+    """Check ``count`` is ``None`` or a positive integer.
+
+    Raises:
+        ValueError: It is not.
+    """
+    if count is not None and (type(count) is not int or count < 1):
+        raise ValueError(
+            f"attacks_per_phase must be a positive integer or None; got {count!r}"
+        )
+
+
 def sample_attacks(attacks: list[Attack], count: int | None) -> list[Attack]:
     """The ``count`` attacks with the smallest SHA-256, in that order.
 
@@ -274,8 +287,7 @@ def sample_attacks(attacks: list[Attack], count: int | None) -> list[Attack]:
     Raises:
         ValueError: ``count`` is not positive.
     """
-    if count is not None and count < 1:
-        raise ValueError(f"attacks_per_phase must be positive; got {count}")
+    validate_attacks_per_phase(count)
     ranked = sorted(attacks, key=lambda attack: attack.sha256)
     return ranked if count is None else ranked[:count]
 
@@ -284,7 +296,8 @@ def normalize_levels(levels: int | list[int] | None) -> list[int]:
     """Requested levels as a list, defaulting to levels 1 and 2.
 
     Raises:
-        ValueError: A level is unsupported or repeated, or none is given.
+        ValueError: A level is unsupported, repeated or a boolean, or none is
+            given.
         ImportError: Level 3 or 4 is requested without scikit-learn.
     """
     requested = (
@@ -294,6 +307,8 @@ def normalize_levels(levels: int | list[int] | None) -> list[int]:
         if isinstance(levels, int)
         else levels
     )
+    if any(isinstance(level, bool) for level in requested):
+        raise ValueError(f"levels must be integers, not booleans; got {levels!r}")
     if not requested or len(set(requested)) != len(requested):
         raise ValueError(f"levels must be distinct and non-empty; got {levels!r}")
     unsupported = [level for level in requested if level not in LEVELS]
@@ -340,7 +355,8 @@ def dataset(
     """The sampled attacks of both phases, each replayed at every level.
 
     Samples interleave by sampling rank (phase 1 then phase 2, each at every
-    level), so ``--limit N`` keeps the phases and levels balanced.
+    level), so ``--limit N`` keeps the phases and levels balanced. Every
+    argument is checked before any file is read.
 
     Args:
         levels: Levels to replay each attack at (1 to 4; default 1 and 2).
@@ -360,6 +376,8 @@ def dataset(
         ImportError: Level 3 or 4 is requested without scikit-learn.
     """
     selected_levels = normalize_levels(levels)
+    validate_attacks_per_phase(attacks_per_phase)
+    validate_prompt_defense(prompt_defense)
     retrievers = {
         level: retriever(
             LEVELS[level],

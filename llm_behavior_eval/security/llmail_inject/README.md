@@ -135,8 +135,9 @@ differ from the embedding retriever's. Most attacks were not written for these
 queries: of the default 500, 412 at level 3 and 364 at level 4 score below the
 tenth benign email under TF-IDF (the challenge's rule would have dropped them)
 and are placed last. At level 4 the task fails to build if
-the 9 benign emails TF-IDF selects do not contain the target figure (with the
-pinned data they do: the email stating it ranks first).
+the 9 benign emails TF-IDF selects do not contain the target figure, ignoring
+case as the scorer does (with the pinned data they do: the email stating it
+ranks first).
 
 The conversation follows the challenge's GPT-4o-mini path
 (`GPTLLM.call_model`): the system prompt; the level's user query; an
@@ -293,6 +294,13 @@ Deviations from the challenge, and why:
   Inspect recovers some malformed argument strings (trailing quotes, or a
   non-object value mapped to `to`) that the challenge's `json.loads` would have
   dropped.
+* **Provider support.** The history holds a fabricated `read_emails` call and
+  its tool result, but only `send_email_xtbiu` is declared to the model, as in
+  the challenge. OpenAI-compatible servers accept this (a loopback test sends
+  it through Inspect's `openai-api/` provider). Providers that require every
+  tool call in the history to name a declared tool may reject the request;
+  such a sample ends in an error, not a score, so check the provider before
+  comparing rates across providers.
 * **Phi-3 path.** The challenge's prompted tool format for models without
   tool calling (a JSON line parsed from the text) is not implemented.
 

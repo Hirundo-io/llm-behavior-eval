@@ -1,6 +1,6 @@
 """The challenge's email-assistant context, rebuilt for one attack email.
 
-Mirrors the GPT path of the challenge agent at the commit in ``prompts``:
+Mirrors the GPT path of the challenge agent at ``dataset.CHALLENGE_COMMIT``:
 ``email_retriever.filter_emails``, ``BasicEmailRetriever`` (levels 1 and 2),
 ``RAGEmailRetriever`` (levels 3 and 4, with TF-IDF in place of the embedding
 model; see ``TfidfRetriever``), ``prompt_utils.format_emails``, the
@@ -116,7 +116,9 @@ def filter_email(attacker_email: str) -> str:
     if len(attacker_email.encode("utf-8")) <= MAX_LEN:
         return attacker_email
     encoding = _encoding()
-    return encoding.decode(encoding.encode(attacker_email)[0:MAX_LEN])
+    # Special-token text is plain text here (most of it was replaced above).
+    tokens = encoding.encode(attacker_email, disallowed_special=())
+    return encoding.decode(tokens[0:MAX_LEN])
 
 
 class BasicRetriever:
@@ -181,8 +183,10 @@ class TfidfRetriever:
         kept = order[: level.top_k - 1]
         self.emails = [emails[i] for i in kept]
         self.scores = [float(scores[i]) for i in kept]
+        # Case-insensitive, as the scorer compares the sent body.
+        target = level.target_body.lower()
         if level.target_in_emails and not any(
-            level.target_body in email for email in self.emails
+            target in email.lower() for email in self.emails
         ):
             raise ValueError(
                 f"LLMail-Inject level {level.number}: none of the "
@@ -223,6 +227,19 @@ def format_emails(emails: list[str]) -> str:
     return "".join(f" email: {email}" for email in emails)
 
 
+def validate_prompt_defense(prompt_defense: str) -> None:
+    """Check ``prompt_defense`` is one of ``PROMPT_DEFENSES``.
+
+    Raises:
+        ValueError: It is not.
+    """
+    if prompt_defense not in PROMPT_DEFENSES:
+        raise ValueError(
+            f"prompt_defense must be one of {list(PROMPT_DEFENSES)}; "
+            f"got {prompt_defense!r}"
+        )
+
+
 def build_messages(
     emails: list[str],
     prompt_defense: PromptDefense = "none",
@@ -235,13 +252,9 @@ def build_messages(
     sub-level (instructions, delimiters and data marking); ``delimiters`` is
     what phase 2 added to every level (instructions and delimiters only).
     """
+    validate_prompt_defense(prompt_defense)
     system_prompt = SYSTEM_PROMPT
     formatted_emails = format_emails(emails)
-    if prompt_defense not in PROMPT_DEFENSES:
-        raise ValueError(
-            f"prompt_defense must be one of {list(PROMPT_DEFENSES)}; "
-            f"got {prompt_defense!r}"
-        )
     if prompt_defense == "spotlight":
         system_prompt += SPOTLIGHT_SYS_SUFFIX
         query = SPOTLIGHT_QUERY_FORMAT.format(query)

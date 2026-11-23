@@ -331,8 +331,9 @@ def test_sample_attacks_contract() -> None:
     assert [a.sha256 for a in ranked_attacks] == sorted(a.sha256 for a in attacks)
     assert llmail_dataset.sample_attacks(attacks, 2) == ranked_attacks[:2]
     assert llmail_dataset.sample_attacks(attacks, 99) == ranked_attacks
-    with pytest.raises(ValueError, match="must be positive"):
-        llmail_dataset.sample_attacks(attacks, 0)
+    for count in (0, True, 1.5):
+        with pytest.raises(ValueError, match="must be a positive integer"):
+            llmail_dataset.sample_attacks(attacks, cast("int", count))
 
 
 @pytest.mark.parametrize(
@@ -355,11 +356,33 @@ def test_levels_argument(
         ([0, 1], "Unsupported LLMail-Inject levels \\[0\\]"),
         ([1, 1], "distinct"),
         ([], "distinct"),
+        (True, "not booleans"),
+        ([True, 2], "not booleans"),
     ],
 )
 def test_invalid_levels(synthetic: Synthetic, levels: Any, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         llmail_inject(dataset_path=str(synthetic.path), levels=levels)
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        ({"prompt_defense": "sandwich"}, "prompt_defense must be one of"),
+        ({"attacks_per_phase": 0}, "attacks_per_phase must be a positive integer"),
+        ({"attacks_per_phase": True}, "attacks_per_phase must be a positive integer"),
+        ({"levels": True}, "not booleans"),
+    ],
+)
+def test_invalid_arguments_fail_before_any_file_is_read(
+    monkeypatch: pytest.MonkeyPatch, arguments: dict[str, Any], message: str
+) -> None:
+    def no_fetch(*args: Any) -> bytes:
+        raise AssertionError("a file was read before the arguments were checked")
+
+    monkeypatch.setattr(llmail_dataset, "fetch", no_fetch)
+    with pytest.raises(ValueError, match=message):
+        llmail_dataset.dataset(**arguments)
 
 
 def test_checksum_mismatch_refuses_to_load(synthetic: Synthetic) -> None:
@@ -508,7 +531,9 @@ def test_long_emails_are_truncated_to_max_len_tokens(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class ByteEncoding:
-        def encode(self, text: str) -> list[int]:
+        def encode(self, text: str, *, disallowed_special: Any) -> list[int]:
+            # Special-token text must never make the tokenizer raise.
+            assert disallowed_special == ()
             return list(text.encode("utf-8"))
 
         def decode(self, tokens: list[int]) -> str:
@@ -1075,6 +1100,9 @@ def test_level_four_needs_its_target_among_the_retrieved_emails() -> None:
     TfidfRetriever(level, [*TOY_EMAILS[:4], "zenith budget is $9.378 million"])
     with pytest.raises(ValueError, match="contains the target"):
         TfidfRetriever(level, [*TOY_EMAILS, "picnic $9.378 million"])
+    # The check ignores case, as the scorer's body comparison does.
+    upper = rag_level(target_body="Confirmed", target_in_emails=True)
+    TfidfRetriever(upper, [*TOY_EMAILS[:4], "zenith budget CONFIRMED"])
 
 
 @needs_tfidf
