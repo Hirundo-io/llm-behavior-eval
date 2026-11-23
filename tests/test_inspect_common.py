@@ -27,6 +27,7 @@ from inspect_ai.model import (
 )
 from inspect_ai.scorer import Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
+
 from llm_behavior_eval.common import dataset as common_dataset
 from llm_behavior_eval.common.dataset import (
     DATASET_TOKEN_VARIABLE,
@@ -410,6 +411,28 @@ def test_load_target_metrics_rejects_a_repeated_task(
         load_target_metrics("fake_root_c")
 
 
+def test_load_target_metrics_skips_build_copies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A benchmark's directory is also its distribution's project directory, so
+    # an in-place wheel build leaves build/ (a copy of the package) and an
+    # *.egg-info folder inside the package; groups have no __init__.py.
+    root = make_root(tmp_path, monkeypatch, "fake_root_e")
+    for package, task in [("solo", "solo"), ("group/member", "member")]:
+        directory = root / package
+        copy = directory / "build" / "lib" / "fake_root_e" / package
+        for where in (directory, copy, directory / "fake_root_e.egg-info"):
+            where.mkdir(parents=True, exist_ok=True)
+            (where / "__init__.py").write_text("")
+            (where / "target_metrics.json").write_text(
+                json.dumps({f"fake_root_e/{task}": [metric("m")]})
+            )
+    assert list(load_target_metrics("fake_root_e")) == [
+        "fake_root_e/member",
+        "fake_root_e/solo",
+    ]
+
+
 def test_missing_target_metrics(tmp_path: Path) -> None:
     task = Task(
         dataset=[Sample(input="q")],
@@ -428,8 +451,9 @@ def test_missing_target_metrics(tmp_path: Path) -> None:
 def test_load_target_metrics_spans_namespace_portions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Two portions of a PEP 420 namespace (no __init__.py), as two editable
-    # workspace members put them on sys.path, one with a grouped benchmark.
+    # Two portions of a PEP 420 namespace (no __init__.py) on two sys.path
+    # entries, as wheels installed without the legacy distribution in two
+    # site-packages directories, one with a grouped benchmark.
     for portion, package, task in [
         ("one", "solo", "solo"),
         ("two", "group/member", "member"),

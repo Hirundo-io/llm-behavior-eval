@@ -95,6 +95,47 @@ def test_sync_replaces_the_old_commit_in_the_owning_distribution(
     assert sync.sync([pin]) == []
 
 
+@pytest.mark.parametrize(
+    "other",
+    [
+        "3" * 40,  # B is stale too, and wants a different commit than A.
+        OLD,  # B is up to date, and its commit is A's old one.
+    ],
+)
+def test_sync_refuses_a_shared_old_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, other: str
+) -> None:
+    # Two pins in one distribution share the commit OLD; replacing it for A
+    # would silently move B to A's new commit.
+    source = tmp_path / "pkg" / "dataset.py"
+    source.parent.mkdir()
+    code = f'A = "{OLD}"\nB = "{OLD}"\n'
+    source.write_text(code)
+    monkeypatch.setattr(sync, "owning_directory", lambda file: source.parent)
+    text = manifest("pkg/dataset.py:A", NEW, "A_REV") + manifest(
+        "pkg/dataset.py:B", other, "B_REV"
+    )
+    pins = sync.parse_manifest(text, tmp_path)
+    with pytest.raises(ValueError, match="B_REV in the same distribution"):
+        sync.sync(pins)
+    assert source.read_text() == code
+
+
+def test_sync_moves_pins_that_share_a_commit_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "pkg" / "dataset.py"
+    source.parent.mkdir()
+    source.write_text(f'A = "{OLD}"\nB = "{OLD}"\n')
+    monkeypatch.setattr(sync, "owning_directory", lambda file: source.parent)
+    text = manifest("pkg/dataset.py:A", NEW, "A_REV") + manifest(
+        "pkg/dataset.py:B", NEW, "B_REV"
+    )
+    pins = sync.parse_manifest(text, tmp_path)
+    assert sync.sync(pins) == [source]
+    assert sync.mismatches(pins) == {}
+
+
 def test_manifest_lives_in_the_repository() -> None:
     assert sync.MANIFEST == ROOT / ".github" / "upstream-revisions.env"
 
@@ -102,14 +143,14 @@ def test_manifest_lives_in_the_repository() -> None:
 def test_owning_directory_is_the_innermost_member(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    group = tmp_path / "packages" / "group"
+    group = tmp_path / "llm_behavior_eval" / "group"
     benchmark = group / "benchmark"
     monkeypatch.setattr(
         sync,
         "members",
         lambda: [Distribution(group), Distribution(benchmark)],
     )
-    assert sync.owning_directory(benchmark / "src" / "data.py") == benchmark
+    assert sync.owning_directory(benchmark / "dataset.py") == benchmark
     assert sync.owning_directory(group / "README.md") == group
     with pytest.raises(ValueError, match="not in a workspace member"):
         sync.owning_directory(tmp_path / "elsewhere.py")

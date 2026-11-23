@@ -1,19 +1,7 @@
-"""Public legacy API, loaded on demand to keep Inspect discovery lightweight.
-
-``llm_behavior_eval`` is shared by several distributions: this one (the legacy
-engine), ``llm-behavior-eval-common`` and one per native benchmark. Only this
-distribution ships ``llm_behavior_eval/__init__.py``; the others ship portions
-without one. Installed together into one ``site-packages`` they share a single
-directory. In an editable workspace each portion is its own ``src`` directory
-on ``sys.path``, and ``extend_path`` adds them to ``__path__``. Without this
-distribution, ``llm_behavior_eval`` is a PEP 420 namespace package.
-"""
+"""Public legacy API, loaded on demand to keep Inspect discovery lightweight."""
 
 from importlib import import_module
-from pkgutil import extend_path
 from typing import Any
-
-__path__ = extend_path(__path__, __name__)
 
 _EXPORTS = {
     "DatasetConfig": ".evaluation_utils.dataset_config",

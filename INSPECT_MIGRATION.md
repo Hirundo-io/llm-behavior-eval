@@ -69,57 +69,89 @@ of several distributions that share one import package, `llm_behavior_eval`:
 
 | Distribution | Directory | Ships | Depends on |
 | --- | --- | --- | --- |
-| `llm-behavior-eval` | `.` (workspace root) | `src/llm_behavior_eval/`: the legacy engine and the only `llm_behavior_eval/__init__.py` | the legacy stack (torch, transformers…), `llm-behavior-eval-common` and every merged benchmark (or group) distribution |
-| `llm-behavior-eval-common` | `packages/common/` | `llm_behavior_eval.common` | Inspect, `inspect-evals-utils`, `openai`, `datasets` |
-| `llm-behavior-eval-<benchmark>` | `packages/[<group>/]<benchmark>/` | `llm_behavior_eval.[<group>.]<benchmark>` | `llm-behavior-eval-common` and the benchmark's own libraries |
-| `llm-behavior-eval-<group>` | `packages/<group>/` | nothing (a metapackage) | `llm-behavior-eval-common` and every published benchmark of the group |
+| `llm-behavior-eval` | `.` (workspace root) | the legacy engine: `llm_behavior_eval/__init__.py`, `evaluate.py`, `evaluation_utils/` … (unchanged) | the legacy stack (torch, transformers…), `llm-behavior-eval-common` and every merged benchmark (or group) distribution |
+| `llm-behavior-eval-common` | `llm_behavior_eval/common/` | `llm_behavior_eval.common` | Inspect, `inspect-evals-utils`, `openai`, `datasets` |
+| `llm-behavior-eval-<benchmark>` | `llm_behavior_eval/[<group>/]<benchmark>/` | `llm_behavior_eval.[<group>.]<benchmark>` | `llm-behavior-eval-common` and the benchmark's own libraries |
+| `llm-behavior-eval-<group>` | `llm_behavior_eval/<group>/` | nothing (a metapackage) | `llm-behavior-eval-common` and every published benchmark of the group |
+
+Each native distribution's `pyproject.toml` lives inside its own package
+directory, in place under the legacy package, so the import paths and task
+names are what they would be in one package:
 
 ```text
-pyproject.toml                 llm-behavior-eval + [tool.uv.workspace]
-src/llm_behavior_eval/         __init__.py (extend_path + legacy exports), evaluate.py, evaluation_utils/ …
-packages/
-  common/                      llm-behavior-eval-common
+pyproject.toml                       llm-behavior-eval (flat layout) + [tool.uv.workspace]
+llm_behavior_eval/
+  __init__.py  evaluate.py  evaluation_utils/ …     the legacy engine, untouched
+  common/                            llm-behavior-eval-common
     pyproject.toml  LICENSE  README.md
-    src/llm_behavior_eval/common/…           (no src/llm_behavior_eval/__init__.py)
-  <group>/                     a group of benchmarks: llm-behavior-eval-<group>, if it has one
-    pyproject.toml  LICENSE  README.md       (the README lists the group's benchmarks)
-    <benchmark>/               llm-behavior-eval-<benchmark>
+    __init__.py  dataset.py  scoring.py  target_metrics.py
+  <group>/                           a group of benchmarks: no __init__.py (its README lists them)
+    pyproject.toml  LICENSE  README.md      llm-behavior-eval-<group>, if the group has one
+    <benchmark>/                     llm-behavior-eval-<benchmark>
       pyproject.toml  LICENSE  [NOTICE]
-      src/llm_behavior_eval/<group>/<benchmark>/   __init__.py task.py … README.md target_metrics.json
-tests/                         every test module, the shared helpers, and
-  example_benchmark/           the synthetic benchmark distribution (template; never published)
-scripts/                       workspace tools (workspace.py reads the layout from pyproject.toml)
+      __init__.py  task.py …  README.md  target_metrics.json
+tests/                               every test module, the shared helpers, and
+  example_benchmark/                 the synthetic benchmark distribution (template; never published)
+scripts/                             workspace tools (workspace.py reads the layout from pyproject.toml)
 ```
 
-Why a `src/` layout everywhere: setuptools installs a "simple" `src/` layout
-editable by putting `src/` on `sys.path` with a `.pth` file, which is what
-lets several directories form one `llm_behavior_eval`. A flat layout gets an
-import hook instead, and Python would then stop at the first `llm_behavior_eval`
-it finds. pyrefly (1.2 or later) resolves the package across every `src`
-directory listed in `[tool.pyrefly] search-path`.
+A native distribution maps its package to its own directory, and ships only
+its modules and listed data files:
+
+```toml
+[tool.setuptools]
+packages = ["llm_behavior_eval.<group>.<benchmark>"]   # plus any subpackage, listed explicitly
+package-dir = { "llm_behavior_eval.<group>.<benchmark>" = "." }
+include-package-data = false   # otherwise pyproject.toml and LICENSE ship inside the package
+```
+
+The root's `[tool.setuptools.packages.find]` includes only `llm_behavior_eval`
+and `llm_behavior_eval.evaluation_utils*`, so its wheel never ships `common/`
+or a benchmark.
 
 ### One import package, several distributions
 
-* Only `llm-behavior-eval` ships `llm_behavior_eval/__init__.py`; it calls
-  `pkgutil.extend_path`. Every other distribution ships a portion: no
-  `__init__.py` in `src/llm_behavior_eval/` or in a group directory, and a
-  regular package (with `__init__.py`) for the benchmark itself.
+* Only `llm-behavior-eval` ships `llm_behavior_eval/__init__.py` (the legacy
+  file, unchanged). Every other distribution ships a regular package below
+  it, and nothing at the namespace levels (`llm_behavior_eval/` and a group
+  directory have no `__init__.py` of theirs).
 * Wheels installed together land in one `site-packages/llm_behavior_eval/`
-  directory, each distribution owning its own files.
+  directory, each distribution owning its own files, under the legacy
+  `__init__.py`.
 * A benchmark installed without `llm-behavior-eval` (Inspect,
   `llm-behavior-eval-common` and the benchmark) makes `llm_behavior_eval` a
   PEP 420 namespace package: the legacy engine is absent, not just unloaded.
-* In the editable workspace (`uv sync`), each member's `src/` is on `sys.path`
-  and `extend_path` adds its `llm_behavior_eval/` to `__path__`.
+* In the editable workspace (`uv sync`) the root is installed in setuptools'
+  `compat` editable mode (`[tool.uv.config-settings-package]`): a `.pth` file
+  puts the repository root on `sys.path`, `llm_behavior_eval` is the
+  repository's regular package, and `common` and every benchmark are found in
+  place below it. setuptools' default mode would not work here: it gives the
+  root's flat layout an import hook that runs after the regular path search,
+  while each member's editable install (its package directory is not
+  `<dir>/llm_behavior_eval/…`) registers `llm_behavior_eval` as a namespace
+  on `sys.path`. Outside the repository root that namespace would win, and
+  `import llm_behavior_eval` would skip the legacy `__init__.py`
+  (`__version__`, the lazy exports). In compat mode the repository root is a
+  `sys.path` entry, and Python prefers a regular package on any `sys.path`
+  entry to namespace portions. To install the root editable outside `uv sync`,
+  pass `-C editable_mode=compat` (`uv pip install` run in the repository root
+  reads the setting from `pyproject.toml` itself).
 * Inspect names a task `llm_behavior_eval/<task>` in all three cases: from
   the module's top-level package when the module is in `site-packages`, or
   when the `llm-behavior-eval` distribution is installed editable (it checks
   the distribution named like the top-level package). A benchmark installed
   editable *without* the root distribution would lose the prefix, so light
   environments install workspace members as wheels (`--no-editable`).
-* `scripts/check_installs.py` (CI) proves this: it builds the wheels and the
-  synthetic benchmark, installs them light, together and editable in fresh
-  environments, and checks `eval.task == "llm_behavior_eval/example"`.
+* `scripts/check_installs.py` (CI) proves this: it copies the repository,
+  stages the synthetic benchmark where a benchmark lives, builds the wheels,
+  installs them light, together and editable in fresh environments, and
+  checks `eval.task == "llm_behavior_eval/example"` and which
+  `llm_behavior_eval/__init__.py` Python imports, from outside the copy.
+* A benchmark's directory is also its project directory, so building it in
+  place (`uv build --wheel`, or a non-editable `uv pip install`) leaves a
+  git-ignored `build/` copy and `*.egg-info` there. Nothing imports them;
+  `load_target_metrics` searches only packages below a benchmark package,
+  and `uv build` (sdist, then the wheel from it) leaves no `build/`.
 
 ### Entry points
 
@@ -175,25 +207,29 @@ A benchmark is the regular package `llm_behavior_eval.<group>.<benchmark>`
 | `parity.yaml` | Legacy settings as an Inspect run config. |
 | `target_metrics.json` | Report metrics per task, in inspect-brief's format. |
 
-Its distribution directory adds `pyproject.toml`, `LICENSE` and, when upstream
-terms ask for one, `NOTICE`. Tests stay in `tests/test_inspect_<benchmark>.py`.
+The same directory is the distribution's: it adds `pyproject.toml`,
+`LICENSE` and, when upstream terms ask for one, `NOTICE` (none of them
+shipped inside the package). Tests stay in `tests/test_inspect_<benchmark>.py`.
 
 **Groups.** Security benchmarks go in the `security` group. Any other
-benchmark is ungrouped (`packages/<benchmark>/`,
+benchmark is ungrouped (`llm_behavior_eval/<benchmark>/`,
 `llm_behavior_eval.<benchmark>`) unless its ticket names a group. A group
-directory holds no `__init__.py` anywhere (several distributions share it);
-its `README.md` lists the group's benchmarks and any group-specific steps.
+directory has no `__init__.py` (several distributions share it); its
+`README.md` lists the group's benchmarks and any group-specific steps.
 
-A group may have a **group distribution**, `llm-behavior-eval-<group>`, in
-`packages/<group>/` itself: `pyproject.toml` (with `[tool.setuptools]
-packages = []`: no modules), `LICENSE` and the group `README.md` as its
-description. It depends on `llm-behavior-eval-common` and on every published
+A group may have a **group distribution**, `llm-behavior-eval-<group>`, whose
+project directory is the group directory itself: `pyproject.toml` (with
+`[tool.setuptools] packages = []` and `py-modules = []`: no modules, and no
+discovery of the benchmark directories below it), `LICENSE` and the group
+`README.md` as its description. Each benchmark's directory is a workspace
+member nested in the group's; the group's wheel and sdist hold none of their
+files. It depends on `llm-behavior-eval-common` and on every published
 benchmark of the group, so `pip install llm-behavior-eval-<group>` installs the
 group; `llm-behavior-eval` depends on the group distribution rather than on its
 benchmarks. The `security` group has one, `llm-behavior-eval-security`; its
-README, `packages/security/README.md`, has the steps to **add a security
-benchmark**, the list of security benchmarks, and the policy for unpublished
-and isolated benchmarks.
+README, `llm_behavior_eval/security/README.md`, has the steps to **add a
+security benchmark**, the list of security benchmarks, and the policy for
+unpublished and isolated benchmarks.
 
 **Unpublished benchmarks.** A distribution that PyPI would reject (a direct
 Git dependency) or that must never be installed implicitly (one that replaces
@@ -210,19 +246,20 @@ can be checked. Below, `<benchmark>` is the import name (`tensor_trust`),
 `<dist>` the distribution name (`llm-behavior-eval-tensor-trust`: underscores
 become hyphens) and `<pkg>` the dotted package
 (`llm_behavior_eval.security.tensor_trust`, or `llm_behavior_eval.<benchmark>`
-ungrouped); `<dir>` is `packages/<group>/<benchmark>` (or
-`packages/<benchmark>`).
+ungrouped); `<dir>` is `llm_behavior_eval/<group>/<benchmark>` (or
+`llm_behavior_eval/<benchmark>`): the package's own directory, which is also
+the distribution's.
 
-1. **Start from the template.** Copy `tests/example_benchmark/` to `<dir>/`,
-   move `src/llm_behavior_eval/example/` to the package's place
-   (`src/llm_behavior_eval/<group>/<benchmark>/`; create the group directory
-   with no `__init__.py`) and replace its files with the benchmark's.
+1. **Start from the template.** Copy `tests/example_benchmark/` to `<dir>/`
+   (create the group directory with no `__init__.py`) and replace its
+   modules, `README.md` and `target_metrics.json` with the benchmark's.
    Migrating a benchmark from a branch that used `llm_behavior_eval/<benchmark>/`:
-   `git mv llm_behavior_eval/<benchmark> <dir>/src/llm_behavior_eval/<group>/<benchmark>`,
-   then replace `llm_behavior_eval.<benchmark>` with `<pkg>` in its code and
-   tests. Task, scorer and metric names do not change. Do not carry over the
-   branch's edits to `common/`, `_registry.py` or `pyproject.toml`; rebase onto
-   this layout instead.
+   `git mv llm_behavior_eval/<benchmark> <dir>` when it moves into a group
+   (nothing to move otherwise), copy `pyproject.toml` and `LICENSE` from the
+   template into `<dir>/`, then replace `llm_behavior_eval.<benchmark>` with
+   `<pkg>` in its code and tests. Task, scorer and metric names do not change.
+   Do not carry over the branch's edits to `common/`, `_registry.py`,
+   `pyproject.toml` or the legacy engine; rebase onto this layout instead.
 2. **`<dir>/pyproject.toml`**, from the template:
 
    ```toml
@@ -234,7 +271,7 @@ ungrouped); `<dir>` is `packages/<group>/<benchmark>` (or
    name = "<dist>"
    version = "<the root version>"
    description = "<one line>"
-   readme = "src/llm_behavior_eval/<group>/<benchmark>/README.md"
+   readme = "README.md"
    license = "MIT"                 # or the SPDX expression upstream terms require
    license-files = ["LICENSE"]     # plus "NOTICE" when there is one
    authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
@@ -252,19 +289,20 @@ ungrouped); `<dir>` is `packages/<group>/<benchmark>` (or
    [project.entry-points.inspect_ai]
    llm_behavior_eval = "<pkg>.task"
 
-   [tool.setuptools.packages.find]
-   where = ["src"]
-   include = ["llm_behavior_eval", "llm_behavior_eval.<group>", "<pkg>*"]
-   namespaces = true
+   [tool.setuptools]
+   packages = ["<pkg>"]
+   package-dir = { "<pkg>" = "." }
+   include-package-data = false
 
    [tool.setuptools.package-data]
-   "*" = ["README.md", "parity.yaml", "target_metrics.json"]
+   "<pkg>" = ["README.md", "parity.yaml", "target_metrics.json"]
    ```
 
-   `include` lists every namespace level (drop `"llm_behavior_eval.<group>"`
-   when ungrouped) and then `<pkg>*`; listing the namespaces keeps the
-   editable install a `.pth` entry. Add any other data file the package reads
-   to `package-data`. Inspect itself comes from `llm-behavior-eval-common`;
+   `package-dir` maps the package to `<dir>` itself. A subpackage (a
+   directory with `__init__.py` inside `<dir>`) must be listed in `packages`
+   too (`"<pkg>.<sub>"`; `package-dir` covers it); setuptools ships nothing
+   that is not listed. Add any other data file the package reads to
+   `package-data`. Inspect itself comes from `llm-behavior-eval-common`;
    never depend on `llm-behavior-eval`.
 3. **License.** `<dir>/LICENSE` is a byte-for-byte copy of the root `LICENSE`
    for MIT. When upstream terms force another license (for example
@@ -275,9 +313,8 @@ ungrouped); `<dir>` is `packages/<group>/<benchmark>` (or
    * `[tool.uv.workspace] members`: `"<dir>"`;
    * `[tool.uv.sources]`: `<dist> = { workspace = true }`;
    * `[dependency-groups] dev`: `"<dist>"`;
-   * `[tool.pyrefly] search-path`: `"<dir>/src"`, before `"tests"`;
    * `[project] dependencies`: `"<dist>>=<the root version>,<0.2; python_version >= '3.11'"`
-     unless its group has a group distribution (`packages/<group>/pyproject.toml`,
+     unless its group has a group distribution (`llm_behavior_eval/<group>/pyproject.toml`,
      for example `security`): then add `"<dist>>=<the root version>,<0.2",` to
      that distribution's `dependencies` instead, sorted by name (see the group's
      README). An unpublished benchmark is in neither.
@@ -296,19 +333,19 @@ ungrouped); `<dir>` is `packages/<group>/<benchmark>` (or
    `uv run pyrefly check`, `python scripts/run_package_tests.py <dist>`, and,
    when packaging changed, `uv build --all-packages --out-dir dist &&
    python scripts/check_artifact_licenses.py dist`. `*.json` is git-ignored
-   except `target_metrics.json` under `packages/`: add a `.gitignore`
+   except `target_metrics.json` under `llm_behavior_eval/`: add a `.gitignore`
    exception for any other JSON file the benchmark ships.
 
 ## Shared code
 
 `llm_behavior_eval.common`, the `llm-behavior-eval-common` distribution
-(`packages/common/src/llm_behavior_eval/common/`):
+(`llm_behavior_eval/common/`):
 
 | Module | API |
 | --- | --- |
 | `dataset` | `dataset_token()`; `load_dataset(path, *, split, sample_fields, revision=None, name=None, seed=None)`: a pinned Hub load through `inspect_evals_utils`' retrying `hf_dataset`, a local source through Inspect's `hf_dataset` with its split cache off (a file replaced at the same path is read again; a folder with a stray `state.json` is rejected with an explanation), a `save_to_disk` folder through `load_from_disk` (read-only). With `seed`, HF's `Dataset.shuffle(seed=seed)` runs before conversion on every path; without it, rows keep their published order. |
 | `scoring` | `stop_reason(state)`; `judged_answer(state, include_reasoning=...)`; `grader()` and `ask_grader(system, user)` on the required role with no settings; `completion_scorer()` and its unreduced `incomplete_response_rate` metric (1 for `max_tokens`/`model_length`, 0 for another known stop reason, unscored when the provider reports none). |
-| `target_metrics` | `load_target_metrics()` validates (a JSON object of non-empty metric lists, string names, boolean flags) and merges every `target_metrics.json` at any depth below `llm_behavior_eval`, in every directory the namespace spans (`package_directories()`); `missing_target_metrics(log)` lists target names a log lacks, as inspect-brief looks them up. |
+| `target_metrics` | `load_target_metrics()` validates (a JSON object of non-empty metric lists, string names, boolean flags) and merges every `target_metrics.json` in a package at any depth below `llm_behavior_eval`, in every directory it spans (`package_directories()`; below a benchmark package only its subpackages, so an in-place `build/` copy is skipped); `missing_target_metrics(log)` lists target names a log lacks, as inspect-brief looks them up. |
 
 `inspect-evals-utils` (inspect_evals' utilities, without its benchmarks) is a
 dependency: benchmarks may use it directly, for example `create_stable_id` and
@@ -396,7 +433,8 @@ sources and builds two distributions to check them too.
   (`scripts/run_package_tests.py`); `uv build --all-packages`, `twine check
   --strict`, the license check, and the install matrix
   (`scripts/check_installs.py`, ungrouped and with `--group security`, which
-  also installs `llm-behavior-eval-security`).
+  nests the synthetic benchmark in `llm_behavior_eval/security/` and also
+  installs `llm-behavior-eval-security`).
 * `pyrefly.yaml` runs the locked pyrefly; `ruff.yaml` is unchanged.
 * `vulnerability-scan.yaml`: pip-audit of the installed workspace, `uv audit`
   of `uv.lock` (reporting only, until the lock's known advisories are
@@ -414,9 +452,10 @@ sources and builds two distributions to check them too.
   for the model under test, and `incomplete_response_rate` is NaN there.
   `hf/` applies a `revision` model arg to the weights only, not the tokenizer.
 * Inspect namespaces registry names from install metadata (see
-  [Packaging](#packaging)). setuptools leaves `*.egg-info` folders next to
-  each `src/` package; they must not come before `site-packages` on
-  `sys.path`, which is why pytest uses `--import-mode=importlib`.
+  [Packaging](#packaging)). setuptools leaves `*.egg-info` folders in each
+  project directory (the repository root, and each native package's own
+  directory); they must not come before `site-packages` on `sys.path`, which
+  is why pytest uses `--import-mode=importlib`.
 * In the editable workspace Inspect records `llm-behavior-eval` rather than the
   benchmark's distribution in a log's `eval.packages` (its editable root is
   the repository root, which contains every member); installed wheels record

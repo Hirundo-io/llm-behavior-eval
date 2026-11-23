@@ -1,4 +1,7 @@
 name: Push new release of the package to PyPI
+# Hardening (zizmor checks it in vulnerability-scan.yaml): every action is pinned to a
+# full commit SHA, with its tag in the trailing comment, so a moved or compromised tag
+# can't change what runs; Renovate proposes the updates.
 
 on:
   pull_request:
@@ -22,6 +25,9 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.ref }}
       - name: Push tag with release
+        # Pull-request fields (title, body) are attacker-editable: they reach the script
+        # as environment variables, never as ${{ }} expressions inside `run`, so their
+        # text can't inject shell commands.
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -46,7 +52,7 @@ jobs:
           python-version-file: "pyproject.toml"
 
       # Every distribution: llm-behavior-eval, llm-behavior-eval-common and each
-      # native benchmark (and group) distribution under packages/. Each needs its own
+      # native benchmark (and group) distribution under llm_behavior_eval/. Each needs its own
       # PyPI project with this workflow as a trusted publisher.
       - name: Build every distribution
         run: uv build --all-packages --out-dir dist
@@ -56,7 +62,7 @@ jobs:
           python scripts/check_artifact_licenses.py dist
       - name: Leave out unpublished distributions
         # Members with [tool.llm-behavior-eval] unpublished (a direct Git dependency,
-        # which PyPI rejects); see packages/security/README.md.
+        # which PyPI rejects); see llm_behavior_eval/security/README.md.
         run: |
           for name in $(python scripts/workspace.py --unpublished); do
             rm -v "dist/${name//-/_}-"*

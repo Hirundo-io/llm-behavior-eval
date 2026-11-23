@@ -24,6 +24,16 @@ from workspace import ROOT, benchmark_test_files, members
 
 
 def command(distribution: str, tests: list[str], pytest_args: list[str]) -> list[str]:
+    """The ``uv run`` command that tests one distribution in its light environment.
+
+    Args:
+        distribution: The workspace member's name.
+        tests: Its test files, relative to the repository root.
+        pytest_args: Extra arguments for pytest.
+
+    Returns:
+        The command line.
+    """
     return [
         "uv",
         "run",
