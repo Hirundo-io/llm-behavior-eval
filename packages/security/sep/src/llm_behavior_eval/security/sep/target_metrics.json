@@ -1,0 +1,56 @@
+{
+  "llm_behavior_eval/sep": [
+    {
+      "name": "separation_score",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "utility",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    },
+    {
+      "name": "data_incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ],
+  "llm_behavior_eval/sep_tool": [
+    {
+      "name": "probe_execution_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    },
+    {
+      "name": "incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ],
+  "llm_behavior_eval/sep_instruction_control": [
+    {
+      "name": "utility",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ]
+}

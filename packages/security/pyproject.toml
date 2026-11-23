@@ -20,6 +20,7 @@ dependencies = [
   # The shared code and Inspect (inspect-ai>=0.3.289,<0.4), then one line per published
   # security benchmark distribution, sorted by name (see "Add a security benchmark").
   "llm-behavior-eval-common>=0.1.12,<0.2",
+  "llm-behavior-eval-sep>=0.1.12,<0.2",
 ]
 
 [project.urls]
