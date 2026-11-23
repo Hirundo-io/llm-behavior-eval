@@ -110,6 +110,20 @@ class Distribution:
         return found
 
     @property
+    def unpublished(self) -> str | None:
+        """Why the distribution is never published to PyPI, if it is not.
+
+        ``[tool.llm-behavior-eval] unpublished = "<reason>"``, for example a
+        direct Git dependency, which PyPI rejects. No other distribution may
+        depend on it (see ``packages/security/README.md``).
+        """
+        return (
+            self.pyproject.get("tool", {})
+            .get("llm-behavior-eval", {})
+            .get("unpublished")
+        )
+
+    @property
     def requirements(self) -> list[str]:
         return list(self.project.get("dependencies", []))
 
@@ -129,6 +143,20 @@ def members() -> list[Distribution]:
     return [Distribution(ROOT / member) for member in listed]
 
 
+def root_is_editable() -> bool:
+    """Whether ``llm-behavior-eval`` is installed editable here (``uv sync``)."""
+    import json
+    from importlib.metadata import PackageNotFoundError, distribution
+
+    try:
+        direct_url = distribution("llm-behavior-eval").read_text("direct_url.json")
+    except PackageNotFoundError:
+        return False
+    return bool(direct_url) and json.loads(direct_url).get("dir_info", {}).get(
+        "editable", False
+    )
+
+
 def benchmark_test_files(distribution: Distribution) -> list[Path]:
     """The test modules that cover a distribution, by naming convention.
 
@@ -141,6 +169,14 @@ def benchmark_test_files(distribution: Distribution) -> list[Path]:
 
 
 if __name__ == "__main__":
-    # The workspace members' directories, one per line (.devcontainer/setup.sh).
-    for member in members():
-        print(member.path)
+    import sys
+
+    if sys.argv[1:] == ["--unpublished"]:
+        # Names of the members never published (deploy_to_pypi.yaml skips them).
+        for member in members():
+            if member.unpublished:
+                print(member.name)
+    else:
+        # The workspace members' directories, one per line (.devcontainer/setup.sh).
+        for member in members():
+            print(member.path)

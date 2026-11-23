@@ -29,7 +29,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from workspace import EXAMPLE, ROOT, members, normalize
+from workspace import EXAMPLE, ROOT, members
 
 TASK = "llm_behavior_eval/example"
 PROBE = """
@@ -144,10 +144,18 @@ def main() -> None:
         return path
 
     native = [wheel("llm-behavior-eval-common"), wheel("llm-behavior-eval-example")]
-    if args.group:
-        group = normalize(f"llm-behavior-eval-{args.group}")
-        if any(member.name == group for member in members()):
-            native.append(wheel(group))
+    editable = [ROOT / "packages" / "common", example]
+    group = next(
+        (
+            m
+            for m in members()
+            if args.group and m.name == f"llm-behavior-eval-{args.group}"
+        ),
+        None,
+    )
+    if group is not None:
+        native.append(wheel(group.name))
+        editable.append(group.path)
     results = {}
     for scenario in ("light", "together", "editable"):
         venv = work / f"venv-{scenario}"
@@ -156,9 +164,6 @@ def main() -> None:
         install = ("uv", "pip", "install", "--quiet", "--python", python)
         if scenario == "editable":
             run(*install, "--no-deps", "-e", ROOT)
-            editable = [ROOT / "packages" / "common", example]
-            if len(native) > 2:
-                editable.append(ROOT / "packages" / args.group)
             run(
                 *install,
                 "-c",

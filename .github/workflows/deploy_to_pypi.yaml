@@ -54,6 +54,13 @@ jobs:
         run: |
           uv run --locked --only-group ci twine check --strict dist/*
           python scripts/check_artifact_licenses.py dist
+      - name: Leave out unpublished distributions
+        # Members with [tool.llm-behavior-eval] unpublished (a direct Git dependency,
+        # which PyPI rejects); see packages/security/README.md.
+        run: |
+          for name in $(python scripts/workspace.py --unpublished); do
+            rm -v "dist/${name//-/_}-"*
+          done
       - name: Publish package distributions to TestPyPI (ACT)
         env:
           GITHUB_WORKFLOW_REF: .github/workflows/deploy_to_pypi.yaml

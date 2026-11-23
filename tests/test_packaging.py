@@ -30,6 +30,7 @@ from workspace import (
     normalize,
     requirement_name,
     root,
+    root_is_editable,
 )
 
 NATIVE = [*members(), Distribution(EXAMPLE)]
@@ -189,8 +190,9 @@ def test_workspace_registers_every_member() -> None:
 
 def test_root_installs_every_member() -> None:
     # Installing llm-behavior-eval installs every merged native distribution,
-    # directly or through a group distribution (or one of its extras).
-    by_name = {member.name: member for member in members()}
+    # directly or through a group distribution (or one of its extras), except
+    # the unpublished ones, which nothing may depend on.
+    by_name = {member.name: member for member in members() if not member.unpublished}
     reached: set[str] = set()
     pending = list(root().requirements)
     while pending:
@@ -202,6 +204,25 @@ def test_root_installs_every_member() -> None:
             for texts in member.optional_requirements.values():
                 pending.extend(texts)
     assert reached == set(by_name)
+
+
+def test_unpublished_reason(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "x"\n[tool.llm-behavior-eval]\nunpublished = "git"\n'
+    )
+    assert Distribution(tmp_path).unpublished == "git"
+    assert make_distribution(tmp_path).unpublished is None
+
+
+def test_nothing_depends_on_an_unpublished_member() -> None:
+    unpublished = {member.name for member in members() if member.unpublished}
+    for distribution in [root(), *NATIVE]:
+        every = distribution.requirements + [
+            text
+            for texts in distribution.optional_requirements.values()
+            for text in texts
+        ]
+        assert not {requirement_name(text) for text in every} & unpublished
 
 
 def test_root_distribution_is_the_legacy_engine() -> None:
@@ -231,18 +252,6 @@ def test_bumpver_updates_every_distribution() -> None:
 
 
 # Namespace
-
-
-def root_is_editable() -> bool:
-    from importlib.metadata import PackageNotFoundError, distribution
-
-    try:
-        direct_url = distribution("llm-behavior-eval").read_text("direct_url.json")
-    except PackageNotFoundError:
-        return False
-    return bool(direct_url) and json.loads(direct_url).get("dir_info", {}).get(
-        "editable", False
-    )
 
 
 @pytest.mark.skipif(not root_is_editable(), reason="needs the editable workspace")
