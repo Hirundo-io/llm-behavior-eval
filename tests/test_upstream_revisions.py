@@ -136,6 +136,25 @@ def test_sync_moves_pins_that_share_a_commit_together(
     assert sync.mismatches(pins) == {}
 
 
+def test_sync_does_not_chain_replacements(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A moves aaa -> bbb while B moves bbb -> ccc: A must stop at bbb whatever
+    # the manifest order.
+    first, second, third = "a" * 40, "b" * 40, "c" * 40
+    source = tmp_path / "pkg" / "dataset.py"
+    source.parent.mkdir()
+    source.write_text(f'A = "{first}"\nB = "{second}"\n')
+    monkeypatch.setattr(sync, "owning_directory", lambda file: source.parent)
+    text = manifest("pkg/dataset.py:A", second, "A_REV") + manifest(
+        "pkg/dataset.py:B", third, "B_REV"
+    )
+    pins = sync.parse_manifest(text, tmp_path)
+    assert sync.sync(pins) == [source]
+    assert source.read_text() == f'A = "{second}"\nB = "{third}"\n'
+    assert sync.mismatches(pins) == {}
+
+
 def test_manifest_lives_in_the_repository() -> None:
     assert sync.MANIFEST == ROOT / ".github" / "upstream-revisions.env"
 
