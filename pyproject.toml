@@ -144,6 +144,8 @@ version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
 "llm_behavior_eval/__init__.py" = ['^__version__ = "{version}"$']
 # Every workspace distribution shares this version.
 "llm_behavior_eval/**/pyproject.toml" = ['^version = "{version}"$']
+# The synthetic benchmark the packaging tests build, which must match too.
+"tests/example_benchmark/pyproject.toml" = ['^version = "{version}"$']
 
 [project.urls]
 Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
