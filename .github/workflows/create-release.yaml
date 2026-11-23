@@ -1,4 +1,7 @@
 name: Release new version of package
+# Hardening (zizmor checks it in vulnerability-scan.yaml): every action is pinned to a
+# full commit SHA, with its tag in the trailing comment, so a moved or compromised tag
+# can't change what runs; Renovate proposes the updates.
 
 on:
   workflow_dispatch:
@@ -24,28 +27,35 @@ jobs:
       contents: write  # Used to push branch with release
       pull-requests: write  # Used to create and merge PR with release
     steps:
-      - uses: actions/checkout@v4
+      # The job pushes the release branch with the checkout's credentials.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.ref }}
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
-          python-version: "3.10"
+          # The workspace's native distributions need Python 3.11+, so uv.lock does too.
+          python-version: "3.13"
           activate-environment: true
 
       - name: Bump version with `bumpver` then push tag
+        # Event fields reach the script as environment variables, never as ${{ }}
+        # expressions inside `run`, so their text can't inject shell commands.
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.event.inputs.version }}
+          ASSIGNEE: ${{ github.event.sender.login || github.actor }}
+          LABEL: ${{ github.event.inputs.test == 'true' && 'test' || 'release' }}
         run: |
           uv sync --group dev
           git config user.name "GitHub Actions [release-bot]"
           git config user.email "github-actions@hirundo.io"
-          git checkout -b release-${{ github.event.inputs.version }}
-          bumpver update --set-version ${{ github.event.inputs.version }}
+          git checkout -b "release-${VERSION}"
+          # Updates every distribution's version (see [tool.bumpver] in pyproject.toml).
+          bumpver update --set-version "${VERSION}"
           uv lock
-          git commit -am "Bump version to ${{ github.event.inputs.version }}"
-          git push -u origin release-${{ github.event.inputs.version }}
-          gh pr create -a ${{ github.event.sender.login || github.actor }} --title "v${{ github.event.inputs.version }}" \
-            --body "" --label "${{ github.event.inputs.test == 'true' && 'test' || 'release' }}"
+          git commit -am "Bump version to ${VERSION}"
+          git push -u origin "release-${VERSION}"
+          gh pr create -a "${ASSIGNEE}" --title "v${VERSION}" --body "" --label "${LABEL}"

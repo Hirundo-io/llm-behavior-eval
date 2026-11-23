@@ -1,0 +1,40 @@
+name: Renovate
+# Hardening (zizmor checks it in vulnerability-scan.yaml): every action is pinned to a
+# full commit SHA, with its tag in the trailing comment, so a moved or compromised tag
+# can't change what runs; Renovate proposes the updates.
+# Self-hosted Renovate (.github/renovate.json): dependency, GitHub Actions and
+# upstream benchmark revision updates (.github/upstream-revisions.env).
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  renovate:
+    # Manual runs only from the default branch, like scheduled ones: Renovate reads
+    # its configuration (including the API endpoint it sends the write-scoped token
+    # to) from the checked-out ref.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 30
+    permissions:
+      contents: write # Renovate pushes its update branches
+      issues: write # Renovate keeps its dependency dashboard issue
+      pull-requests: write # Renovate opens and updates its pull requests
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # No token left in .git/config for later steps (or uploaded artifacts) to read.
+          persist-credentials: false
+      - uses: renovatebot/github-action@acdd6bda8b035c99ce59d5675816af2aa65a1774 # v46.3.14
+        with:
+          configurationFile: .github/renovate-global.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+          renovate-image: renovate/renovate:44.181.11@sha256:050ecf98a30c64b5dd4c51343218d52dcb6cce6875cc47cb5a754f7adee65af7
