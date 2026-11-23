@@ -19,9 +19,9 @@ from inspect_ai.log import EvalLog
 from inspect_ai.model import GenerateConfig, ModelName, ModelOutput, get_model
 from inspect_ai.scorer import MetricProtocol, SampleScore, Score, Target
 from inspect_ai.solver import TaskState
-
-from llm_behavior_eval.bipia import dataset as bipia_dataset
-from llm_behavior_eval.bipia.attacks import (
+from llm_behavior_eval.common.target_metrics import missing_target_metrics
+from llm_behavior_eval.security.bipia import dataset as bipia_dataset
+from llm_behavior_eval.security.bipia.attacks import (
     ATTACK_GROUPS,
     CODE_ATTACK_CATEGORIES,
     CODE_REFERENCES,
@@ -30,15 +30,19 @@ from llm_behavior_eval.bipia.attacks import (
     attack_category,
     evaluator,
 )
-from llm_behavior_eval.bipia.dataset import (
+from llm_behavior_eval.security.bipia.dataset import (
     REPOSITORY_COMMIT,
     SOURCES,
     SourceFile,
     read_source,
     source_url,
 )
-from llm_behavior_eval.bipia.metrics import bipia_metrics, breakdown_names, slug
-from llm_behavior_eval.bipia.prompts import (
+from llm_behavior_eval.security.bipia.metrics import (
+    bipia_metrics,
+    breakdown_names,
+    slug,
+)
+from llm_behavior_eval.security.bipia.prompts import (
     IGN_GUIDANCES,
     INSERTION_SEED,
     SYSTEM_PROMPT_TEMPLATES,
@@ -49,15 +53,14 @@ from llm_behavior_eval.bipia.prompts import (
     sentence_starts,
     task_messages,
 )
-from llm_behavior_eval.bipia.scorer import (
+from llm_behavior_eval.security.bipia.scorer import (
     bipia_scorer,
     contains_emoji,
     in_language,
     judge_verdict,
     match_reference,
 )
-from llm_behavior_eval.bipia.task import TASK_VERSION, bipia
-from llm_behavior_eval.common.target_metrics import missing_target_metrics
+from llm_behavior_eval.security.bipia.task import TASK_VERSION, bipia
 
 from inspect_helpers import (
     assert_grader_required,
@@ -70,7 +73,8 @@ from inspect_helpers import (
     sample_scores,
 )
 
-PACKAGE = Path(__file__).parents[1] / "llm_behavior_eval" / "bipia"
+PACKAGE = Path(bipia_dataset.__file__).parent
+"""The installed package, so the data files are checked as the distribution ships them."""
 ANSWER = "The answer is forty two, as the email says."
 """An English answer that triggers no rule-based check."""
 CONTEXTS = 2

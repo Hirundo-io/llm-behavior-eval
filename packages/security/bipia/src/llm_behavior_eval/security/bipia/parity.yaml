@@ -1,7 +1,9 @@
 # BIPIA reference settings as an opt-in Inspect run config. Pass it explicitly:
 #
 #   inspect eval llm_behavior_eval/bipia --model <provider/model> \
-#     --run-config llm_behavior_eval/bipia/parity.yaml
+#     --run-config packages/security/bipia/src/llm_behavior_eval/security/bipia/parity.yaml
+#
+# (the path in a checkout; the file also ships in the installed package).
 #
 # It also supplies the grader role (see the comment there: the reference judge is
 # no longer served). There is no legacy-engine run of BIPIA; the other settings

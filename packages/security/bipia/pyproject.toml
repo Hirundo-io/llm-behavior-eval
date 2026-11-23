@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-behavior-eval-bipia"
+version = "0.1.12"
+description = "BIPIA indirect prompt injection benchmark as a native Inspect task, from llm-behavior-eval."
+readme = "src/llm_behavior_eval/security/bipia/README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
+requires-python = ">=3.11,<3.14"
+# Upper bounds stop at the next release line that may break the APIs used here: the next
+# major version, or the next minor for a 0.x package. Lines with a narrower bound say why.
+dependencies = [
+  # The shared code and Inspect (inspect-ai>=0.3.289,<0.4). Never the llm-behavior-eval
+  # distribution: it carries the legacy engine (torch, transformers).
+  "llm-behavior-eval-common>=0.1.12,<0.2",
+  # The reference's checks: untrained Punkt sentence starts for the `middle` insertion
+  # position, fuzzy matching, emoji and language detection.
+  "nltk>=3.9.1,<4",
+  # 0.x, capped at 1 rather than the next minor: only fuzz.partial_ratio is used, the
+  # core API it has kept since it was fuzzywuzzy.
+  "thefuzz>=0.20,<1",
+  "emoji>=2.0,<3",
+  "langdetect>=1.0.9,<2",
+]
+
+[project.urls]
+Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
+
+[project.entry-points.inspect_ai]
+# Inspect loads only the entry points named after a task's package prefix, so every
+# benchmark distribution uses the name llm_behavior_eval and its own task module.
+llm_behavior_eval = "llm_behavior_eval.security.bipia.task"
+
+[tool.setuptools.packages.find]
+# A portion of the shared llm_behavior_eval and llm_behavior_eval.security namespaces:
+# no __init__.py above the benchmark. Listing the namespaces keeps the layout "simple"
+# for setuptools, so an editable install puts src/ on sys.path.
+where = ["src"]
+include = ["llm_behavior_eval", "llm_behavior_eval.security", "llm_behavior_eval.security.bipia*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"*" = ["README.md", "parity.yaml", "target_metrics.json"]

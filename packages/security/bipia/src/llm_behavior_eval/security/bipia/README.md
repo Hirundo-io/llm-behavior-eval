@@ -8,7 +8,14 @@ Attacks on Large Language Models" (KDD 2025,
 at [microsoft/BIPIA](https://github.com/microsoft/BIPIA). Lower attack success
 rate (ASR) is better.
 
+It is the `llm-behavior-eval-bipia` distribution (package
+`llm_behavior_eval.security.bipia`), one of the security benchmarks that
+`llm-behavior-eval-security` and `llm-behavior-eval` install; on its own it
+brings Inspect, `llm-behavior-eval-common` and the four libraries its checks
+need (see [Dependencies](#dependencies)), not the legacy engine:
+
 ```sh
+pip install llm-behavior-eval-bipia
 inspect eval llm_behavior_eval/bipia \
   --model openai-api/answer/MODEL --model-role grader=openai-api/judge/MODEL
 ```
@@ -17,11 +24,13 @@ The grader role is required and never falls back to the model under test; it
 is called only for the attacks the reference judges with a model. The task
 sets no inference options for either role. For the reference settings
 (temperature 0 for both roles, 2048 answer tokens, a 32-token judge; the
-reference's GPT-3.5 judge is retired, see [Judge](#judge)), pass the run config, which also supplies the grader role:
+reference's GPT-3.5 judge is retired, see [Judge](#judge)), pass the run
+config, which also supplies the grader role. It ships in the package next to
+`task.py`; from a checkout:
 
 ```sh
 inspect eval llm_behavior_eval/bipia --model vllm/ORG/MODEL \
-  --run-config llm_behavior_eval/bipia/parity.yaml
+  --run-config packages/security/bipia/src/llm_behavior_eval/security/bipia/parity.yaml
 ```
 
 ## Implementation
@@ -123,7 +132,9 @@ the only digest the reference publishes for them).
 | Web QA contexts | NewsQA (CNN stories), its own terms; not redistributed by BIPIA, so not loaded here |
 | Summarization contexts | XSum (BBC articles), its own terms; not redistributed by BIPIA, so not loaded here |
 
-No dataset content is committed here; it is loaded at run time.
+No dataset content is committed here or shipped in the distribution; it is
+loaded at run time. The distribution's own licence (MIT, `LICENSE`) covers
+its code only; the contexts keep the terms above.
 
 ## Task arguments
 
@@ -272,8 +283,11 @@ whenever a change can alter results.
 
 ## Dependencies
 
-The reference checks need four libraries, added to the project's dependencies
-for Python 3.11+: `nltk` (untrained Punkt sentence spans for `middle`),
-`thefuzz` (with `rapidfuzz`; `partial_ratio`), `emoji` and `langdetect`. The
-emoji and language checks depend on those libraries' data, so no
-dependency-free version would be exact.
+The reference checks need four libraries, which are this distribution's own
+dependencies (beside `llm-behavior-eval-common`), not the root
+`llm-behavior-eval` distribution's: `nltk` (untrained Punkt sentence spans for
+`middle`), `thefuzz` (with `rapidfuzz`; `partial_ratio`), `emoji` and
+`langdetect`. The emoji and language checks depend on those libraries' data,
+so no dependency-free version would be exact. The tests run in an environment
+holding only this distribution and its dependencies
+(`python scripts/run_package_tests.py llm-behavior-eval-bipia`).
