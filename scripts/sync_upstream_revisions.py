@@ -209,7 +209,7 @@ def sync(pins: list[Pin]) -> list[Path]:
         pins: The manifest's entries.
 
     Returns:
-        The files rewritten, in order (a file may repeat for several pins).
+        The files rewritten, each once, in path order per distribution.
 
     Raises:
         ValueError: A stale pin's old commit is also the current value of
@@ -235,15 +235,25 @@ def sync(pins: list[Pin]) -> list[Path]:
                 f"{', '.join(clashing)} in the same distribution, which want a "
                 "different commit; update these constants by hand"
             )
-    changed: list[Path] = []
+    # One pass per file, with every replacement for its distribution applied
+    # to the original text at once, so the result doesn't depend on manifest
+    # order (A: aaa -> bbb then B: bbb -> ccc must not move A on to ccc).
+    replacements: dict[Path, dict[str, str]] = {}
     for pin, old in stale.items():
-        directory = directories[pin]
+        replacements.setdefault(directories[pin], {})[old] = pin.revision
+    changed: list[Path] = []
+    for directory, mapping in replacements.items():
+        pattern = re.compile("|".join(re.escape(old) for old in mapping))
         for path in sorted(directory.rglob("*")):
             if path.suffix not in TEXT_SUFFIXES or not path.is_file():
                 continue
+            # A nested member (a benchmark inside a group) owns its own files.
+            if owning_directory(path) != directory:
+                continue
             text = path.read_text(encoding="utf-8")
-            if old in text:
-                path.write_text(text.replace(old, pin.revision), encoding="utf-8")
+            updated = pattern.sub(lambda match, m=mapping: m[match.group(0)], text)
+            if updated != text:
+                path.write_text(updated, encoding="utf-8")
                 changed.append(path)
     return changed
 
