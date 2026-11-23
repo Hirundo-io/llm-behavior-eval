@@ -35,7 +35,7 @@ wheel and sdist hold no module and none of its benchmarks' files.
 | BIPIA | `bipia` | `llm-behavior-eval-bipia` | MIT | yes | in review |
 | RuLES | `rules` | `llm-behavior-eval-rules` | MIT | yes, unless it needs a Git dependency (see [Unpublished](#unpublished-and-isolated-benchmarks)) | planned |
 | Raccoon | `raccoon` | `llm-behavior-eval-raccoon` | GPL-3.0-only (`LICENSE` and `NOTICE` of its own) | yes, unless it needs a Git dependency | planned |
-| AgentDyn | `agentdyn` | `llm-behavior-eval-agentdyn` | MIT | **no**: isolated | planned |
+| AgentDyn | `agentdyn` | `llm-behavior-eval-agentdyn` | MIT | **no**: isolated (see [Unpublished](#unpublished-and-isolated-benchmarks)) | in review |
 
 Update the row when a benchmark merges (its "Status" becomes "merged").
 

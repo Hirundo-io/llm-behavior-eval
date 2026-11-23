@@ -1,0 +1,34 @@
+{
+  "llm_behavior_eval/agentdyn": [
+    {
+      "name": "utility",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "utility_under_attack",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "attack_success_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    },
+    {
+      "name": "secure_completion_rate",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ]
+}
