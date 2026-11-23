@@ -22,6 +22,7 @@ from workspace import (
     NAMESPACE,
     ROOT,
     Distribution,
+    benchmark_dependencies,
     members,
     requirement_name,
     root,
@@ -117,3 +118,31 @@ print(json.dumps({
     assert str(src / NAMESPACE / "security") in found["group_path"]
     assert found["task"] == f"{NAMESPACE}/example"
     assert f"{NAMESPACE}/example" in found["targets"]
+
+
+def test_install_check_installs_the_benchmarks_a_group_depends_on(
+    tmp_path: Path,
+) -> None:
+    def write(name: str, body: str) -> Distribution:
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "pyproject.toml").write_text(body, encoding="utf-8")
+        return Distribution(tmp_path / name)
+
+    def benchmark(name: str) -> Distribution:
+        return write(
+            name,
+            f'[project]\nname = "{name}"\nversion = "0"\n'
+            f'[project.entry-points.inspect_ai]\nllm_behavior_eval = "x"\n',
+        )
+
+    common = write(
+        "common", '[project]\nname = "llm-behavior-eval-common"\nversion = "0"\n'
+    )
+    first, second, other = benchmark("b-one"), benchmark("b_two"), benchmark("b-three")
+    group = write(
+        "group",
+        '[project]\nname = "g"\nversion = "0"\ndependencies = '
+        '["llm-behavior-eval-common>=0", "B_Two==0", "requests", "b-one"]\n',
+    )
+    found = benchmark_dependencies(group, [common, first, second, other, group])
+    assert [member.name for member in found] == ["b-two", "b-one"]
