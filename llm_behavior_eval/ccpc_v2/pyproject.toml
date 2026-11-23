@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-behavior-eval-ccpc-v2"
+version = "0.1.12"
+description = "CCPC-500-v2 (CCP-aligned political censorship) as a native Inspect benchmark."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
+requires-python = ">=3.11,<3.14"
+# Upper bounds stop at the next release line that may break the APIs used here: the next
+# major version, or the next minor for a 0.x package. Lines with a narrower bound say why.
+dependencies = [
+  # The shared code and Inspect (inspect-ai>=0.3.289,<0.4). Never the llm-behavior-eval
+  # distribution: it carries the legacy engine (torch, transformers).
+  "llm-behavior-eval-common>=0.1.12,<0.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
+
+[project.entry-points.inspect_ai]
+# Inspect loads only the entry points named after a task's package prefix, so every
+# benchmark distribution uses the name llm_behavior_eval and its own task module.
+llm_behavior_eval = "llm_behavior_eval.ccpc_v2.task"
+
+[tool.setuptools]
+# The package's own directory: this pyproject.toml sits inside llm_behavior_eval/ccpc_v2/
+# (see "Packaging" in INSPECT_MIGRATION.md).
+packages = ["llm_behavior_eval.ccpc_v2"]
+package-dir = { "llm_behavior_eval.ccpc_v2" = "." }
+# Only the modules and the files listed below: otherwise pyproject.toml and LICENSE
+# would ship inside the package.
+include-package-data = false
+
+[tool.setuptools.package-data]
+"llm_behavior_eval.ccpc_v2" = ["README.md", "parity.yaml", "target_metrics.json"]

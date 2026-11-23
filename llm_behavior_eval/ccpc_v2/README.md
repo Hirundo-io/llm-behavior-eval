@@ -19,6 +19,22 @@ inspect eval llm_behavior_eval/ccpc_v2 --model vllm/ORG/MODEL \
   --run-config llm_behavior_eval/ccpc_v2/parity.yaml
 ```
 
+## Installation
+
+This benchmark is the `llm-behavior-eval-ccpc-v2` distribution (Python
+3.11+). It installs with Inspect and `llm-behavior-eval-common` only, without
+the legacy engine; installing `llm-behavior-eval` on Python 3.11+ installs it
+too:
+
+```sh
+pip install llm-behavior-eval-ccpc-v2
+```
+
+The wheel ships the package's `README.md`, `parity.yaml` and
+`target_metrics.json`. The opt-in thinking-on config (`thinking_on.yaml`,
+`thinking_on_target_metrics.json`) is not packaged: run it from a repository
+checkout.
+
 ## Implementation
 
 The package imports no legacy-engine code. It owns its dataset contract,
@@ -73,7 +89,10 @@ engine.
 `datasets.load_dataset` reads (a Hub snapshot, or one holding `test.jsonl` or
 `test.parquet`), or a `save_to_disk()` folder (a `DatasetDict` must contain
 `test`). It must hold the same rows as the frozen release. A `save_to_disk()`
-folder is only read; Inspect caches a `load_dataset` folder under its path.
+folder is only read. Both kinds are read fresh on every run (Inspect's split
+cache is off for local sources), though `datasets` still keys its own rebuild
+of a file on its modification time: a replacement copied with its old mtime,
+as `cp -p` does, can be served stale.
 
 ## Task arguments
 

@@ -1,10 +1,12 @@
 """Native CCPC-500-v2 contracts, on synthetic rows only (the release is private)."""
 
 import ast
+import importlib.util
 import json
 import math
 from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import Any, cast
 
 import pytest
@@ -34,7 +36,6 @@ from llm_behavior_eval.ccpc_v2.prompts import (
 from llm_behavior_eval.ccpc_v2.task import TASK_VERSION, ccpc_v2
 from llm_behavior_eval.common.scoring import REASONING_MARKUP
 from llm_behavior_eval.common.target_metrics import missing_target_metrics
-from llm_behavior_eval.evaluation_utils import censorship_utils
 
 from inspect_helpers import (
     assert_grader_required,
@@ -47,7 +48,24 @@ from inspect_helpers import (
     sample_scores,
 )
 
+
+def load_legacy_censorship_utils() -> ModuleType:
+    """The legacy engine's ``censorship_utils``, loaded from its file.
+
+    It imports only the standard library and ``datasets``, so it loads in the
+    benchmark's light environment too, where the legacy engine is not
+    installed and ``llm_behavior_eval.evaluation_utils`` is not importable.
+    """
+    path = PACKAGE.parent / "evaluation_utils" / "censorship_utils.py"
+    spec = importlib.util.spec_from_file_location("legacy_censorship_utils", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 PACKAGE = Path(__file__).parents[1] / "llm_behavior_eval" / "ccpc_v2"
+censorship_utils = load_legacy_censorship_utils()
 
 
 def synthetic_rows(n: int = 500) -> list[dict[str, Any]]:

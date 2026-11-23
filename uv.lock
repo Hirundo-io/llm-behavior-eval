@@ -19,6 +19,7 @@ exclude-newer-span = "P7D"
 [manifest]
 members = [
     "llm-behavior-eval",
+    "llm-behavior-eval-ccpc-v2",
     "llm-behavior-eval-common",
 ]
 
@@ -2428,6 +2429,7 @@ dependencies = [
     { name = "accelerate" },
     { name = "bitsandbytes", marker = "sys_platform != 'darwin'" },
     { name = "datasets" },
+    { name = "llm-behavior-eval-ccpc-v2" },
     { name = "llm-behavior-eval-common" },
     { name = "networkx" },
     { name = "numpy" },
@@ -2468,6 +2470,7 @@ ci = [
 dev = [
     { name = "bumpver" },
     { name = "llm-behavior-eval", extra = ["azure", "gcs", "mlflow", "vllm"] },
+    { name = "llm-behavior-eval-ccpc-v2" },
     { name = "llm-behavior-eval-common" },
     { name = "pre-commit" },
     { name = "pyrefly" },
@@ -2486,6 +2489,7 @@ requires-dist = [
     { name = "bitsandbytes", marker = "sys_platform != 'darwin'", specifier = "<1.0.0" },
     { name = "datasets", specifier = ">=5.0.1,<6.0.0" },
     { name = "google-cloud-storage", marker = "extra == 'gcs'" },
+    { name = "llm-behavior-eval-ccpc-v2", marker = "python_full_version >= '3.11'", editable = "llm_behavior_eval/ccpc_v2" },
     { name = "llm-behavior-eval-common", marker = "python_full_version >= '3.11'", editable = "llm_behavior_eval/common" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.0.0" },
     { name = "networkx", specifier = "<4.0.0" },
@@ -2512,6 +2516,7 @@ ci = [
 dev = [
     { name = "bumpver", specifier = ">=2024.1130" },
     { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "azure"], editable = "." },
+    { name = "llm-behavior-eval-ccpc-v2", editable = "llm_behavior_eval/ccpc_v2" },
     { name = "llm-behavior-eval-common", editable = "llm_behavior_eval/common" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyrefly", specifier = ">=0.63.1" },
@@ -2521,6 +2526,17 @@ dev = [
     { name = "types-pyyaml" },
     { name = "types-tqdm" },
 ]
+
+[[package]]
+name = "llm-behavior-eval-ccpc-v2"
+version = "0.1.12"
+source = { editable = "llm_behavior_eval/ccpc_v2" }
+dependencies = [
+    { name = "llm-behavior-eval-common" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "llm-behavior-eval-common", editable = "llm_behavior_eval/common" }]
 
 [[package]]
 name = "llm-behavior-eval-common"
