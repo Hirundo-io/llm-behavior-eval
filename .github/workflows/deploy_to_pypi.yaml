@@ -64,8 +64,17 @@ jobs:
         # Members with [tool.llm-behavior-eval] unpublished (a direct Git dependency,
         # which PyPI rejects); see llm_behavior_eval/security/README.md.
         run: |
-          for name in $(python scripts/workspace.py --unpublished); do
+          # Capture the names first: bash -e ignores a failing command substitution
+          # in a for list, so a broken workspace.py would leave every wheel to upload.
+          names="$(python scripts/workspace.py --unpublished)"
+          for name in ${names}; do
             rm -v "dist/${name//-/_}-"*
+          done
+          for name in ${names}; do
+            if compgen -G "dist/${name//-/_}-*" > /dev/null; then
+              echo "::error::dist/ still holds ${name}"
+              exit 1
+            fi
           done
       - name: Publish package distributions to TestPyPI (ACT)
         env:
