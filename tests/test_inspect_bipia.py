@@ -19,6 +19,7 @@ from inspect_ai.log import EvalLog
 from inspect_ai.model import GenerateConfig, ModelName, ModelOutput, get_model
 from inspect_ai.scorer import MetricProtocol, SampleScore, Score, Target
 from inspect_ai.solver import TaskState
+
 from llm_behavior_eval.common.target_metrics import missing_target_metrics
 from llm_behavior_eval.security.bipia import dataset as bipia_dataset
 from llm_behavior_eval.security.bipia.attacks import (
