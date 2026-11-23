@@ -18,7 +18,8 @@ package), then, in a fresh virtual environment each:
 In each it runs ``inspect eval llm_behavior_eval/example`` on mock models from
 outside the copy and checks the log's ``eval.task``, the target metrics, which
 ``llm_behavior_eval/__init__.py`` Python imports (none in ``light``) and that
-the legacy engine stayed unloaded. Dependency versions come from ``uv.lock``.
+the legacy engine stayed unloaded. Dependency versions come from ``uv.lock``
+(exported for the installed distributions only).
 
 Usage: ``python scripts/check_installs.py [--group GROUP] [--keep DIR]``.
 ``--group`` stages the benchmark inside a group (``llm_behavior_eval.<group>``,
@@ -236,9 +237,21 @@ def check_all(args: argparse.Namespace, work: Path) -> None:
     example = stage_example(repository, args.group)
     run("uv", "build", "--all-packages", "--out-dir", dist, cwd=repository)
     run("uv", "build", "--out-dir", dist, example, cwd=repository)
+    common = next(m for m in members() if m.name == "llm-behavior-eval-common")
+    installed = [common]
+    name = normalize(f"llm-behavior-eval-{args.group}") if args.group else None
+    group = next((m for m in members() if m.name == name), None)
+    if group is not None:
+        # The group's benchmarks are not on PyPI at this version: install the
+        # wheels just built (and the sources, for the editable scenario).
+        installed += [group, *benchmark_dependencies(group, members())]
+    # Pin only what the installed distributions need: the whole workspace's
+    # export would also hold the members left out (an unpublished member's
+    # direct Git dependency, a member that conflicts with another).
     constraints = work / "constraints.txt"
     run(
-        "uv", "export", "--frozen", "--all-packages", "--no-emit-workspace",
+        "uv", "export", "--frozen", "--no-default-groups", "--no-emit-workspace",
+        *(arg for member in installed for arg in ("--package", member.name)),
         "--no-hashes", "--no-header", "--no-annotate", "--output-file", constraints,
         cwd=repository,
     )  # fmt: skip
@@ -247,17 +260,8 @@ def check_all(args: argparse.Namespace, work: Path) -> None:
         [path] = dist.glob(f"{name.replace('-', '_')}-*.whl")
         return path
 
-    common = next(m for m in members() if m.name == "llm-behavior-eval-common")
-    native = [wheel(common.name), wheel("llm-behavior-eval-example")]
-    editable = [repository / common.relative, example]
-    name = normalize(f"llm-behavior-eval-{args.group}") if args.group else None
-    group = next((m for m in members() if m.name == name), None)
-    if group is not None:
-        # The group's benchmarks are not on PyPI at this version: install the
-        # wheels just built (and the sources, for the editable scenario).
-        for member in [group, *benchmark_dependencies(group, members())]:
-            native.append(wheel(member.name))
-            editable.append(repository / member.relative)
+    native = [wheel(m.name) for m in installed] + [wheel("llm-behavior-eval-example")]
+    editable = [repository / m.relative for m in installed] + [example]
     results = {}
     for scenario in ("light", "together", "editable"):
         venv = work / f"venv-{scenario}"
