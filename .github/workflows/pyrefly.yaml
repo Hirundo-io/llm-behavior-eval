@@ -32,6 +32,5 @@ jobs:
 
       - name: Install the project
         run: uv sync --locked --extra mlflow --extra vllm
-      # The locked pyrefly (>=1.2) resolves llm_behavior_eval across the workspace's src
-      # directories.
+      # The locked pyrefly, as in the dev environment.
       - run: uv run --locked pyrefly check

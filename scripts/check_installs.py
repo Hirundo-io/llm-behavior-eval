@@ -1,24 +1,29 @@
 """Install the distributions three ways and check Inspect's task names.
 
-Builds the workspace's wheels and the synthetic benchmark
-(``tests/example_benchmark``), then, in a fresh virtual environment each:
+Copies the repository (its tracked and unignored files) to a work directory
+and stages the synthetic benchmark (``tests/example_benchmark``) in the copy
+where a benchmark lives, ``llm_behavior_eval/example/``. Builds every wheel
+from the copy (through each sdist, so no ``build/`` folder lands in a
+package), then, in a fresh virtual environment each:
 
 * ``light``: ``llm-behavior-eval-common`` and the benchmark as wheels, without
   ``llm-behavior-eval`` (``llm_behavior_eval`` is a PEP 420 namespace);
 * ``together``: the same plus the ``llm-behavior-eval`` wheel, all in one
   ``site-packages`` directory (installed ``--no-deps``: the legacy engine's
   torch and transformers do not change the layout and are not needed here);
-* ``editable``: ``llm-behavior-eval``, ``llm-behavior-eval-common`` and the
-  benchmark installed editable, as ``uv sync`` installs workspace members
-  (each ``src`` directory on ``sys.path`` through a ``.pth`` file).
+* ``editable``: the copy's ``llm-behavior-eval`` (``editable_mode=compat``, as
+  ``[tool.uv.config-settings-package]`` makes ``uv sync`` install it),
+  ``llm-behavior-eval-common`` and the benchmark installed editable.
 
-In each it runs ``inspect eval llm_behavior_eval/example`` on mock models and
-checks the log's ``eval.task``, the target metrics and that the legacy engine
-stayed unloaded. Dependency versions come from ``uv.lock``.
+In each it runs ``inspect eval llm_behavior_eval/example`` on mock models from
+outside the copy and checks the log's ``eval.task``, the target metrics, which
+``llm_behavior_eval/__init__.py`` Python imports (none in ``light``) and that
+the legacy engine stayed unloaded. Dependency versions come from ``uv.lock``.
 
 Usage: ``python scripts/check_installs.py [--group GROUP] [--keep DIR]``.
-``--group`` stages the benchmark inside a group (``llm_behavior_eval.<group>``)
-and installs that group's distribution with it when the workspace has one.
+``--group`` stages the benchmark inside a group (``llm_behavior_eval.<group>``,
+in ``llm_behavior_eval/<group>/example/``) and installs that group's
+distribution with it when the workspace has one.
 """
 
 import argparse
@@ -29,7 +34,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from workspace import EXAMPLE, ROOT, members, normalize
+from workspace import EXAMPLE, NAMESPACE, ROOT, members, normalize, root
 
 TASK = "llm_behavior_eval/example"
 PROBE = """
@@ -43,7 +48,8 @@ print(json.dumps({
     "task": log.eval.task,
     "status": log.status,
     "missing_target_metrics": missing_target_metrics(log),
-    "namespace_package": getattr(llm_behavior_eval, "__file__", None) is None,
+    "package_file": getattr(llm_behavior_eval, "__file__", None),
+    "version": getattr(llm_behavior_eval, "__version__", None),
     "root_distribution": any(
         d.metadata["Name"] == "llm-behavior-eval"
         for d in importlib.metadata.distributions()
@@ -57,6 +63,18 @@ print(json.dumps({
 
 
 def run(*args: str | Path, cwd: Path = ROOT) -> str:
+    """Run a command and capture its output.
+
+    Args:
+        *args: The command and its arguments.
+        cwd: The working directory (the repository root by default).
+
+    Returns:
+        The command's standard output.
+
+    Raises:
+        SystemExit: The command failed; the message holds its output.
+    """
     result = subprocess.run(
         [str(arg) for arg in args], cwd=cwd, capture_output=True, text=True
     )
@@ -67,40 +85,80 @@ def run(*args: str | Path, cwd: Path = ROOT) -> str:
     return result.stdout
 
 
-def stage_example(destination: Path, group: str | None) -> Path:
-    """Copy the synthetic benchmark, moved into ``group`` when given."""
-    target = destination / "example_benchmark"
+def copy_repository(destination: Path) -> Path:
+    """Copy the repository's tracked and unignored files.
+
+    Args:
+        destination: The new copy's root (created as needed).
+
+    Returns:
+        ``destination``.
+
+    Raises:
+        SystemExit: ``git ls-files`` failed (not a git checkout).
+    """
+    listed = run(
+        "git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"
+    ).split("\0")
+    for name in filter(None, listed):
+        source = ROOT / name
+        if source.is_file():
+            target = destination / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+    return destination
+
+
+def stage_example(repository: Path, group: str | None) -> Path:
+    """Copy the synthetic benchmark into a repository copy, as a benchmark lives.
+
+    Args:
+        repository: A copy of the repository (``copy_repository``).
+        group: Stage the benchmark as ``llm_behavior_eval.<group>.example``,
+            with its ``pyproject.toml`` rewritten to match; ungrouped
+            (``llm_behavior_eval.example``) when ``None``.
+
+    Returns:
+        The staged benchmark's directory, which is also its project directory.
+
+    Raises:
+        SystemExit: The directory exists already, or the template's
+            ``pyproject.toml`` no longer names the package where expected.
+    """
+    package = f"{NAMESPACE}.{group}.example" if group else f"{NAMESPACE}.example"
+    target = repository.joinpath(*package.split("."))
+    if target.exists():
+        raise SystemExit(f"{target} already exists")
     shutil.copytree(
         EXAMPLE, target, ignore=shutil.ignore_patterns("*.egg-info", "__pycache__")
     )
     if group:
-        namespace = target / "src" / "llm_behavior_eval"
-        (namespace / group).mkdir()
-        (namespace / "example").rename(namespace / group / "example")
         pyproject = target / "pyproject.toml"
         text = pyproject.read_text(encoding="utf-8")
-        for old, new in [
-            (
-                '"llm_behavior_eval.example*"',
-                f'"llm_behavior_eval.{group}", "llm_behavior_eval.{group}.example*"',
-            ),
-            (
-                '"llm_behavior_eval.example.task"',
-                f'"llm_behavior_eval.{group}.example.task"',
-            ),
-            (
-                "src/llm_behavior_eval/example/",
-                f"src/llm_behavior_eval/{group}/example/",
-            ),
-        ]:
-            if old not in text:
-                raise SystemExit(f"{EXAMPLE}/pyproject.toml no longer has {old}")
-            text = text.replace(old, new)
-        pyproject.write_text(text, encoding="utf-8")
+        old = f"{NAMESPACE}.example"
+        # packages, package-dir, package-data and the entry point.
+        if text.count(f'"{old}"') < 3 or f'"{old}.task"' not in text:
+            raise SystemExit(f"{EXAMPLE}/pyproject.toml no longer names {old}")
+        pyproject.write_text(text.replace(old, package), encoding="utf-8")
     return target
 
 
-def check(scenario: str, python: Path, work: Path) -> dict[str, object]:
+def check(scenario: str, python: Path, work: Path, expected_file: str | None) -> dict:
+    """Run the synthetic task in one environment and check the result.
+
+    Args:
+        scenario: ``light``, ``together`` or ``editable``.
+        python: The environment's interpreter.
+        work: The working directory for the run, outside the repository copy.
+        expected_file: The ``llm_behavior_eval/__init__.py`` Python must
+            import, or ``None`` for a namespace package.
+
+    Returns:
+        The probe's findings (all as expected).
+
+    Raises:
+        SystemExit: The run failed or a finding differs from the expected one.
+    """
     logs = work / f"logs-{scenario}"
     run(
         python.parent / "inspect", "eval", TASK,
@@ -113,7 +171,8 @@ def check(scenario: str, python: Path, work: Path) -> dict[str, object]:
         "task": TASK,
         "status": "success",
         "missing_target_metrics": [],
-        "namespace_package": scenario == "light",
+        "package_file": expected_file,
+        "version": None if scenario == "light" else root().version,
         "root_distribution": scenario != "light",
         "legacy_loaded": False,
     }
@@ -130,46 +189,63 @@ def main() -> None:
     work = args.keep or Path(tempfile.mkdtemp(prefix="check-installs-"))
     work.mkdir(parents=True, exist_ok=True)
     dist = work / "dist"
-    example = stage_example(work, args.group)
-    run("uv", "build", "--all-packages", "--wheel", "--out-dir", dist)
-    run("uv", "build", "--wheel", "--out-dir", dist, example)
+    repository = copy_repository(work / "repository")
+    example = stage_example(repository, args.group)
+    run("uv", "build", "--all-packages", "--out-dir", dist, cwd=repository)
+    run("uv", "build", "--out-dir", dist, example, cwd=repository)
     constraints = work / "constraints.txt"
     run(
         "uv", "export", "--frozen", "--all-packages", "--no-emit-workspace",
         "--no-hashes", "--no-header", "--no-annotate", "--output-file", constraints,
+        cwd=repository,
     )  # fmt: skip
 
     def wheel(name: str) -> Path:
         [path] = dist.glob(f"{name.replace('-', '_')}-*.whl")
         return path
 
-    native = [wheel("llm-behavior-eval-common"), wheel("llm-behavior-eval-example")]
+    common = next(m for m in members() if m.name == "llm-behavior-eval-common")
+    native = [wheel(common.name), wheel("llm-behavior-eval-example")]
+    editable = [repository / common.relative, example]
     if args.group:
-        group = normalize(f"llm-behavior-eval-{args.group}")
-        if any(member.name == group for member in members()):
-            native.append(wheel(group))
+        name = normalize(f"llm-behavior-eval-{args.group}")
+        for member in members():
+            if member.name == name:
+                native.append(wheel(name))
+                editable.append(repository / member.relative)
     results = {}
     for scenario in ("light", "together", "editable"):
         venv = work / f"venv-{scenario}"
         run("uv", "venv", "--quiet", "--python", sys.executable, venv)
         python = venv / "bin" / "python"
         install = ("uv", "pip", "install", "--quiet", "--python", python)
+        expected_file = None
         if scenario == "editable":
-            run(*install, "--no-deps", "-e", ROOT)
-            editable = [ROOT / "packages" / "common", example]
-            if len(native) > 2:
-                editable.append(ROOT / "packages" / args.group)
+            # Run outside the copy, whose [tool.uv.config-settings-package] uv
+            # would otherwise read (and merge with -C, which it rejects).
+            run(
+                *install, "--no-deps", "-C", "editable_mode=compat", "-e", repository,
+                cwd=work,
+            )  # fmt: skip
             run(
                 *install,
                 "-c",
                 constraints,
-                *(arg for p in editable for arg in ("-e", p)),
+                *(arg for path in editable for arg in ("-e", path)),
+                cwd=work,
             )
+            expected_file = str(repository / NAMESPACE / "__init__.py")
         else:
-            run(*install, "-c", constraints, *native)
+            run(*install, "-c", constraints, *native, cwd=work)
             if scenario == "together":
-                run(*install, "--no-deps", wheel("llm-behavior-eval"))
-        results[scenario] = check(scenario, python, work)
+                run(*install, "--no-deps", wheel("llm-behavior-eval"), cwd=work)
+                purelib = run(
+                    python,
+                    "-c",
+                    "import sysconfig; print(sysconfig.get_path('purelib'))",
+                ).strip()
+                expected_file = str(Path(purelib, NAMESPACE, "__init__.py"))
+        results[scenario] = check(scenario, python, work, expected_file)
         print(f"{scenario}: {results[scenario]['task']}", flush=True)
     if args.keep is None:
         shutil.rmtree(work)

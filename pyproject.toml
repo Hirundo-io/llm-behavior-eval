@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77"]
+requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
@@ -11,9 +11,9 @@ version = "0.1.12"
 description = "Evaluate large-language models for undesirable behaviors such as bias."
 authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
 readme = "README.md"
-license = "MIT"
-license-files = ["LICENSE"]
+license = { file = "LICENSE" }
 classifiers = [
+  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
 ]
@@ -75,9 +75,7 @@ dev = [
   "llm-behavior-eval[mlflow,vllm,gcs,azure]",
   # Every workspace distribution, installed editable in the dev environment.
   "llm-behavior-eval-common",
-  # 1.2 is the first release that resolves llm_behavior_eval across the workspace's
-  # src directories (a regular package in src/ and namespace portions in packages/).
-  "pyrefly>=1.2,<2",
+  "pyrefly>=0.63.1",
   "types-PyYAML",
   "types-tqdm",
 ]
@@ -97,21 +95,32 @@ default-groups = ["dev", "ci"]
 
 [tool.uv.workspace]
 # Every distribution in this repository; see "Packaging" in INSPECT_MIGRATION.md.
-# A benchmark PR adds its directory here, to [tool.uv.sources], to the dev group,
-# to [tool.pyrefly] search-path and (when merged into the default install) to
-# [project] dependencies.
+# A benchmark PR adds its directory here, to [tool.uv.sources], to the dev group and
+# (when merged into the default install) to [project] dependencies.
 members = [
-  "packages/common",
+  "llm_behavior_eval/common",
 ]
 
 [tool.uv.sources]
 llm-behavior-eval = { workspace = true }
 llm-behavior-eval-common = { workspace = true }
 
+[tool.uv.config-settings-package]
+# Every native distribution's directory sits inside llm_behavior_eval/ (each maps its
+# package to its own directory with package-dir), so the editable workspace needs one
+# sys.path entry: the repository root. setuptools' default editable mode would give this
+# flat layout an import hook that runs after the regular path search, while a member's
+# editable install registers llm_behavior_eval as a namespace on sys.path; outside the
+# repository root the namespace would win and skip llm_behavior_eval/__init__.py.
+# compat mode puts the repository root on sys.path with a .pth file instead, and Python
+# prefers a regular package there to namespace portions anywhere on sys.path. See
+# "Packaging" in INSPECT_MIGRATION.md. (Outside `uv sync`, install the root editable
+# with `-C editable_mode=compat`.)
+llm-behavior-eval = { editable_mode = "compat" }
+
 [tool.setuptools.packages.find]
-# The legacy engine and llm_behavior_eval/__init__.py; native benchmarks and their
-# shared code are separate distributions under packages/.
-where = ["src"]
+# The legacy engine and llm_behavior_eval/__init__.py only: llm_behavior_eval/common/ and
+# each benchmark directory are separate distributions with their own pyproject.toml.
 include = ["llm_behavior_eval", "llm_behavior_eval.evaluation_utils*"]
 
 [tool.bumpver]
@@ -123,9 +132,9 @@ version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
   '^version = "{version}"$',
   '^current_version = "{version}"$',
 ]
-"src/llm_behavior_eval/__init__.py" = ['^__version__ = "{version}"$']
+"llm_behavior_eval/__init__.py" = ['^__version__ = "{version}"$']
 # Every workspace distribution shares this version.
-"packages/**/pyproject.toml" = ['^version = "{version}"$']
+"llm_behavior_eval/**/pyproject.toml" = ['^version = "{version}"$']
 
 [project.urls]
 Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
@@ -178,16 +187,10 @@ known-local-folder = [
 [tool.pyrefly]
 min-severity = "warn"
 project-excludes = ["**/build/**", "**/.venv/**"]
-# Every distribution's src directory (one per workspace member), then tests/ and
-# scripts/, which are on pytest's pythonpath (shared helpers and repository tools),
-# then the repository root (hirundo_notion_tools).
-search-path = [
-  "src",
-  "packages/common/src",
-  "tests",
-  "scripts",
-  ".",
-]
+# The repository root holds llm_behavior_eval/ with every distribution's package in
+# place; tests/ and scripts/ are on pytest's pythonpath (shared helpers and repository
+# tools).
+search-path = [".", "tests", "scripts"]
 
 [tool.pytest.ini_options]
 # The default prepend mode puts the repository root first on sys.path for each

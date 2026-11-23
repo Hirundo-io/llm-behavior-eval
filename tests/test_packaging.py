@@ -50,17 +50,27 @@ def workspace_requirements(distribution: Distribution) -> list[Requirement]:
 
 
 def namespace_levels(package: str) -> list[str]:
-    """``llm_behavior_eval`` and any group above a benchmark package."""
+    """Any group between ``llm_behavior_eval`` and a benchmark package."""
     parts = package.split(".")
-    return [".".join(parts[:end]) for end in range(1, len(parts))]
+    return [".".join(parts[:end]) for end in range(2, len(parts))]
+
+
+def is_build_output(path: Path) -> bool:
+    """A file an in-place build or ``__pycache__`` leaves, not a source file."""
+    return any(
+        part in {"build", "dist", "__pycache__"} or part.endswith(".egg-info")
+        for part in path.parts
+    )
 
 
 @pytest.mark.parametrize("distribution", NATIVE, ids=ids)
 def test_native_distribution_metadata(distribution: Distribution) -> None:
     project = distribution.project
     assert distribution.name.startswith("llm-behavior-eval-")
-    assert distribution.path.parent.is_relative_to(ROOT / "packages") or (
-        distribution.path == EXAMPLE
+    # Each native distribution's directory is inside the legacy package.
+    assert distribution.path == EXAMPLE or (
+        distribution.path.is_relative_to(ROOT / NAMESPACE)
+        and distribution.path != ROOT / NAMESPACE
     )
     assert distribution.version == root().version
     assert project["requires-python"] == ">=3.11,<3.14"
@@ -107,36 +117,42 @@ def test_native_distribution_dependencies(distribution: Distribution) -> None:
 def test_native_distribution_layout(distribution: Distribution) -> None:
     setuptools = distribution.pyproject.get("tool", {}).get("setuptools", {})
     if distribution.is_metapackage:
-        assert not distribution.src.exists()
         assert not distribution.entry_points
+        assert not list(distribution.path.glob("*.py"))
         return
-    packages = distribution.packages
-    assert packages
-    # Namespace levels ship no __init__.py: several distributions share them.
-    assert not (distribution.src / NAMESPACE / "__init__.py").exists()
-    levels = sorted({level for p in packages for level in namespace_levels(p)})
-    assert all(p.startswith(f"{NAMESPACE}.") for p in packages)
-    assert setuptools["packages"]["find"] == {
-        "where": ["src"],
-        "include": [*levels, *(f"{package}*" for package in packages)],
-        "namespaces": True,
-    }
-    # Nothing outside the declared packages.
+    [package, *subpackages] = distribution.packages
+    assert distribution.top_packages == [package]
+    assert package.startswith(f"{NAMESPACE}.")
+    assert all(p.startswith(f"{package}.") for p in subpackages)
+    # The package's directory is the distribution's own: its pyproject.toml
+    # sits inside it, in place under llm_behavior_eval/ (the example is staged
+    # there by scripts/check_installs.py).
+    assert setuptools["package-dir"] == {package: "."}
+    assert distribution.package_directory(package) == distribution.path
+    if distribution.path != EXAMPLE:
+        assert distribution.path == ROOT.joinpath(*package.split("."))
+    # Otherwise pyproject.toml and LICENSE would ship inside the package.
+    assert setuptools["include-package-data"] is False
+    # Namespace levels (a group) ship no __init__.py: several distributions
+    # share them. llm_behavior_eval/__init__.py is the legacy distribution's.
+    for level in namespace_levels(package):
+        assert not ROOT.joinpath(*level.split("."), "__init__.py").exists()
+    directories = {distribution.package_directory(p) for p in distribution.packages}
+    assert all((directory / "__init__.py").is_file() for directory in directories)
+    # Every module is in a listed package: setuptools ships nothing else.
     stray = [
         path
-        for path in distribution.src.rglob("*.py")
-        if not any(
-            path.is_relative_to(distribution.src.joinpath(*p.split(".")))
-            for p in packages
-        )
+        for path in distribution.path.rglob("*.py")
+        if not is_build_output(path.relative_to(distribution.path))
+        and path.parent not in directories
     ]
     assert stray == []
 
 
 @pytest.mark.parametrize("distribution", [d for d in NATIVE if d.is_benchmark], ids=ids)
 def test_benchmark_distribution(distribution: Distribution) -> None:
-    [package] = distribution.packages
-    directory = distribution.src.joinpath(*package.split("."))
+    [package] = distribution.top_packages
+    directory = distribution.package_directory(package)
     # Inspect loads only entry points named after a task's package prefix.
     assert distribution.entry_points == {NAMESPACE: f"{package}.task"}
     assert (directory / "task.py").is_file()
@@ -146,7 +162,7 @@ def test_benchmark_distribution(distribution: Distribution) -> None:
     targets = json.loads((directory / "target_metrics.json").read_text())
     assert all(task.startswith(f"{NAMESPACE}/") for task in targets)
     assert distribution.pyproject["tool"]["setuptools"]["package-data"] == {
-        "*": ["README.md", "parity.yaml", "target_metrics.json"]
+        package: ["README.md", "parity.yaml", "target_metrics.json"]
     }
     requirements = {requirement_name(text) for text in distribution.requirements}
     assert "llm-behavior-eval-common" in requirements
@@ -156,7 +172,7 @@ def test_benchmark_distribution(distribution: Distribution) -> None:
 
 def test_common_distribution() -> None:
     [common] = [d for d in members() if d.name == "llm-behavior-eval-common"]
-    assert common.relative == "packages/common"
+    assert common.relative == f"{NAMESPACE}/common"
     assert common.packages == [f"{NAMESPACE}.common"]
     assert not common.entry_points
     requirements = {requirement_name(text) for text in common.requirements}
@@ -181,10 +197,9 @@ def test_workspace_registers_every_member() -> None:
         if isinstance(text, str)
     }
     assert dev >= set(names)
-    search_path = pyproject["tool"]["pyrefly"]["search-path"]
-    expected = ["src", *(f"{m.relative}/src" for m in members() if m.src.is_dir())]
-    assert search_path == [*expected, "tests", "scripts", "."]
-    assert not EXAMPLE.is_relative_to(ROOT / "packages")
+    # Every package is in place under the repository root.
+    assert pyproject["tool"]["pyrefly"]["search-path"] == [".", "tests", "scripts"]
+    assert not EXAMPLE.is_relative_to(ROOT / NAMESPACE)
 
 
 def test_root_installs_every_member() -> None:
@@ -206,28 +221,43 @@ def test_root_installs_every_member() -> None:
 
 def test_root_distribution_is_the_legacy_engine() -> None:
     distribution = root()
+    assert distribution.is_root
     assert not distribution.entry_points
-    assert distribution.project["license"] == "MIT"
+    assert distribution.project["license"] == {"file": "LICENSE"}
+    # The flat layout, shipping only the legacy packages: the native
+    # distributions' directories under llm_behavior_eval/ are excluded.
     assert distribution.pyproject["tool"]["setuptools"]["packages"]["find"] == {
-        "where": ["src"],
         "include": [NAMESPACE, f"{NAMESPACE}.evaluation_utils*"],
     }
-    package = ROOT / "src" / NAMESPACE
+    # Installed editable, the root puts the repository root on sys.path (see
+    # test_editable_workspace_imports_the_legacy_package).
+    assert distribution.pyproject["tool"]["uv"]["config-settings-package"] == {
+        "llm-behavior-eval": {"editable_mode": "compat"}
+    }
+    package = ROOT / NAMESPACE
     assert (package / "__init__.py").is_file()
-    assert sorted(path.name for path in package.iterdir() if path.is_dir()) in (
-        ["evaluation_utils"],
-        ["__pycache__", "evaluation_utils"],
-    )
-    assert not (ROOT / NAMESPACE).exists()
+    assert not (ROOT / "src").exists()
+    # Every other directory in the package holds native distributions.
+    member_paths = {member.path for member in members()}
+    for directory in package.iterdir():
+        if not directory.is_dir() or directory.name in {
+            "evaluation_utils",
+            "__pycache__",
+        }:
+            continue
+        assert any(path.is_relative_to(directory) for path in member_paths), directory
 
 
 def test_bumpver_updates_every_distribution() -> None:
     patterns = root().pyproject["tool"]["bumpver"]["file_patterns"]
-    assert patterns["packages/**/pyproject.toml"] == ['^version = "{version}"$']
-    assert all(
-        path.parent in {m.path for m in members()}
-        for path in ROOT.glob("packages/**/pyproject.toml")
-    )
+    assert patterns[f"{NAMESPACE}/__init__.py"] == ['^__version__ = "{version}"$']
+    assert patterns[f"{NAMESPACE}/**/pyproject.toml"] == ['^version = "{version}"$']
+    found = {
+        path.parent
+        for path in ROOT.glob(f"{NAMESPACE}/**/pyproject.toml")
+        if not is_build_output(path.relative_to(ROOT))
+    }
+    assert found == {m.path for m in members()}
 
 
 # Namespace
@@ -246,35 +276,42 @@ def root_is_editable() -> bool:
 
 
 @pytest.mark.skipif(not root_is_editable(), reason="needs the editable workspace")
-def test_editable_portion_joins_the_namespace(tmp_path: Path) -> None:
-    # A workspace member's editable install puts its src/ on sys.path; the
-    # legacy distribution's __init__ extends __path__ over it, and Inspect
-    # names the task after the editable llm-behavior-eval distribution.
+def test_editable_workspace_imports_the_legacy_package(tmp_path: Path) -> None:
+    # From outside the repository, llm_behavior_eval is the legacy regular
+    # package (its __init__ runs), and every native package is found in place
+    # below it. A member's editable install registers llm_behavior_eval as a
+    # namespace; only the root's compat mode keeps the regular package first.
     code = """
-import json
+import importlib.util, json, sys
 import llm_behavior_eval
-from inspect_ai._util.registry import registry_info
-from llm_behavior_eval.common.target_metrics import load_target_metrics
-from llm_behavior_eval.example.task import example
 print(json.dumps({
+    "file": llm_behavior_eval.__file__,
+    "version": llm_behavior_eval.__version__,
     "path": [str(p) for p in llm_behavior_eval.__path__],
-    "task": registry_info(example).name,
-    "targets": sorted(load_target_metrics()),
+    "packages": {
+        name: importlib.util.find_spec(name).origin for name in sys.argv[1:]
+    },
 }))
 """
-    src = str(EXAMPLE / "src")
+    packages = {
+        package: distribution.package_directory(package) / "__init__.py"
+        for distribution in members()
+        for package in distribution.packages
+    }
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
     result = subprocess.run(
-        [sys.executable, "-c", code],
+        [sys.executable, "-c", code, *packages],
         capture_output=True,
         text=True,
         check=True,
         cwd=tmp_path,
-        env=os.environ | {"PYTHONPATH": src},
+        env=env,
     )
     found = json.loads(result.stdout)
-    assert str(Path(src, NAMESPACE)) in found["path"]
-    assert found["task"] == f"{NAMESPACE}/example"
-    assert f"{NAMESPACE}/example" in found["targets"]
+    assert found["file"] == str(ROOT / NAMESPACE / "__init__.py")
+    assert found["version"] == root().version
+    assert found["path"] == [str(ROOT / NAMESPACE)]
+    assert found["packages"] == {name: str(path) for name, path in packages.items()}
 
 
 # License checks
@@ -380,13 +417,35 @@ def test_license_check_wants_one_wheel_and_one_sdist(tmp_path: Path) -> None:
 @pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv to build")
 def test_built_artifacts_carry_their_licenses(tmp_path: Path) -> None:
     common = next(m for m in members() if m.name == "llm-behavior-eval-common")
-    example = tmp_path / "example_benchmark"
-    shutil.copytree(EXAMPLE, example, ignore=shutil.ignore_patterns("*.egg-info"))
     out = tmp_path / "dist"
-    for source in (common.path, example):
+    ignore = shutil.ignore_patterns("*.egg-info", "build", "__pycache__")
+    for source in (common.path, EXAMPLE):
+        # A copy, so the build leaves nothing in the repository.
+        copy = tmp_path / source.name
+        shutil.copytree(source, copy, ignore=ignore)
         subprocess.run(
-            ["uv", "build", "--quiet", "--out-dir", str(out), str(source)],
+            ["uv", "build", "--quiet", "--out-dir", str(out), str(copy)],
             check=True,
-            cwd=ROOT,
+            cwd=tmp_path,
         )
     assert check_directory(out, [common, Distribution(EXAMPLE)]) == []
+    # The wheels hold the package's modules and data, not its pyproject.toml.
+    [common_wheel] = out.glob("llm_behavior_eval_common-*.whl")
+    [example_wheel] = out.glob("llm_behavior_eval_example-*.whl")
+    assert wheel_files(common_wheel) == {
+        f"{NAMESPACE}/common/{path.name}" for path in common.path.glob("*.py")
+    }
+    assert wheel_files(example_wheel) == {
+        f"{NAMESPACE}/example/{name}"
+        for name in ["__init__.py", "task.py", "README.md", "target_metrics.json"]
+    }
+
+
+def wheel_files(path: Path) -> set[str]:
+    """A wheel's files outside its ``.dist-info`` directory."""
+    with zipfile.ZipFile(path) as archive:
+        return {
+            name
+            for name in archive.namelist()
+            if not name.split("/", 1)[0].endswith(".dist-info")
+        }
