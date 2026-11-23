@@ -30,6 +30,7 @@ from inspect_ai.model import (
 )
 from inspect_ai.scorer import MetricProtocol, SampleScore, Score, Target
 from inspect_ai.solver import TaskState
+
 from llm_behavior_eval.common.target_metrics import missing_target_metrics
 from llm_behavior_eval.security.rules import dataset as rules_dataset
 from llm_behavior_eval.security.rules.dataset import (
