@@ -1,6 +1,7 @@
 """Report metrics each benchmark declares, in inspect-brief's format.
 
-A benchmark package ships ``target_metrics.json``::
+A benchmark package ships ``target_metrics.json`` (found at any depth below
+``llm_behavior_eval``, in every directory the namespace spans)::
 
     {"llm_behavior_eval/<task>": [
         {"name": "<metric>", "is_percentage": true,
@@ -10,7 +11,7 @@ Benchmark tests assert ``missing_target_metrics(log) == []``.
 """
 
 import json
-from importlib.resources import files
+from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -59,18 +60,37 @@ def check_target_metrics(data: object, path: object, root: str) -> TargetMetrics
     return cast("TargetMetrics", data)
 
 
+def package_directories(root: str) -> list[Path]:
+    """Every directory that contributes to package ``root``, without duplicates.
+
+    ``llm_behavior_eval`` spans several distributions (see its ``__init__``):
+    one directory when they are installed together, one per editable workspace
+    member, a PEP 420 namespace without the legacy distribution.
+    """
+    found: dict[Path, None] = {}
+    for entry in import_module(root).__path__:
+        found.setdefault(Path(entry).resolve(), None)
+    return list(found)
+
+
 def load_target_metrics(root: str = "llm_behavior_eval") -> TargetMetrics:
-    """Every subpackage's ``target_metrics.json``, merged and sorted by task.
+    """Every ``target_metrics.json`` below ``root``, merged and sorted by task.
+
+    Searches each of ``root``'s directories (``package_directories``) at any
+    depth, so a benchmark in a group (``<root>/<group>/<benchmark>``) is found
+    like one directly under ``root``.
 
     Raises:
         ValueError: A file is malformed (see ``check_target_metrics``), or two
             files declare the same task.
     """
+    paths = {
+        path.resolve()
+        for directory in package_directories(root)
+        for path in directory.rglob(TARGET_METRICS_FILE)
+    }
     merged: TargetMetrics = {}
-    for package in sorted(files(root).iterdir(), key=lambda entry: entry.name):
-        path = package / TARGET_METRICS_FILE
-        if not package.is_dir() or not path.is_file():
-            continue
+    for path in sorted(paths):
         data = check_target_metrics(
             json.loads(path.read_text(encoding="utf-8")), path, root
         )

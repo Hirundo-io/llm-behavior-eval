@@ -79,8 +79,9 @@ pip install llm-behavior-eval
 ```
 
 If you use [uv](https://docs.astral.sh/uv/), run `uv venv .venv` and
-`uv pip install llm-behavior-eval` instead. For a local checkout, install with
-`pip install -e .` or `uv pip install -e .`.
+`uv pip install llm-behavior-eval` instead. For a local checkout, run
+`uv sync` (the uv workspace: this distribution and every native benchmark
+distribution under `packages/`, all editable).
 
 ### vLLM extra
 
@@ -347,11 +348,15 @@ This project is licensed under the MIT License. See the LICENSE file for more in
 ## Native Inspect benchmarks
 
 Native [Inspect](https://inspect.aisi.org.uk/) benchmarks run alongside the
-legacy engine (Python 3.11+). Each is a package under
-`llm_behavior_eval/<benchmark>/` documented in its own README, and Inspect finds
-them through the package's entry point:
+legacy engine (Python 3.11+). Each is its own distribution,
+`llm-behavior-eval-<benchmark>`, documented in its own README, and Inspect finds
+it through the distribution's entry point. `llm-behavior-eval` installs every
+merged benchmark; a benchmark's distribution alone installs it with Inspect and
+`llm-behavior-eval-common`, without the legacy engine (no torch or
+transformers):
 
 ```sh
+pip install llm-behavior-eval-<benchmark>
 inspect eval llm_behavior_eval/<benchmark> --model <provider/model> --model-role grader=<provider/judge>
 ```
 

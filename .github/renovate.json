@@ -1,0 +1,66 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigestsToSemver"
+  ],
+  "minimumReleaseAge": "7 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "internalChecksFilter": "strict",
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Upstream dataset and reference-code commits the native benchmarks pin",
+      "managerFilePatterns": [
+        "/^\\.github/upstream-revisions\\.env$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: packageName=(?<packageName>\\S+))? currentValue=(?<currentValue>\\S+)\\n# source: \\S+\\n[A-Z][A-Z0-9_]*=(?<currentDigest>[a-f0-9]{40})"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "The Renovate image the Renovate workflow runs",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/renovate\\.yaml$/"
+      ],
+      "matchStrings": [
+        "renovate-image: (?<depName>renovate/renovate):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "github-actions"
+    },
+    {
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchFileNames": [
+        "pyproject.toml",
+        "packages/**/pyproject.toml",
+        "uv.lock"
+      ],
+      "groupName": "python"
+    },
+    {
+      "matchFileNames": [
+        ".github/upstream-revisions.env"
+      ],
+      "labels": [
+        "upstream-revision"
+      ],
+      "prBodyNotes": [
+        "An upstream benchmark source moved. `tests/test_upstream_revisions.py` fails until the code agrees: run `python scripts/sync_upstream_revisions.py`, review the upstream changes, and update checksums and anything else derived from the data in this pull request."
+      ]
+    }
+  ]
+}

@@ -45,5 +45,13 @@ else
   uv pip install --python "${VENV_PYTHON}" -e .
 fi
 
-uv pip install --python "${VENV_PYTHON}" ruff pyrefly pytest pre-commit bumpver
+# The native distributions (workspace members under packages/) editable too, as
+# `uv sync` installs them; `uv pip install -e .` alone installs them as wheels.
+MEMBER_ARGS=()
+while IFS= read -r member; do
+  MEMBER_ARGS+=(-e "${member}")
+done < <("${VENV_PYTHON}" "${PROJECT_ROOT}/scripts/workspace.py")
+uv pip install --python "${VENV_PYTHON}" "${MEMBER_ARGS[@]}"
+
+uv pip install --python "${VENV_PYTHON}" ruff "pyrefly>=1.2" pytest pre-commit bumpver
 

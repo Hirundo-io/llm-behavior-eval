@@ -1,4 +1,4 @@
-"""Contracts of the shared code in ``llm_behavior_eval.common`` and the registry."""
+"""Contracts of the shared code in ``llm_behavior_eval.common`` and its discovery."""
 
 import json
 import math
@@ -27,8 +27,6 @@ from inspect_ai.model import (
 )
 from inspect_ai.scorer import Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
-
-from llm_behavior_eval import _registry
 from llm_behavior_eval.common import dataset as common_dataset
 from llm_behavior_eval.common.dataset import (
     DATASET_TOKEN_VARIABLE,
@@ -427,27 +425,37 @@ def test_missing_target_metrics(tmp_path: Path) -> None:
         missing_target_metrics(log, {})
 
 
-def test_benchmark_packages_are_subpackages_with_a_task_module(
+def test_load_target_metrics_spans_namespace_portions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = make_root(tmp_path, monkeypatch, "fake_root_c")
-    for package, files in [
-        ("with_task", ["__init__.py", "task.py"]),
-        ("without_task", ["__init__.py", "scorer.py"]),
-        ("task_package", ["__init__.py", "task/__init__.py"]),
-        ("namespace", ["task.py"]),
+    # Two portions of a PEP 420 namespace (no __init__.py), as two editable
+    # workspace members put them on sys.path, one with a grouped benchmark.
+    for portion, package, task in [
+        ("one", "solo", "solo"),
+        ("two", "group/member", "member"),
     ]:
-        for file in files:
-            path = root / package / file
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("")
-    assert _registry.benchmark_packages("fake_root_c") == ["fake_root_c.with_task"]
+        directory = tmp_path / portion / "fake_root_d" / package
+        directory.mkdir(parents=True)
+        (directory / "target_metrics.json").write_text(
+            json.dumps({f"fake_root_d/{task}": [metric("m")]})
+        )
+        monkeypatch.syspath_prepend(str(tmp_path / portion))
+    monkeypatch.delitem(sys.modules, "fake_root_d", raising=False)
+    assert list(load_target_metrics("fake_root_d")) == [
+        "fake_root_d/member",
+        "fake_root_d/solo",
+    ]
 
 
-def test_registry_does_not_load_the_legacy_engine() -> None:
+def test_entry_points_do_not_load_the_legacy_engine() -> None:
+    # Inspect loads every inspect_ai entry point named after a task's package
+    # prefix; none of them may import the legacy engine (torch, transformers).
     code = (
-        "import sys, llm_behavior_eval._registry; "
-        "print(any(m.startswith('llm_behavior_eval.evaluation_utils') for m in sys.modules))"
+        "import sys; from importlib.metadata import entry_points; "
+        "[ep.load() for ep in entry_points(group='inspect_ai') "
+        "if ep.name == 'llm_behavior_eval']; "
+        "print(any(m.startswith(('llm_behavior_eval.evaluation_utils', 'torch')) "
+        "for m in sys.modules))"
     )
     result = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True

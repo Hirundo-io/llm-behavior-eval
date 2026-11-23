@@ -1,0 +1,7 @@
+# zizmor (vulnerability-scan.yaml) configuration.
+rules:
+  artipacked:
+    ignore:
+      # These release jobs push a branch or a tag with the checkout's credentials.
+      - create-release.yaml
+      - deploy_to_pypi.yaml
