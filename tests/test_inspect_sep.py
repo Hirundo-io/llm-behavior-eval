@@ -4,8 +4,13 @@ import ast
 import itertools
 import json
 import math
+import os
 import re
+import threading
+import urllib.error
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from email.message import Message
 from pathlib import Path
 from typing import Any, cast
 
@@ -251,6 +256,128 @@ def test_corrupt_cache_is_downloaded_again(published: Published) -> None:
     assert cached.read_bytes() == published.content
 
 
+def test_cache_file_is_named_from_the_url_path() -> None:
+    path = sep_dataset.cached_path(DATASET_URL + "?raw=1#top", DATASET_SHA256)
+    assert path == sep_dataset.CACHE_DIR / f"SEP_dataset-{DATASET_SHA256[:16]}.json"
+
+
+def test_failed_cache_write_leaves_no_staging_file(
+    published: Published, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken_replace(source: str, target: Path) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(sep_dataset.os, "replace", broken_replace)
+    with pytest.raises(OSError, match="disk full"):
+        sep()
+    assert list(published.cache.iterdir()) == []
+
+
+def test_concurrent_cache_misses_both_succeed(
+    published: Published, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Hold both loaders after they have written their staging files, so both
+    # replace into the cache only once the other has staged too.
+    barrier = threading.Barrier(2, timeout=10)
+    replace = os.replace
+
+    def synchronized_replace(source: str, target: Path) -> None:
+        barrier.wait()
+        replace(source, target)
+
+    monkeypatch.setattr(sep_dataset.os, "replace", synchronized_replace)
+    pinned = sep_dataset.DATASET_SHA256
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(
+                lambda _: sep_dataset.read_pinned(DATASET_URL, pinned),
+                range(2),
+            )
+        )
+    assert results == [published.content] * 2
+    # One cache file and no staging file left behind.
+    [cached] = published.cache.iterdir()
+    assert cached == sep_dataset.cached_path(DATASET_URL, pinned)
+    assert cached.read_bytes() == published.content
+
+
+class Response:
+    def __enter__(self) -> "Response":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return b"data"
+
+
+def failing_urlopen(
+    errors: list[OSError], attempts: list[str]
+) -> Callable[[str, float], Response]:
+    """``urlopen`` raising ``errors`` in turn, then answering."""
+
+    def urlopen(url: str, timeout: float) -> Response:
+        attempts.append(url)
+        if len(attempts) <= len(errors):
+            raise errors[len(attempts) - 1]
+        return Response()
+
+    return urlopen
+
+
+def http_error(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(DATASET_URL, code, "", Message(), None)
+
+
+def test_download_retries_network_errors_and_transient_statuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[str] = []
+    sleeps: list[float] = []
+    errors: list[OSError] = [
+        urllib.error.URLError("connection reset"),
+        http_error(429),
+        http_error(503),
+    ]
+    monkeypatch.setattr(
+        sep_dataset.urllib.request, "urlopen", failing_urlopen(errors, attempts)
+    )
+    monkeypatch.setattr(sep_dataset.time, "sleep", sleeps.append)
+    assert sep_dataset.download(DATASET_URL) == b"data"
+    assert (len(attempts), sleeps) == (4, [1, 2, 4])
+
+
+def test_download_gives_up_after_the_last_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts: list[str] = []
+    errors: list[OSError] = [http_error(500)] * sep_dataset.DOWNLOAD_ATTEMPTS
+    monkeypatch.setattr(
+        sep_dataset.urllib.request, "urlopen", failing_urlopen(errors, attempts)
+    )
+    monkeypatch.setattr(sep_dataset.time, "sleep", lambda seconds: None)
+    with pytest.raises(urllib.error.HTTPError):
+        sep_dataset.download(DATASET_URL)
+    assert len(attempts) == sep_dataset.DOWNLOAD_ATTEMPTS
+
+
+@pytest.mark.parametrize("code", [403, 404])
+def test_download_does_not_retry_permanent_http_errors(
+    monkeypatch: pytest.MonkeyPatch, code: int
+) -> None:
+    attempts: list[str] = []
+    monkeypatch.setattr(
+        sep_dataset.urllib.request,
+        "urlopen",
+        failing_urlopen([http_error(code)], attempts),
+    )
+    monkeypatch.setattr(sep_dataset.time, "sleep", lambda seconds: None)
+    with pytest.raises(urllib.error.HTTPError):
+        sep_dataset.download(DATASET_URL)
+    assert len(attempts) == 1
+
+
 def test_local_copy_is_verified(published: Published, tmp_path: Path) -> None:
     path = tmp_path / "SEP_dataset.json"
     path.write_bytes(published.content)
@@ -313,6 +440,15 @@ def test_record_to_sample() -> None:
         **{k: v for k, v in row.items() if k != "info"},
         **row["info"],
     }
+    # Without a system role the input is the single user message that is sent.
+    single = record_to_sample(row, 1, system_role=False)
+    assert [(m.role, m.text) for m in cast("list[ChatMessage]", single.input)] == [
+        (
+            "user",
+            f"System prompt: {row['system_prompt_instructed']} "
+            f"User prompt: {row['prompt_clean']}",
+        )
+    ]
 
 
 # Prompts.
@@ -466,8 +602,15 @@ def test_without_system_role_sends_one_user_message(
     tmp_path: Path, published: Published
 ) -> None:
     seen: list[list[tuple[str, str]]] = []
-    evaluate(tmp_path, {"system_role": False}, model=behaving_model(seen), limit=1)
+    log = evaluate(
+        tmp_path, {"system_role": False}, model=behaving_model(seen), limit=1
+    )
     rows = synthetic_rows()
+    # The logged input is the last conversation sent, not a system message.
+    assert log.samples
+    assert [
+        (m.role, m.text) for m in cast("list[ChatMessage]", log.samples[0].input)
+    ] == [seen[-1][0]]
     assert seen == [
         [
             (
@@ -607,21 +750,28 @@ def test_pinned_probe_constants() -> None:
     assert sep_dataset.EXPECTED_PROBES == 100
 
 
-@pytest.mark.parametrize("task", [sep_tool, sep_instruction_control])
-def test_adaptations_download_both_files_and_cache_them(
-    published: Published, task: Callable[..., Any]
-) -> None:
-    data = task().dataset
+def test_tool_task_downloads_both_files_and_caches_them(published: Published) -> None:
+    data = sep_tool().dataset
     assert published.urls == [DATASET_URL, PROBES_URL]
     assert [s.id for s in data] == list(range(ROWS))
     assert len(list(published.cache.iterdir())) == 2
-    task()
+    sep_tool()
     assert published.urls == [DATASET_URL, PROBES_URL]
     sample = data[1]
     assert sample.target == "Witness1"
     assert sample.metadata
     assert sample.metadata["probe"] == probe_text(1)
     assert sample.metadata["appended_task_id"] == 1
+
+
+def test_instruction_control_reads_no_probes(published: Published) -> None:
+    task = sep_instruction_control()
+    assert published.urls == [DATASET_URL]
+    assert [s.id for s in task.dataset] == list(range(ROWS))
+    sample = task.dataset[1]
+    assert sample.target == "Witness1"
+    assert sample.metadata and "probe" not in sample.metadata
+    assert task.metadata and "probes_sha256" not in task.metadata
 
 
 def test_probe_checksum_mismatch_is_refused(
@@ -645,7 +795,7 @@ def test_local_probes_are_verified(published: Published, tmp_path: Path) -> None
     assert published.urls == []
     probes_path.write_bytes(published.probes + b" ")
     with pytest.raises(ValueError, match="does not match the pinned release"):
-        sep_instruction_control(**args)
+        sep_tool(**args)
 
 
 @pytest.mark.parametrize(
@@ -709,9 +859,11 @@ def test_rows_and_probes_must_agree(
     message: str,
 ) -> None:
     published.serve(change(synthetic_rows()))
-    assert len(sep().dataset) == ROWS  # sep reads no probes
+    # sep and the control read no probes.
+    assert len(sep().dataset) == ROWS
+    assert len(sep_instruction_control().dataset) == ROWS
     with pytest.raises(ValueError, match=f"SEP row 2: .*{re.escape(message)}"):
-        sep_instruction_control()
+        sep_tool()
 
 
 # The adaptations: prompts and verdicts.

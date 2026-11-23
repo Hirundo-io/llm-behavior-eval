@@ -8,11 +8,10 @@ and downloaded afresh when it does not match. Every row is validated before
 Inspect applies any limit. Rows keep their published order (no shuffle), so
 ``--limit N`` takes the first N items.
 
-``sep`` reads only the dataset. The adaptations (``sep_tool`` and
-``sep_instruction_control``) also read the probe list,
-``SEP_dataset/source/probes.json``, from the same commit: each row's
-``appended_task_id`` indexes it, and the probe's answer must be the row's
-witness.
+``sep`` and ``sep_instruction_control`` read only the dataset. ``sep_tool``
+also reads the probe list, ``SEP_dataset/source/probes.json``, from the same
+commit, because its judge is shown the probe: each row's ``appended_task_id``
+indexes it, and the probe's answer must be the row's witness.
 """
 
 import hashlib
@@ -20,14 +19,18 @@ import json
 import os
 import tempfile
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from inspect_ai.dataset import MemoryDataset, Sample
-from inspect_ai.model import ChatMessage, ChatMessageSystem, ChatMessageUser
+from inspect_ai.model import ChatMessage
 from inspect_evals_utils.cache import INSPECT_EVALS_CACHE_PATH
+
+from .prompts import messages as position_messages
 
 DATASET_REPOSITORY = "egozverev/Should-It-Be-Executed-Or-Processed"
 DATASET_COMMIT = "7606c0696f20f5aa433169fd2221f76852d1d4f5"
@@ -57,6 +60,8 @@ CACHE_DIR = INSPECT_EVALS_CACHE_PATH / "llm_behavior_eval" / "sep"
 """Where the verified file is cached (``INSPECT_EVALS_CACHE_DIR`` moves it)."""
 DOWNLOAD_ATTEMPTS = 4
 DOWNLOAD_TIMEOUT_SECONDS = 120
+TRANSIENT_HTTP_CODES = frozenset({408, 429, 500, 502, 503, 504})
+"""HTTP statuses worth retrying; any other HTTP error is raised at once."""
 
 TEXT_FIELDS = (
     "system_prompt_clean",
@@ -106,10 +111,14 @@ def verify(content: bytes, source: str, expected: str) -> bytes:
 
 
 def download(url: str) -> bytes:
-    """Fetch ``url``, retrying network errors with exponential backoff.
+    """Fetch ``url``, retrying network errors and transient HTTP statuses.
+
+    Waits grow exponentially between attempts. A permanent HTTP error (such as
+    404) is raised without retrying.
 
     Raises:
-        OSError: Every attempt failed.
+        OSError: An HTTP status outside ``TRANSIENT_HTTP_CODES``, or every
+            attempt failed.
     """
     for attempt in range(DOWNLOAD_ATTEMPTS):
         try:
@@ -118,17 +127,43 @@ def download(url: str) -> bytes:
                 url, timeout=DOWNLOAD_TIMEOUT_SECONDS
             ) as response:
                 return response.read()
+        except urllib.error.HTTPError as error:
+            if (
+                error.code not in TRANSIENT_HTTP_CODES
+                or attempt == DOWNLOAD_ATTEMPTS - 1
+            ):
+                raise
         except OSError:
             if attempt == DOWNLOAD_ATTEMPTS - 1:
                 raise
-            time.sleep(2**attempt)
+        time.sleep(2**attempt)
     raise AssertionError("unreachable")
 
 
 def cached_path(url: str, expected: str) -> Path:
     """The cache file for the pinned file at ``url`` (named by its checksum)."""
-    stem = Path(url).stem
+    stem = PurePosixPath(urllib.parse.urlparse(url).path).stem
     return CACHE_DIR / f"{stem}-{expected[:16]}.json"
+
+
+def store(path: Path, content: bytes) -> None:
+    """Write ``content`` to ``path`` atomically.
+
+    The bytes go to a uniquely named file next to ``path`` first, so
+    concurrent cache fills never share a staging file, and ``os.replace``
+    swaps it in whole. The staging file is removed if anything fails.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, staging = tempfile.mkstemp(
+        prefix=f"{path.name}.", suffix=".partial", dir=path.parent
+    )
+    try:
+        with os.fdopen(handle, "wb") as file:
+            file.write(content)
+        os.replace(staging, path)
+    except BaseException:
+        Path(staging).unlink(missing_ok=True)
+        raise
 
 
 def read_pinned(url: str, expected: str) -> bytes:
@@ -146,10 +181,7 @@ def read_pinned(url: str, expected: str) -> bytes:
         if sha256(content) == expected:
             return content
     content = verify(download(url), url, expected)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
-        handle.write(content)
-    os.replace(handle.name, path)
+    store(path, content)
     return content
 
 
@@ -187,11 +219,13 @@ def validate_row(record: dict[str, Any]) -> dict[str, Any]:
     return {**texts, **info}
 
 
-def record_to_sample(record: dict[str, Any], index: int) -> Sample:
+def record_to_sample(
+    record: dict[str, Any], index: int, *, system_role: bool = True
+) -> Sample:
     """One SEP row as a ``sep`` sample with ID ``index`` (its position in the file).
 
-    The input is the probe-in-instruction conversation (task prompt with the
-    probe as the system message, clean data as the user message); the solver
+    The input is the probe-in-instruction conversation exactly as the solver
+    sends it last (``prompts.messages`` with ``system_role``); the solver
     builds both conversations from metadata. The target is the witness.
     Metadata holds the four prompts, the witness and the ``info`` fields.
 
@@ -199,16 +233,13 @@ def record_to_sample(record: dict[str, Any], index: int) -> Sample:
         ValueError: The row does not have exactly the published fields, or a
             field has the wrong type.
     """
-    return _paired_sample(validate_row(record), index)
+    return _paired_sample(validate_row(record), index, system_role)
 
 
-def _paired_sample(metadata: dict[str, Any], index: int) -> Sample:
+def _paired_sample(metadata: dict[str, Any], index: int, system_role: bool) -> Sample:
     return Sample(
         id=index,
-        input=[
-            ChatMessageSystem(content=metadata["system_prompt_instructed"]),
-            ChatMessageUser(content=metadata["prompt_clean"]),
-        ],
+        input=position_messages(metadata, "instruction", system_role=system_role),
         target=metadata["witness"],
         metadata=metadata,
     )
@@ -242,14 +273,14 @@ def parse_rows(content: bytes, source: str) -> list[dict[str, Any]]:
     return validated
 
 
-def parse(content: bytes, source: str) -> list[Sample]:
+def parse(content: bytes, source: str, *, system_role: bool = True) -> list[Sample]:
     """Every row of the published JSON list as a ``sep`` sample, in published order.
 
     Raises:
         ValueError: The file is not a JSON list of ``EXPECTED_ROWS`` valid rows.
     """
     rows = parse_rows(content, source)
-    return [_paired_sample(row, index) for index, row in enumerate(rows)]
+    return [_paired_sample(row, index, system_role) for index, row in enumerate(rows)]
 
 
 def parse_probes(content: bytes, source: str) -> list[dict[str, str]]:
@@ -313,13 +344,15 @@ def _read(path: str | None, url: str, expected: str) -> tuple[bytes, str]:
     return verify(Path(path).read_bytes(), path, expected), path
 
 
-def dataset(dataset_path: str | None = None) -> MemoryDataset:
+def dataset(dataset_path: str | None = None, system_role: bool = True) -> MemoryDataset:
     """The 9160 ``sep`` samples in published order, checksum-verified and validated.
 
     Args:
         dataset_path: Read this local copy of ``datasets/SEP_dataset.json``
             instead of downloading it. It must be byte-identical to the pinned
             release (the same SHA-256).
+        system_role: Build each input as the solver sends it (see
+            ``record_to_sample``).
 
     Returns:
         Samples with integer IDs (file positions) and the witness as target.
@@ -328,7 +361,8 @@ def dataset(dataset_path: str | None = None) -> MemoryDataset:
         ValueError: The checksum, the row count or a row is invalid.
     """
     content, source = _read(dataset_path, DATASET_URL, DATASET_SHA256)
-    return MemoryDataset(parse(content, source), name="sep", location=source)
+    samples = parse(content, source, system_role=system_role)
+    return MemoryDataset(samples, name="sep", location=source)
 
 
 Variant = Literal["tool", "instruction_control"]
@@ -340,32 +374,41 @@ def variant_dataset(
     dataset_path: str | None = None,
     probes_path: str | None = None,
 ) -> MemoryDataset:
-    """SEP rows with their probe, for the single-conversation adaptations.
+    """SEP rows for the single-conversation adaptations.
+
+    ``tool`` also reads the probe list, because its judge is shown the probe;
+    ``instruction_control`` is scored by the witness rule alone and reads no
+    probes.
 
     Args:
-        variant: The task (``tool`` or ``instruction_control``), for the
-            dataset name.
+        variant: The task (``tool`` or ``instruction_control``).
         messages: Builds a sample's input from its metadata.
         dataset_path: A local copy of ``datasets/SEP_dataset.json`` (checked
             against the pinned SHA-256).
-        probes_path: A local copy of ``SEP_dataset/source/probes.json``
-            (checked against the pinned SHA-256).
+        probes_path: ``tool`` only: a local copy of
+            ``SEP_dataset/source/probes.json`` (checked against the pinned
+            SHA-256).
 
     Returns:
         Samples with integer IDs (file positions), the witness as target and
-        the row's fields plus ``probe`` (the probe instruction) as metadata.
+        the row's fields as metadata, plus ``probe`` (the probe instruction)
+        for ``tool``.
 
     Raises:
         ValueError: A checksum, a count, a row, a probe, or the agreement
             between a row and its probe is invalid.
     """
     content, source = _read(dataset_path, DATASET_URL, DATASET_SHA256)
-    probe_content, probe_source = _read(probes_path, PROBES_URL, PROBES_SHA256)
     rows = parse_rows(content, source)
-    probes = parse_probes(probe_content, probe_source)
+    probes = None
+    if variant == "tool":
+        probe_content, probe_source = _read(probes_path, PROBES_URL, PROBES_SHA256)
+        probes = parse_probes(probe_content, probe_source)
     samples = []
     for index, row in enumerate(rows):
-        metadata = {**row, "probe": probe_for(row, probes, index)}
+        metadata = dict(row)
+        if probes is not None:
+            metadata["probe"] = probe_for(row, probes, index)
         samples.append(
             Sample(
                 id=index,

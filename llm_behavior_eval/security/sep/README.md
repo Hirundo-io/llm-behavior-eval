@@ -58,13 +58,14 @@ inspect eval llm_behavior_eval/sep --model vllm/ORG/MODEL \
 | Commit | `7606c0696f20f5aa433169fd2221f76852d1d4f5` (head on 2026-04-20; the file is unchanged since `252cfa1`, 2024-06-03, the full-paper release) |
 | SHA-256 | `9f81a52ba089073251793f8499fbb79bb4112e94cf48d31b7f8805e8b44fa3ce` (12,089,182 bytes) |
 | Rows | 9160, in published order; sample ID = position in the file (0-based) |
-| Probes (adaptations only) | `SEP_dataset/source/probes.json` at the same commit, SHA-256 `adc7ab362c894ca868ad49137172a879d504714b093c30643e5ed0ae8d4228ed` (11,630 bytes), 100 probes |
+| Probes (`sep_tool` only) | `SEP_dataset/source/probes.json` at the same commit, SHA-256 `adc7ab362c894ca868ad49137172a879d504714b093c30643e5ed0ae8d4228ed` (11,630 bytes), 100 probes |
 | License | CC BY 4.0 for the data, MIT for the authors' code (repository README); this distribution's code is MIT |
 
 No faithful Hugging Face copy exists (searched the Hub for SEP, the paper and
 the authors), so the task downloads the authors' file from
-`raw.githubusercontent.com` at the pinned commit and checks its SHA-256 before
-parsing it. A verified copy is cached under `INSPECT_EVALS_CACHE_DIR` (default:
+`raw.githubusercontent.com` at the pinned commit (retrying network errors and
+HTTP 408, 429 and 5xx responses; any other HTTP error fails at once) and checks
+its SHA-256 before parsing it. A verified copy is cached under `INSPECT_EVALS_CACHE_DIR` (default:
 the `inspect_evals` user cache) in `llm_behavior_eval/sep/`; a cached copy is
 re-checked on every load and replaced if it does not match. The same file is
 also published as `SEP_dataset/SEP_dataset.json` and in the workshop-version
@@ -98,7 +99,7 @@ filter these, and neither does the task.
 ### Offline sources
 
 `-T dataset_path=<file>` reads a local copy of `SEP_dataset.json` instead of
-downloading it, and `-T probes_path=<file>` (adaptations only) a local copy of
+downloading it, and `-T probes_path=<file>` (`sep_tool` only) a local copy of
 `probes.json`. Each must be byte-identical to the pinned release.
 
 ## Task arguments
@@ -106,7 +107,7 @@ downloading it, and `-T probes_path=<file>` (adaptations only) a local copy of
 | Argument | Tasks | Default | Meaning |
 | --- | --- | --- | --- |
 | `dataset_path` | all | none | Local copy of `SEP_dataset.json` (checked against the pinned SHA-256) |
-| `probes_path` | `sep_tool`, `sep_instruction_control` | none | Local copy of `probes.json` (checked against the pinned SHA-256) |
+| `probes_path` | `sep_tool` | none | Local copy of `probes.json` (checked against the pinned SHA-256) |
 | `system_role` | `sep`, `sep_instruction_control` | `true` | Instruction argument as the system message, data argument as the user message. `false` sends one user message `System prompt: {instruction} User prompt: {data}`, as the paper did for Gemma and Starling, which have no system role |
 | `judge_sees_answer_reasoning` | `sep_tool` | `false` | Show the grader the answer with its parsed reasoning (as `<reasoning>` blocks) |
 
@@ -200,6 +201,14 @@ adds the parsed reasoning, as in the repository's other judged benchmarks.
   `text-generation` pipeline on an already templated string; Inspect's
   providers apply the chat template themselves, which can differ in details
   such as special tokens.
+- **`sep_tool` needs a provider that accepts a prefilled tool call.** Its
+  history holds an assistant turn calling `fetch_document` and the matching
+  tool result, but no tool is declared to the model (as in the earlier
+  port, kept for parity). OpenAI-compatible servers accept this. Providers
+  that require every tool call in the history to name a declared tool, or
+  that reject tool turns without tools (some non-OpenAI APIs), may refuse
+  the request; such a sample ends in an error, not a score. `sep` and
+  `sep_instruction_control` send no tool turns.
 - **No live-model run.** The tasks have been run end to end on Inspect's
   `mockllm` only; paper numbers have not been reproduced, and the
   adaptations' judge has not been validated.
@@ -264,11 +273,12 @@ message) generated once and scored by the witness rule. A model that never
 executes even instructed probes would trivially look safe on `sep_tool`; the
 control shows it can.
 
-Both tasks also read `probes.json` and check, for every row, as the port did,
-that `appended_task_id` indexes a probe and that the probe's answer is the
-row's witness; in addition the probe's instruction must appear in
-`prompt_instructed` and `system_prompt_instructed`. The pinned files agree on
-all 9160 rows. `sep` does not read the probes.
+`sep_tool` also reads `probes.json` (its judge is shown the probe) and checks,
+for every row, as the port did, that `appended_task_id` indexes a probe and
+that the probe's answer is the row's witness; in addition the probe's
+instruction must appear in `prompt_instructed` and `system_prompt_instructed`.
+The pinned files agree on all 9160 rows. `sep` and `sep_instruction_control`
+are scored by the witness rule alone and do not read the probes.
 
 | Task | Metric | Definition | Direction |
 | --- | --- | --- | --- |

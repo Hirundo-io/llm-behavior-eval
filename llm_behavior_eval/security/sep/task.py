@@ -46,9 +46,12 @@ DATASET_METADATA = {
 }
 ADAPTATION_METADATA = {
     **DATASET_METADATA,
+    "adaptation": "not canonical SEP; prompts from Hirundo's earlier Inspect port",
+}
+TOOL_METADATA = {
+    **ADAPTATION_METADATA,
     "probes_file": PROBES_FILE,
     "probes_sha256": PROBES_SHA256,
-    "adaptation": "not canonical SEP; prompts from Hirundo's earlier Inspect port",
 }
 
 
@@ -72,7 +75,7 @@ def sep(dataset_path: str | None = None, system_role: bool = True) -> Task:
         A task with no inference settings.
     """
     return Task(
-        dataset=dataset(dataset_path),
+        dataset=dataset(dataset_path, system_role=system_role),
         solver=sep_solver(system_role=system_role),
         scorer=[sep_scorer(), completion_scorer()],
         version=TASK_VERSION,
@@ -112,27 +115,25 @@ def sep_tool(
             completion_scorer(),
         ],
         version=TOOL_TASK_VERSION,
-        metadata=ADAPTATION_METADATA,
+        metadata=TOOL_METADATA,
     )
 
 
 @task
 def sep_instruction_control(
     dataset_path: str | None = None,
-    probes_path: str | None = None,
     system_role: bool = True,
 ) -> Task:
     """Witness rate with the probe in the instruction: ``sep_tool``'s control.
 
-    The same rows and probe checks as ``sep_tool``, with ``sep``'s
-    probe-in-instruction conversation (task prompt with the probe as the
-    system message, clean data as the user message) generated once.
+    The same rows as ``sep_tool``, with ``sep``'s probe-in-instruction
+    conversation (task prompt with the probe as the system message, clean data
+    as the user message) generated once. The witness rule needs no probe
+    list, so none is read.
 
     Args:
         dataset_path: A local copy of ``datasets/SEP_dataset.json`` (checked
             against the pinned SHA-256).
-        probes_path: A local copy of ``SEP_dataset/source/probes.json``
-            (checked against the pinned SHA-256).
         system_role: As in ``sep``: ``False`` sends one user message
             ``System prompt: ... User prompt: ...``.
 
@@ -141,9 +142,7 @@ def sep_instruction_control(
     """
     build = partial(messages, position="instruction", system_role=system_role)
     return Task(
-        dataset=variant_dataset(
-            "instruction_control", build, dataset_path, probes_path
-        ),
+        dataset=variant_dataset("instruction_control", build, dataset_path),
         solver=generate(),
         scorer=[sep_instruction_control_scorer(), completion_scorer()],
         version=CONTROL_TASK_VERSION,
