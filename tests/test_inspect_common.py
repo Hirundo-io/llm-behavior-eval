@@ -152,6 +152,13 @@ def test_saved_dataset_dict_needs_the_split(tmp_path: Path) -> None:
         load_dataset(str(tmp_path / "s"), split="test", sample_fields=to_sample)
 
 
+def test_saved_dataset_dict_index_needs_splits(tmp_path: Path) -> None:
+    DatasetDict({"train": HFDataset.from_list(ROWS)}).save_to_disk(tmp_path / "s")
+    (tmp_path / "s" / "dataset_dict.json").write_text("{}")
+    with pytest.raises(ValueError, match="lists no splits"):
+        load_dataset(str(tmp_path / "s"), split="train", sample_fields=to_sample)
+
+
 def write_rows(folder: Path, prefix: str) -> None:
     folder.mkdir(exist_ok=True)
     (folder / "train.jsonl").write_text(

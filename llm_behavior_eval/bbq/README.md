@@ -109,7 +109,9 @@ inspect eval llm_behavior_eval/bbq -T dataset_path=/data/bbq-gender-bias \
 ```
 
 `revision` does not apply to local folders. Both kinds are read fresh on
-every run, so edited files take effect without changing the path. A folder
+every run, so edited files take effect without changing the path (`datasets`
+still keys its own rebuild on each file's modification time: a replacement
+copied with its old mtime, as `cp -p` does, can be served stale). A folder
 holding a stray `state.json` but no `dataset_info.json` is not a
 `save_to_disk()` folder and is rejected with an explanation (`datasets` would
 not load its data files).
