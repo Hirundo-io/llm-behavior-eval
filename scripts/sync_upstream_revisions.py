@@ -212,22 +212,36 @@ def sync(pins: list[Pin]) -> list[Path]:
         The files rewritten, each once, in path order per distribution.
 
     Raises:
-        ValueError: A stale pin's old commit is also the current value of
+        ValueError: A stale pin's code holds something other than a full
+            40-character commit hash, which would be unsafe to replace
+            everywhere in the distribution; nothing is written, so edit that
+            constant by hand. Or a stale pin's old commit is also the current
+            value of
             another pin in the same distribution that wants a different
             commit (another stale pin, or one already up to date). Replacing
             the old commit would move both, so nothing is written; edit those
             constants by hand.
     """
     stale = mismatches(pins)
+    for pin, old in stale.items():
+        # Only a full hash is replaced as text: a branch name or a short
+        # prefix could also match unrelated text in the distribution.
+        if not SHA.fullmatch(old):
+            raise ValueError(
+                f"{pin.key}: {pin.source} is {old!r}, not a full 40-character "
+                "commit hash; update this constant by hand"
+            )
     directories = {pin: owning_directory(pin.file) for pin in stale}
     for pin, old in stale.items():
+        # The same distribution as sync rewrites below: a pin in a benchmark
+        # nested inside a group belongs to the benchmark, not the group.
         clashing = [
             other.key
             for other in pins
             if other is not pin
             and stale.get(other, other.revision) == old
             and other.revision != pin.revision
-            and other.file.is_relative_to(directories[pin])
+            and owning_directory(other.file) == directories[pin]
         ]
         if clashing:
             raise ValueError(
