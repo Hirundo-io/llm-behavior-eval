@@ -32,13 +32,18 @@ keywords = [
 ]
 requires-python = ">=3.10.12,<3.14"
 # Please only install Python >=3.10.12 or >=3.11.4 or >=3.12 to avoid GHSA-4xh5-x5gv-qwph vulnerability
+# Upper bounds stop at the next release line that may break the APIs used here: the next
+# major version, or the next minor for a 0.x package. Lines with a narrower bound say why.
 dependencies = [
-  "inspect-ai>=0.3.287,<0.3.288; python_version >= '3.11'",
-  # inspect-ai 0.3.287 imports acp.helpers, which agent-client-protocol 1.0 removed.
-  "agent-client-protocol>=0.12,<1; python_version >= '3.11'",
-  # inspect_evals' shared benchmark utilities, without the inspect_evals benchmarks.
+  # Native benchmarks. 0.3.289 is the version hirundo-core's `eval` feature pins and the
+  # first that works with agent-client-protocol 1.x; <0.4 because Inspect is 0.x and its
+  # task, scorer and registry APIs may change in a minor release.
+  "inspect-ai>=0.3.289,<0.4; python_version >= '3.11'",
+  # inspect_evals' shared benchmark utilities, without the inspect_evals benchmarks
+  # (0.x: a minor release may change them).
   "inspect-evals-utils[huggingface]>=0.2.0,<0.3; python_version >= '3.11'",
-  # Inspect's OpenAI-compatible model transport (not installed by Inspect itself).
+  # Inspect's OpenAI-compatible model transport (not installed by Inspect itself), which
+  # Inspect builds against the 3.x client.
   "openai>=3.4,<4; python_version >= '3.11'",
   "datasets>=5.0.1,<6.0.0",
   "numpy<3.0.0",

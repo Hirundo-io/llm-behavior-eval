@@ -1,9 +1,11 @@
 # Native Inspect benchmarks
 
 Native benchmarks run on [Inspect AI](https://inspect.aisi.org.uk/) alongside
-the legacy engine, which stays unchanged. Inspect 0.3.287 is pinned
-(`<0.3.288`); it needs Python 3.11+, so its dependencies carry a Python-version
-marker and the Inspect tests are not collected on Python 3.10.
+the legacy engine, which stays unchanged. Inspect is required at
+`>=0.3.289,<0.4` (0.3.289 is the version hirundo-core pins; `<0.4` because a
+0.x minor release may change its APIs); it needs Python 3.11+, so its
+dependencies carry a Python-version marker and the Inspect tests are not
+collected on Python 3.10.
 
 ```sh
 uv venv .venv --python 3.13
@@ -105,8 +107,6 @@ Use synthetic rows for private datasets.
   reason (`unknown`); benchmarks that grade only finished answers reject them
   for the model under test, and `incomplete_response_rate` is NaN there.
   `hf/` applies a `revision` model arg to the weights only, not the tokenizer.
-* `agent-client-protocol` is held below 1.0: Inspect 0.3.287 imports a module
-  that 1.0 removed.
 * Inspect namespaces registry names from install metadata; a stray
   `llm_behavior_eval.egg-info` in the repository root hides it, which is why
   pytest uses `--import-mode=importlib`.
