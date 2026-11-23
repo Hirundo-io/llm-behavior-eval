@@ -14,8 +14,10 @@ import sys
 import tarfile
 import zipfile
 from pathlib import Path
+from typing import Any
 
 import pytest
+import yaml
 from packaging.requirements import Requirement
 from packaging.version import Version
 
@@ -27,12 +29,14 @@ from workspace import (
     ROOT,
     Distribution,
     benchmark_test_files,
+    conflicting_packages,
     members,
     normalize,
     requirement_name,
     root,
     root_is_editable,
 )
+from workspace import main as workspace_main
 
 NATIVE = [*members(), Distribution(EXAMPLE)]
 HEAVY = {"torch", "transformers", "vllm", "accelerate", "llm-behavior-eval"}
@@ -196,15 +200,42 @@ def test_workspace_registers_every_member() -> None:
     sources = pyproject["tool"]["uv"]["sources"]
     assert {normalize(name) for name in sources} >= set(names)
     assert all(sources[name] == {"workspace": True} for name in sources)
+    assert missing_from_dev(pyproject, names) == set()
+    # Every package is in place under the repository root.
+    assert pyproject["tool"]["pyrefly"]["search-path"] == [".", "tests", "scripts"]
+    assert not EXAMPLE.is_relative_to(ROOT / NAMESPACE)
+
+
+def missing_from_dev(pyproject: dict[str, Any], names: list[str]) -> set[str]:
+    """Members neither in the dev group nor declared conflicting.
+
+    A member named in a root ``[tool.uv] conflicts`` entry cannot share the
+    dev environment with the member it conflicts with, so it may stay out
+    (``llm_behavior_eval/security/README.md``); every other one is in it.
+    """
     dev = {
         requirement_name(text)
         for text in pyproject["dependency-groups"]["dev"]
         if isinstance(text, str)
     }
-    assert dev >= set(names)
-    # Every package is in place under the repository root.
-    assert pyproject["tool"]["pyrefly"]["search-path"] == [".", "tests", "scripts"]
-    assert not EXAMPLE.is_relative_to(ROOT / NAMESPACE)
+    return set(names) - dev - conflicting_packages(pyproject)
+
+
+def test_only_conflicting_members_may_stay_out_of_dev() -> None:
+    conflicting = {
+        "dependency-groups": {"dev": ["a>=1", {"include-group": "ci"}]},
+        "tool": {
+            "uv": {
+                "conflicts": [
+                    [{"package": "B_Fork"}, {"package": "c"}],
+                    [{"extra": "d"}, {"extra": "e"}],
+                ]
+            }
+        },
+    }
+    assert missing_from_dev(conflicting, ["a", "b-fork", "c", "d"]) == {"d"}
+    plain = {"dependency-groups": {"dev": ["a>=1"]}, "tool": {"uv": {}}}
+    assert missing_from_dev(plain, ["a", "b-fork"]) == {"b-fork"}
 
 
 def test_root_installs_every_member() -> None:
@@ -231,6 +262,84 @@ def test_unpublished_reason(tmp_path: Path) -> None:
     )
     assert Distribution(tmp_path).unpublished == "git"
     assert make_distribution(tmp_path).unpublished is None
+
+
+def test_workspace_script_lists_members_and_rejects_unknown_flags(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workspace_main([])
+    assert capsys.readouterr().out.splitlines() == [str(m.path) for m in members()]
+    workspace_main(["--unpublished"])
+    unpublished = [m.name for m in members() if m.unpublished]
+    assert capsys.readouterr().out.splitlines() == unpublished
+    with pytest.raises(SystemExit) as exit_info:
+        workspace_main(["--unpublish"])
+    assert exit_info.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ['""', '"  "', "true", "1", "[]"])
+def test_unpublished_reason_must_be_a_non_empty_string(
+    tmp_path: Path, value: str
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "x"\n[tool.llm-behavior-eval]\nunpublished = {value}\n'
+    )
+    with pytest.raises(ValueError, match="non-empty string"):
+        _ = Distribution(tmp_path).unpublished
+
+
+def unpublished_step_script() -> str:
+    """The release workflow's step that removes unpublished distributions."""
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "deploy_to_pypi.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    [script] = [
+        step["run"]
+        for job in workflow["jobs"].values()
+        for step in job["steps"]
+        if step.get("name") == "Leave out unpublished distributions"
+    ]
+    return script
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
+@pytest.mark.parametrize("fails", [False, True])
+def test_release_leaves_out_unpublished_distributions(
+    tmp_path: Path, fails: bool
+) -> None:
+    # A stand-in python prints one unpublished name, or fails as workspace.py
+    # would on a malformed reason; the step must then fail, not upload all.
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "python"
+    stub.write_text(
+        "#!/bin/sh\n" + ("exit 1\n" if fails else "echo llm-behavior-eval-fork\n")
+    )
+    stub.chmod(0o755)
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    kept = dist / "llm_behavior_eval_common-1-py3-none-any.whl"
+    dropped = dist / "llm_behavior_eval_fork-1-py3-none-any.whl"
+    for path in (kept, dropped, dist / "llm_behavior_eval_fork-1.tar.gz"):
+        path.touch()
+    result = subprocess.run(
+        ["bash", "-e", "-c", unpublished_step_script()],
+        cwd=tmp_path,
+        env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+    )
+    assert (result.returncode != 0) == fails
+    assert kept.exists()
+    assert dropped.exists() == fails
+    assert sorted(p.name for p in dist.iterdir()) == (
+        sorted([kept.name, dropped.name, "llm_behavior_eval_fork-1.tar.gz"])
+        if fails
+        else [kept.name]
+    )
 
 
 def test_nothing_depends_on_an_unpublished_member() -> None:
