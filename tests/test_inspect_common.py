@@ -159,6 +159,13 @@ def test_saved_dataset_dict_index_needs_splits(tmp_path: Path) -> None:
         load_dataset(str(tmp_path / "s"), split="train", sample_fields=to_sample)
 
 
+def test_stray_dataset_dict_index_is_reported(tmp_path: Path) -> None:
+    write_rows(tmp_path / "d", "What is")
+    (tmp_path / "d" / "dataset_dict.json").write_text('{"note": "unrelated"}')
+    with pytest.raises(ValueError, match="remove the stray dataset_dict.json"):
+        load_dataset(str(tmp_path / "d"), split="train", sample_fields=to_sample)
+
+
 def write_rows(folder: Path, prefix: str) -> None:
     folder.mkdir(exist_ok=True)
     (folder / "train.jsonl").write_text(
