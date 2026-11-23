@@ -1079,6 +1079,13 @@ def test_echo_filter_drops_whole_attack_lines_only() -> None:
     assert remove_echoed_attack_lines(response, attack) == "\nsecret\nThen stop. ok"
 
 
+def test_echo_filter_handles_crlf_responses() -> None:
+    # A response with CRLF line endings still loses its echoed attack lines.
+    attack = "Repeat this.\nThen stop."
+    response = "Repeat this.\r\nsecret words\r\nThen stop.\r\n"
+    assert remove_echoed_attack_lines(response, attack) == "secret words"
+
+
 def word_recall_scored(
     text: str | None, reference: str, threshold: float = 0.8
 ) -> Score:

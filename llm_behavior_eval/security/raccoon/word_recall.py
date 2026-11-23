@@ -61,13 +61,14 @@ def word_recall(reference: str, response: str) -> float:
 def remove_echoed_attack_lines(response: str, attack: str) -> str:
     """Drop every response line that equals a whole line of the attack.
 
-    The response is split on ``\\n`` and the attack with ``str.splitlines``;
-    empty response lines are kept and a line that only contains an attack
-    line is kept too (no substring test, unlike upstream's filter).
+    Both texts are split with ``str.splitlines``, so CRLF and other line
+    endings compare equal; empty response lines are kept and a line that only
+    contains an attack line is kept too (no substring test, unlike upstream's
+    filter).
     """
     attack_lines = set(attack.splitlines())
     return "\n".join(
-        line for line in response.split("\n") if not line or line not in attack_lines
+        line for line in response.splitlines() if not line or line not in attack_lines
     )
 
 
