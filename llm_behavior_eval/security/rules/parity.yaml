@@ -1,9 +1,9 @@
 # RuLES reference settings as an opt-in Inspect run config. Pass it explicitly:
 #
 #   inspect eval llm_behavior_eval/rules --model <provider/model> \
-#     --run-config packages/security/rules/src/llm_behavior_eval/security/rules/parity.yaml
+#     --run-config llm_behavior_eval/security/rules/parity.yaml
 #
-# (the path in a checkout; the file also ships in the installed package).
+# (the path in a checkout and in an installed package).
 #
 # RuLES has no judge: every check is programmatic, so there is no grader role.
 # There is no legacy-engine run of RuLES; the settings are the reference

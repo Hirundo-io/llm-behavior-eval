@@ -24,7 +24,7 @@ in the package next to `task.py`; from a checkout:
 
 ```sh
 inspect eval llm_behavior_eval/rules --model vllm/ORG/MODEL \
-  --run-config packages/security/rules/src/llm_behavior_eval/security/rules/parity.yaml
+  --run-config llm_behavior_eval/security/rules/parity.yaml
 ```
 
 ## Implementation

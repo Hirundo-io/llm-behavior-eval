@@ -1,7 +1,7 @@
 """Report metrics each benchmark declares, in inspect-brief's format.
 
-A benchmark package ships ``target_metrics.json`` (found at any depth below
-``llm_behavior_eval``, in every directory the namespace spans)::
+A benchmark package ships ``target_metrics.json`` (found in any package at
+any depth below ``llm_behavior_eval``, in every directory it spans)::
 
     {"llm_behavior_eval/<task>": [
         {"name": "<metric>", "is_percentage": true,
@@ -30,6 +30,14 @@ def check_target_metrics(data: object, path: object, root: str) -> TargetMetrics
     The file must be a JSON object mapping ``<root>/<task>`` keys to non-empty
     lists of metric objects, each with exactly ``METRIC_KEYS``: a non-empty
     string ``name`` and boolean flags.
+
+    Args:
+        data: A parsed ``target_metrics.json``.
+        path: The file, for error messages.
+        root: The package prefix every task key needs.
+
+    Returns:
+        ``data``, typed.
 
     Raises:
         ValueError: Any part of ``data`` has the wrong shape or type.
@@ -63,9 +71,19 @@ def check_target_metrics(data: object, path: object, root: str) -> TargetMetrics
 def package_directories(root: str) -> list[Path]:
     """Every directory that contributes to package ``root``, without duplicates.
 
-    ``llm_behavior_eval`` spans several distributions (see its ``__init__``):
-    one directory when they are installed together, one per editable workspace
-    member, a PEP 420 namespace without the legacy distribution.
+    ``llm_behavior_eval`` is shared by several distributions: one directory
+    when they are installed together or editable from this repository, and
+    possibly several for a PEP 420 namespace (without the legacy distribution).
+
+    Args:
+        root: The package's dotted name (imported, which for
+            ``llm_behavior_eval`` loads only the lazy legacy ``__init__``).
+
+    Returns:
+        Each ``__path__`` entry, resolved, in order.
+
+    Raises:
+        ModuleNotFoundError: ``root`` cannot be imported.
     """
     found: dict[Path, None] = {}
     for entry in import_module(root).__path__:
@@ -73,12 +91,45 @@ def package_directories(root: str) -> list[Path]:
     return list(found)
 
 
+def target_metrics_files(directory: Path, in_package: bool = False) -> list[Path]:
+    """``target_metrics.json`` files in ``directory``'s packages, at any depth.
+
+    Below a regular package (one with ``__init__.py``) only its subpackages
+    are searched, so a ``build/`` copy or ``*.egg-info`` that an in-place
+    build leaves in a benchmark's directory is skipped. Above one, directories
+    without ``__init__.py`` are namespace levels (a group) and are searched.
+
+    Args:
+        directory: A directory of the root package (``package_directories``).
+        in_package: Whether ``directory`` is inside a regular package below
+            the root (set by the recursion).
+
+    Returns:
+        The files found, sorted by path within each directory.
+    """
+    found = []
+    for path in sorted(directory.iterdir()):
+        if path.is_file() and path.name == TARGET_METRICS_FILE:
+            found.append(path)
+        elif path.is_dir() and path.name.isidentifier():
+            is_package = (path / "__init__.py").is_file()
+            if is_package or not in_package:
+                found.extend(target_metrics_files(path, in_package or is_package))
+    return found
+
+
 def load_target_metrics(root: str = "llm_behavior_eval") -> TargetMetrics:
     """Every ``target_metrics.json`` below ``root``, merged and sorted by task.
 
     Searches each of ``root``'s directories (``package_directories``) at any
-    depth, so a benchmark in a group (``<root>/<group>/<benchmark>``) is found
-    like one directly under ``root``.
+    depth (``target_metrics_files``), so a benchmark in a group
+    (``<root>/<group>/<benchmark>``) is found like one directly under ``root``.
+
+    Args:
+        root: The package whose benchmarks to search.
+
+    Returns:
+        Every task's target metrics, sorted by task.
 
     Raises:
         ValueError: A file is malformed (see ``check_target_metrics``), or two
@@ -87,7 +138,7 @@ def load_target_metrics(root: str = "llm_behavior_eval") -> TargetMetrics:
     paths = {
         path.resolve()
         for directory in package_directories(root)
-        for path in directory.rglob(TARGET_METRICS_FILE)
+        for path in target_metrics_files(directory)
     }
     merged: TargetMetrics = {}
     for path in sorted(paths):
@@ -108,6 +159,13 @@ def missing_target_metrics(
 
     inspect-brief selects targets by ``log.eval.task`` and finds a metric when
     its name is a key of some ``log.results.scores[i].metrics``.
+
+    Args:
+        log: An eval log, or the path of one.
+        targets: The target metrics; ``load_target_metrics()`` by default.
+
+    Returns:
+        The task's target metric names the log lacks, in declared order.
 
     Raises:
         ValueError: The log did not succeed, or its task declares no targets.

@@ -30,10 +30,10 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
 
-[tool.setuptools.packages.find]
-# A portion of the shared llm_behavior_eval namespace, which has no __init__.py here.
-# Listing the namespace itself keeps the layout "simple" for setuptools, so an editable
-# install puts src/ on sys.path (where llm_behavior_eval/__init__.py extends __path__).
-where = ["src"]
-include = ["llm_behavior_eval", "llm_behavior_eval.common*"]
-namespaces = true
+[tool.setuptools]
+# The package's own directory: this pyproject.toml sits inside llm_behavior_eval/common/,
+# under the legacy distribution's package (see "Packaging" in INSPECT_MIGRATION.md).
+packages = ["llm_behavior_eval.common"]
+package-dir = { "llm_behavior_eval.common" = "." }
+# Only the modules: otherwise pyproject.toml and LICENSE would ship inside the package.
+include-package-data = false

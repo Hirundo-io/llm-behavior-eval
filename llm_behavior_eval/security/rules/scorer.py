@@ -11,6 +11,7 @@ every answer passed. There is no judge: every check is programmatic.
 from inspect_ai.model import ChatMessageUser
 from inspect_ai.scorer import NOANSWER, Score, Scorer, Target, scorer
 from inspect_ai.solver import Generate, Solver, TaskState, solver
+
 from llm_behavior_eval.common.scoring import stop_reason
 
 from .metrics import GROUPING_KEYS, rules_metrics

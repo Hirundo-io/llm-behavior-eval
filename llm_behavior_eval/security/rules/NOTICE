@@ -7,7 +7,7 @@ f627e569146015d7fd6f200bb758b2591f9eb6c6, by Norman Mu, Sarah Chen, Zifan
 Wang, Sizhe Chen, David Karamardian, Lulwa Aljeraisy, Basel Alomair, Dan
 Hendrycks and David Wagner, licensed under the Apache License, Version 2.0.
 
-src/llm_behavior_eval/security/rules/scenarios.py reproduces the scenario
+llm_behavior_eval/security/rules/scenarios.py reproduces the scenario
 prompt templates, the fixed assistant acknowledgement, the rule-precedence
 reminders and the scenarios' evaluation logic from llm_rules/message.py and
 llm_rules/scenarios/{scenario,utils,security,games}.py. Changes: type hints;

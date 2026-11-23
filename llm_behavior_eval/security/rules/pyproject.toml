@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "llm-behavior-eval-rules"
 version = "0.1.12"
 description = "RuLES rule-following benchmark as a native Inspect task, from llm-behavior-eval."
-readme = "src/llm_behavior_eval/security/rules/README.md"
+readme = "README.md"
 # The scenario prompts and checks are adapted from normster/llm_rules (Apache-2.0); see NOTICE.
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -28,13 +28,14 @@ Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
 # benchmark distribution uses the name llm_behavior_eval and its own task module.
 llm_behavior_eval = "llm_behavior_eval.security.rules.task"
 
-[tool.setuptools.packages.find]
-# A portion of the shared llm_behavior_eval and llm_behavior_eval.security namespaces:
-# no __init__.py above the benchmark. Listing the namespaces keeps the layout "simple"
-# for setuptools, so an editable install puts src/ on sys.path.
-where = ["src"]
-include = ["llm_behavior_eval", "llm_behavior_eval.security", "llm_behavior_eval.security.rules*"]
-namespaces = true
+[tool.setuptools]
+# The package's own directory: a benchmark's pyproject.toml sits inside its package,
+# llm_behavior_eval/[<group>/]<benchmark>/ (see "Packaging" in INSPECT_MIGRATION.md).
+packages = ["llm_behavior_eval.security.rules"]
+package-dir = { "llm_behavior_eval.security.rules" = "." }
+# Only the modules and the files listed below: otherwise pyproject.toml, LICENSE (and
+# NOTICE) would ship inside the package.
+include-package-data = false
 
 [tool.setuptools.package-data]
-"*" = ["README.md", "parity.yaml", "target_metrics.json"]
+"llm_behavior_eval.security.rules" = ["README.md", "parity.yaml", "target_metrics.json"]

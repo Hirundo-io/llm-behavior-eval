@@ -16,15 +16,18 @@ its own (`pip install llm-behavior-eval-<benchmark>`), and `llm-behavior-eval`
 depends on this distribution. Task names do not mention the group:
 `llm_behavior_eval/<task>`.
 
-In the repository, the group is `packages/security/`: this distribution's
-`pyproject.toml`, `LICENSE` and this README, and one directory per benchmark
-distribution. In import space it is `llm_behavior_eval.security`, a namespace
-package that every security benchmark contributes a portion to; nothing ships
-`llm_behavior_eval/security/__init__.py`.
+In the repository, the group is `llm_behavior_eval/security/`: this
+distribution's `pyproject.toml`, `LICENSE` and this README, and one directory
+per benchmark, `llm_behavior_eval/security/<benchmark>/`, which is both the
+benchmark's package and its distribution's project directory (a workspace
+member nested in this one). In import space it is `llm_behavior_eval.security`,
+a namespace package that every security benchmark contributes a portion to;
+nothing ships `llm_behavior_eval/security/__init__.py`. This distribution's
+wheel and sdist hold no module and none of its benchmarks' files.
 
 ## Benchmarks
 
-| Benchmark | Package (`llm_behavior_eval.security.`) | Distribution | License | In this distribution | Status |
+| Benchmark | Directory and package (`llm_behavior_eval/security/`, `llm_behavior_eval.security.`) | Distribution | License | In this distribution | Status |
 | --- | --- | --- | --- | --- | --- |
 | Tensor Trust | `tensor_trust` | `llm-behavior-eval-tensor-trust` | MIT | yes | in review |
 | SEP | `sep` | `llm-behavior-eval-sep` | MIT | yes | in review |
@@ -41,17 +44,18 @@ Update the row when a benchmark merges (its "Status" becomes "merged").
 Follow "Add or migrate a benchmark" in `INSPECT_MIGRATION.md` with
 `<group>` = `security`:
 
-1. The distribution directory is `packages/security/<benchmark>/` and the
-   package `src/llm_behavior_eval/security/<benchmark>/` (no `__init__.py` in
-   `src/llm_behavior_eval/` or `src/llm_behavior_eval/security/`). Its
-   `pyproject.toml` has
-   `include = ["llm_behavior_eval", "llm_behavior_eval.security", "llm_behavior_eval.security.<benchmark>*"]`,
-   `readme = "src/llm_behavior_eval/security/<benchmark>/README.md"` and the
-   entry point `llm_behavior_eval = "llm_behavior_eval.security.<benchmark>.task"`.
+1. The directory is `llm_behavior_eval/security/<benchmark>/`: the package
+   `llm_behavior_eval.security.<benchmark>` and, beside its modules, the
+   distribution's `pyproject.toml`, `LICENSE` and any `NOTICE` (never an
+   `__init__.py` in `llm_behavior_eval/security/`). Its `pyproject.toml` has
+   `packages = ["llm_behavior_eval.security.<benchmark>"]`,
+   `package-dir = { "llm_behavior_eval.security.<benchmark>" = "." }`,
+   `include-package-data = false`, `readme = "README.md"` and the entry point
+   `llm_behavior_eval = "llm_behavior_eval.security.<benchmark>.task"`.
    Code and tests import `llm_behavior_eval.security.<benchmark>`.
-2. Register it in the root `pyproject.toml` (workspace member, source, dev
-   group, pyrefly search path), but **not** in the root's
-   `[project] dependencies`: add
+2. Register it in the root `pyproject.toml` (workspace member
+   `"llm_behavior_eval/security/<benchmark>"`, source, dev group), but **not**
+   in the root's `[project] dependencies`: add
    `"llm-behavior-eval-<benchmark>>=<the root version>,<0.2",` to this
    distribution's `dependencies` instead (sorted by name). The root reaches it
    through `llm-behavior-eval-security`.
@@ -89,7 +93,7 @@ distribution in place of the one it shadows. A benchmark that needs either:
 * is installed explicitly from the repository, in an environment of its own:
 
   ```sh
-  pip install "llm-behavior-eval-agentdyn @ git+https://github.com/Hirundo-io/llm-behavior-eval@<tag>#subdirectory=packages/security/agentdyn"
+  pip install "llm-behavior-eval-agentdyn @ git+https://github.com/Hirundo-io/llm-behavior-eval@<tag>#subdirectory=llm_behavior_eval/security/agentdyn"
   ```
 
 AgentDyn is such a benchmark: it depends on a Git fork published under the
