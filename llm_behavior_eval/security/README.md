@@ -34,7 +34,7 @@ wheel and sdist hold no module and none of its benchmarks' files.
 | LLMail-Inject | `llmail_inject` | `llm-behavior-eval-llmail-inject` | MIT | yes | in review |
 | BIPIA | `bipia` | `llm-behavior-eval-bipia` | MIT | yes | in review |
 | RuLES | `rules` | `llm-behavior-eval-rules` | MIT | yes, unless it needs a Git dependency (see [Unpublished](#unpublished-and-isolated-benchmarks)) | planned |
-| Raccoon | `raccoon` | `llm-behavior-eval-raccoon` | GPL-3.0-only (`LICENSE` and `NOTICE` of its own) | yes, unless it needs a Git dependency | planned |
+| Raccoon | `raccoon` | `llm-behavior-eval-raccoon` | GPL-3.0-only (`LICENSE` and `NOTICE` of its own) | **no**: unpublished (GPL-3.0-only) | in review |
 | AgentDyn | `agentdyn` | `llm-behavior-eval-agentdyn` | MIT | **no**: isolated | planned |
 
 Update the row when a benchmark merges (its "Status" becomes "merged").
@@ -64,10 +64,10 @@ Follow "Add or migrate a benchmark" in `INSPECT_MIGRATION.md` with
    `python scripts/run_package_tests.py llm-behavior-eval-<benchmark>`.
 
 A benchmark whose code derives from copyleft upstream code keeps its own
-license (Raccoon: GPL-3.0-only with a `NOTICE`); this distribution stays MIT and
-only depends on it. Installing does not combine the code, but anyone
-redistributing an environment that includes it takes on the GPL's obligations
-for that distribution.
+license (Raccoon: GPL-3.0-only with a `NOTICE`), so the other distributions
+stay MIT. Raccoon is also unpublished (see below), so this distribution does
+not depend on it; anyone redistributing an environment that includes it takes
+on the GPL's obligations for that distribution.
 
 ## Unpublished and isolated benchmarks
 
@@ -99,6 +99,15 @@ distribution name `agentdojo`, which conflicts with stock AgentDojo. If another
 workspace member ever requires stock `agentdojo`, also declare the two members
 as conflicting in the root `pyproject.toml`
 (`[tool.uv] conflicts = [[{ package = "llm-behavior-eval-agentdyn" }, { package = "<other>" }]]`)
-and leave AgentDyn out of the dev group. If RuLES or Raccoon keeps a direct Git
-dependency on its upstream code (as the hirundo-safety adapters do), it is
+and leave AgentDyn out of the dev group. If RuLES keeps a direct Git
+dependency on its upstream code (as the hirundo-safety adapter does), it is
 unpublished the same way until that code is on PyPI.
+
+Raccoon is unpublished for its license rather than a dependency: it carries
+the upstream prompt assembly and echo filter it needs (no Git dependency), so
+it is GPL-3.0-only, and it stays out of PyPI and of this MIT distribution's
+dependencies until its release is decided. Install it from the repository:
+
+```sh
+pip install "llm-behavior-eval-raccoon @ git+https://github.com/Hirundo-io/llm-behavior-eval@<tag>#subdirectory=llm_behavior_eval/security/raccoon"
+```

@@ -78,6 +78,7 @@ dev = [
   # Every workspace distribution, installed editable in the dev environment.
   "llm-behavior-eval-common",
   "llm-behavior-eval-security",
+  "llm-behavior-eval-raccoon",
   "pyrefly>=0.63.1",
   "types-PyYAML",
   "types-tqdm",
@@ -103,12 +104,14 @@ default-groups = ["dev", "ci"]
 members = [
   "llm_behavior_eval/common",
   "llm_behavior_eval/security",
+  "llm_behavior_eval/security/raccoon",
 ]
 
 [tool.uv.sources]
 llm-behavior-eval = { workspace = true }
 llm-behavior-eval-common = { workspace = true }
 llm-behavior-eval-security = { workspace = true }
+llm-behavior-eval-raccoon = { workspace = true }
 
 [tool.uv.config-settings-package]
 # Every native distribution's directory sits inside llm_behavior_eval/ (each maps its

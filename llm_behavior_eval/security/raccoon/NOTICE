@@ -1,0 +1,32 @@
+llm-behavior-eval-raccoon
+Copyright (c) 2025 Hirundo-io
+
+This distribution includes code adapted from RaccoonBench, the reference
+implementation of "Raccoon: Prompt Extraction Benchmark of LLM-Integrated
+Applications" (Wang et al., Findings of ACL 2024) by Junlin Wang and
+contributors, https://github.com/M0gician/RaccoonBench, commit
+d2ea81e8e5e3a933f3f2cba88d35e47d11c63800, licensed under the GNU General
+Public License, version 3. This distribution is therefore licensed under
+GPL-3.0-only; see LICENSE (the upstream repository's license text).
+
+llm_behavior_eval/security/raccoon/prompts.py reproduces, from
+Raccoon/prompt.py (SysPrompt) and Raccoon/raccoon_gang.py (RaccoonGang):
+the user-prompt markers and parse_prompt; the GPT and Gemini system
+templates; the defenseless, shielded (custom template) and
+original-defenses prompt assembly; the template wrapping of
+benchmark_single; and run_benchmark's echo filter. Changes: the classes
+became functions of their inputs, with type hints and docstrings; the
+template strings are written with explicit escapes but are unchanged.
+
+dataset.py, scorer.py, metrics.py and task.py reimplement for Inspect the
+data loading of Raccoon/loader.py and run_raccoon_gang.py, the scoring of
+RaccoonGang.evaluate (ROUGE-L recall from rouge-score with the GPT-4
+tiktoken encoding of Raccoon/tokenizer.py, computed here with a bit-parallel
+longest common subsequence) and the runner's success rates. Changes: one
+attempt per sample (attack budget 1, as the runner sets); special-token text
+is tokenized as ordinary text; aggregate metrics are computed over the
+samples run.
+
+The RaccoonBench data (Data/: GPT prompts, attack prompts, reference
+defenses and defense templates) is not included; it is downloaded from that
+commit at run time and checked against SHA-256 digests (sources.py).

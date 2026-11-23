@@ -1,0 +1,28 @@
+{
+  "llm_behavior_eval/raccoon": [
+    {
+      "name": "attack_success_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    },
+    {
+      "name": "max_prompt_success_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    },
+    {
+      "name": "mean_rouge_l_recall",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    },
+    {
+      "name": "incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ]
+}

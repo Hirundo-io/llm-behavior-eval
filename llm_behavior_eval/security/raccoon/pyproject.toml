@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-behavior-eval-raccoon"
+version = "0.1.12"
+description = "Raccoon prompt-extraction benchmark as a native Inspect task, from llm-behavior-eval."
+readme = "README.md"
+# The prompt assembly and echo filter are adapted from M0gician/RaccoonBench (GPL-3.0);
+# see NOTICE.
+license = "GPL-3.0-only"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
+requires-python = ">=3.11,<3.14"
+# Upper bounds stop at the next release line that may break the APIs used here: the next
+# major version, or the next minor for a 0.x package. Lines with a narrower bound say why.
+dependencies = [
+  # The shared code and Inspect (inspect-ai>=0.3.289,<0.4). Never the llm-behavior-eval
+  # distribution: it carries the legacy engine (torch, transformers).
+  "llm-behavior-eval-common>=0.1.12,<0.2",
+  # The GPT-4 encoding (cl100k_base) upstream's ROUGE-L tokenizer uses.
+  "tiktoken>=0.7,<0.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
+
+[project.entry-points.inspect_ai]
+# Inspect loads only the entry points named after a task's package prefix, so every
+# benchmark distribution uses the name llm_behavior_eval and its own task module.
+llm_behavior_eval = "llm_behavior_eval.security.raccoon.task"
+
+[tool.setuptools]
+# The package's own directory: a benchmark's pyproject.toml sits inside its package,
+# llm_behavior_eval/[<group>/]<benchmark>/ (see "Packaging" in INSPECT_MIGRATION.md).
+packages = ["llm_behavior_eval.security.raccoon"]
+package-dir = { "llm_behavior_eval.security.raccoon" = "." }
+# Only the modules and the files listed below: otherwise pyproject.toml, LICENSE and
+# NOTICE would ship inside the package.
+include-package-data = false
+
+[tool.setuptools.package-data]
+"llm_behavior_eval.security.raccoon" = ["README.md", "parity.yaml", "target_metrics.json"]
+
+[tool.llm-behavior-eval]
+# Not on PyPI and not in llm-behavior-eval-security (see "Unpublished and isolated
+# benchmarks" in llm_behavior_eval/security/README.md).
+unpublished = "GPL-3.0-only (adapted from RaccoonBench): installed from the repository, never with the MIT distributions"
