@@ -125,7 +125,9 @@ def load_saved_dataset(
         splits = json.loads(index.read_text(encoding="utf-8")).get("splits")
         if not isinstance(splits, list):
             raise ValueError(
-                f"{index} lists no splits; it is not a DatasetDict.save_to_disk folder"
+                f"{index} lists no splits, so {path} is not a DatasetDict"
+                " save_to_disk folder: remove the stray dataset_dict.json, or pass"
+                " a complete save_to_disk snapshot"
             )
     loaded = load_from_disk(path)
     if isinstance(loaded, DatasetDict):
