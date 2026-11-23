@@ -21,6 +21,7 @@ members = [
     "llm-behavior-eval",
     "llm-behavior-eval-common",
     "llm-behavior-eval-security",
+    "llm-behavior-eval-tensor-trust",
 ]
 
 [[package]]
@@ -2472,6 +2473,7 @@ dev = [
     { name = "llm-behavior-eval", extra = ["azure", "gcs", "mlflow", "vllm"] },
     { name = "llm-behavior-eval-common" },
     { name = "llm-behavior-eval-security" },
+    { name = "llm-behavior-eval-tensor-trust" },
     { name = "pre-commit" },
     { name = "pyrefly" },
     { name = "pytest" },
@@ -2518,6 +2520,7 @@ dev = [
     { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "azure"], editable = "." },
     { name = "llm-behavior-eval-common", editable = "packages/common" },
     { name = "llm-behavior-eval-security", editable = "packages/security" },
+    { name = "llm-behavior-eval-tensor-trust", editable = "packages/security/tensor_trust" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyrefly", specifier = ">=1.2,<2" },
     { name = "pytest", specifier = ">=8.3.5" },
@@ -2552,10 +2555,25 @@ version = "0.1.12"
 source = { editable = "packages/security" }
 dependencies = [
     { name = "llm-behavior-eval-common" },
+    { name = "llm-behavior-eval-tensor-trust" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "llm-behavior-eval-common", editable = "packages/common" }]
+requires-dist = [
+    { name = "llm-behavior-eval-common", editable = "packages/common" },
+    { name = "llm-behavior-eval-tensor-trust", editable = "packages/security/tensor_trust" },
+]
+
+[[package]]
+name = "llm-behavior-eval-tensor-trust"
+version = "0.1.12"
+source = { editable = "packages/security/tensor_trust" }
+dependencies = [
+    { name = "llm-behavior-eval-common" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "llm-behavior-eval-common", specifier = ">=0.1.12,<0.2" }]
 
 [[package]]
 name = "llvmlite"

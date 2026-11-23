@@ -27,7 +27,9 @@ from .prompts import defense_messages
 DATA_REPOSITORY = "HumanCompatibleAI/tensor-trust-data"
 DATA_COMMIT = "747a75e096761ebc01bd3970158827326b4add23"
 """``main`` of ``tensor-trust-data``; the benchmark files last changed in
-``01856c36f7e6a70442378d7fe9d5e9de3329040a`` (2023-10-18)."""
+``01856c36f7e6a70442378d7fe9d5e9de3329040a`` (2023-10-18). Listed in
+``.github/upstream-revisions.env``: when it moves, update each file's
+``sha256`` and ``rows`` in ``BENCHMARKS`` too."""
 RAW_URL = "https://raw.githubusercontent.com/{repository}/{commit}/{path}"
 
 BenchmarkName = Literal["hijacking", "extraction"]

@@ -2,9 +2,13 @@
 # config. Opt in explicitly; it names no task, so it applies to both:
 #
 #   inspect eval llm_behavior_eval/tensor_trust_extraction --model <provider/model> \
-#     --run-config llm_behavior_eval/tensor_trust/parity.yaml
+#     --run-config <this file>
 #   inspect eval llm_behavior_eval/tensor_trust_hijacking --model <provider/model> \
-#     --run-config llm_behavior_eval/tensor_trust/parity.yaml --max-tokens 50
+#     --run-config <this file> --max-tokens 50
+#
+# This file is packages/security/tensor_trust/src/llm_behavior_eval/security/
+# tensor_trust/parity.yaml in a checkout, and ships in the installed package
+# (importlib.resources.files("llm_behavior_eval.security.tensor_trust") / "parity.yaml").
 #
 # There is no grader: both benchmarks are scored by rules.
 # Sources (HumanCompatibleAI/tensor-trust @ f0b055451415e23d444703fbb8a47daf1d4b2c3c,
