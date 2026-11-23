@@ -27,13 +27,14 @@ from urllib.request import urlopen
 
 from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_evals_utils import INSPECT_EVALS_CACHE_PATH
-
-from llm_behavior_eval.llmail_inject.prompts import TARGET_BODY, TARGET_TO
-from llm_behavior_eval.llmail_inject.scenario import (
+from llm_behavior_eval.security.llmail_inject.scenario import (
+    DEFAULT_LEVELS,
     LEVELS,
     PromptDefense,
+    Retriever,
     build_messages,
-    retrieve,
+    retriever,
+    tfidf_modules,
 )
 
 ANALYSIS_REPOSITORY = "microsoft/llmail-inject-challenge-analysis"
@@ -89,13 +90,26 @@ EMAIL_FILES: dict[int, SourceFile] = {
         "src/agent/data/level2.json",
         "8fa84308dbbbaec70a3ae1dd3096e738a2419922eacd0264f874a21cb82931e6",
     ),
+    3: _github(
+        CHALLENGE_REPOSITORY,
+        CHALLENGE_COMMIT,
+        "src/agent/data/level3.json",
+        "52da9798debe330a08417338b6478cec8e47f2f38f2fa2361c57ee78dfb5e3ce",
+    ),
+    4: _github(
+        CHALLENGE_REPOSITORY,
+        CHALLENGE_COMMIT,
+        "src/agent/data/level4.json",
+        "0e010305f5fd1c48bed931ee44f190e01da6e5081bcae5a2289c73d25cf7d485",
+    ),
 }
 """Benign emails per level (``{"emails": [...]}``)."""
 
 EXPECTED_ATTACKS = {1: 25_323, 2: 3_688}
 """Unique attacks per phase (paper, Section 3 and Table 3)."""
-EXPECTED_EMAILS = {1: 1, 2: 20}
-"""Benign emails per level file; level 2 uses the first nine."""
+EXPECTED_EMAILS = {1: 1, 2: 20, 3: 40, 4: 18}
+"""Benign emails per level file; level 2 uses the first nine, levels 3 and 4
+the nine TF-IDF ranks most similar to the query."""
 ATTACK_PREFIX = "Subject of the email: "
 PHASES = (1, 2)
 DEFAULT_ATTACKS_PER_PHASE = 250
@@ -266,13 +280,14 @@ def sample_attacks(attacks: list[Attack], count: int | None) -> list[Attack]:
 
 
 def normalize_levels(levels: int | list[int] | None) -> list[int]:
-    """Requested levels as a list, defaulting to every supported level.
+    """Requested levels as a list, defaulting to levels 1 and 2.
 
     Raises:
         ValueError: A level is unsupported or repeated, or none is given.
+        ImportError: Level 3 or 4 is requested without scikit-learn.
     """
     requested = (
-        list(LEVELS)
+        list(DEFAULT_LEVELS)
         if levels is None
         else [levels]
         if isinstance(levels, int)
@@ -283,32 +298,34 @@ def normalize_levels(levels: int | list[int] | None) -> list[int]:
     unsupported = [level for level in requested if level not in LEVELS]
     if unsupported:
         raise ValueError(
-            f"Unsupported LLMail-Inject levels {unsupported}: only levels "
-            f"{list(LEVELS)} (no retrieval) are supported; levels 3 and 4 rank "
-            "emails with the challenge's retriever (see the README)"
+            f"Unsupported LLMail-Inject levels {unsupported}: the challenge has "
+            f"levels {list(LEVELS)}"
         )
+    if any(LEVELS[level].rag for level in requested):
+        tfidf_modules()
     return requested
 
 
 def attack_sample(
     attack: Attack,
     level: int,
-    benign_emails: list[str],
+    level_retriever: Retriever,
     prompt_defense: PromptDefense,
 ) -> Sample:
     """One attack replayed at one level, as the GPT-path conversation."""
-    emails, position = retrieve(LEVELS[level], benign_emails, attack.text)
+    scenario = LEVELS[level]
+    emails, position = level_retriever.retrieve(attack.text)
     return Sample(
         id=f"phase{attack.phase}-{attack.sha256[:16]}-level{level}",
-        input=build_messages(emails, prompt_defense),
+        input=build_messages(emails, prompt_defense, scenario.query),
         metadata={
             "phase": attack.phase,
             "level": level,
             "attack_sha256": attack.sha256,
             "attack_position": position,
             "job_ids": attack.job_ids,
-            "target_to": TARGET_TO,
-            "target_body": TARGET_BODY,
+            "target_to": scenario.target_to,
+            "target_body": scenario.target_body,
         },
     )
 
@@ -325,23 +342,28 @@ def dataset(
     level), so ``--limit N`` keeps the phases and levels balanced.
 
     Args:
-        levels: Levels to replay each attack at (1, 2 or both).
+        levels: Levels to replay each attack at (1 to 4; default 1 and 2).
         attacks_per_phase: Attacks sampled per phase; ``None`` keeps all.
         prompt_defense: ``none``, ``spotlight`` or ``delimiters``.
-        dataset_path: Folder holding the four pinned files under their
-            published names, read instead of the pinned URLs.
+        dataset_path: Folder holding the pinned files (both attack files
+            and the selected levels' email files) under their published
+            names, read instead of the pinned URLs.
 
     Returns:
         The samples, with phase, level, attack hash, attack position and job
         IDs as metadata.
 
     Raises:
-        ValueError: A file fails its checksum or validation, or an argument
-            is invalid.
+        ValueError: A file fails its checksum or validation, an argument
+            is invalid, or level 4's retrieved emails lack its target.
+        ImportError: Level 3 or 4 is requested without scikit-learn.
     """
     selected_levels = normalize_levels(levels)
-    benign = {
-        level: parse_emails(level, fetch(EMAIL_FILES[level], dataset_path))
+    retrievers = {
+        level: retriever(
+            LEVELS[level],
+            parse_emails(level, fetch(EMAIL_FILES[level], dataset_path)),
+        )
         for level in selected_levels
     }
     sampled = {
@@ -352,7 +374,7 @@ def dataset(
         for phase in PHASES
     }
     samples = [
-        attack_sample(by_phase[rank], level, benign[level], prompt_defense)
+        attack_sample(by_phase[rank], level, retrievers[level], prompt_defense)
         for rank in range(max(len(attacks) for attacks in sampled.values()))
         for by_phase in sampled.values()
         if rank < len(by_phase)

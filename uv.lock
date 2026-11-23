@@ -20,6 +20,7 @@ exclude-newer-span = "P7D"
 members = [
     "llm-behavior-eval",
     "llm-behavior-eval-common",
+    "llm-behavior-eval-llmail-inject",
     "llm-behavior-eval-security",
 ]
 
@@ -2471,6 +2472,7 @@ dev = [
     { name = "bumpver" },
     { name = "llm-behavior-eval", extra = ["azure", "gcs", "mlflow", "vllm"] },
     { name = "llm-behavior-eval-common" },
+    { name = "llm-behavior-eval-llmail-inject", extra = ["tfidf"] },
     { name = "llm-behavior-eval-security" },
     { name = "pre-commit" },
     { name = "pyrefly" },
@@ -2517,6 +2519,7 @@ dev = [
     { name = "bumpver", specifier = ">=2024.1130" },
     { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "azure"], editable = "." },
     { name = "llm-behavior-eval-common", editable = "packages/common" },
+    { name = "llm-behavior-eval-llmail-inject", extras = ["tfidf"], editable = "packages/security/llmail_inject" },
     { name = "llm-behavior-eval-security", editable = "packages/security" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyrefly", specifier = ">=1.2,<2" },
@@ -2547,15 +2550,41 @@ requires-dist = [
 ]
 
 [[package]]
+name = "llm-behavior-eval-llmail-inject"
+version = "0.1.12"
+source = { editable = "packages/security/llmail_inject" }
+dependencies = [
+    { name = "llm-behavior-eval-common" },
+    { name = "tiktoken" },
+]
+
+[package.optional-dependencies]
+tfidf = [
+    { name = "scikit-learn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "llm-behavior-eval-common", specifier = ">=0.1.12,<0.2" },
+    { name = "scikit-learn", marker = "extra == 'tfidf'", specifier = ">=1.5,<2" },
+    { name = "tiktoken", specifier = ">=0.7,<0.13" },
+]
+provides-extras = ["tfidf"]
+
+[[package]]
 name = "llm-behavior-eval-security"
 version = "0.1.12"
 source = { editable = "packages/security" }
 dependencies = [
     { name = "llm-behavior-eval-common" },
+    { name = "llm-behavior-eval-llmail-inject" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "llm-behavior-eval-common", editable = "packages/common" }]
+requires-dist = [
+    { name = "llm-behavior-eval-common", editable = "packages/common" },
+    { name = "llm-behavior-eval-llmail-inject", editable = "packages/security/llmail_inject" },
+]
 
 [[package]]
 name = "llvmlite"

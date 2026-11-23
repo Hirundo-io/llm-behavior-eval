@@ -78,6 +78,8 @@ dev = [
   # Every workspace distribution, installed editable in the dev environment.
   "llm-behavior-eval-common",
   "llm-behavior-eval-security",
+  # With the tfidf extra, so the full suite covers LLMail-Inject levels 3 and 4.
+  "llm-behavior-eval-llmail-inject[tfidf]",
   # 1.2 is the first release that resolves llm_behavior_eval across the workspace's
   # src directories (a regular package in src/ and namespace portions in packages/).
   "pyrefly>=1.2,<2",
@@ -106,12 +108,14 @@ default-groups = ["dev", "ci"]
 members = [
   "packages/common",
   "packages/security",
+  "packages/security/llmail_inject",
 ]
 
 [tool.uv.sources]
 llm-behavior-eval = { workspace = true }
 llm-behavior-eval-common = { workspace = true }
 llm-behavior-eval-security = { workspace = true }
+llm-behavior-eval-llmail-inject = { workspace = true }
 
 [tool.setuptools.packages.find]
 # The legacy engine and llm_behavior_eval/__init__.py; native benchmarks and their
@@ -189,6 +193,7 @@ project-excludes = ["**/build/**", "**/.venv/**"]
 search-path = [
   "src",
   "packages/common/src",
+  "packages/security/llmail_inject/src",
   "tests",
   "scripts",
   ".",
