@@ -51,18 +51,22 @@ def _field(sample: SampleScore, key: str) -> Any:
     return (sample.score.metadata or {}).get(key)
 
 
-def _success(sample: SampleScore) -> int | None:
-    value = _field(sample, "success")
+def _success(sample: SampleScore, key: str = "success") -> int | None:
+    value = _field(sample, key)
     return value if value in (0, 1) else None
 
 
-def success_rate(scores: list[SampleScore]) -> float:
-    """Share of scored attempts that succeeded; NaN when none is scored."""
-    results = [r for r in (_success(s) for s in scores) if r is not None]
+def success_rate(scores: list[SampleScore], key: str = "success") -> float:
+    """Share of scored attempts that succeeded; NaN when none is scored.
+
+    ``key`` is the score metadata field holding each attempt's 1, 0 or
+    ``None``.
+    """
+    results = [r for r in (_success(s, key) for s in scores) if r is not None]
     return sum(results) / len(results) if results else math.nan
 
 
-def success_rate_stderr(scores: list[SampleScore]) -> float:
+def success_rate_stderr(scores: list[SampleScore], key: str = "success") -> float:
     """Standard error of ``success_rate``, clustering each sample's epochs.
 
     The sample standard deviation of each sample's success fraction over the
@@ -70,7 +74,7 @@ def success_rate_stderr(scores: list[SampleScore]) -> float:
     """
     groups: dict[Any, list[int]] = {}
     for sample in scores:
-        result = _success(sample)
+        result = _success(sample, key)
         if result is not None:
             groups.setdefault(sample.sample_id, []).append(result)
     per_sample = [sum(group) / len(group) for group in groups.values()]
@@ -81,10 +85,15 @@ def success_rate_stderr(scores: list[SampleScore]) -> float:
     return statistics.stdev(per_sample) / math.sqrt(len(per_sample))
 
 
-def mean_recall(scores: list[SampleScore]) -> float:
-    """Mean ROUGE-L recall of the scored attempts; NaN when none is scored."""
+def mean_recall(
+    scores: list[SampleScore], key: str = "rouge_l_recall", outcome: str = "success"
+) -> float:
+    """Mean recall (field ``key``) of the attempts scored in field ``outcome``.
+
+    NaN when none is scored.
+    """
     recalls = [
-        float(_field(s, "rouge_l_recall")) for s in scores if _success(s) is not None
+        float(_field(s, key)) for s in scores if _success(s, outcome) is not None
     ]
     return sum(recalls) / len(recalls) if recalls else math.nan
 

@@ -24,5 +24,25 @@
       "is_higher_better": false,
       "is_normalized": true
     }
+  ],
+  "llm_behavior_eval/raccoon_word_recall": [
+    {
+      "name": "leakage_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    },
+    {
+      "name": "mean_word_recall",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    },
+    {
+      "name": "incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
   ]
 }

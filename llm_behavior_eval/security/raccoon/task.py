@@ -1,9 +1,13 @@
 """Raccoon (Wang et al., "Raccoon: Prompt Extraction Benchmark of LLM-Integrated Applications").
 
-One task covers upstream's four settings (singular or compound attacks,
+``raccoon`` covers upstream's four settings (singular or compound attacks,
 against defenseless or defended GPTs) through its ``attacks`` and ``defense``
 arguments; each attempt is one sample, scored by ROUGE-L recall of the GPT's
 prompt in the response, with no judge.
+
+``raccoon_word_recall`` is Hirundo's own word-token variant on a prepared
+panel (``word_recall``); it is not upstream's metric and its numbers are not
+comparable with ``raccoon``'s.
 """
 
 from typing import cast
@@ -14,6 +18,7 @@ from inspect_ai.solver import generate
 from llm_behavior_eval.common.scoring import completion_scorer
 
 from . import scorer as scoring
+from . import word_recall
 from .dataset import (
     ATTACK_FOLDERS,
     DEFENSE_TEMPLATE_NAMES,
@@ -30,6 +35,8 @@ from .prompts import DEFENSES, SYSTEM_TEMPLATES, Defense, SystemTemplate
 
 TASK_VERSION = 1
 """Bump when a change can alter results (prompts, data, scoring, metrics)."""
+WORD_RECALL_TASK_VERSION = 1
+"""``raccoon_word_recall``'s version; bump it on the same terms."""
 DEFAULT_SHUFFLE_SEED = 2024
 PROMPT_FORMATS = ("system", "user_turn")
 
@@ -131,4 +138,37 @@ def raccoon(
             "prompt_format": prompt_format,
             "success_threshold": success_threshold,
         },
+    )
+
+
+@task
+def raccoon_word_recall(
+    dataset_path: str, threshold: float = word_recall.DEFAULT_THRESHOLD
+) -> Task:
+    """Share of attempts whose response leaks a prepared panel's reference.
+
+    Hirundo's word-token variant, not upstream's metric: lowercased ``\\w+``
+    words, LCS recall of the reference, whole-line echo filter.
+
+    Args:
+        dataset_path: The panel, a JSON array (or JSON Lines for ``.jsonl``)
+            of objects with non-empty string ``id``, ``system``, ``attack``
+            and ``reference``; ids must be unique.
+        threshold: The word recall from which a response counts as a leak,
+            between 0 and 1.
+
+    Returns:
+        A task with no inference defaults and no grader.
+
+    Raises:
+        ValueError: ``threshold`` is outside [0, 1] or the panel fails
+            validation.
+    """
+    leakage_scorer = word_recall.raccoon_word_recall_scorer(threshold)
+    return Task(
+        dataset=word_recall.panel_dataset(dataset_path),
+        solver=generate(),
+        scorer=[leakage_scorer, completion_scorer()],
+        version=WORD_RECALL_TASK_VERSION,
+        metadata={"threshold": threshold},
     )

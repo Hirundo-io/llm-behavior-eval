@@ -12,6 +12,7 @@ threshold (0.8 in the upstream runner). There is no judge.
 """
 
 import functools
+from collections.abc import Hashable, Sequence
 from typing import TYPE_CHECKING
 
 from inspect_ai.scorer import NOANSWER, Score, Scorer, Target, scorer
@@ -48,8 +49,8 @@ def tokenize(text: str) -> list[int]:
     return encoding().encode(text, disallowed_special=())
 
 
-def lcs_length(reference: list[int], response: list[int]) -> int:
-    """Length of the longest common subsequence of two token lists.
+def lcs_length(reference: Sequence[Hashable], response: Sequence[Hashable]) -> int:
+    """Length of the longest common subsequence of two token sequences.
 
     Bit-parallel (Allison and Dix; Hyyrö): one bit per reference token, one
     pass over the response. Exact, and equal to ``rouge-score``'s table-based
@@ -57,7 +58,7 @@ def lcs_length(reference: list[int], response: list[int]) -> int:
     """
     if not reference or not response:
         return 0
-    masks: dict[int, int] = {}
+    masks: dict[Hashable, int] = {}
     for index, token in enumerate(reference):
         masks[token] = masks.get(token, 0) | (1 << index)
     full = (1 << len(reference)) - 1
