@@ -6,6 +6,7 @@ The synthetic benchmark ``tests/example_benchmark`` (the template a new
 benchmark copies) is checked like a workspace member.
 """
 
+import ast
 import json
 import os
 import shutil
@@ -624,3 +625,28 @@ def test_package_tests_rebuild_every_workspace_member(
             if arg == "--reinstall-package"
         ]
         assert rebuilt == names
+
+
+def test_lazy_exports_match_the_type_checking_imports() -> None:
+    # The root __init__ lists each legacy export twice: in the TYPE_CHECKING
+    # imports that type checkers read, and in the _EXPORTS map that
+    # __getattr__ loads from at run time. Both must name the same modules.
+    import llm_behavior_eval
+
+    tree = ast.parse(Path(llm_behavior_eval.__file__).read_text(encoding="utf-8"))
+    guarded = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Name)
+        and node.test.id == "TYPE_CHECKING"
+    )
+    typed = {
+        alias.asname or alias.name: "." * node.level + (node.module or "")
+        for node in guarded.body
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+    }
+    exports = llm_behavior_eval._EXPORTS  # noqa: SLF001
+    assert typed == exports
+    assert set(llm_behavior_eval.__all__) == set(exports)
