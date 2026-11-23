@@ -19,6 +19,7 @@ import pytest
 from packaging.requirements import Requirement
 from packaging.version import Version
 
+import run_package_tests
 from check_artifact_licenses import check_artifact, check_directory
 from workspace import (
     EXAMPLE,
@@ -458,3 +459,13 @@ def wheel_files(path: Path) -> set[str]:
             for name in archive.namelist()
             if not name.split("/", 1)[0].endswith(".dist-info")
         }
+
+
+def test_package_tests_reject_an_unknown_distribution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["run_package_tests.py", "llm-behavior-eval-nope"])
+    with pytest.raises(
+        SystemExit, match="Not workspace members: llm-behavior-eval-nope"
+    ):
+        run_package_tests.main()

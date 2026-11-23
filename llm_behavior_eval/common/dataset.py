@@ -49,6 +49,13 @@ def is_saved_dataset(path: str) -> bool:
     ``DatasetDict``, or both ``dataset_info.json`` and ``state.json`` for a
     ``Dataset``. A ``load_dataset`` folder that happens to hold one of those
     files is still read by ``hf_dataset``.
+
+    Args:
+        path: The local folder to inspect.
+
+    Returns:
+        True when it holds a ``save_to_disk`` snapshot, to be read with
+        ``load_saved_dataset``.
     """
     folder = Path(path)
     return (folder / "dataset_dict.json").is_file() or all(
@@ -62,6 +69,10 @@ def check_unsaved_folder(path: str) -> None:
     ``load_dataset`` refuses any folder holding a ``state.json`` and points to
     ``load_from_disk``, which cannot read it either unless the folder is a
     complete ``save_to_disk`` snapshot (see ``is_saved_dataset``).
+
+    Args:
+        path: The local data folder ``load_dataset`` would read; it is checked
+            for a ``state.json`` file.
 
     Raises:
         ValueError: ``path`` is a folder with a ``state.json`` that is not a
@@ -90,6 +101,15 @@ def load_saved_dataset(
     is. With ``seed``, rows are shuffled in memory exactly as ``hf_dataset``
     shuffles them (shuffling on disk would write an indices cache file into
     the folder).
+
+    Args:
+        path: The ``save_to_disk`` folder.
+        split: The split to read from a saved ``DatasetDict``.
+        sample_fields: Converts each row to an Inspect ``Sample``.
+        seed: Shuffle the rows with this seed, as ``hf_dataset`` would.
+
+    Returns:
+        The rows as an in-memory dataset, marked shuffled when seeded.
 
     Raises:
         ValueError: A saved ``DatasetDict`` has no ``split``, its
