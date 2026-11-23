@@ -94,11 +94,33 @@ distribution in place of the one it shadows. A benchmark that needs either:
   pip install "llm-behavior-eval-agentdyn @ git+https://github.com/Hirundo-io/llm-behavior-eval@<tag>#subdirectory=llm_behavior_eval/security/agentdyn"
   ```
 
-AgentDyn is such a benchmark: it depends on a Git fork published under the
-distribution name `agentdojo`, which conflicts with stock AgentDojo. If another
-workspace member ever requires stock `agentdojo`, also declare the two members
-as conflicting in the root `pyproject.toml`
-(`[tool.uv] conflicts = [[{ package = "llm-behavior-eval-agentdyn" }, { package = "<other>" }]]`)
-and leave AgentDyn out of the dev group. If RuLES or Raccoon keeps a direct Git
-dependency on its upstream code (as the hirundo-safety adapters do), it is
-unpublished the same way until that code is on PyPI.
+A benchmark whose dependencies would also hold back the rest of the workspace
+(older versions of shared packages in `uv.lock`) is in addition declared as
+conflicting in the root `pyproject.toml` and left out of the dev group, so uv
+resolves it separately: the dev environment and the other members keep their
+versions, and the benchmark locks, installs and runs its tests in an
+environment of its own (`--package llm-behavior-eval-<benchmark>`, as
+`scripts/run_package_tests.py` does). Its tests skip where its dependencies are
+missing (`pytest.importorskip`), and pyrefly treats the missing imports as
+`Any` in the dev environment (`ignore-missing-imports` in `[tool.pyrefly]`)
+and checks the benchmark again in its own environment
+(`.github/workflows/pyrefly.yaml`).
+
+AgentDyn is such a benchmark on both counts: it depends on a Git fork
+published under the distribution name `agentdojo`, which conflicts with stock
+AgentDojo, and the fork's Vertex AI client pins `protobuf` below 6 and
+`google-cloud-storage` below 3. The root `pyproject.toml` has
+
+```toml
+[tool.uv]
+conflicts = [
+  [{ package = "llm-behavior-eval-agentdyn" }, { group = "dev" }],
+]
+```
+
+If another workspace member ever requires stock `agentdojo`, also declare the
+two members as conflicting
+(`[{ package = "llm-behavior-eval-agentdyn" }, { package = "<other>" }]`). If
+RuLES or Raccoon keeps a direct Git dependency on its upstream code (as the
+hirundo-safety adapters do), it is unpublished the same way until that code is
+on PyPI.

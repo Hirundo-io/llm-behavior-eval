@@ -16,6 +16,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 import yaml
+
+# The agentdojo fork conflicts with the dev group ([tool.uv] conflicts in the root
+# pyproject.toml), so these tests run only in AgentDyn's own environment
+# (scripts/run_package_tests.py) and skip in the dev environment.
+pytest.importorskip("agentdojo")
+
 from agentdojo.agent_pipeline.agent_pipeline import load_system_message
 from agentdojo.attacks.attack_registry import ATTACKS
 from agentdojo.functions_runtime import FunctionsRuntime

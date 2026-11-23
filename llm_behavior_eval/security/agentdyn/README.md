@@ -281,14 +281,32 @@ reproduced and no live-model run has been done. The task declares Inspect
 `agentdojo` from `git+https://github.com/SaFo-Lab/AgentDyn.git` at the pinned
 commit (which brings its own model clients: OpenAI, Anthropic, Cohere, Google
 GenAI and Vertex AI, LangChain, pydantic-ai), and `numpy` for the summary.
-None of those clients is used here. They weigh on the workspace lock: the
+None of those clients is used here, but they constrain the environment: the
 fork's `vertexai` requirement resolves to its last release, 1.71.1, which pins
 `google-cloud-aiplatform` 1.71.1 and so holds `protobuf` below 6 and
-`google-cloud-storage` below 3 in the development environment (a user's own
-environment for this distribution is affected the same way).
+`google-cloud-storage` below 3 (a user's own environment for this
+distribution is affected the same way).
+
+So that this does not hold the rest of the workspace back, the root
+`pyproject.toml` declares this distribution as conflicting with the dev group
+(`[tool.uv] conflicts`) and leaves it out of that group. `uv.lock` resolves it
+separately: `uv sync` (the dev environment) and every other distribution keep
+their own versions and do not install AgentDyn or `agentdojo`, while this
+distribution's environment gets the versions above. Work on it in that
+environment:
+
+```sh
+python scripts/run_package_tests.py llm-behavior-eval-agentdyn   # its tests
+uv run --isolated --no-editable --locked --package llm-behavior-eval-agentdyn \
+  inspect eval llm_behavior_eval/agentdyn --model openai-api/answer/MODEL
+```
+
+In the dev environment `tests/test_inspect_agentdyn.py` is skipped (it needs
+`agentdojo`), and pyrefly types `agentdojo`'s imports as `Any`
+(`ignore-missing-imports` in the root `pyproject.toml`); the pyrefly workflow
+checks this package and its tests again in this environment.
+
 The pin is `AGENTDYN_COMMIT` in `constants.py`, the requirement in
 `pyproject.toml` and `AGENTDYN_REPOSITORY_REV` in
 `.github/upstream-revisions.env`; `python scripts/sync_upstream_revisions.py`
 moves the first two together, after which `uv lock` relocks the workspace.
-The tests run in an environment holding only this distribution and its
-dependencies (`python scripts/run_package_tests.py llm-behavior-eval-agentdyn`).

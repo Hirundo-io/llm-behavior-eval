@@ -237,7 +237,11 @@ a distribution of the same name, such as AgentDyn's `agentdojo` fork) sets
 `[tool.llm-behavior-eval] unpublished = "<reason>"` in its `pyproject.toml`.
 It stays a workspace member with its own tests, but no distribution depends on
 it (not the root, not a group, not through an extra), and the release workflow
-leaves it out (`python scripts/workspace.py --unpublished`).
+leaves it out (`python scripts/workspace.py --unpublished`). One whose
+dependencies would hold back shared packages in `uv.lock` (AgentDyn) also
+conflicts with the dev group (`[tool.uv] conflicts`), so `uv sync` leaves it
+out and it runs only in its light environment; see
+`llm_behavior_eval/security/README.md`.
 
 ## Add or migrate a benchmark
 
