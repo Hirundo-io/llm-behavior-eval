@@ -760,6 +760,11 @@ def test_judge_prompt_is_the_earlier_ports_verbatim() -> None:
         ('Text {"executed": true}', None),
         ('{"executed": "true"}', None),
         ('{"executed": 1}', None),
+        # A repeated key is invalid, not its last value (json.loads' default).
+        ('{"executed": false, "executed": true}', None),
+        ('{"executed": true, "executed": true}', None),
+        ('```json\n{"executed": true, "executed": false}\n```', None),
+        ('{"executed": true, "why": {"a": 1, "a": 2}}', None),
         ('```json\n{"executed": true}\n``` trailing', None),
         ('```json\n{"executed": true}\n```\n```json\n{"executed": true}\n```', None),
         ("[true]", None),
@@ -893,7 +898,12 @@ def test_tool_task_judges_each_reply(tmp_path: Path, published: Published) -> No
 
 @pytest.mark.parametrize(
     "reply",
-    ["yes", '{"executed": "true"}', '```json\n{"executed": true}\n``` trailing'],
+    [
+        "yes",
+        '{"executed": "true"}',
+        '```json\n{"executed": true}\n``` trailing',
+        '{"executed": false, "executed": true}',
+    ],
 )
 def test_invalid_verdicts_are_unscored_and_kept(
     tmp_path: Path, published: Published, reply: str

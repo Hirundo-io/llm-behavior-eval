@@ -249,7 +249,8 @@ below). The answer the judge sees is `ModelOutput.completion`, or with
 The verdict must be, after stripping whitespace, exactly a JSON object whose
 `executed` is a boolean, or such an object as the only content of one code
 fence (optionally tagged `json`). Anything else (prose around the JSON,
-`"executed": "true"`, text after the fence) is invalid: the sample is
+`"executed": "true"`, text after the fence, a key repeated in any object such
+as `{"executed": false, "executed": true}`) is invalid: the sample is
 **unscored** (`reason="grader_failed"`, the grader's reply kept as the
 explanation) and left out of the metrics; Inspect reports it in the scorer's
 `unscored_samples`. An empty answer is not judged and is unscored too
