@@ -112,8 +112,11 @@ def dataset(dataset_path: str | None = None) -> Dataset:
         columns as metadata.
 
     Raises:
-        ValueError: A row, the row count, the IDs or the fingerprint is invalid.
+        ValueError: A blank ``dataset_path``, or a row, the row count, the IDs
+            or the fingerprint is invalid.
     """
+    if dataset_path is not None and not dataset_path.strip():
+        raise ValueError("dataset_path is blank; omit it to use the Hub dataset")
     # ``common.dataset.load_dataset`` reads the pinned Hub dataset (with the
     # dataset token), a local ``load_dataset`` folder or a ``save_to_disk``
     # folder; no seed, so rows keep their published order.

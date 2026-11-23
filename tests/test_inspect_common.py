@@ -25,7 +25,14 @@ from inspect_ai.model import (
     ModelOutput,
     get_model,
 )
-from inspect_ai.scorer import Score, Scorer, Target, scorer
+from inspect_ai.scorer import (
+    MetricProtocol,
+    SampleScore,
+    Score,
+    Scorer,
+    Target,
+    scorer,
+)
 from inspect_ai.solver import TaskState
 
 from llm_behavior_eval.common import dataset as common_dataset
@@ -36,10 +43,14 @@ from llm_behavior_eval.common.dataset import (
     load_dataset,
 )
 from llm_behavior_eval.common.scoring import (
+    REASONING_MARKUP,
     ask_grader,
     completion_scorer,
+    invalid_response_reasons,
     judged_answer,
+    response_validity_scorer,
     stop_reason,
+    valid_response_rate,
 )
 from llm_behavior_eval.common.target_metrics import (
     load_target_metrics,
@@ -249,6 +260,83 @@ def test_judged_answer_and_stop_reason() -> None:
     empty = state_with(ModelOutput(model="m", choices=[]))
     assert stop_reason(empty) is None
     assert judged_answer(empty, include_reasoning=True) == ""
+
+
+def answer_state(
+    text: str, stop: str = "stop", reasoning: str | None = None
+) -> TaskState:
+    content: list[ContentReasoning | ContentText] = [ContentText(text=text)]
+    if reasoning is not None:
+        content.insert(0, ContentReasoning(reasoning=reasoning))
+    message = ChatMessageAssistant(content=content)
+    choice = ChatCompletionChoice(message=message, stop_reason=stop)  # type: ignore[arg-type]
+    return state_with(ModelOutput(model="m", choices=[choice]))
+
+
+@pytest.mark.parametrize(
+    ("state", "reasons"),
+    [
+        (answer_state("final"), []),
+        # Parsed reasoning is not part of the final answer.
+        (answer_state("final", reasoning="<think>plan</think>"), []),
+        (state_with(ModelOutput(model="m", choices=[])), ["no_output"]),
+        (answer_state("final", "max_tokens"), ["stop_reason:max_tokens"]),
+        (answer_state("final", "model_length"), ["stop_reason:model_length"]),
+        # Inspect's hf/ provider reports no stop reason: never valid.
+        (answer_state("final", "unknown"), ["stop_reason:unknown"]),
+        (answer_state(" \n", reasoning="all reasoning"), ["blank_final"]),
+        (answer_state("plan</think>final"), ["reasoning_markup"]),
+        (
+            answer_state("<think>unfinished", "max_tokens"),
+            ["stop_reason:max_tokens", "reasoning_markup"],
+        ),
+        (answer_state("", "max_tokens"), ["stop_reason:max_tokens", "blank_final"]),
+    ],
+)
+def test_invalid_response_reasons(state: TaskState, reasons: list[str]) -> None:
+    assert invalid_response_reasons(state) == reasons
+
+
+@pytest.mark.parametrize("markup", REASONING_MARKUP)
+def test_every_reasoning_markup_is_rejected(markup: str) -> None:
+    # Anywhere in the final answer, however long.
+    text = "x" * 10_000 + markup + "final"
+    assert invalid_response_reasons(answer_state(text)) == ["reasoning_markup"]
+
+
+def test_valid_response_rate() -> None:
+    def rate(values: list[int]) -> float:
+        scores = [SampleScore(score=Score(value=value)) for value in values]
+        return cast("float", cast("MetricProtocol", valid_response_rate())(scores))
+
+    assert math.isnan(rate([]))
+    assert rate([1, 0, 1, 1]) == 0.75
+    assert rate([0]) == 0
+
+
+def test_response_validity_scorer(tmp_path: Path) -> None:
+    replies = iter(["final", "<think>unfinished"])
+
+    def answer(*args: Any) -> ModelOutput:
+        return ModelOutput.from_content("mockllm/answer", next(replies))
+
+    task = Task(
+        dataset=[Sample(input="q1"), Sample(input="q2")],
+        scorer=response_validity_scorer(),
+    )
+    assert reduced_metrics(task) == []
+    log = run(
+        task,
+        tmp_path,
+        model=get_model("mockllm/answer", custom_outputs=answer),
+        max_samples=1,
+    )
+    assert eval_metrics(log) == {"valid_response_rate": 0.5}
+    scores = sample_scores(log, "response_validity_scorer")
+    assert sorted((s.value, s.metadata) for s in scores) == [
+        (0, {"invalid_reasons": ["reasoning_markup"], "stop_reason": "stop"}),
+        (1, {"invalid_reasons": [], "stop_reason": "stop"}),
+    ]
 
 
 @scorer(metrics=[])

@@ -14,7 +14,8 @@ import yaml
 from datasets import Dataset as HFDataset
 from datasets import DatasetDict
 from inspect_ai import eval as inspect_eval
-from inspect_ai._cli.eval import RunConfigInput
+from inspect_ai._cli.eval import RunConfigInput, merge_run_config_params
+from inspect_ai._cli.util import parse_cli_config
 from inspect_ai.log import EvalLog
 from inspect_ai.model import GenerateConfig, ModelOutput, get_model
 from inspect_ai.scorer import MetricProtocol, SampleScore, Score
@@ -325,6 +326,26 @@ def test_grader_is_required(tmp_path: Path, hub: Callable[..., list[Any]]) -> No
     assert_grader_required(ccpc_v2(), tmp_path, limit=1)
 
 
+def test_grader_is_required_when_no_answer_is_judged(
+    tmp_path: Path, hub: Callable[..., list[Any]]
+) -> None:
+    # Every answer is invalid, so none reaches the grader; a missing grader
+    # role must still fail the run rather than go unnoticed.
+    hub(synthetic_rows())
+    assert_grader_required(
+        ccpc_v2(require_valid_response=True),
+        tmp_path,
+        model=mock_grader("<think>unfinished", "mockllm/answer"),
+        limit=2,
+    )
+
+
+@pytest.mark.parametrize("path", ["", "  "])
+def test_blank_dataset_path_is_rejected(path: str) -> None:
+    with pytest.raises(ValueError, match="dataset_path is blank"):
+        ccpc_v2(dataset_path=path)
+
+
 def score(verdict: bool | None, sample_id: str = "s") -> SampleScore:
     return SampleScore(
         sample_id=sample_id, score=Score(value=0, metadata={"verdict": verdict})
@@ -628,6 +649,37 @@ def test_reasoning_markup_covers_the_qwen3_template() -> None:
     assert {"<think>", "</think>", "<tool_call>", "</tool_call>"} <= set(
         REASONING_MARKUP
     )
+
+
+@pytest.mark.parametrize(
+    ("cli_args", "task_args"),
+    [
+        ((), {"require_valid_response": True}),
+        (
+            ("judge_sees_answer_reasoning=true",),
+            {"require_valid_response": True, "judge_sees_answer_reasoning": True},
+        ),
+        (("require_valid_response=false",), {"require_valid_response": False}),
+    ],
+)
+def test_thinking_on_task_args_survive_a_command_line_task(
+    cli_args: tuple[str, ...], task_args: dict[str, Any]
+) -> None:
+    """``inspect eval llm_behavior_eval/ccpc_v2 --run-config thinking_on.yaml``.
+
+    The command-line task replaces the config's task name only; the config's
+    task arguments are kept and merged with ``-T`` (as the config documents).
+    """
+    config = yaml.safe_load((PACKAGE / "thinking_on.yaml").read_text())
+    del config["model_roles"]  # Building the hf/ grader would load its weights.
+    run_params = RunConfigInput.model_validate(config).to_params()
+    cli_params = {
+        "tasks": ["llm_behavior_eval/ccpc_v2"],
+        "task_args": parse_cli_config(cli_args, None),
+    }
+    params = merge_run_config_params(run_params, cli_params)
+    assert params["tasks"] == ["llm_behavior_eval/ccpc_v2"]
+    assert params["task_args"] == task_args
 
 
 def test_thinking_on_config_is_separate_and_pinned(

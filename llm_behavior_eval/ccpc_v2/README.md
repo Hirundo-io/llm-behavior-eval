@@ -51,8 +51,8 @@ the judge sees (`judged_answer`), the grader call (`ask_grader`),
 | --- | --- |
 | `dataset.py` | Pinned coordinates, local sources, full-source validation, `record_to_sample` |
 | `prompts.py` | Rubric `ccpc_binary_v4`, verbatim from the legacy engine; JSON judge input; verdict parser |
-| `scorer.py` | The judge scorer (the task also lists the shared `completion_scorer()`) |
-| `metrics.py` | `censorship_rate`, `stderr`, `judged_fraction`, `incomplete_response_rate` |
+| `scorer.py` | The judge scorer (the task also lists the shared `completion_scorer()`, which reports `incomplete_response_rate`, and `response_validity_scorer()`, which reports `valid_response_rate`) |
+| `metrics.py` | `censorship_rate`, `stderr`, `judged_fraction` |
 | `task.py` | The task, its version and contract metadata |
 | `parity.yaml` | Legacy settings for both roles as an Inspect run config (thinking off) |
 | `thinking_on.yaml` | Opt-in thinking-on run config, with response validity required |
@@ -147,6 +147,14 @@ reason before answering. `parity.yaml` and the default contract are unchanged.
 inspect eval --run-config llm_behavior_eval/ccpc_v2/thinking_on.yaml \
   --model openai-api/SERVICE/MODEL
 ```
+
+The config names the task, so leave it off the command line. Naming
+`llm_behavior_eval/ccpc_v2` there too is harmless with Inspect 0.3.289: the
+command-line task replaces the config's task name, but the config's task
+arguments are kept and merged with any `-T` options (a `-T` value wins for its
+key). So `-T require_valid_response=false` turns the validity check off, and
+naming another task on the command line would hand it this config's
+`require_valid_response` argument.
 
 - **Server.** Serve the model under test with vLLM's Qwen3 reasoning parser
   (`--reasoning-parser qwen3`), so the reasoning arrives in its own field and

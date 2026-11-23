@@ -20,6 +20,7 @@ from inspect_ai.solver import TaskState
 
 from llm_behavior_eval.common.scoring import (
     ask_grader,
+    grader,
     invalid_response_reasons,
     judged_answer,
     stop_reason,
@@ -55,6 +56,7 @@ def ccpc_v2_scorer(
     """
 
     async def score(state: TaskState, target: Target) -> Score:
+        grader()  # The grader role is required even if no answer is judged.
         answer = judged_answer(state, include_reasoning=judge_sees_answer_reasoning)
         if require_valid_response and (reasons := invalid_response_reasons(state)):
             return Score(
