@@ -122,7 +122,8 @@ def load_saved_dataset(
     index = Path(path) / "dataset_dict.json"
     if index.is_file():
         # load_from_disk fails on it with a bare KeyError('splits').
-        splits = json.loads(index.read_text(encoding="utf-8")).get("splits")
+        content = json.loads(index.read_text(encoding="utf-8"))
+        splits = content.get("splits") if isinstance(content, dict) else None
         if not isinstance(splits, list):
             raise ValueError(
                 f"{index} lists no splits, so {path} is not a DatasetDict"
