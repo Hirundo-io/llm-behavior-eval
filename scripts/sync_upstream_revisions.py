@@ -154,15 +154,18 @@ def mismatches(pins: list[Pin]) -> dict[Pin, str]:
 
 
 def owning_directory(file: Path) -> Path:
-    """The workspace member directory that holds ``file``.
+    """The innermost workspace member directory that holds ``file``.
+
+    A group distribution's directory contains its benchmarks' directories, so
+    the deepest match is the benchmark that owns the file.
 
     Raises:
         ValueError: ``file`` is in no workspace member.
     """
-    for member in members():
-        if file.is_relative_to(member.path):
-            return member.path
-    raise ValueError(f"{file} is not in a workspace member")
+    owners = [member.path for member in members() if file.is_relative_to(member.path)]
+    if not owners:
+        raise ValueError(f"{file} is not in a workspace member")
+    return max(owners, key=lambda path: len(path.parts))
 
 
 def sync(pins: list[Pin]) -> list[Path]:

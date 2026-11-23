@@ -18,7 +18,8 @@ stayed unloaded. Dependency versions come from ``uv.lock``.
 
 Usage: ``python scripts/check_installs.py [--group GROUP] [--keep DIR]``.
 ``--group`` stages the benchmark inside a group (``llm_behavior_eval.<group>``)
-and installs that group's distribution with it when the workspace has one.
+and installs that group's distribution and its benchmarks (the wheels and
+sources built here, not PyPI) with it when the workspace has one.
 """
 
 import argparse
@@ -29,7 +30,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from workspace import EXAMPLE, ROOT, members
+from workspace import EXAMPLE, ROOT, benchmark_dependencies, members
 
 TASK = "llm_behavior_eval/example"
 PROBE = """
@@ -154,8 +155,11 @@ def main() -> None:
         None,
     )
     if group is not None:
-        native.append(wheel(group.name))
-        editable.append(group.path)
+        # The group's benchmarks are not on PyPI at this version: install the
+        # wheels just built (and the sources, for the editable scenario).
+        benchmarks = benchmark_dependencies(group, members())
+        native.extend(wheel(m.name) for m in [group, *benchmarks])
+        editable.extend(m.path for m in [group, *benchmarks])
     results = {}
     for scenario in ("light", "together", "editable"):
         venv = work / f"venv-{scenario}"

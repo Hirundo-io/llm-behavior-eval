@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import sync_upstream_revisions as sync
-from workspace import ROOT
+from workspace import ROOT, Distribution
 
 OLD = "1" * 40
 NEW = "2" * 40
@@ -97,3 +97,19 @@ def test_sync_replaces_the_old_commit_in_the_owning_distribution(
 
 def test_manifest_lives_in_the_repository() -> None:
     assert sync.MANIFEST == ROOT / ".github" / "upstream-revisions.env"
+
+
+def test_owning_directory_is_the_innermost_member(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    group = tmp_path / "packages" / "group"
+    benchmark = group / "benchmark"
+    monkeypatch.setattr(
+        sync,
+        "members",
+        lambda: [Distribution(group), Distribution(benchmark)],
+    )
+    assert sync.owning_directory(benchmark / "src" / "data.py") == benchmark
+    assert sync.owning_directory(group / "README.md") == group
+    with pytest.raises(ValueError, match="not in a workspace member"):
+        sync.owning_directory(tmp_path / "elsewhere.py")
