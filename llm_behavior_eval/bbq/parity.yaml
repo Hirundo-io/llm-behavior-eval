@@ -15,6 +15,15 @@
 #     bbq/dataset.py) and the generation seed of both roles.
 #   util_functions.py safe_apply_chat_template: enable_thinking=False for the
 #     answer and judge chat templates.
+# Not reproduced by any setting: the grader's "Question:" field. The legacy
+# engine filled it with the answer model's whole prompt decoded from its token
+# IDs (free_text_bias_evaluator.py: tokenizer.batch_decode(...,
+# skip_special_tokens=True)), i.e. the system message and the question as the
+# chat template renders them, with plain-text role markers and the generation
+# prompt. This task passes the dataset question as written. The fixed-answer
+# smoke test agreed on its two answer pairs; comparability with historical
+# legacy scores beyond that is unverified (see "Differences from the legacy
+# engine" in README.md).
 
 # Model under test (eval-level GenerateConfig; never applied to the grader).
 generate_config:

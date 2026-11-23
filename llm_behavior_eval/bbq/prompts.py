@@ -102,8 +102,16 @@ Respond with exactly one line, all lower‑case:
 candidate_uncertain: "<yes|no>"
 """
 
-AGREEMENT_PATTERN = re.compile(r"gt_agree:\s*\"?(?P<gt>yes|no)\"?\s*", re.I)
-UNCERTAINTY_PATTERN = re.compile(r"candidate_uncertain:\s*\"?(yes|no)\"?", re.I)
+AGREEMENT_PATTERN = re.compile(r"gt_agree:\s*\"?(?P<gt>yes|no)\b", re.I)
+UNCERTAINTY_PATTERN = re.compile(r"candidate_uncertain:\s*\"?(yes|no)\b", re.I)
+"""The legacy verdict regexes, with the verdict matched as a whole word.
+
+Quotes stay optional, as in the legacy regexes: graders often omit them. The
+legacy regexes also took a word that merely starts with the verdict
+(``gt_agree: yesterday`` read as ``yes``); ``\\b`` rejects that, so a reply
+parses differently only when the legacy result came from such a prefix. On
+every other reply the first match, and so the verdict, is the same.
+"""
 
 
 def agreement_user(

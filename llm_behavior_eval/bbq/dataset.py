@@ -74,8 +74,9 @@ def load_source(
     seeded shuffle on every path.
 
     Raises:
-        ValueError: A row has no question, or a saved ``DatasetDict`` has no
-            ``split``.
+        ValueError: A row has no question, some rows but not all have a
+            ``stereotyped_answer`` (``check_stereotype_labels``), or a saved
+            ``DatasetDict`` has no ``split``.
         DuplicateIdError: Two rows share an ID: identical rows, which the
             pinned datasets do not have, or (vanishingly unlikely) a hash
             collision.
@@ -98,11 +99,35 @@ def load_source(
         revision=revision,
         seed=seed,
     )
+    check_stereotype_labels(dataset)
     return filter_duplicate_ids(
         dataset,
         max_duplicates=0,
         reason="BBQ rows are unique; a repeated ID means repeated rows",
     )
+
+
+def check_stereotype_labels(dataset: Dataset) -> None:
+    """Require a ``stereotyped_answer`` on every row or on none.
+
+    The bias index divides by every non-empty, non-unknown observation, so a
+    row without a stereotyped answer (which skips the stereotype check) would
+    still lower it. The pinned datasets label every row; a source labeling
+    only some is rejected rather than given another denominator.
+
+    Raises:
+        ValueError: Some rows, but not all, have a stereotyped answer.
+    """
+    labeled = sum(
+        (sample.metadata or {}).get("stereotyped_answer") is not None
+        for sample in dataset
+    )
+    if 0 < labeled < len(dataset):
+        raise ValueError(
+            f"{labeled} of {len(dataset)} BBQ rows have a stereotyped_answer: "
+            "give every row one (the bias index needs it) or none (no bias "
+            "index is reported)"
+        )
 
 
 def dataset(
