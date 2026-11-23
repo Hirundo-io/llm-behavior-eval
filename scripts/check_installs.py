@@ -170,7 +170,7 @@ def check(scenario: str, python: Path, work: Path, expected_file: str | None) ->
     """
     logs = work / f"logs-{scenario}"
     run(
-        python.parent / "inspect", "eval", TASK,
+        venv_script(python.parent.parent, "inspect"), "eval", TASK,
         "--model", "mockllm/model", "--model-role", "grader=mockllm/model",
         "--log-dir", logs, "--display", "none",
         cwd=work,
@@ -190,6 +190,21 @@ def check(scenario: str, python: Path, work: Path, expected_file: str | None) ->
     return found
 
 
+def venv_script(venv: Path, name: str) -> Path:
+    """An executable in a virtual environment, on this platform's layout.
+
+    Args:
+        venv: The environment's directory.
+        name: The executable, without a suffix (``python``, ``inspect``).
+
+    Returns:
+        ``Scripts/<name>.exe`` on Windows, ``bin/<name>`` elsewhere.
+    """
+    if sys.platform == "win32":
+        return venv / "Scripts" / f"{name}.exe"
+    return venv / "bin" / name
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--group", help="stage the benchmark in this group")
@@ -197,6 +212,25 @@ def main() -> None:
     args = parser.parse_args()
     work = args.keep or Path(tempfile.mkdtemp(prefix="check-installs-"))
     work.mkdir(parents=True, exist_ok=True)
+    try:
+        check_all(args, work)
+    finally:
+        # Without --keep, the copies, wheels and environments go even when a
+        # check fails.
+        if args.keep is None:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+def check_all(args: argparse.Namespace, work: Path) -> None:
+    """Build everything in ``work`` and check each install scenario.
+
+    Args:
+        args: The command line (``--group``).
+        work: The working directory for copies, builds and environments.
+
+    Raises:
+        SystemExit: A build, install or check failed.
+    """
     dist = work / "dist"
     repository = copy_repository(work / "repository")
     example = stage_example(repository, args.group)
@@ -228,7 +262,7 @@ def main() -> None:
     for scenario in ("light", "together", "editable"):
         venv = work / f"venv-{scenario}"
         run("uv", "venv", "--quiet", "--python", sys.executable, venv)
-        python = venv / "bin" / "python"
+        python = venv_script(venv, "python")
         install = ("uv", "pip", "install", "--quiet", "--python", python)
         expected_file = None
         if scenario == "editable":
@@ -258,8 +292,6 @@ def main() -> None:
                 expected_file = str(Path(purelib, NAMESPACE, "__init__.py"))
         results[scenario] = check(scenario, python, work, expected_file)
         print(f"{scenario}: {results[scenario]['task']}", flush=True)
-    if args.keep is None:
-        shutil.rmtree(work)
 
 
 if __name__ == "__main__":

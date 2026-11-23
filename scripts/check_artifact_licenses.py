@@ -7,7 +7,7 @@ Expectations come from each distribution's ``pyproject.toml``, so a new
 benchmark needs no edit here: the ``License-Expression`` metadata equals
 ``project.license``, and every file in ``project.license-files`` (a LICENSE,
 and a NOTICE where upstream terms ask for one) is in the artifact with the
-same bytes. The root distribution keeps the older ``license = { file =
+same bytes; an SPDX ``license`` needs a non-empty ``license-files``. The root distribution keeps the older ``license = { file =
 "LICENSE" }`` table, which sets no ``License-Expression``: only its file is
 checked. An MIT distribution's LICENSE must be the repository's LICENSE.
 Every distribution must have exactly one wheel and one sdist, and nothing else
@@ -88,6 +88,12 @@ def check_artifact(path: Path, distribution: Distribution) -> list[str]:
     elif isinstance(license_field, str):
         expression = license_field
         license_files = distribution.project.get("license-files", [])
+        if not license_files:
+            # Without license-files, setuptools ships whatever matches its
+            # default globs, so the license text is not checked here.
+            problems.append(
+                f"{distribution.name}: project.license-files must list the license text"
+            )
     else:
         return [
             f"{distribution.relative}: project.license must be an SPDX string "
