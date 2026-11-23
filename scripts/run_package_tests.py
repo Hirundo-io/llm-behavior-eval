@@ -54,6 +54,10 @@ def main() -> None:
     args = sys.argv[1:]
     pytest_args = args[args.index("--") + 1 :] if "--" in args else []
     selected = set(args[: args.index("--")] if "--" in args else args)
+    unknown = selected - {member.name for member in members()}
+    if unknown:
+        # A misspelled name would otherwise run nothing and exit 0.
+        raise SystemExit(f"Not workspace members: {', '.join(sorted(unknown))}")
     failed = []
     for member in members():
         if selected and member.name not in selected:

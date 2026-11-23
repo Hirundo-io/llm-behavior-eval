@@ -65,6 +65,8 @@ def check_target_metrics(data: object, path: object, root: str) -> TargetMetrics
                     raise ValueError(
                         f"{where}.{flag} must be true or false, got {metric[flag]!r}"
                     )
+    # Safe: the loop above checked every key and value type that TargetMetrics
+    # declares, which the type checker cannot infer from the isinstance checks.
     return cast("TargetMetrics", data)
 
 
