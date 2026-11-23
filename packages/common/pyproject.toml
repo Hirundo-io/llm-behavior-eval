@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-behavior-eval-common"
+version = "0.1.12"
+description = "Shared code for llm-behavior-eval's native Inspect benchmarks."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
+requires-python = ">=3.11,<3.14"
+# Upper bounds stop at the next release line that may break the APIs used here: the next
+# major version, or the next minor for a 0.x package. Lines with a narrower bound say why.
+dependencies = [
+  # 0.3.289 is the version hirundo-core's `eval` feature pins and the first that works
+  # with agent-client-protocol 1.x; <0.4 because Inspect is 0.x and its task, scorer and
+  # registry APIs may change in a minor release.
+  "inspect-ai>=0.3.289,<0.4",
+  # inspect_evals' shared benchmark utilities, without the inspect_evals benchmarks
+  # (0.x: a minor release may change them).
+  "inspect-evals-utils[huggingface]>=0.2.0,<0.3",
+  # Inspect's OpenAI-compatible model transport (not installed by Inspect itself), which
+  # Inspect builds against the 3.x client.
+  "openai>=3.4,<4",
+  "datasets>=5.0.1,<6",
+]
+
+[project.urls]
+Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
+
+[tool.setuptools.packages.find]
+# A portion of the shared llm_behavior_eval namespace, which has no __init__.py here.
+# Listing the namespace itself keeps the layout "simple" for setuptools, so an editable
+# install puts src/ on sys.path (where llm_behavior_eval/__init__.py extends __path__).
+where = ["src"]
+include = ["llm_behavior_eval", "llm_behavior_eval.common*"]
+namespaces = true
