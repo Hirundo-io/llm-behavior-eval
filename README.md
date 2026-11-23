@@ -79,9 +79,17 @@ pip install llm-behavior-eval
 ```
 
 If you use [uv](https://docs.astral.sh/uv/), run `uv venv .venv` and
-`uv pip install llm-behavior-eval` instead. For a local checkout, run
-`uv sync` (the uv workspace: this distribution and every native benchmark
-distribution under `packages/`, all editable).
+`uv pip install llm-behavior-eval` instead. On Python 3.10 this installs the
+legacy engine only: the native Inspect benchmarks (and
+`llm-behavior-eval-common`) need Python 3.11+ and are skipped by an
+environment marker.
+
+For a local checkout, run `uv sync` with Python 3.11 through 3.13 (the uv
+workspace: this distribution and every native benchmark distribution in its
+directory under `llm_behavior_eval/`, all editable). `uv.lock` covers the
+whole workspace, so it targets Python 3.11+ only; developing on Python 3.10
+is not supported, although the published `llm-behavior-eval` still installs
+there.
 
 ### vLLM extra
 

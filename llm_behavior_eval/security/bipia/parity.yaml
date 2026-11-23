@@ -1,7 +1,7 @@
 # BIPIA reference settings as an opt-in Inspect run config. Pass it explicitly:
 #
 #   inspect eval llm_behavior_eval/bipia --model <provider/model> \
-#     --run-config packages/security/bipia/src/llm_behavior_eval/security/bipia/parity.yaml
+#     --run-config llm_behavior_eval/security/bipia/parity.yaml
 #
 # (the path in a checkout; the file also ships in the installed package).
 #

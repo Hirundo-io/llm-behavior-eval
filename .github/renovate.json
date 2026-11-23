@@ -46,7 +46,7 @@
       ],
       "matchFileNames": [
         "pyproject.toml",
-        "packages/**/pyproject.toml",
+        "llm_behavior_eval/**/pyproject.toml",
         "uv.lock"
       ],
       "groupName": "python"

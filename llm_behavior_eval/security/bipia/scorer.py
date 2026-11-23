@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 from inspect_ai.model import ChatMessageUser
 from inspect_ai.scorer import NOANSWER, Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
+
 from llm_behavior_eval.common.scoring import grader, judged_answer, stop_reason
 
 from .attacks import LANGUAGE_THRESHOLD, MATCH_THRESHOLD, evaluator

@@ -2518,8 +2518,8 @@ requires-dist = [
     { name = "bitsandbytes", marker = "sys_platform != 'darwin'", specifier = "<1.0.0" },
     { name = "datasets", specifier = ">=5.0.1,<6.0.0" },
     { name = "google-cloud-storage", marker = "extra == 'gcs'" },
-    { name = "llm-behavior-eval-common", marker = "python_full_version >= '3.11'", editable = "packages/common" },
-    { name = "llm-behavior-eval-security", marker = "python_full_version >= '3.11'", editable = "packages/security" },
+    { name = "llm-behavior-eval-common", marker = "python_full_version >= '3.11'", editable = "llm_behavior_eval/common" },
+    { name = "llm-behavior-eval-security", marker = "python_full_version >= '3.11'", editable = "llm_behavior_eval/security" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.0.0" },
     { name = "networkx", specifier = "<4.0.0" },
     { name = "numpy", specifier = "<3.0.0" },
@@ -2545,11 +2545,11 @@ ci = [
 dev = [
     { name = "bumpver", specifier = ">=2024.1130" },
     { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "azure"], editable = "." },
-    { name = "llm-behavior-eval-bipia", editable = "packages/security/bipia" },
-    { name = "llm-behavior-eval-common", editable = "packages/common" },
-    { name = "llm-behavior-eval-security", editable = "packages/security" },
+    { name = "llm-behavior-eval-bipia", editable = "llm_behavior_eval/security/bipia" },
+    { name = "llm-behavior-eval-common", editable = "llm_behavior_eval/common" },
+    { name = "llm-behavior-eval-security", editable = "llm_behavior_eval/security" },
     { name = "pre-commit", specifier = ">=4.3.0" },
-    { name = "pyrefly", specifier = ">=1.2,<2" },
+    { name = "pyrefly", specifier = ">=0.63.1" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "ruff", specifier = ">=0.11.11,<1.0.0" },
@@ -2560,7 +2560,7 @@ dev = [
 [[package]]
 name = "llm-behavior-eval-bipia"
 version = "0.1.12"
-source = { editable = "packages/security/bipia" }
+source = { editable = "llm_behavior_eval/security/bipia" }
 dependencies = [
     { name = "emoji" },
     { name = "langdetect" },
@@ -2581,7 +2581,7 @@ requires-dist = [
 [[package]]
 name = "llm-behavior-eval-common"
 version = "0.1.12"
-source = { editable = "packages/common" }
+source = { editable = "llm_behavior_eval/common" }
 dependencies = [
     { name = "datasets" },
     { name = "inspect-ai" },
@@ -2600,7 +2600,7 @@ requires-dist = [
 [[package]]
 name = "llm-behavior-eval-security"
 version = "0.1.12"
-source = { editable = "packages/security" }
+source = { editable = "llm_behavior_eval/security" }
 dependencies = [
     { name = "llm-behavior-eval-bipia" },
     { name = "llm-behavior-eval-common" },
@@ -2608,8 +2608,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "llm-behavior-eval-bipia", editable = "packages/security/bipia" },
-    { name = "llm-behavior-eval-common", editable = "packages/common" },
+    { name = "llm-behavior-eval-bipia", editable = "llm_behavior_eval/security/bipia" },
+    { name = "llm-behavior-eval-common", editable = "llm_behavior_eval/common" },
 ]
 
 [[package]]

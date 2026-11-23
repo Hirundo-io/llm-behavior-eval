@@ -30,7 +30,7 @@ config, which also supplies the grader role. It ships in the package next to
 
 ```sh
 inspect eval llm_behavior_eval/bipia --model vllm/ORG/MODEL \
-  --run-config packages/security/bipia/src/llm_behavior_eval/security/bipia/parity.yaml
+  --run-config llm_behavior_eval/security/bipia/parity.yaml
 ```
 
 ## Implementation
