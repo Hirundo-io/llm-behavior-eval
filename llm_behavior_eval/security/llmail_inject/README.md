@@ -28,7 +28,7 @@ options. For the challenge's settings, pass the run config:
 
 ```sh
 inspect eval llm_behavior_eval/llmail_inject --model openai-api/SERVICE/MODEL \
-  --run-config packages/security/llmail_inject/src/llm_behavior_eval/security/llmail_inject/parity.yaml -M strict_tools=false
+  --run-config llm_behavior_eval/security/llmail_inject/parity.yaml -M strict_tools=false
 ```
 
 ## Implementation

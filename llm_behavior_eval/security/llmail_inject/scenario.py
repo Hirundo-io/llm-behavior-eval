@@ -21,6 +21,7 @@ from inspect_ai.model import (
     ChatMessageUser,
 )
 from inspect_ai.tool import Tool, ToolCall, ToolDef, ToolParam, ToolParams
+
 from llm_behavior_eval.security.llmail_inject.prompts import (
     LEVEL3_QUERY,
     LEVEL4_QUERY,

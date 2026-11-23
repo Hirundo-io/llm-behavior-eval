@@ -12,6 +12,7 @@ from typing import Any
 from inspect_ai.scorer import Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
 from inspect_ai.tool import ToolCall
+
 from llm_behavior_eval.common.scoring import stop_reason
 from llm_behavior_eval.security.llmail_inject.metrics import (
     llmail_inject_metrics,

@@ -1,6 +1,7 @@
 # The security group: one distribution that installs every published security
 # benchmark distribution. It ships no modules; each benchmark ships its own
-# portion of llm_behavior_eval.security (see README.md).
+# portion of llm_behavior_eval.security from its own directory below this one
+# (see README.md).
 [build-system]
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
@@ -27,5 +28,8 @@ dependencies = [
 Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
 
 [tool.setuptools]
-# A metapackage: dependencies only.
+# A metapackage: dependencies only. This directory also holds the group's benchmark
+# directories (each its own distribution), which must not be discovered as packages.
 packages = []
+py-modules = []
+include-package-data = false

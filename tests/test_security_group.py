@@ -1,14 +1,19 @@
 """The security group: ``llm-behavior-eval-security`` and ``llm_behavior_eval.security``.
 
-See ``packages/security/README.md``. The group's benchmarks are found from the
-workspace configuration, so adding one needs no edit here.
+See ``llm_behavior_eval/security/README.md``. The group's directory is both the
+``llm_behavior_eval.security`` namespace level and the group distribution's
+project directory; each benchmark's directory (and project) is nested in it.
+The group's benchmarks are found from the workspace configuration, so adding
+one needs no edit here.
 """
 
+import fnmatch
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import zipfile
 from email.parser import BytesParser
 from pathlib import Path
@@ -29,7 +34,7 @@ from workspace import (
     root_is_editable,
 )
 
-GROUP = ROOT / "packages" / "security"
+GROUP = ROOT / NAMESPACE / "security"
 [DISTRIBUTION] = [member for member in members() if member.path == GROUP]
 BENCHMARKS = [member for member in members() if member.path.parent == GROUP]
 
@@ -56,23 +61,46 @@ def test_root_reaches_security_benchmarks_through_the_group() -> None:
     assert not names & {member.name for member in BENCHMARKS}
 
 
+def test_group_directory_is_a_namespace_level() -> None:
+    # Several distributions share llm_behavior_eval.security: none ships its
+    # __init__.py, and the root's wheel ships nothing from the group.
+    assert not (GROUP / "__init__.py").exists()
+    include = root().setuptools["packages"]["find"]["include"]
+    assert not any(
+        fnmatch.fnmatchcase(f"{NAMESPACE}.security{suffix}", pattern)
+        for pattern in include
+        for suffix in ("", ".x")
+    )
+
+
 @pytest.mark.parametrize("member", BENCHMARKS, ids=lambda member: member.relative)
 def test_security_benchmarks_live_in_the_group_namespace(member: Distribution) -> None:
-    [package] = member.packages
-    assert package.startswith(f"{NAMESPACE}.security.")
-    for level in (member.src / NAMESPACE, member.src / NAMESPACE / "security"):
-        assert not (level / "__init__.py").exists()
+    [package, *_] = member.packages
+    assert package == f"{NAMESPACE}.security.{member.path.name}"
+    assert member.package_directory(package) == member.path
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv to build")
 def test_group_distribution_builds(tmp_path: Path) -> None:
-    subprocess.run(
-        ["uv", "build", "--quiet", "--out-dir", str(tmp_path), str(GROUP)],
-        check=True,
-        cwd=ROOT,
+    # A copy of the group directory, with a synthetic benchmark nested in it as
+    # a group's benchmarks are, so the build leaves nothing in the repository
+    # and must not pick up the nested benchmark's files.
+    repository = tmp_path / "repository"
+    group = repository / NAMESPACE / "security"
+    shutil.copytree(
+        GROUP,
+        group,
+        ignore=shutil.ignore_patterns("*.egg-info", "build", "__pycache__"),
     )
-    assert check_directory(tmp_path, [DISTRIBUTION]) == []
-    [wheel] = tmp_path.glob("*.whl")
+    stage_example(repository, "security")
+    out = tmp_path / "dist"
+    subprocess.run(
+        ["uv", "build", "--quiet", "--out-dir", str(out), str(group)],
+        check=True,
+        cwd=tmp_path,
+    )
+    assert check_directory(out, [DISTRIBUTION]) == []
+    [wheel] = out.glob("*.whl")
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
         [metadata] = [name for name in names if name.endswith(".dist-info/METADATA")]
@@ -86,38 +114,44 @@ def test_group_distribution_builds(tmp_path: Path) -> None:
     assert [Requirement(text) for text in requires] == [
         Requirement(text) for text in DISTRIBUTION.requirements
     ]
+    # The sdist holds the metadata, README and LICENSE: no benchmark's files.
+    [sdist] = out.glob("*.tar.gz")
+    with tarfile.open(sdist) as archive:
+        files = {
+            name.split("/", 1)[1]
+            for name in archive.getnames()
+            if "/" in name and ".egg-info" not in name
+        }
+    assert files == {"LICENSE", "PKG-INFO", "README.md", "pyproject.toml", "setup.cfg"}
 
 
 @pytest.mark.skipif(not root_is_editable(), reason="needs the editable workspace")
-def test_group_namespace_holds_a_synthetic_benchmark(tmp_path: Path) -> None:
-    # A security benchmark's src/ on sys.path, as its editable install puts it.
-    src = stage_example(tmp_path, "security") / "src"
+def test_editable_group_is_a_namespace_below_the_legacy_package(
+    tmp_path: Path,
+) -> None:
+    # From outside the repository, llm_behavior_eval is the legacy regular
+    # package and llm_behavior_eval.security the group directory in place, a
+    # namespace package (scripts/check_installs.py --group security runs a
+    # synthetic benchmark nested in it, installed three ways).
     code = """
 import json
 import llm_behavior_eval.security as group
-from inspect_ai._util.registry import registry_info
-from llm_behavior_eval.common.target_metrics import load_target_metrics
-from llm_behavior_eval.security.example.task import example
 print(json.dumps({
-    "group_file": getattr(group, "__file__", None),
-    "group_path": [str(p) for p in group.__path__],
-    "task": registry_info(example).name,
-    "targets": sorted(load_target_metrics()),
+    "file": getattr(group, "__file__", None),
+    "path": [str(p) for p in group.__path__],
 }))
 """
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
     result = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
         text=True,
         check=True,
         cwd=tmp_path,
-        env=os.environ | {"PYTHONPATH": str(src)},
+        env=env,
     )
     found = json.loads(result.stdout)
-    assert found["group_file"] is None
-    assert str(src / NAMESPACE / "security") in found["group_path"]
-    assert found["task"] == f"{NAMESPACE}/example"
-    assert f"{NAMESPACE}/example" in found["targets"]
+    assert found == {"file": None, "path": [str(GROUP)]}
 
 
 def test_install_check_installs_the_benchmarks_a_group_depends_on(

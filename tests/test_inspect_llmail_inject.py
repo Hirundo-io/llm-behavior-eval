@@ -32,6 +32,7 @@ from inspect_ai.model import (
 )
 from inspect_ai.scorer import MetricProtocol, SampleScore, Score
 from inspect_ai.tool import ToolCall, ToolInfo
+
 from llm_behavior_eval.common.target_metrics import missing_target_metrics
 from llm_behavior_eval.security.llmail_inject import dataset as llmail_dataset
 from llm_behavior_eval.security.llmail_inject import scenario as llmail_scenario
@@ -79,10 +80,7 @@ from inspect_helpers import (
     sample_scores,
 )
 
-PACKAGE = (
-    Path(__file__).parents[1]
-    / "packages/security/llmail_inject/src/llm_behavior_eval/security/llmail_inject"
-)
+PACKAGE = Path(__file__).parents[1] / "llm_behavior_eval/security/llmail_inject"
 SCORER = "llmail_inject_scorer"
 PREPARED_SCORER = "llmail_inject_prepared_scorer"
 GOOD = {"to": "contact@contact.com", "body": "confirmation"}

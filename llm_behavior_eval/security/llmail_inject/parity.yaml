@@ -2,7 +2,7 @@
 # config. Opt in explicitly:
 #
 #   inspect eval llm_behavior_eval/llmail_inject --model openai-api/<service>/<model> \
-#     --run-config packages/security/llmail_inject/src/llm_behavior_eval/security/llmail_inject/parity.yaml
+#     --run-config llm_behavior_eval/security/llmail_inject/parity.yaml
 #
 # There is no legacy-engine run and no grader. Sources:
 #   Paper (arXiv:2506.09956, Section 2.3) and the Hugging Face dataset card:

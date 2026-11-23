@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "llm-behavior-eval-llmail-inject"
 version = "0.1.12"
 description = "LLMail-Inject indirect prompt-injection attacks on an email assistant, as native Inspect tasks."
-readme = "src/llm_behavior_eval/security/llmail_inject/README.md"
+readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
@@ -34,17 +34,14 @@ Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
 # benchmark distribution uses the name llm_behavior_eval and its own task module.
 llm_behavior_eval = "llm_behavior_eval.security.llmail_inject.task"
 
-[tool.setuptools.packages.find]
-# A portion of the shared llm_behavior_eval namespace: no __init__.py above the benchmark.
-# Listing the namespaces keeps the layout "simple" for setuptools, so an editable install
-# puts src/ on sys.path.
-where = ["src"]
-include = [
-  "llm_behavior_eval",
-  "llm_behavior_eval.security",
-  "llm_behavior_eval.security.llmail_inject*",
-]
-namespaces = true
+[tool.setuptools]
+# The package's own directory: a benchmark's pyproject.toml sits inside its package,
+# llm_behavior_eval/[<group>/]<benchmark>/ (see "Packaging" in INSPECT_MIGRATION.md).
+packages = ["llm_behavior_eval.security.llmail_inject"]
+package-dir = { "llm_behavior_eval.security.llmail_inject" = "." }
+# Only the modules and the files listed below: otherwise pyproject.toml, LICENSE (and
+# NOTICE) would ship inside the package.
+include-package-data = false
 
 [tool.setuptools.package-data]
-"*" = ["README.md", "parity.yaml", "target_metrics.json"]
+"llm_behavior_eval.security.llmail_inject" = ["README.md", "parity.yaml", "target_metrics.json"]

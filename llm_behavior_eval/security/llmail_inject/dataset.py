@@ -27,6 +27,7 @@ from urllib.request import urlopen
 
 from inspect_ai.dataset import MemoryDataset, Sample
 from inspect_evals_utils import INSPECT_EVALS_CACHE_PATH
+
 from llm_behavior_eval.security.llmail_inject.scenario import (
     DEFAULT_LEVELS,
     LEVELS,

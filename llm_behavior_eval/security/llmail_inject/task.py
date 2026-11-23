@@ -2,6 +2,7 @@
 
 from inspect_ai import Task, task
 from inspect_ai.solver import generate, use_tools
+
 from llm_behavior_eval.common.scoring import completion_scorer
 from llm_behavior_eval.security.llmail_inject.dataset import (
     ANALYSIS_COMMIT,

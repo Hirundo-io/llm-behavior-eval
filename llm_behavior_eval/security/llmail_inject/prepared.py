@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from inspect_ai.dataset import Dataset, MemoryDataset, Sample, json_dataset
+
 from llm_behavior_eval.security.llmail_inject.scenario import conversation
 
 FIELDS = ("id", "system", "query", "retrieved", "target_to", "target_body")
