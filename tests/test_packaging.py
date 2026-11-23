@@ -162,9 +162,12 @@ def test_benchmark_distribution(distribution: Distribution) -> None:
     )
     targets = json.loads((directory / "target_metrics.json").read_text())
     assert all(task.startswith(f"{NAMESPACE}/") for task in targets)
-    assert distribution.pyproject["tool"]["setuptools"]["package-data"] == {
-        package: ["README.md", "parity.yaml", "target_metrics.json"]
-    }
+    # README.md and target_metrics.json always ship, parity.yaml when the
+    # benchmark has one; any other data file the package reads may be added.
+    shipped = set(distribution.pyproject["tool"]["setuptools"]["package-data"][package])
+    assert {"README.md", "target_metrics.json"} <= shipped
+    if (directory / "parity.yaml").is_file():
+        assert "parity.yaml" in shipped
     requirements = {requirement_name(text) for text in distribution.requirements}
     assert "llm-behavior-eval-common" in requirements
     if distribution.path != EXAMPLE:
@@ -253,6 +256,8 @@ def test_bumpver_updates_every_distribution() -> None:
     patterns = root().pyproject["tool"]["bumpver"]["file_patterns"]
     assert patterns[f"{NAMESPACE}/__init__.py"] == ['^__version__ = "{version}"$']
     assert patterns[f"{NAMESPACE}/**/pyproject.toml"] == ['^version = "{version}"$']
+    example = EXAMPLE.relative_to(ROOT) / "pyproject.toml"
+    assert patterns[example.as_posix()] == ['^version = "{version}"$']
     found = {
         path.parent
         for path in ROOT.glob(f"{NAMESPACE}/**/pyproject.toml")
@@ -318,13 +323,15 @@ print(json.dumps({
 # License checks
 
 
-def make_distribution(tmp_path: Path) -> Distribution:
+def make_distribution(
+    tmp_path: Path, license_files: str = 'license-files = ["LICENSE"]\n'
+) -> Distribution:
     path = tmp_path / "source"
     path.mkdir()
     shutil.copy(ROOT / "LICENSE", path / "LICENSE")
     (path / "pyproject.toml").write_text(
         '[project]\nname = "llm-behavior-eval-fake"\nversion = "1"\n'
-        'license = "MIT"\nlicense-files = ["LICENSE"]\n'
+        'license = "MIT"\n' + license_files
     )
     return Distribution(path)
 
@@ -399,6 +406,21 @@ def test_license_check_reports_problems(
     out.mkdir()
     problems = check_artifact(write_wheel(out, files), distribution)
     assert any(problem in found for found in problems), problems
+
+
+@pytest.mark.parametrize("license_files", ["", "license-files = []\n"])
+def test_license_check_wants_license_files(tmp_path: Path, license_files: str) -> None:
+    distribution = make_distribution(tmp_path, license_files)
+    out = tmp_path / "dist"
+    out.mkdir()
+    files = {
+        "x-1.dist-info/METADATA": metadata("MIT"),
+        "x-1.dist-info/licenses/LICENSE": (ROOT / "LICENSE").read_bytes(),
+    }
+    problems = check_artifact(write_wheel(out, files), distribution)
+    assert problems == [
+        "llm-behavior-eval-fake: project.license-files must list the license text"
+    ]
 
 
 def test_license_check_wants_one_wheel_and_one_sdist(tmp_path: Path) -> None:

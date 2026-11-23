@@ -121,6 +121,48 @@ def test_sync_refuses_a_shared_old_commit(
     assert source.read_text() == code
 
 
+@pytest.mark.parametrize("current", ["main", "1" * 12, "1" * 40 + "\n"])
+def test_sync_refuses_an_old_value_that_is_not_a_commit_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, current: str
+) -> None:
+    # Replacing a branch name or a short prefix everywhere in the distribution
+    # could rewrite unrelated text, so sync leaves it to a hand edit.
+    source = tmp_path / "pkg" / "dataset.py"
+    source.parent.mkdir()
+    code = f"A = {current!r}\n"
+    source.write_text(code)
+    readme = source.parent / "README.md"
+    readme.write_text(f"Pinned at {current}.\n")
+    monkeypatch.setattr(sync, "owning_directory", lambda file: source.parent)
+    pins = sync.parse_manifest(manifest("pkg/dataset.py:A", NEW, "A_REV"), tmp_path)
+    with pytest.raises(ValueError, match="A_REV: .* not a full 40-character"):
+        sync.sync(pins)
+    assert source.read_text() == code
+    assert readme.read_text() == f"Pinned at {current}.\n"
+
+
+def test_sync_ignores_a_shared_commit_in_a_nested_member(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The group's pin and its nested benchmark's pin share OLD but want
+    # different commits. Sync rewrites only the group's own files, so the
+    # benchmark's pin is not moved and there is no clash.
+    group = tmp_path / "group"
+    benchmark = group / "benchmark"
+    benchmark.mkdir(parents=True)
+    (group / "data.py").write_text(f'A = "{OLD}"\n')
+    (benchmark / "data.py").write_text(f'B = "{OLD}"\n')
+    monkeypatch.setattr(
+        sync, "members", lambda: [Distribution(group), Distribution(benchmark)]
+    )
+    text = manifest("group/data.py:A", NEW, "A_REV") + manifest(
+        "group/benchmark/data.py:B", "3" * 40, "B_REV"
+    )
+    pins = sync.parse_manifest(text, tmp_path)
+    assert sync.sync(pins) == [group / "data.py", benchmark / "data.py"]
+    assert sync.mismatches(pins) == {}
+
+
 def test_sync_moves_pins_that_share_a_commit_together(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

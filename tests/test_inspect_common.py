@@ -152,9 +152,10 @@ def test_saved_dataset_dict_needs_the_split(tmp_path: Path) -> None:
         load_dataset(str(tmp_path / "s"), split="test", sample_fields=to_sample)
 
 
-def test_saved_dataset_dict_index_needs_splits(tmp_path: Path) -> None:
+@pytest.mark.parametrize("index", ["{}", '["train"]', '{"splits": "train"}'])
+def test_saved_dataset_dict_index_needs_splits(tmp_path: Path, index: str) -> None:
     DatasetDict({"train": HFDataset.from_list(ROWS)}).save_to_disk(tmp_path / "s")
-    (tmp_path / "s" / "dataset_dict.json").write_text("{}")
+    (tmp_path / "s" / "dataset_dict.json").write_text(index)
     with pytest.raises(ValueError, match="lists no splits"):
         load_dataset(str(tmp_path / "s"), split="train", sample_fields=to_sample)
 
@@ -445,6 +446,20 @@ def test_load_target_metrics_skips_build_copies(
         "fake_root_e/member",
         "fake_root_e/solo",
     ]
+
+
+def test_load_target_metrics_skips_pycache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A group level has no __init__.py, but its __pycache__ is not a package.
+    root = make_root(tmp_path, monkeypatch, "fake_root_f")
+    for where in (root / "group" / "member", root / "group" / "__pycache__"):
+        where.mkdir(parents=True)
+        (where / "target_metrics.json").write_text(
+            json.dumps({f"fake_root_f/{where.name}": [metric("m")]})
+        )
+    (root / "group" / "member" / "__init__.py").write_text("")
+    assert list(load_target_metrics("fake_root_f")) == ["fake_root_f/member"]
 
 
 def test_missing_target_metrics(tmp_path: Path) -> None:
