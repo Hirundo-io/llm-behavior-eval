@@ -170,8 +170,11 @@ cython_debug/
 */results/*
 *.json
 !.devcontainer/devcontainer.json
-# Benchmark-owned report metrics ship with each package.
-!llm_behavior_eval/*/target_metrics.json
+!.github/renovate.json
+!.github/renovate-global.json
+# Benchmark-owned report metrics ship with each package (and the synthetic one).
+!packages/**/target_metrics.json
+!tests/example_benchmark/**/target_metrics.json
 
 # ACT Secrets
 act-events/pr.secrets
