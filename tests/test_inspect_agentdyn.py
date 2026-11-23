@@ -759,14 +759,19 @@ def test_runner_rejects_invalid_arguments(
     assert "eval" not in captured
 
 
-def test_runner_help_states_every_default() -> None:
-    lines = run.parser().format_help().splitlines()
+def test_runner_help_states_every_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLUMNS", "1000")  # no wrapping inside a help text
+    text = run.parser().format_help()
+
+    def help_of(flag: str) -> str:
+        found = re.search(rf"^  {flag} .*?(?=^  -|^$)", text, re.MULTILINE | re.DOTALL)
+        assert found is not None, flag
+        return found.group()
+
     for flag in ("--suites", "--mode", "--attack", "--max-samples"):
-        line = next(i for i, text in enumerate(lines) if text.lstrip().startswith(flag))
-        assert "(default: " in " ".join(lines[line : line + 2]), flag
+        assert "(default: " in help_of(flag), flag
     for flag in ("--temperature", "--top-p", "--max-tokens", "--seed"):
-        line = next(i for i, text in enumerate(lines) if text.lstrip().startswith(flag))
-        assert "not sent unless given" in " ".join(lines[line : line + 3]), flag
+        assert "not sent unless given" in help_of(flag), flag
 
 
 def test_runner_fails_when_an_episode_failed(
