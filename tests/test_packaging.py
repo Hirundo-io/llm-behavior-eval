@@ -600,3 +600,27 @@ def test_package_tests_reject_an_unknown_distribution(
         SystemExit, match="Not workspace members: llm-behavior-eval-nope"
     ):
         run_package_tests.main()
+
+
+def test_package_tests_rebuild_every_workspace_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """uv caches a member's wheel by its pyproject.toml alone, so each run rebuilds."""
+    commands: list[list[str]] = []
+
+    def run(args: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        commands.append(args)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(run_package_tests.subprocess, "run", run)
+    monkeypatch.setattr(sys, "argv", ["run_package_tests.py"])
+    run_package_tests.main()
+    assert commands
+    names = [member.name for member in members()]
+    for args in commands:
+        rebuilt = [
+            args[index + 1]
+            for index, arg in enumerate(args)
+            if arg == "--reinstall-package"
+        ]
+        assert rebuilt == names
