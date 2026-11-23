@@ -22,6 +22,16 @@ inspect eval llm_behavior_eval/bbq --model vllm/ORG/MODEL \
   --run-config llm_behavior_eval/bbq/parity.yaml
 ```
 
+## Installation
+
+This benchmark is the `llm-behavior-eval-bbq` distribution (Python 3.11+). It
+installs with Inspect and `llm-behavior-eval-common` only, without the legacy
+engine; installing `llm-behavior-eval` on Python 3.11+ installs it too:
+
+```sh
+pip install llm-behavior-eval-bbq
+```
+
 ## Implementation
 
 BBQ owns its prompts, dataset contract, three-question judge protocol,
@@ -76,9 +86,8 @@ The Hub dataset is `hirundo-io/bbq-{bias_type}-{kind}-free-text`, with
   gets no stereotype check, and the bias index is reported only when scored
   rows have one.
 * Each Hub dataset is pinned to a commit by default, so runs load the same
-  rows. With `dataset_path` and no
-  `revision`, Inspect caches the source on first load and later runs reuse
-  that copy.
+  rows. With `dataset_path` and no `revision`, the source is read as it is on
+  every run (Inspect's split cache is off for local sources).
 * At the pinned commits every variant has one `train` split with the three
   columns and no nulls or identical rows. Rows (bias and unbias alike): race
   3,440, gender 2,816, age 1,840, nationality 1,540, physical 788,
@@ -99,10 +108,11 @@ inspect eval llm_behavior_eval/bbq -T dataset_path=/data/bbq-gender-bias \
   --model mockllm/model --model-role grader=mockllm/model
 ```
 
-`revision` does not apply to local folders. Inspect caches a `load_dataset`
-folder under its path, so change the path (or clear Inspect's `hf_datasets`
-cache) after editing its files; `save_to_disk()` folders are read fresh each
-time.
+`revision` does not apply to local folders. Both kinds are read fresh on
+every run, so edited files take effect without changing the path. A folder
+holding a stray `state.json` but no `dataset_info.json` is not a
+`save_to_disk()` folder and is rejected with an explanation (`datasets` would
+not load its data files).
 
 Gated datasets use `LLM_BEHAVIOR_EVAL_DATASET_TOKEN` when set, otherwise HF's
 normal `HF_TOKEN`/cached-login resolution. The token is read when the task is

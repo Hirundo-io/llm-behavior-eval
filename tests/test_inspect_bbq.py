@@ -95,11 +95,11 @@ def test_hub_datasets_default_to_pinned_commits(
 ) -> None:
     calls = hub([{"question": "q", "answer": "a"}])
     bbq(bias_type="race", kind="unbias")
-    assert calls[-1][1]["revision"] == DATASET_REVISIONS[("race", "unbias")]
+    assert calls[-1][1]["revision"] == DATASET_REVISIONS["race-unbias"]
     # A local source is read as it is.
     bbq(dataset_path=str(tmp_path))
     assert calls[-1][1]["revision"] is None
-    assert set(DATASET_REVISIONS) == {(b, k) for b in BIAS_TYPES for k in KINDS}
+    assert set(DATASET_REVISIONS) == {f"{b}-{k}" for b in BIAS_TYPES for k in KINDS}
     assert all(len(sha) == 40 for sha in DATASET_REVISIONS.values())
 
 

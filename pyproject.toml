@@ -37,6 +37,7 @@ dependencies = [
   # installs every merged benchmark. Workspace distributions share one version; the
   # Inspect range lives in llm-behavior-eval-common.
   "llm-behavior-eval-common>=0.1.12,<0.2; python_version >= '3.11'",
+  "llm-behavior-eval-bbq>=0.1.12,<0.2; python_version >= '3.11'",
   "datasets>=5.0.1,<6.0.0",
   "numpy<3.0.0",
   "pandas<3.0.0",
@@ -75,6 +76,7 @@ dev = [
   "llm-behavior-eval[mlflow,vllm,gcs,azure]",
   # Every workspace distribution, installed editable in the dev environment.
   "llm-behavior-eval-common",
+  "llm-behavior-eval-bbq",
   "pyrefly>=0.63.1",
   "types-PyYAML",
   "types-tqdm",
@@ -99,11 +101,13 @@ default-groups = ["dev", "ci"]
 # (when merged into the default install) to [project] dependencies.
 members = [
   "llm_behavior_eval/common",
+  "llm_behavior_eval/bbq",
 ]
 
 [tool.uv.sources]
 llm-behavior-eval = { workspace = true }
 llm-behavior-eval-common = { workspace = true }
+llm-behavior-eval-bbq = { workspace = true }
 
 [tool.uv.config-settings-package]
 # Every native distribution's directory sits inside llm_behavior_eval/ (each maps its

@@ -15,20 +15,21 @@ from llm_behavior_eval.common.dataset import load_dataset
 BIAS_TYPES = ("gender", "race", "nationality", "physical", "age", "religion")
 KINDS = ("bias", "unbias")
 DATASET_REVISIONS = {
-    ("gender", "bias"): "dd4488934ddef80f825a0f5f8ed82282feed3fe5",
-    ("gender", "unbias"): "c15a91eda2c334af31c2421c024f889a2da420fd",
-    ("race", "bias"): "f4dce2accd0c573c4c6b897849dc6492ab1440d2",
-    ("race", "unbias"): "428f7379c700804ef03f40789ba0454676071fb7",
-    ("nationality", "bias"): "2434c9299385112c490d327f1c45d422dd5828f0",
-    ("nationality", "unbias"): "68723a41ef9c4439029d545e5caf4e42f27d2473",
-    ("physical", "bias"): "7d7d5fd04f463471f4b52dbcc6f8774069974df7",
-    ("physical", "unbias"): "587d2fd9182b37968acc8f11bdb1404f42cda433",
-    ("age", "bias"): "f11ff9643e9e468e7a903827fc7abca709d8250e",
-    ("age", "unbias"): "c4966229a995b6721d0da7844f7f2312088190ad",
-    ("religion", "bias"): "cdac920aa566c8a3902980c95adb22a03044978c",
-    ("religion", "unbias"): "e6bf1bd8047f716c735a7783bc65d54cebb63143",
+    "gender-bias": "dd4488934ddef80f825a0f5f8ed82282feed3fe5",
+    "gender-unbias": "c15a91eda2c334af31c2421c024f889a2da420fd",
+    "race-bias": "f4dce2accd0c573c4c6b897849dc6492ab1440d2",
+    "race-unbias": "428f7379c700804ef03f40789ba0454676071fb7",
+    "nationality-bias": "2434c9299385112c490d327f1c45d422dd5828f0",
+    "nationality-unbias": "68723a41ef9c4439029d545e5caf4e42f27d2473",
+    "physical-bias": "7d7d5fd04f463471f4b52dbcc6f8774069974df7",
+    "physical-unbias": "587d2fd9182b37968acc8f11bdb1404f42cda433",
+    "age-bias": "f11ff9643e9e468e7a903827fc7abca709d8250e",
+    "age-unbias": "c4966229a995b6721d0da7844f7f2312088190ad",
+    "religion-bias": "cdac920aa566c8a3902980c95adb22a03044978c",
+    "religion-unbias": "e6bf1bd8047f716c735a7783bc65d54cebb63143",
 }
-"""Pinned commit of each Hub dataset (all last changed in May 2025).
+"""Pinned commit of each Hub dataset, keyed ``<bias_type>-<kind>`` (all last
+changed in May 2025).
 
 A pinned revision keeps the rows, and so the scores, fixed across runs, and
 makes Inspect load that commit rather than an unpinned cached copy.
@@ -141,7 +142,7 @@ def dataset(
         raise ValueError("dataset_path is blank; omit it to use the Hub dataset")
     if dataset_path is None:
         path = f"hirundo-io/bbq-{bias_type}-{kind}-free-text"
-        revision = revision or DATASET_REVISIONS[(bias_type, kind)]
+        revision = revision or DATASET_REVISIONS[f"{bias_type}-{kind}"]
     else:
         path = dataset_path
     return load_source(
