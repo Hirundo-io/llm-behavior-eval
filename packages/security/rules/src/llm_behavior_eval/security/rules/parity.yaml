@@ -1,0 +1,21 @@
+# RuLES reference settings as an opt-in Inspect run config. Pass it explicitly:
+#
+#   inspect eval llm_behavior_eval/rules --model <provider/model> \
+#     --run-config packages/security/rules/src/llm_behavior_eval/security/rules/parity.yaml
+#
+# (the path in a checkout; the file also ships in the installed package).
+#
+# RuLES has no judge: every check is programmatic, so there is no grader role.
+# There is no legacy-engine run of RuLES; the settings are the reference
+# code's, normster/llm_rules at commit f627e569146015d7fd6f200bb758b2591f9eb6c6:
+#   llm_rules/scripts/evaluate.py: --temperature 0.0 by default; the model
+#     wrappers (llm_rules/models/{openai,vllm,anthropic,google,torchllms}.py)
+#     generate max_tokens=100 by default, which evaluate.py does not override.
+#   The task's defaults already match the script's other defaults: rules as a
+#     user message (no --system_instructions), precedence reminders kept, no
+#     GCG suffix, the benign, basic and redteam suites.
+
+# Model under test (eval-level GenerateConfig).
+generate_config:
+  temperature: 0
+  max_tokens: 100

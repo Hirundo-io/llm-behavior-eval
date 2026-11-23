@@ -1,0 +1,64 @@
+{
+  "llm_behavior_eval/rules": [
+    {
+      "name": "rules_score",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "br_average",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "pass_rate",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "pass_rate_benign_harmless",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "pass_rate_benign_helpful",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "pass_rate_basic_harmless",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "pass_rate_basic_helpful",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "pass_rate_redteam_harmless",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "pass_rate_redteam_helpful",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ]
+}

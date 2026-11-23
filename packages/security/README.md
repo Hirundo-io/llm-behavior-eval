@@ -30,7 +30,7 @@ package that every security benchmark contributes a portion to; nothing ships
 | SEP | `sep` | `llm-behavior-eval-sep` | MIT | yes | in review |
 | LLMail-Inject | `llmail_inject` | `llm-behavior-eval-llmail-inject` | MIT | yes | in review |
 | BIPIA | `bipia` | `llm-behavior-eval-bipia` | MIT | yes | in review |
-| RuLES | `rules` | `llm-behavior-eval-rules` | MIT | yes, unless it needs a Git dependency (see [Unpublished](#unpublished-and-isolated-benchmarks)) | planned |
+| RuLES | `rules` | `llm-behavior-eval-rules` | Apache-2.0 (`LICENSE` and `NOTICE` of its own) | yes | in review |
 | Raccoon | `raccoon` | `llm-behavior-eval-raccoon` | GPL-3.0-only (`LICENSE` and `NOTICE` of its own) | yes, unless it needs a Git dependency | planned |
 | AgentDyn | `agentdyn` | `llm-behavior-eval-agentdyn` | MIT | **no**: isolated | planned |
 
@@ -63,7 +63,9 @@ A benchmark whose code derives from copyleft upstream code keeps its own
 license (Raccoon: GPL-3.0-only with a `NOTICE`); this distribution stays MIT and
 only depends on it. Installing does not combine the code, but anyone
 redistributing an environment that includes it takes on the GPL's obligations
-for that distribution.
+for that distribution. A benchmark that carries permissively licensed upstream
+code keeps that license too (RuLES: Apache-2.0, with a `NOTICE` naming the
+upstream files and revision).
 
 ## Unpublished and isolated benchmarks
 
@@ -95,6 +97,7 @@ distribution name `agentdojo`, which conflicts with stock AgentDojo. If another
 workspace member ever requires stock `agentdojo`, also declare the two members
 as conflicting in the root `pyproject.toml`
 (`[tool.uv] conflicts = [[{ package = "llm-behavior-eval-agentdyn" }, { package = "<other>" }]]`)
-and leave AgentDyn out of the dev group. If RuLES or Raccoon keeps a direct Git
-dependency on its upstream code (as the hirundo-safety adapters do), it is
-unpublished the same way until that code is on PyPI.
+and leave AgentDyn out of the dev group. If Raccoon keeps a direct Git
+dependency on its upstream code (as the hirundo-safety adapter does), it is
+unpublished the same way until that code is on PyPI. RuLES does not: it
+carries the upstream scenario checks it needs, under upstream's Apache-2.0.
