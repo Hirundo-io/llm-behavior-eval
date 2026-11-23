@@ -81,9 +81,10 @@ The Hub dataset is `hirundo-io/bbq-{bias_type}-{kind}-free-text`, with
   would share an ID, so `filter_duplicate_ids(max_duplicates=0)` fails the task
   at construction (`DuplicateIdError`); the pinned datasets have none.
 * Every row is converted when the task is built, before `--limit` applies. A
-  missing `question` fails (`BBQ row has no question`); a missing `answer` becomes
-  an empty target. A row with no `stereotyped_answer` (column absent or null)
-  gets no stereotype check. A source must give every row a stereotyped answer
+  missing `question` fails (`BBQ row has no question`), as does a blank or
+  whitespace-only one (`BBQ row has a blank question`); a missing `answer`
+  becomes an empty target. A row with no `stereotyped_answer` (column absent,
+  null, or blank or whitespace-only) gets no stereotype check. A source must give every row a stereotyped answer
   or none: one that labels only some rows fails when the task is built (the
   bias index's denominator would count unlabeled rows; see below). With none,
   no bias index is reported.
@@ -144,6 +145,13 @@ partial reply: it is left out of every BBQ metric, and Inspect counts it as an
 unscored sample. This is how `completion_scorer` treats an answer without a
 known stop reason. Raise the grader's `max_tokens` if it happens.
 
+The guard needs a grader provider that reports stop reasons. Inspect's `hf/`
+provider reports every reply's stop reason as `unknown`, so with an `hf/`
+grader (including `parity.yaml`'s, which keeps the legacy engine's default
+transformers judge) the guard never fires and a cut-off reply is parsed as
+returned, as the legacy engine did. Serve the grader on `vllm/` or an
+OpenAI-compatible endpoint to keep it.
+
 Only normally stopped answers are judged. BBQ treats other stop reasons as
 empty, incorrect outcomes; this is its legacy scoring policy, not a placeholder
 for an excluded observation. Unmatched GT verdicts similarly count as empty;
@@ -181,7 +189,7 @@ BBQ does no thinking stripping of its own and has no thinking task arguments.
 It sends the judge the answer's `ModelOutput.completion` and parses the
 grader's `completion`, which leave out whatever reasoning Inspect's provider
 parsed out of the reply into structured `ContentReasoning`. With Inspect
-0.3.287 that happens when:
+0.3.289 (the minimum this package requires) that happens when:
 
 * an OpenAI-compatible provider (`openai-api/...`, `vllm/` and others built on
   it) receives reasoning in a separate field (`reasoning_content`, `reasoning`
@@ -243,9 +251,10 @@ does with `enable_thinking: false`.
 * A verdict must be a whole word (`gt_agree: yesterday` no longer reads as
   `yes`), and a grader reply stopped at a length limit leaves the observation
   unscored; the legacy engine parsed whatever the grader returned.
-* A source that labels only some rows with a stereotyped answer is rejected.
-  The legacy engine judged every row of a split with the column, comparing
-  unlabeled rows against an empty stereotyped answer.
+* A source that labels only some rows with a stereotyped answer is rejected,
+  and a blank stereotyped answer counts as no label. The legacy engine judged
+  every row of a split with the column, comparing unlabeled rows against an
+  empty stereotyped answer. Blank questions are rejected.
 * Custom Muse Glimmer templates are unsupported.
 
 No live-model or GPU parity is claimed.

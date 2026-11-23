@@ -41,7 +41,17 @@ eval_config:
 
 model_roles:
   grader:
-    # The legacy engine's default judge (eval_config.py judge_path_or_repo_id).
+    # The legacy engine's default judge (eval_config.py judge_path_or_repo_id)
+    # on its default judge engine, transformers (judge_engine), which is what
+    # Inspect's hf/ provider runs. Kept on hf/ for that reason, not switched to
+    # vllm/ (a different inference engine from the legacy default).
+    # Limitation: Inspect's hf/ provider reports every reply's stop reason as
+    # "unknown", so the scorer's guard that unscores an observation whose
+    # grader reply stopped at a length limit (max_tokens or model_length) never
+    # fires with this grader: a verdict cut off at 32 tokens is parsed as
+    # returned, as the legacy engine did. Serve the grader on vllm/ (or an
+    # OpenAI-compatible endpoint) to get the guard, at the cost of that engine
+    # change; see README.md "Grading and metrics".
     model: hf/google/gemma-4-12B-it
     # Grader GenerateConfig.
     config:
@@ -51,7 +61,11 @@ model_roles:
       extra_body:
         chat_template_kwargs:
           enable_thinking: false
-    # Grader HF provider args: greedy decoding and thinking off.
+    # Grader HF provider args: greedy decoding, thinking off and the weights
+    # pinned to a Hugging Face commit (passed to from_pretrained). Inspect's
+    # hf/ provider loads the tokenizer without a revision, so the tokenizer
+    # cannot be pinned here; it is read from the repo's main branch.
     args:
       do_sample: false
       enable_thinking: false
+      revision: 43c9d014b231474fa7212dbb48a762566c2b255d

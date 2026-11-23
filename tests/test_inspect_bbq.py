@@ -1,4 +1,4 @@
-"""Native BBQ contracts; the benchmark package imports no foundation helpers."""
+"""Native BBQ contracts: dataset, prompts, scorer, metrics, task and run config."""
 
 import ast
 import asyncio
@@ -10,9 +10,11 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import yaml
 from datasets import Dataset as HFDataset
 from datasets import DatasetDict
 from inspect_ai import eval as inspect_eval
+from inspect_ai._cli.eval import RunConfigInput
 from inspect_ai.log import EvalLog
 from inspect_ai.model import GenerateConfig, ModelName, ModelOutput, get_model
 from inspect_ai.scorer import MetricProtocol, SampleScore, Score, Target
@@ -57,6 +59,7 @@ from inspect_helpers import (
 )
 
 PACKAGE = Path(__file__).parents[1] / "llm_behavior_eval" / "bbq"
+GRADER_REVISION = "43c9d014b231474fa7212dbb48a762566c2b255d"
 
 
 def evaluate(
@@ -171,6 +174,15 @@ def test_missing_question_fails_at_task_construction(
     hub(rows)
     # hf_dataset converts every row when the task is built, before any limit.
     with pytest.raises(ValueError, match="BBQ row has no question"):
+        bbq()
+
+
+@pytest.mark.parametrize("question", ["", " \n\t"])
+def test_blank_question_fails_at_task_construction(
+    hub: Callable[..., list[Any]], question: str
+) -> None:
+    hub([dict(question="q", answer="a"), dict(question=question, answer="a")])
+    with pytest.raises(ValueError, match="BBQ row has a blank question"):
         bbq()
 
 
@@ -767,6 +779,33 @@ def test_partly_labeled_source_fails_at_task_construction(
         bbq()
 
 
+@pytest.mark.parametrize("blank", ["", "  "])
+def test_blank_stereotyped_answer_is_unlabeled(
+    hub: Callable[..., list[Any]], blank: str
+) -> None:
+    # A blank label is no label, so it cannot complete a labeled source...
+    hub(
+        [
+            dict(question="q1", answer="a", stereotyped_answer="s"),
+            dict(question="q2", answer="a", stereotyped_answer=blank),
+        ]
+    )
+    with pytest.raises(ValueError, match="1 of 2 BBQ rows have a stereotyped_answer"):
+        bbq()
+    # ...and a source labeled only with blanks is unlabeled.
+    hub([dict(question=f"q{i}", answer="a", stereotyped_answer=blank) for i in "12"])
+    assert [sample.metadata for sample in bbq().dataset] == [
+        {"stereotyped_answer": None}
+    ] * 2
+
+
+def test_blank_stereotyped_answers_report_nan_bias(
+    tmp_path: Path, hub: Callable[..., list[Any]]
+) -> None:
+    hub([dict(question=f"q{i}", answer="a", stereotyped_answer="") for i in "12"])
+    assert math.isnan(eval_metrics(evaluate(tmp_path))["stereotype_bias"])
+
+
 def test_unlabeled_source_reports_nan_bias(
     tmp_path: Path, hub: Callable[..., list[Any]]
 ) -> None:
@@ -836,3 +875,31 @@ def test_registered_task_runs_on_a_local_source(
     )
     assert log.eval.task == "llm_behavior_eval/bbq"
     assert eval_metrics(log)["empty_responses"] == 1
+
+
+def test_parity_run_config() -> None:
+    config = yaml.safe_load((PACKAGE / "parity.yaml").read_text())
+    RunConfigInput.model_validate(config)
+    # The legacy greedy, 128-token answers with thinking off, first 500 rows.
+    assert config["generate_config"] == {
+        "temperature": 0.0,
+        "max_tokens": 128,
+        "seed": 42,
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+    }
+    assert config["eval_config"] == {"limit": 500}
+    assert "task" not in config
+    grader = config["model_roles"]["grader"]
+    # The legacy engine's default judge on its default (transformers) engine.
+    assert grader["model"] == "hf/google/gemma-4-12B-it"
+    assert grader["config"] == {
+        "temperature": 0.0,
+        "max_tokens": 32,
+        "seed": 42,
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+    }
+    assert grader["args"] == {
+        "do_sample": False,
+        "enable_thinking": False,
+        "revision": GRADER_REVISION,
+    }

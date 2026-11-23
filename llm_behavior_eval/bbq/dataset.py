@@ -74,8 +74,9 @@ def load_source(
     seeded shuffle on every path.
 
     Raises:
-        ValueError: A row has no question, some rows but not all have a
-            ``stereotyped_answer`` (``check_stereotype_labels``), or a saved
+        ValueError: A row has no question or a blank one, some rows but not
+            all have a ``stereotyped_answer`` (``check_stereotype_labels``;
+            ``stereotype_label`` reads a blank one as none), or a saved
             ``DatasetDict`` has no ``split``.
         DuplicateIdError: Two rows share an ID: identical rows, which the
             pinned datasets do not have, or (vanishingly unlikely) a hash
@@ -83,13 +84,16 @@ def load_source(
     """
 
     def record_to_sample(record: dict[str, Any]) -> Sample:
-        if not isinstance(record.get("question"), str):
+        question = record.get("question")
+        if not isinstance(question, str):
             raise ValueError("BBQ row has no question")
+        if not question.strip():
+            raise ValueError("BBQ row has a blank question")
         return Sample(
             id=stable_id(prefix, record),
-            input=record["question"],
+            input=question,
             target=record.get("answer") or "",
-            metadata={"stereotyped_answer": record.get("stereotyped_answer")},
+            metadata={"stereotyped_answer": stereotype_label(record)},
         )
 
     dataset = load_dataset(
@@ -107,8 +111,23 @@ def load_source(
     )
 
 
+def stereotype_label(record: dict[str, Any]) -> Any:
+    """The row's ``stereotyped_answer``, or None when it is missing or blank.
+
+    A blank label names no stereotyped answer to compare against, so the row
+    counts as unlabeled (and skips the stereotype check) rather than as
+    labeled with an empty answer.
+    """
+    label = record.get("stereotyped_answer")
+    if isinstance(label, str) and not label.strip():
+        return None
+    return label
+
+
 def check_stereotype_labels(dataset: Dataset) -> None:
     """Require a ``stereotyped_answer`` on every row or on none.
+
+    A blank one counts as none (``stereotype_label``).
 
     The bias index divides by every non-empty, non-unknown observation, so a
     row without a stereotyped answer (which skips the stereotype check) would

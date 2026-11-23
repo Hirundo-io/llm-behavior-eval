@@ -75,7 +75,9 @@ def bbq_scorer(*, kind: str, judge_sees_answer_reasoning: bool = False) -> Score
         (``max_tokens`` or ``model_length``) its verdict may be cut off, so the
         observation is unscored (``scoring_failed``, excluded from every BBQ
         metric, as ``completion_scorer`` treats an unknown stop reason) rather
-        than credited from a partial reply.
+        than credited from a partial reply. The guard needs a grader provider
+        that reports stop reasons: Inspect's ``hf/`` reports ``unknown``, so
+        with an ``hf/`` grader it never fires.
     """
 
     async def score(state: TaskState, target: Target) -> Score:
