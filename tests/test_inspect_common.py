@@ -1,4 +1,4 @@
-"""Contracts of the shared code in ``llm_behavior_eval.common`` and the registry."""
+"""Contracts of the shared code in ``llm_behavior_eval.common`` and its discovery."""
 
 import json
 import math
@@ -27,8 +27,6 @@ from inspect_ai.model import (
 )
 from inspect_ai.scorer import Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
-
-from llm_behavior_eval import _registry
 from llm_behavior_eval.common import dataset as common_dataset
 from llm_behavior_eval.common.dataset import (
     DATASET_TOKEN_VARIABLE,
@@ -153,12 +151,55 @@ def test_saved_dataset_dict_needs_the_split(tmp_path: Path) -> None:
         load_dataset(str(tmp_path / "s"), split="test", sample_fields=to_sample)
 
 
-def test_plain_folder_is_not_a_saved_dataset(tmp_path: Path) -> None:
-    (tmp_path / "test.jsonl").write_text('{"id": "a", "text": "b"}\n')
-    assert not is_saved_dataset(str(tmp_path))
-    # A lone marker file does not make a load_dataset folder a saved one.
-    (tmp_path / "state.json").write_text("{}")
-    assert not is_saved_dataset(str(tmp_path))
+def write_rows(folder: Path, prefix: str) -> None:
+    folder.mkdir(exist_ok=True)
+    (folder / "train.jsonl").write_text(
+        "".join(
+            json.dumps({"id": f"r{i}", "text": f"{prefix}{i}"}) + "\n" for i in range(5)
+        )
+    )
+
+
+def test_replaced_local_file_is_read_again(
+    tmp_path: Path, hf_dataset_cache: Path
+) -> None:
+    folder = tmp_path / "data"
+    write_rows(folder, "What is 2 + 2? ")
+    first = load_dataset(str(folder), split="train", sample_fields=to_sample)
+    assert [s.input for s in first][0] == "What is 2 + 2? 0"
+    # Same path, new contents: the new rows are scored, not a cached copy.
+    write_rows(folder, "What is 3 + 3? ")
+    second = load_dataset(str(folder), split="train", sample_fields=to_sample)
+    assert [s.input for s in second] == [f"What is 3 + 3? {i}" for i in range(5)]
+
+
+def test_plain_folder_is_not_a_saved_dataset(
+    tmp_path: Path, hf_dataset_cache: Path
+) -> None:
+    write_rows(tmp_path / "data", "t")
+    assert not is_saved_dataset(str(tmp_path / "data"))
+    # A lone dataset_info.json neither makes it a saved folder nor stops it
+    # loading as data files.
+    (tmp_path / "data" / "dataset_info.json").write_text("{}")
+    assert not is_saved_dataset(str(tmp_path / "data"))
+    assert (
+        len(
+            load_dataset(str(tmp_path / "data"), split="train", sample_fields=to_sample)
+        )
+        == 5
+    )
+
+
+def test_lone_state_json_is_reported(tmp_path: Path, hf_dataset_cache: Path) -> None:
+    # datasets refuses any folder with a state.json and points to
+    # load_from_disk, which cannot read an incomplete snapshot either.
+    write_rows(tmp_path / "data", "t")
+    (tmp_path / "data" / "state.json").write_text("{}")
+    assert not is_saved_dataset(str(tmp_path / "data"))
+    with pytest.raises(
+        ValueError, match="holds a state.json but is not a save_to_disk"
+    ):
+        load_dataset(str(tmp_path / "data"), split="train", sample_fields=to_sample)
 
 
 # Scoring
@@ -294,6 +335,8 @@ def make_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str) -> Pat
     root.mkdir()
     (root / "__init__.py").write_text("")
     monkeypatch.syspath_prepend(str(tmp_path))
+    # A package another test imported under this name would shadow this one.
+    monkeypatch.delitem(sys.modules, name, raising=False)
     return root
 
 
@@ -323,21 +366,48 @@ def test_load_target_metrics_merges_packages(
 
 
 @pytest.mark.parametrize(
-    "content",
+    ("content", "message"),
     [
-        {"other/task": [metric("m")]},
-        {"fake_root_b/task": []},
-        {"fake_root_b/task": [{"name": "m"}]},
+        ([metric("m")], "expected a JSON object, got list"),
+        ({"other/task": [metric("m")]}, "must start with fake_root_b/"),
+        ({"fake_root_b/task": []}, "needs a non-empty list"),
+        ({"fake_root_b/task": metric("m")}, "needs a non-empty list"),
+        ({"fake_root_b/task": ["m"]}, r"task\[0\] needs exactly the keys"),
+        ({"fake_root_b/task": [{"name": "m"}]}, r"task\[0\] needs exactly the keys"),
+        ({"fake_root_b/task": [metric("m") | {"name": ["m"]}]}, r"\.name must be"),
+        ({"fake_root_b/task": [metric("m") | {"name": ""}]}, r"\.name must be"),
+        (
+            {"fake_root_b/task": [metric("m") | {"is_percentage": "false"}]},
+            r"\.is_percentage must be true or false, got 'false'",
+        ),
+        (
+            {"fake_root_b/task": [metric("m"), metric("n") | {"is_normalized": 1}]},
+            r"task\[1\]\.is_normalized must be true or false",
+        ),
     ],
 )
 def test_load_target_metrics_rejects_bad_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: dict[str, Any]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: object, message: str
 ) -> None:
     root = make_root(tmp_path, monkeypatch, "fake_root_b")
     (root / "p").mkdir()
     (root / "p" / "target_metrics.json").write_text(json.dumps(content))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message) as error:
         load_target_metrics("fake_root_b")
+    assert "target_metrics.json" in str(error.value)
+
+
+def test_load_target_metrics_rejects_a_repeated_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = make_root(tmp_path, monkeypatch, "fake_root_c")
+    for package in ("a", "b"):
+        (root / package).mkdir()
+        (root / package / "target_metrics.json").write_text(
+            json.dumps({"fake_root_c/task": [metric("m")]})
+        )
+    with pytest.raises(ValueError, match="is repeated"):
+        load_target_metrics("fake_root_c")
 
 
 def test_missing_target_metrics(tmp_path: Path) -> None:
@@ -355,27 +425,37 @@ def test_missing_target_metrics(tmp_path: Path) -> None:
         missing_target_metrics(log, {})
 
 
-def test_benchmark_packages_are_subpackages_with_a_task_module(
+def test_load_target_metrics_spans_namespace_portions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root = make_root(tmp_path, monkeypatch, "fake_root_c")
-    for package, files in [
-        ("with_task", ["__init__.py", "task.py"]),
-        ("without_task", ["__init__.py", "scorer.py"]),
-        ("task_package", ["__init__.py", "task/__init__.py"]),
-        ("namespace", ["task.py"]),
+    # Two portions of a PEP 420 namespace (no __init__.py), as two editable
+    # workspace members put them on sys.path, one with a grouped benchmark.
+    for portion, package, task in [
+        ("one", "solo", "solo"),
+        ("two", "group/member", "member"),
     ]:
-        for file in files:
-            path = root / package / file
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("")
-    assert _registry.benchmark_packages("fake_root_c") == ["fake_root_c.with_task"]
+        directory = tmp_path / portion / "fake_root_d" / package
+        directory.mkdir(parents=True)
+        (directory / "target_metrics.json").write_text(
+            json.dumps({f"fake_root_d/{task}": [metric("m")]})
+        )
+        monkeypatch.syspath_prepend(str(tmp_path / portion))
+    monkeypatch.delitem(sys.modules, "fake_root_d", raising=False)
+    assert list(load_target_metrics("fake_root_d")) == [
+        "fake_root_d/member",
+        "fake_root_d/solo",
+    ]
 
 
-def test_registry_does_not_load_the_legacy_engine() -> None:
+def test_entry_points_do_not_load_the_legacy_engine() -> None:
+    # Inspect loads every inspect_ai entry point named after a task's package
+    # prefix; none of them may import the legacy engine (torch, transformers).
     code = (
-        "import sys, llm_behavior_eval._registry; "
-        "print(any(m.startswith('llm_behavior_eval.evaluation_utils') for m in sys.modules))"
+        "import sys; from importlib.metadata import entry_points; "
+        "[ep.load() for ep in entry_points(group='inspect_ai') "
+        "if ep.name == 'llm_behavior_eval']; "
+        "print(any(m.startswith(('llm_behavior_eval.evaluation_utils', 'torch')) "
+        "for m in sys.modules))"
     )
     result = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
