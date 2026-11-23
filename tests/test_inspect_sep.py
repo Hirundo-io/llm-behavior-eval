@@ -23,6 +23,7 @@ from inspect_ai.model import (
     get_model,
 )
 from inspect_ai.scorer import MetricProtocol, SampleScore, Score
+
 from llm_behavior_eval.common.target_metrics import missing_target_metrics
 from llm_behavior_eval.security.sep import dataset as sep_dataset
 from llm_behavior_eval.security.sep.dataset import (
@@ -64,10 +65,7 @@ from inspect_helpers import (
     sample_scores,
 )
 
-PACKAGE = (
-    Path(__file__).parents[1]
-    / "packages/security/sep/src/llm_behavior_eval/security/sep"
-)
+PACKAGE = Path(__file__).parents[1] / "llm_behavior_eval/security/sep"
 README = PACKAGE / "README.md"
 ROWS = 6
 PROBE = "PROBE"

@@ -1,4 +1,7 @@
 name: Reviewer approval gate
+# Hardening (zizmor checks it in vulnerability-scan.yaml): every action is pinned to a
+# full commit SHA, with its tag in the trailing comment, so a moved or compromised tag
+# can't change what runs; Renovate proposes the updates.
 
 on:
   pull_request:

@@ -1,7 +1,7 @@
 # SEP with native Inspect
 
 `llm-behavior-eval-sep` (`llm_behavior_eval.security.sep`, in the
-[security group](https://github.com/Hirundo-io/llm-behavior-eval/tree/main/packages/security)):
+[security group](https://github.com/Hirundo-io/llm-behavior-eval/tree/main/llm_behavior_eval/security)):
 three native [Inspect](https://inspect.aisi.org.uk/) tasks.
 
 | Task | What it is | Grader |
@@ -31,9 +31,8 @@ inspect eval llm_behavior_eval/sep --model openai-api/answer/MODEL
 There is no grader: scoring is a string rule. The task sets no inference
 options. For the authors' generation settings (2048 output tokens, nothing
 else), pass the run config, `parity.yaml` next to this README
-(`packages/security/sep/src/llm_behavior_eval/security/sep/parity.yaml` in the
-repository, `llm_behavior_eval/security/sep/parity.yaml` in an installed
-package):
+(`llm_behavior_eval/security/sep/parity.yaml`, in the repository and in an
+installed package):
 
 ```sh
 inspect eval llm_behavior_eval/sep --model vllm/ORG/MODEL \

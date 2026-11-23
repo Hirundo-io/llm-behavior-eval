@@ -22,6 +22,7 @@ from typing import Any
 from inspect_ai.model import ChatMessageUser
 from inspect_ai.scorer import Score, Scorer, Target, scorer
 from inspect_ai.solver import TaskState
+
 from llm_behavior_eval.common.scoring import grader, judged_answer, stop_reason
 
 from .metrics import sep_instruction_control_metrics, sep_metrics, sep_tool_metrics

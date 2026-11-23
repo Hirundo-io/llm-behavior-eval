@@ -4,6 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR%/.devcontainer}"
 VENV_PATH="${PROJECT_ROOT}/.venv"
+# `uv pip install -e .` below reads [tool.uv.config-settings-package] from the root
+# pyproject.toml in the current directory, which installs the root editable in
+# setuptools' compat mode (see "Packaging" in INSPECT_MIGRATION.md). Outside the
+# repository root it would need `-C editable_mode=compat`.
+cd "${PROJECT_ROOT}"
 
 export PATH="${HOME}/.local/bin:${PATH}"
 
@@ -45,7 +50,7 @@ else
   uv pip install --python "${VENV_PYTHON}" -e .
 fi
 
-# The native distributions (workspace members under packages/) editable too, as
+# The native distributions (the workspace members) editable too, as
 # `uv sync` installs them; `uv pip install -e .` alone installs them as wheels.
 MEMBER_ARGS=()
 while IFS= read -r member; do
@@ -53,5 +58,5 @@ while IFS= read -r member; do
 done < <("${VENV_PYTHON}" "${PROJECT_ROOT}/scripts/workspace.py")
 uv pip install --python "${VENV_PYTHON}" "${MEMBER_ARGS[@]}"
 
-uv pip install --python "${VENV_PYTHON}" ruff "pyrefly>=1.2" pytest pre-commit bumpver
+uv pip install --python "${VENV_PYTHON}" ruff pyrefly pytest pre-commit bumpver
 

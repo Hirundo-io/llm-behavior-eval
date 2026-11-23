@@ -10,6 +10,7 @@ from functools import partial
 
 from inspect_ai import Task, task
 from inspect_ai.solver import generate
+
 from llm_behavior_eval.common.scoring import completion_scorer
 
 from .dataset import (

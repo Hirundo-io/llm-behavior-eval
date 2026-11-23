@@ -60,6 +60,13 @@ class Pin:
 def parse_manifest(text: str, root: Path = ROOT) -> list[Pin]:
     """The manifest's entries.
 
+    Args:
+        text: The manifest's content (``.github/upstream-revisions.env``).
+        root: The directory each entry's ``# source:`` file is relative to.
+
+    Returns:
+        One ``Pin`` per entry, in the manifest's order.
+
     Raises:
         ValueError: An entry is incomplete, a key repeats, a revision is not a
             full commit hash, or a source file is missing.
@@ -113,6 +120,12 @@ def parse_manifest(text: str, root: Path = ROOT) -> list[Pin]:
 def code_revision(pin: Pin) -> str:
     """The value the source file assigns to the pinned constant.
 
+    Args:
+        pin: The manifest entry naming the file and constant (or dict item).
+
+    Returns:
+        The string literal assigned at module level, read without importing.
+
     Raises:
         ValueError: The file has no such module-level string (or dict item).
     """
@@ -144,7 +157,17 @@ def code_revision(pin: Pin) -> str:
 
 
 def mismatches(pins: list[Pin]) -> dict[Pin, str]:
-    """Each pin whose code disagrees with the manifest, with the code's value."""
+    """Each pin whose code disagrees with the manifest, with the code's value.
+
+    Args:
+        pins: The manifest's entries.
+
+    Returns:
+        The stale pins, mapped to the revision their code still has.
+
+    Raises:
+        ValueError: A pin's constant cannot be read (see ``code_revision``).
+    """
     found = {}
     for pin in pins:
         current = code_revision(pin)
@@ -157,7 +180,14 @@ def owning_directory(file: Path) -> Path:
     """The innermost workspace member directory that holds ``file``.
 
     A group distribution's directory contains its benchmarks' directories, so
-    the deepest match is the benchmark that owns the file.
+    the deepest match is the benchmark that owns the file. The root
+    distribution is not a member, so the legacy engine owns no pin.
+
+    Args:
+        file: A pin's source file.
+
+    Returns:
+        The owning member's directory.
 
     Raises:
         ValueError: ``file`` is in no workspace member.
@@ -169,10 +199,45 @@ def owning_directory(file: Path) -> Path:
 
 
 def sync(pins: list[Pin]) -> list[Path]:
-    """Replace each stale commit with the manifest's; the files changed."""
+    """Replace each stale commit with the manifest's, writing the files.
+
+    For each stale pin, every text file (``TEXT_SUFFIXES``) of the distribution
+    that owns its source file is rewritten in place, the old commit replaced
+    with the manifest's, so its README and target metrics move with the code.
+
+    Args:
+        pins: The manifest's entries.
+
+    Returns:
+        The files rewritten, in order (a file may repeat for several pins).
+
+    Raises:
+        ValueError: A stale pin's old commit is also the current value of
+            another pin in the same distribution that wants a different
+            commit (another stale pin, or one already up to date). Replacing
+            the old commit would move both, so nothing is written; edit those
+            constants by hand.
+    """
+    stale = mismatches(pins)
+    directories = {pin: owning_directory(pin.file) for pin in stale}
+    for pin, old in stale.items():
+        clashing = [
+            other.key
+            for other in pins
+            if other is not pin
+            and stale.get(other, other.revision) == old
+            and other.revision != pin.revision
+            and other.file.is_relative_to(directories[pin])
+        ]
+        if clashing:
+            raise ValueError(
+                f"{pin.key}: its old commit {old} is also the current value of "
+                f"{', '.join(clashing)} in the same distribution, which want a "
+                "different commit; update these constants by hand"
+            )
     changed: list[Path] = []
-    for pin, old in mismatches(pins).items():
-        directory = owning_directory(pin.file)
+    for pin, old in stale.items():
+        directory = directories[pin]
         for path in sorted(directory.rglob("*")):
             if path.suffix not in TEXT_SUFFIXES or not path.is_file():
                 continue

@@ -22,6 +22,7 @@ import statistics
 from collections.abc import Sequence
 
 from inspect_ai.scorer import Metric, SampleScore, metric
+
 from llm_behavior_eval.common.scoring import INCOMPLETE_STOP_REASONS
 
 

@@ -5,7 +5,10 @@
   with backoff.
 * A local source without a revision goes through Inspect's ``hf_dataset``
   with its split cache off, so a file replaced at the same path is read
-  again rather than served from a cache keyed on the path.
+  again rather than served from a cache keyed on the path. ``datasets``
+  itself still decides whether to rebuild from the file's path and
+  modification time, so a replacement that keeps the old mtime (``cp -p``,
+  ``rsync -t``, ``touch -r``) can be served stale: give it a new mtime.
 * A ``save_to_disk`` folder, which neither reads, is read with
   ``datasets.load_from_disk`` and never written to.
 
@@ -14,6 +17,7 @@ Every path converts rows with the benchmark's ``sample_fields`` and, with a
 ``--limit N`` selects the same rows from every source.
 """
 
+import json
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -88,12 +92,21 @@ def load_saved_dataset(
     the folder).
 
     Raises:
-        ValueError: A saved ``DatasetDict`` has no ``split``, or the folder
-            holds neither a ``Dataset`` nor a ``DatasetDict``.
+        ValueError: A saved ``DatasetDict`` has no ``split``, its
+            ``dataset_dict.json`` lists no ``splits``, or the folder holds
+            neither a ``Dataset`` nor a ``DatasetDict``.
     """
     from datasets import Dataset as HFDataset
     from datasets import DatasetDict, load_from_disk
 
+    index = Path(path) / "dataset_dict.json"
+    if index.is_file():
+        # load_from_disk fails on it with a bare KeyError('splits').
+        splits = json.loads(index.read_text(encoding="utf-8")).get("splits")
+        if not isinstance(splits, list):
+            raise ValueError(
+                f"{index} lists no splits; it is not a DatasetDict.save_to_disk folder"
+            )
     loaded = load_from_disk(path)
     if isinstance(loaded, DatasetDict):
         if split not in loaded:

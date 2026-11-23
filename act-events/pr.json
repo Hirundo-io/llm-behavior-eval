@@ -5,7 +5,7 @@
         "title": "v0.1.1",
         "body": "This is a test PR that is created by act",
         "changed_files": [
-            "src/llm_behavior_eval/__init__.py"
+            "llm_behavior_eval/__init__.py"
         ],
         "merged": true,
         "labels": [

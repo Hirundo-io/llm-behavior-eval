@@ -1,6 +1,6 @@
 # SEP opt-in run config: the generation settings the authors' evaluation code
 # fixes for the model under test. Pass it explicitly (in the repository this file
-# is packages/security/sep/src/llm_behavior_eval/security/sep/parity.yaml):
+# is llm_behavior_eval/security/sep/parity.yaml):
 #
 #   inspect eval llm_behavior_eval/sep --model <provider/model> \
 #     --run-config <this file>
