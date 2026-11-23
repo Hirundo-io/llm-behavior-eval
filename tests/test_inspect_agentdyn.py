@@ -759,6 +759,16 @@ def test_runner_rejects_invalid_arguments(
     assert "eval" not in captured
 
 
+def test_runner_help_states_every_default() -> None:
+    lines = run.parser().format_help().splitlines()
+    for flag in ("--suites", "--mode", "--attack", "--max-samples"):
+        line = next(i for i, text in enumerate(lines) if text.lstrip().startswith(flag))
+        assert "(default: " in " ".join(lines[line : line + 2]), flag
+    for flag in ("--temperature", "--top-p", "--max-tokens", "--seed"):
+        line = next(i for i, text in enumerate(lines) if text.lstrip().startswith(flag))
+        assert "not sent unless given" in " ".join(lines[line : line + 3]), flag
+
+
 def test_runner_fails_when_an_episode_failed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -871,6 +881,30 @@ def test_arms_with_different_task_arguments_are_rejected(tmp_path: Path) -> None
             display="none",
         )
     with pytest.raises(ValueError, match="different task arguments"):
+        summarize.summarize(
+            log_dir, {"base": "mockllm/base", "hardened": "mockllm/hardened"}
+        )
+
+
+def test_sharded_arms_must_pair_the_same_arguments_per_episode(
+    tmp_path: Path,
+) -> None:
+    """Each arm runs both attacks, but on the opposite suites: same set, no pairs."""
+    log_dir = tmp_path / "logs"
+    shards = {
+        "mockllm/base": {"important_instructions": "shopping", "direct": "github"},
+        "mockllm/hardened": {"direct": "shopping", "important_instructions": "github"},
+    }
+    for name, attacks in shards.items():
+        for attack, suite in attacks.items():
+            inspect_eval(
+                agentdyn(suites="shopping,github", mode="clean", attack=attack),
+                model=scripted(name=name),
+                sample_id=f"{suite}/user_task_0/clean",
+                log_dir=str(log_dir),
+                display="none",
+            )
+    with pytest.raises(ValueError, match="different task arguments for github/"):
         summarize.summarize(
             log_dir, {"base": "mockllm/base", "hardened": "mockllm/hardened"}
         )

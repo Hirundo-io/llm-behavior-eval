@@ -1,9 +1,9 @@
 """Compare the two arms of a paired AgentDyn run, episode by episode.
 
 Reads the logs ``llm-behavior-eval-agentdyn`` wrote, checks that both arms ran
-the same task arguments and exactly the same episodes, and writes, for every
-suite (and ``all``), mode and outcome, both arms' rates and the hardened-minus-
-base difference with a 95% interval from a paired bootstrap that resamples
+exactly the same episodes, each under the same task arguments, and writes, for
+every suite (and ``all``), mode and outcome, both arms' rates and the hardened-
+minus-base difference with a 95% interval from a paired bootstrap that resamples
 user tasks: the attacks on one user task move together, so they are not
 counted as independent observations.
 """
@@ -45,11 +45,14 @@ def load_outcomes(log_dir: Path, models: dict[str, str]) -> Outcomes:
 
     Raises:
         ValueError: A log is incomplete or not of an arm, an episode failed or
-            repeats, or the arms ran different task arguments.
+            repeats, or an episode's two arms ran different task arguments
+            (compared per episode, so sharded logs cannot pair different
+            configurations).
     """
     outcomes: Outcomes = defaultdict(dict)
     arm_of = {model: arm for arm, model in models.items()}
-    task_args: dict[str, set[str]] = defaultdict(set)
+    # arm -> (suite, mode, sample ID) -> the task arguments of its log
+    task_args: dict[str, dict[tuple[str, str, str], str]] = defaultdict(dict)
     for info in list_eval_logs(str(log_dir)):
         log = read_eval_log(info.name)
         if log.status != "success":
@@ -60,7 +63,7 @@ def load_outcomes(log_dir: Path, models: dict[str, str]) -> Outcomes:
                 f"{info.name}: model {log.eval.model} is neither arm "
                 f"({', '.join(f'{a}={m}' for a, m in models.items())})"
             )
-        task_args[arm].add(json.dumps(log.eval.task_args, sort_keys=True))
+        arguments = json.dumps(log.eval.task_args, sort_keys=True)
         for sample in log.samples or []:
             if sample.error is not None:
                 raise ValueError(f"Sample error: {sample.id}: {sample.error.message}")
@@ -76,8 +79,14 @@ def load_outcomes(log_dir: Path, models: dict[str, str]) -> Outcomes:
             if any(value not in (0, 1) for value in values.values()):
                 raise ValueError(f"Expected 0/1 outcomes: {sample_id}: {values}")
             outcomes[key][sample_id] = values
-    if len({frozenset(arguments) for arguments in task_args.values()}) > 1:
-        raise ValueError(f"The arms ran different task arguments: {dict(task_args)}")
+            task_args[arm][(key[0], mode, sample_id)] = arguments
+    base, hardened = (task_args[arm] for arm in ARMS)
+    for episode in sorted(base.keys() & hardened.keys()):
+        if base[episode] != hardened[episode]:
+            raise ValueError(
+                f"The arms ran different task arguments for {episode[2]}: "
+                f"base {base[episode]}, hardened {hardened[episode]}"
+            )
     return dict(outcomes)
 
 

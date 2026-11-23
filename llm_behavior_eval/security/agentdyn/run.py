@@ -38,9 +38,22 @@ def parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--log-dir", type=Path, required=True)
     parser.add_argument("--limit", type=int, help="episodes per arm (a pilot run)")
-    parser.add_argument("--suites", default=",".join(SUITES))
-    parser.add_argument("--mode", choices=MODES, default="both")
-    parser.add_argument("--attack", choices=SUPPORTED_ATTACKS, default=DEFAULT_ATTACK)
+    suites = ",".join(SUITES)
+    parser.add_argument(
+        "--suites", default=suites, help=f"comma-separated (default: {suites})"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=MODES,
+        default="both",
+        help="clean episodes, attacked ones or both (default: both)",
+    )
+    parser.add_argument(
+        "--attack",
+        choices=SUPPORTED_ATTACKS,
+        default=DEFAULT_ATTACK,
+        help=f"injection attack (default: {DEFAULT_ATTACK})",
+    )
     for arm in ARMS:
         model, url = DEFAULT_MODELS[arm]
         parser.add_argument(f"--{arm}-model", default=model, help=f"default: {model}")
@@ -48,14 +61,15 @@ def parser() -> argparse.ArgumentParser:
     settings = parser.add_argument_group(
         "generation settings for both arms (default: the server's)"
     )
-    settings.add_argument("--temperature", type=float)
-    settings.add_argument("--top-p", type=float)
-    settings.add_argument("--max-tokens", type=int)
-    settings.add_argument("--seed", type=int)
+    unset = "default: not sent unless given (the server's applies)"
+    settings.add_argument("--temperature", type=float, help=unset)
+    settings.add_argument("--top-p", type=float, help=unset)
+    settings.add_argument("--max-tokens", type=int, help=unset)
+    settings.add_argument("--seed", type=int, help=unset)
     settings.add_argument(
         "--reasoning-effort",
         choices=("low", "medium", "high"),
-        help="sent as the request's reasoning_effort (as vLLM reads it)",
+        help="sent as the request's reasoning_effort (as vLLM reads it); " + unset,
     )
     parser.add_argument(
         "--max-samples",
