@@ -70,9 +70,13 @@ license covers this code, not the benchmark data, which is never copied into
 the repository or the distribution.
 
 Each task downloads its file from
-`raw.githubusercontent.com` at the pinned commit (retrying network errors) and
+`raw.githubusercontent.com` at the pinned commit (retrying network errors and
+HTTP 408, 429 and 5xx responses; any other HTTP error fails at once) and
 checks its SHA-256 before reading a row; a `dataset_path` copy gets the same
-check. Every row is then validated: exact columns and types, non-blank
+check. A verified download is cached under `INSPECT_EVALS_CACHE_DIR` (default:
+the `inspect_evals` user cache) in `llm_behavior_eval/tensor_trust/`; the
+cached copy is checked again on every load and downloaded afresh when it does
+not match. Every row is then validated: exact columns and types, non-blank
 `attack` and `access_code`, the row count and unique `sample_id`s.
 `pre_prompt` (6 hijacking, 2 extraction rows) and `post_prompt` (170 and 110
 rows) can be blank, as published. Rows are never copied into this

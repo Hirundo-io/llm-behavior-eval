@@ -4,7 +4,9 @@ The authors publish the two robustness benchmarks as JSONL files in
 ``HumanCompatibleAI/tensor-trust-data``. There is no loadable Hugging Face
 copy (the ``qxcv/tensor-trust`` mirror has no dataset config for the benchmark
 files), so each file is fetched from GitHub at a pinned commit and its SHA-256
-is checked before any row is read. A local copy (``dataset_path``) gets the
+is checked before any row is read. A verified download is cached under
+``INSPECT_EVALS_CACHE_DIR``; the cached copy is checked again on every load and
+fetched afresh when it does not match. A local copy (``dataset_path``) gets the
 same check. Rows keep their published order, so ``--limit N`` takes the first
 samples.
 
@@ -14,13 +16,17 @@ defense validity), in that order.
 
 import hashlib
 import json
+import os
+import tempfile
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
 from inspect_ai.dataset import MemoryDataset, Sample
+from inspect_evals_utils.cache import INSPECT_EVALS_CACHE_PATH
 
 from .prompts import defense_messages
 
@@ -42,8 +48,12 @@ COLUMNS = frozenset({"sample_id", "pre_prompt", "attack", "post_prompt", "access
 NON_EMPTY = ("attack", "access_code")
 """Columns that are never empty; ``pre_prompt`` and ``post_prompt`` can be."""
 
+CACHE_DIR = INSPECT_EVALS_CACHE_PATH / "llm_behavior_eval" / "tensor_trust"
+"""Where verified downloads are cached (``INSPECT_EVALS_CACHE_DIR`` moves it)."""
 DOWNLOAD_ATTEMPTS = 4
 DOWNLOAD_TIMEOUT_SECONDS = 60
+TRANSIENT_HTTP_CODES = frozenset({408, 429, 500, 502, 503, 504})
+"""HTTP statuses worth retrying; any other HTTP error is raised at once."""
 
 
 @dataclass(frozen=True)
@@ -83,10 +93,14 @@ BENCHMARKS: dict[BenchmarkName, BenchmarkFile] = {
 
 
 def download(url: str) -> bytes:
-    """Fetch ``url``, retrying network errors with exponential backoff.
+    """Fetch ``url``, retrying network errors and transient HTTP statuses.
+
+    Waits grow exponentially between attempts. A permanent HTTP error (such as
+    404) is raised without retrying.
 
     Raises:
-        OSError: Every attempt failed.
+        OSError: An HTTP status outside ``TRANSIENT_HTTP_CODES``, or every
+            attempt failed.
     """
     for attempt in range(DOWNLOAD_ATTEMPTS):
         try:
@@ -94,11 +108,57 @@ def download(url: str) -> bytes:
                 url, timeout=DOWNLOAD_TIMEOUT_SECONDS
             ) as response:
                 return response.read()
+        except urllib.error.HTTPError as error:
+            if (
+                error.code not in TRANSIENT_HTTP_CODES
+                or attempt == DOWNLOAD_ATTEMPTS - 1
+            ):
+                raise
         except OSError:
             if attempt == DOWNLOAD_ATTEMPTS - 1:
                 raise
-            time.sleep(2**attempt)
+        time.sleep(2**attempt)
     raise AssertionError("unreachable")
+
+
+def store(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` atomically.
+
+    The bytes go to a uniquely named file next to ``path`` first, so
+    concurrent cache fills never share a staging file, and ``os.replace``
+    swaps it in whole. The staging file is removed if anything fails.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle, staging = tempfile.mkstemp(
+        prefix=f"{path.name}.", suffix=".partial", dir=path.parent
+    )
+    try:
+        with os.fdopen(handle, "wb") as file:
+            file.write(data)
+        os.replace(staging, path)
+    except BaseException:
+        Path(staging).unlink(missing_ok=True)
+        raise
+
+
+def read_pinned(benchmark: BenchmarkFile) -> bytes:
+    """The pinned file's bytes, from the cache or downloaded, checksum-verified.
+
+    A cached copy is checked on every read and fetched again when it does not
+    match; a download that does not match is never cached.
+
+    Raises:
+        ValueError: The downloaded file does not match ``benchmark.sha256``.
+    """
+    cached = CACHE_DIR / benchmark.path
+    if cached.is_file():
+        data = cached.read_bytes()
+        if hashlib.sha256(data).hexdigest() == benchmark.sha256:
+            return data
+    data = download(benchmark.url)
+    verify_checksum(data, benchmark, benchmark.url)
+    store(cached, data)
+    return data
 
 
 def verify_checksum(data: bytes, benchmark: BenchmarkFile, source: str) -> None:
@@ -119,11 +179,14 @@ def verify_checksum(data: bytes, benchmark: BenchmarkFile, source: str) -> None:
 def parse_rows(data: bytes) -> list[dict[str, Any]]:
     """JSON objects of a JSONL file; blank lines are skipped, as upstream does.
 
+    Lines end only at ``\\n`` (a ``\\r`` before it is JSON whitespace), so
+    other Unicode line separators inside a row do not split it.
+
     Raises:
         ValueError: A line is not a JSON object.
     """
     rows = []
-    for number, line in enumerate(data.decode("utf-8").splitlines(), start=1):
+    for number, line in enumerate(data.decode("utf-8").split("\n"), start=1):
         if not line.strip():
             continue
         row = json.loads(line)
@@ -158,14 +221,22 @@ def validate_row(record: dict[str, Any]) -> None:
 
 
 def record_to_samples(record: dict[str, Any]) -> list[Sample]:
-    """One row as its attack sample and its access-code sample.
+    """One row, validated, as its attack sample and its access-code sample.
 
     Both send the defense around the middle message (see
     ``prompts.defense_messages``). IDs are ``<sample_id>-attack`` and
     ``<sample_id>-access_code``; metadata holds the row's ``sample_id``, the
     sample ``kind`` and the ``access_code`` the scorer checks for.
+
+    Raises:
+        ValueError: The row is invalid (see ``validate_row``).
     """
     validate_row(record)
+    return _samples(record)
+
+
+def _samples(record: dict[str, Any]) -> list[Sample]:
+    """``record_to_samples`` for a row ``validate`` has already checked."""
     samples = []
     for kind in (ATTACK, ACCESS_CODE):
         samples.append(
@@ -218,15 +289,15 @@ def dataset(name: BenchmarkName, dataset_path: str | None = None) -> MemoryDatas
     benchmark = BENCHMARKS[name]
     if dataset_path is None:
         source = benchmark.url
-        data = download(source)
+        data = read_pinned(benchmark)
     else:
         source = dataset_path
         data = Path(dataset_path).read_bytes()
-    verify_checksum(data, benchmark, source)
+        verify_checksum(data, benchmark, source)
     rows = parse_rows(data)
     validate(rows, benchmark)
     return MemoryDataset(
-        [sample for row in rows for sample in record_to_samples(row)],
+        [sample for row in rows for sample in _samples(row)],
         name=f"tensor_trust_{name}",
         location=source,
     )
