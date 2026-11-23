@@ -201,7 +201,9 @@ def main() -> None:
     parser.add_argument("--group", help="stage the benchmark in this group")
     parser.add_argument("--keep", type=Path, help="work here and keep the files")
     args = parser.parse_args()
-    work = args.keep or Path(tempfile.mkdtemp(prefix="check-installs-"))
+    # Absolute, because the builds run with the repository copy as their working
+    # directory; a relative --keep would send their output elsewhere.
+    work = (args.keep or Path(tempfile.mkdtemp(prefix="check-installs-"))).resolve()
     work.mkdir(parents=True, exist_ok=True)
     try:
         check_all(args, work)
