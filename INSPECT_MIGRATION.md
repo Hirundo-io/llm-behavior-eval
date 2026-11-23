@@ -276,8 +276,10 @@ the distribution's.
    `package-dir` maps the package to `<dir>` itself. A subpackage (a
    directory with `__init__.py` inside `<dir>`) must be listed in `packages`
    too (`"<pkg>.<sub>"`; `package-dir` covers it); setuptools ships nothing
-   that is not listed. Add any other data file the package reads to
-   `package-data`. Inspect itself comes from `llm-behavior-eval-common`;
+   that is not listed. `package-data` must list `README.md` and
+   `target_metrics.json`, and `parity.yaml` when the benchmark has one (the
+   template lists it either way; a missing file is skipped). Add any other
+   data file the package reads. Inspect itself comes from `llm-behavior-eval-common`;
    never depend on `llm-behavior-eval`.
 3. **License.** `<dir>/LICENSE` is a byte-for-byte copy of the root `LICENSE`
    for MIT. When upstream terms force another license (for example
