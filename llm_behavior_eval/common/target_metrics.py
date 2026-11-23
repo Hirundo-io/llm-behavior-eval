@@ -99,7 +99,8 @@ def target_metrics_files(directory: Path, in_package: bool = False) -> list[Path
     Below a regular package (one with ``__init__.py``) only its subpackages
     are searched, so a ``build/`` copy or ``*.egg-info`` that an in-place
     build leaves in a benchmark's directory is skipped. Above one, directories
-    without ``__init__.py`` are namespace levels (a group) and are searched.
+    without ``__init__.py`` are namespace levels (a group) and are searched,
+    except ``__pycache__``.
 
     Args:
         directory: A directory of the root package (``package_directories``).
@@ -113,7 +114,7 @@ def target_metrics_files(directory: Path, in_package: bool = False) -> list[Path
     for path in sorted(directory.iterdir()):
         if path.is_file() and path.name == TARGET_METRICS_FILE:
             found.append(path)
-        elif path.is_dir() and path.name.isidentifier():
+        elif path.is_dir() and path.name.isidentifier() and path.name != "__pycache__":
             is_package = (path / "__init__.py").is_file()
             if is_package or not in_package:
                 found.extend(target_metrics_files(path, in_package or is_package))

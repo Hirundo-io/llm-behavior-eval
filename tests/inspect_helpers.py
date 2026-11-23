@@ -1,4 +1,4 @@
-"""Test helpers both native benchmark suites use.
+"""Test helpers the native benchmark suites share.
 
 ``pytest`` puts ``tests/`` on ``sys.path`` (``pythonpath`` in ``pyproject.toml``),
 so import them as ``from inspect_helpers import ...``. Fixtures live in
@@ -68,11 +68,11 @@ def _flatten_metrics(
 def eval_metrics(log: EvalLog) -> dict[str, Any]:
     """Metrics of every scorer of a successful log, in one mapping.
 
-    Every benchmark metric is unreduced (INSPECT_MIGRATION.md, "Epochs"), so
-    each scorer writes exactly one ``EvalScore`` with no reducer. Metric keys
-    must be unique across scorers (for example ``field_rate`` from the
-    grading scorer and ``incomplete_response_rate`` from
-    ``completion_scorer``).
+    Every benchmark metric is unreduced (INSPECT_MIGRATION.md, "Design
+    rules"), so each scorer writes exactly one ``EvalScore`` with no reducer.
+    Metric keys must be unique across scorers (for example
+    ``example_compliance_rate`` from the example benchmark's scorer and
+    ``incomplete_response_rate`` from ``completion_scorer``).
     """
     assert log.status == "success", log.error
     assert log.results is not None
@@ -137,7 +137,7 @@ def assert_no_credentials_logged(log: EvalLog, secret: str) -> None:
 
 @dataclass
 class LocalOpenAIJudge:
-    """A loopback OpenAI-compatible chat endpoint (see ``openai_judge``)."""
+    """A loopback OpenAI-compatible chat endpoint (see ``local_openai_judge``)."""
 
     base_url: str
     reply: str | Callable[[dict[str, Any]], str] = "SCORE: 0"
@@ -173,7 +173,7 @@ def local_openai_judge(
 
     Use it as an ``openai-api/<service>/<model>`` grader's ``base_url``. Set
     ``reply`` before the eval; read ``requests`` afterwards to see exactly
-    what Inspect sent. The ``openai_judge`` fixture (``conftest.py``) wraps it.
+    what Inspect sent.
     """
     judge = LocalOpenAIJudge(
         base_url="", reply=reply, reasoning=reasoning, finish_reason=finish_reason
