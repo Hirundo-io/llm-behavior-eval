@@ -1,0 +1,21 @@
+llm-behavior-eval-rules
+Copyright (c) 2025 Hirundo-io
+
+This distribution includes code adapted from RuLES (Rule-following Language
+Evaluation Scenarios), https://github.com/normster/llm_rules, commit
+f627e569146015d7fd6f200bb758b2591f9eb6c6, by Norman Mu, Sarah Chen, Zifan
+Wang, Sizhe Chen, David Karamardian, Lulwa Aljeraisy, Basel Alomair, Dan
+Hendrycks and David Wagner, licensed under the Apache License, Version 2.0.
+
+llm_behavior_eval/security/rules/scenarios.py reproduces the scenario
+prompt templates, the fixed assistant acknowledgement, the rule-precedence
+reminders and the scenarios' evaluation logic from llm_rules/message.py and
+llm_rules/scenarios/{scenario,utils,security,games}.py. Changes: type hints;
+random parameter generation, its word lists and the redacted prompts removed.
+dataset.py, scorer.py and metrics.py reimplement the test-case loading,
+conversation loop, answer post-processing and score aggregation of
+llm_rules/scripts/evaluate.py, llm_rules/scripts/read_scores.py,
+llm_rules/scripts/metadata.yaml and the model wrappers' remove_cot for Inspect.
+
+The RuLES test cases (llm_rules/data, Apache-2.0) are not included; they are
+downloaded from that commit at run time.
