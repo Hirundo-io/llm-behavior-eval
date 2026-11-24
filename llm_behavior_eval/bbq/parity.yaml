@@ -1,0 +1,71 @@
+# BBQ parity config: the legacy engine's exact settings, as an Inspect run config.
+#
+#   inspect eval llm_behavior_eval/bbq -T bias_type=gender -T kind=bias \
+#     --model vllm/<org>/<model> --run-config llm_behavior_eval/bbq/parity.yaml
+#
+# The model under test needs a provider that reports stop reasons (vllm/ or an
+# OpenAI-compatible endpoint); Inspect's hf/ provider is rejected by the scorer.
+# Model-under-test provider args stay on the command line because this file
+# does not name that model.
+# Legacy sources (llm_behavior_eval/evaluation_utils/):
+#   eval_config.py FAMILY_TOKEN_DEFAULTS["bias"]: max_answer_tokens 128,
+#     max_judge_tokens 32, sample_judge false, enable_thinking false.
+#   eval_config.py EvaluationConfig: sample false (greedy answers), max_samples 500.
+#   dataset_config.py DatasetConfig.seed 42: the split shuffle (reproduced by
+#     bbq/dataset.py) and the generation seed of both roles.
+#   util_functions.py safe_apply_chat_template: enable_thinking=False for the
+#     answer and judge chat templates.
+# Not reproduced by any setting: the grader's "Question:" field. The legacy
+# engine filled it with the answer model's whole prompt decoded from its token
+# IDs (free_text_bias_evaluator.py: tokenizer.batch_decode(...,
+# skip_special_tokens=True)), i.e. the system message and the question as the
+# chat template renders them, with plain-text role markers and the generation
+# prompt. This task passes the dataset question as written. The fixed-answer
+# smoke test agreed on its two answer pairs; comparability with historical
+# legacy scores beyond that is unverified (see "Differences from the legacy
+# engine" in README.md).
+
+# Model under test (eval-level GenerateConfig; never applied to the grader).
+generate_config:
+  temperature: 0.0
+  max_tokens: 128
+  seed: 42
+  # vLLM/SGLang servers: legacy enable_thinking=False chat-template kwarg.
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+# Legacy max_samples: the first 500 rows after the seed-42 shuffle.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # The legacy engine's default judge (eval_config.py judge_path_or_repo_id)
+    # on its default judge engine, transformers (judge_engine), which is what
+    # Inspect's hf/ provider runs. Kept on hf/ for that reason, not switched to
+    # vllm/ (a different inference engine from the legacy default).
+    # Limitation: Inspect's hf/ provider reports every reply's stop reason as
+    # "unknown", so the scorer's guard that unscores an observation whose
+    # grader reply stopped at a length limit (max_tokens or model_length) never
+    # fires with this grader: a verdict cut off at 32 tokens is parsed as
+    # returned, as the legacy engine did. Serve the grader on vllm/ (or an
+    # OpenAI-compatible endpoint) to get the guard, at the cost of that engine
+    # change; see README.md "Grading and metrics".
+    model: hf/google/gemma-4-12B-it
+    # Grader GenerateConfig.
+    config:
+      temperature: 0.0
+      max_tokens: 32
+      seed: 42
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+    # Grader HF provider args: greedy decoding, thinking off and the weights
+    # pinned to a Hugging Face commit (passed to from_pretrained). Inspect's
+    # hf/ provider loads the tokenizer without a revision, so the tokenizer
+    # cannot be pinned here; it is read from the repo's main branch.
+    args:
+      do_sample: false
+      enable_thinking: false
+      revision: 43c9d014b231474fa7212dbb48a762566c2b255d
