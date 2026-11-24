@@ -1,0 +1,19 @@
+# Raccoon reference settings as an opt-in Inspect run config. Pass it explicitly:
+#
+#   inspect eval llm_behavior_eval/raccoon --model <provider/model> \
+#     --run-config llm_behavior_eval/security/raccoon/parity.yaml
+#
+# (the path in a checkout and in an installed package).
+#
+# Raccoon has no judge: the attack succeeds on ROUGE-L recall, so there is no grader
+# role. There is no legacy-engine run of Raccoon; the settings are the reference
+# runner's, M0gician/RaccoonBench at commit d2ea81e8e5e3a933f3f2cba88d35e47d11c63800:
+#   run_raccoon_gang.py: temperature = 0.0001 (0 only with an OpenAI organization
+#     key), no max_tokens (the provider's default), atk_budget = 1, suc_threshold = 0.8.
+#   The task's defaults already match the runner's other settings: one attempt per
+#     sample, the 0.8 threshold, the GPT system template (--use_sys_template), the
+#     prompt as a system message (its GPT path), defenseless GPTs.
+
+# Model under test (eval-level GenerateConfig).
+generate_config:
+  temperature: 0.0001
