@@ -3,6 +3,8 @@
 import json
 import re
 
+import yaml
+
 import sync_upstream_revisions as sync
 from workspace import ROOT
 
@@ -84,3 +86,36 @@ def test_renovate_image_is_extracted() -> None:
     match = manager_pattern(".github/workflows/renovate.yaml").search(workflow)
     assert match is not None
     assert match["depName"] == "renovate/renovate"
+
+
+def test_renovate_runs_as_the_github_app() -> None:
+    # GITHUB_TOKEN's pushes start no CI and it cannot edit workflow files, so the
+    # job hands Renovate a short-lived token of the Renovate GitHub App instead.
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "renovate.yaml").read_text(encoding="utf-8")
+    )
+    job = workflow["jobs"]["renovate"]
+    assert job["environment"] == "renovate"
+    assert job["permissions"] == {"contents": "read"}
+    assert "default_branch" in job["if"]
+    steps = {step.get("id", step["uses"].split("@")[0]): step for step in job["steps"]}
+    app = steps["app-token"]
+    assert app["uses"].startswith("actions/create-github-app-token@")
+    assert re.fullmatch(r"[0-9a-f]{40}", app["uses"].split("@")[1].split()[0])
+    assert app["with"]["app-id"] == "${{ vars.RENOVATE_APP_ID }}"
+    assert app["with"]["private-key"] == "${{ secrets.RENOVATE_APP_PRIVATE_KEY }}"
+    assert app["with"]["repositories"] == "${{ github.event.repository.name }}"
+    permissions = {
+        key.removeprefix("permission-"): value
+        for key, value in app["with"].items()
+        if key.startswith("permission-")
+    }
+    assert permissions == {
+        "contents": "write",
+        "issues": "write",
+        "pull-requests": "write",
+        "workflows": "write",
+    }
+    renovate = steps["renovatebot/github-action"]
+    assert renovate["with"]["token"] == "${{ steps.app-token.outputs.token }}"
+    assert "GITHUB_TOKEN" not in yaml.safe_dump(job)
