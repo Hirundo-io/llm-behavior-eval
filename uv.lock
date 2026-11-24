@@ -20,6 +20,7 @@ exclude-newer-span = "P7D"
 members = [
     "llm-behavior-eval",
     "llm-behavior-eval-common",
+    "llm-behavior-eval-security",
 ]
 
 [[package]]
@@ -2429,6 +2430,7 @@ dependencies = [
     { name = "bitsandbytes", marker = "sys_platform != 'darwin'" },
     { name = "datasets" },
     { name = "llm-behavior-eval-common" },
+    { name = "llm-behavior-eval-security" },
     { name = "networkx" },
     { name = "numpy" },
     { name = "pandas" },
@@ -2469,6 +2471,7 @@ dev = [
     { name = "bumpver" },
     { name = "llm-behavior-eval", extra = ["azure", "gcs", "mlflow", "vllm"] },
     { name = "llm-behavior-eval-common" },
+    { name = "llm-behavior-eval-security" },
     { name = "pre-commit" },
     { name = "pyrefly" },
     { name = "pytest" },
@@ -2487,6 +2490,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=5.0.1,<6.0.0" },
     { name = "google-cloud-storage", marker = "extra == 'gcs'" },
     { name = "llm-behavior-eval-common", marker = "python_full_version >= '3.11'", editable = "llm_behavior_eval/common" },
+    { name = "llm-behavior-eval-security", marker = "python_full_version >= '3.11'", editable = "llm_behavior_eval/security" },
     { name = "mlflow", marker = "extra == 'mlflow'", specifier = ">=2.0.0" },
     { name = "networkx", specifier = "<4.0.0" },
     { name = "numpy", specifier = "<3.0.0" },
@@ -2513,6 +2517,7 @@ dev = [
     { name = "bumpver", specifier = ">=2024.1130" },
     { name = "llm-behavior-eval", extras = ["mlflow", "vllm", "gcs", "azure"], editable = "." },
     { name = "llm-behavior-eval-common", editable = "llm_behavior_eval/common" },
+    { name = "llm-behavior-eval-security", editable = "llm_behavior_eval/security" },
     { name = "pre-commit", specifier = ">=4.3.0" },
     { name = "pyrefly", specifier = ">=0.63.1" },
     { name = "pytest", specifier = ">=8.3.5" },
@@ -2540,6 +2545,17 @@ requires-dist = [
     { name = "inspect-evals-utils", extras = ["huggingface"], specifier = ">=0.2.0,<0.3" },
     { name = "openai", specifier = ">=3.4,<4" },
 ]
+
+[[package]]
+name = "llm-behavior-eval-security"
+version = "0.1.12"
+source = { editable = "llm_behavior_eval/security" }
+dependencies = [
+    { name = "llm-behavior-eval-common" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "llm-behavior-eval-common", editable = "llm_behavior_eval/common" }]
 
 [[package]]
 name = "llvmlite"

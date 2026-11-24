@@ -1,0 +1,34 @@
+# The security group: one distribution that installs every published security
+# benchmark distribution. It ships no modules; each benchmark ships its own
+# portion of llm_behavior_eval.security from its own directory below this one
+# (see README.md).
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-behavior-eval-security"
+version = "0.1.12"
+description = "llm-behavior-eval's native Inspect security benchmarks, installable as one."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
+requires-python = ">=3.11,<3.14"
+# Upper bounds stop at the next release line that may break the APIs used here: the next
+# major version, or the next minor for a 0.x package. Lines with a narrower bound say why.
+dependencies = [
+  # The shared code and Inspect (inspect-ai>=0.3.289,<0.4), then one line per published
+  # security benchmark distribution, sorted by name (see "Add a security benchmark").
+  "llm-behavior-eval-common>=0.1.12,<0.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
+
+[tool.setuptools]
+# A metapackage: dependencies only. This directory also holds the group's benchmark
+# directories (each its own distribution), which must not be discovered as packages.
+packages = []
+py-modules = []
+include-package-data = false

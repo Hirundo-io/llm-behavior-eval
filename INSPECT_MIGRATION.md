@@ -72,6 +72,7 @@ of several distributions that share one import package, `llm_behavior_eval`:
 | `llm-behavior-eval` | `.` (workspace root) | the legacy engine: `llm_behavior_eval/__init__.py`, `evaluate.py`, `evaluation_utils/` … (unchanged) | the legacy stack (torch, transformers…), `llm-behavior-eval-common` and every merged benchmark (or group) distribution |
 | `llm-behavior-eval-common` | `llm_behavior_eval/common/` | `llm_behavior_eval.common` | Inspect, `inspect-evals-utils`, `openai`, `datasets` |
 | `llm-behavior-eval-<benchmark>` | `llm_behavior_eval/[<group>/]<benchmark>/` | `llm_behavior_eval.[<group>.]<benchmark>` | `llm-behavior-eval-common` and the benchmark's own libraries |
+| `llm-behavior-eval-<group>` | `llm_behavior_eval/<group>/` | nothing (a metapackage) | `llm-behavior-eval-common` and every published benchmark of the group |
 
 Each native distribution's `pyproject.toml` lives inside its own package
 directory, in place under the legacy package, so the import paths and task
@@ -85,6 +86,7 @@ llm_behavior_eval/
     pyproject.toml  LICENSE  README.md
     __init__.py  dataset.py  scoring.py  target_metrics.py
   <group>/                           a group of benchmarks: no __init__.py (its README lists them)
+    pyproject.toml  LICENSE  README.md      llm-behavior-eval-<group>, if the group has one
     <benchmark>/                     llm-behavior-eval-<benchmark>
       pyproject.toml  LICENSE  [NOTICE]
       __init__.py  task.py …  README.md  target_metrics.json
@@ -184,9 +186,10 @@ for benchmarks any more).
   needs 3.11). uv locks the workspace for the intersection of its members, so
   `uv.lock` covers Python 3.11–3.13 only, although `llm-behavior-eval` itself
   still declares 3.10.12.
-* `llm-behavior-eval` lists `llm-behavior-eval-common` and every merged
-  benchmark (or its group distribution) in `[project] dependencies`, so
-  installing it installs every merged benchmark.
+* `llm-behavior-eval` lists `llm-behavior-eval-common`, every merged ungrouped
+  benchmark and every group distribution (`llm-behavior-eval-security`) in
+  `[project] dependencies`, so installing it installs every merged published
+  benchmark.
 
 ## Benchmark layout
 
@@ -213,6 +216,28 @@ benchmark is ungrouped (`llm_behavior_eval/<benchmark>/`,
 `llm_behavior_eval.<benchmark>`) unless its ticket names a group. A group
 directory has no `__init__.py` (several distributions share it); its
 `README.md` lists the group's benchmarks and any group-specific steps.
+
+A group may have a **group distribution**, `llm-behavior-eval-<group>`, whose
+project directory is the group directory itself: `pyproject.toml` (with
+`[tool.setuptools] packages = []` and `py-modules = []`: no modules, and no
+discovery of the benchmark directories below it), `LICENSE` and the group
+`README.md` as its description. Each benchmark's directory is a workspace
+member nested in the group's; the group's wheel and sdist hold none of their
+files. It depends on `llm-behavior-eval-common` and on every published
+benchmark of the group, so `pip install llm-behavior-eval-<group>` installs the
+group; `llm-behavior-eval` depends on the group distribution rather than on its
+benchmarks. The `security` group has one, `llm-behavior-eval-security`; its
+README, `llm_behavior_eval/security/README.md`, has the steps to **add a
+security benchmark**, the list of security benchmarks, and the policy for
+unpublished and isolated benchmarks.
+
+**Unpublished benchmarks.** A distribution that PyPI would reject (a direct
+Git dependency) or that must never be installed implicitly (one that replaces
+a distribution of the same name, such as AgentDyn's `agentdojo` fork) sets
+`[tool.llm-behavior-eval] unpublished = "<reason>"` in its `pyproject.toml`.
+It stays a workspace member with its own tests, but no distribution depends on
+it (not the root, not a group, not through an extra), and the release workflow
+leaves it out (`python scripts/workspace.py --unpublished`).
 
 ## Add or migrate a benchmark
 
@@ -291,9 +316,10 @@ the distribution's.
    * `[tool.uv.sources]`: `<dist> = { workspace = true }`;
    * `[dependency-groups] dev`: `"<dist>"`;
    * `[project] dependencies`: `"<dist>>=<the root version>,<0.2; python_version >= '3.11'"`
-     unless its group has a group distribution (`llm_behavior_eval/<group>/pyproject.toml`):
-     then add it to that distribution's dependencies instead (see the group's
-     README).
+     unless its group has a group distribution (`llm_behavior_eval/<group>/pyproject.toml`,
+     for example `security`): then add `"<dist>>=<the root version>,<0.2",` to
+     that distribution's `dependencies` instead, sorted by name (see the group's
+     README). An unpublished benchmark is in neither.
    Then run `uv lock`.
 5. **Upstream pins.** For every upstream commit the code pins (a dataset or
    reference code), add an entry to `.github/upstream-revisions.env` (see
@@ -408,7 +434,9 @@ sources and builds two distributions to check them too.
   native distribution's tests in its light environment
   (`scripts/run_package_tests.py`); `uv build --all-packages`, `twine check
   --strict`, the license check, and the install matrix
-  (`scripts/check_installs.py`).
+  (`scripts/check_installs.py`, ungrouped and with `--group security`, which
+  nests the synthetic benchmark in `llm_behavior_eval/security/` and also
+  installs `llm-behavior-eval-security`).
 * `pyrefly.yaml` runs the locked pyrefly; `ruff.yaml` is unchanged.
 * `vulnerability-scan.yaml`: pip-audit of the installed workspace, `uv audit`
   of `uv.lock` (reporting only, until the lock's known advisories are
@@ -422,9 +450,9 @@ sources and builds two distributions to check them too.
   repository, the `RENOVATE_APP_ID` variable, and an Actions environment named
   `renovate`, restricted to the default branch and with no required reviewer,
   holding the App's private key as `RENOVATE_APP_PRIVATE_KEY`.
-* `deploy_to_pypi.yaml` builds and publishes every distribution; each needs
-  its own PyPI project with this workflow as a trusted publisher before its
-  first release.
+* `deploy_to_pypi.yaml` builds and publishes every distribution except the
+  unpublished ones; each needs its own PyPI project with this workflow as a
+  trusted publisher before its first release.
 
 ## Caveats
 

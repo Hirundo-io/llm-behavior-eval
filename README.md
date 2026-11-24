@@ -364,7 +364,7 @@ merged benchmark; a benchmark's distribution alone installs it with Inspect and
 transformers):
 
 ```sh
-pip install llm-behavior-eval-<benchmark>
+pip install llm-behavior-eval-<benchmark>   # or llm-behavior-eval-security for every security benchmark
 inspect eval llm_behavior_eval/<benchmark> --model <provider/model> --model-role grader=<provider/judge>
 ```
 
