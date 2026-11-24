@@ -38,3 +38,14 @@ jobs:
         run: uv sync --locked --extra mlflow --extra vllm
       # The locked pyrefly, as in the dev environment.
       - run: uv run --locked pyrefly check
+      # AgentDyn conflicts with the dev group ([tool.uv] conflicts), so the check above
+      # types its agentdojo imports as Any; check it again in its own environment, with
+      # the dev group's locked pyrefly, pytest and YAML stubs.
+      - name: Type-check AgentDyn in its own environment
+        run: |
+          uv export --locked --only-group dev --no-emit-project --no-hashes \
+            --no-header --no-annotate \
+            | grep -E '^(pyrefly|pytest|types-pyyaml)==' > "$RUNNER_TEMP/typecheck.txt"
+          uv run --isolated --locked --package llm-behavior-eval-agentdyn \
+            --with-requirements "$RUNNER_TEMP/typecheck.txt" \
+            pyrefly check llm_behavior_eval/security/agentdyn tests/test_inspect_agentdyn.py

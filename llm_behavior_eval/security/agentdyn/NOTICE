@@ -1,0 +1,17 @@
+llm-behavior-eval-agentdyn
+Copyright (c) 2025 Hirundo-io
+
+This distribution runs AgentDyn (https://github.com/SaFo-Lab/AgentDyn), by
+Hao Li, Ruoyao Wen, Shanghao Shi, Ning Zhang, Yevgeniy Vorobeychik and
+Chaowei Xiao, a fork of AgentDojo (https://github.com/ethz-spylab/agentdojo),
+Copyright (c) 2024 Edoardo Debenedetti, Jie Zhang, Mislav Balunovic, Luca
+Beurer-Kellner, Marc Fischer, and Florian Tramer, licensed under the MIT
+License. It depends on that code, installed from commit
+5353cf7615b135cace8d07c8f12dac53a16b6db3 under the distribution name
+agentdojo; none of its code or data is included here.
+
+llm_behavior_eval/security/agentdyn/agent.py reimplements, for Inspect, the
+agent loop of agentdojo/agent_pipeline/tool_execution.py (ToolsExecutor,
+ToolsExecutionLoop) and the result checks of
+agentdojo/task_suite/task_suite.py (run_task_with_pipeline) and
+agentdojo/benchmark.py at that commit, including their tool error messages.

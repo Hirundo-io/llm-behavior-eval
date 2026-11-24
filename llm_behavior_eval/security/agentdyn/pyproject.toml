@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-behavior-eval-agentdyn"
+version = "0.1.12"
+description = "AgentDyn dynamic agent prompt-injection benchmark as a native Inspect task, from llm-behavior-eval."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
+requires-python = ">=3.11,<3.14"
+# Upper bounds stop at the next release line that may break the APIs used here: the next
+# major version, or the next minor for a 0.x package. Lines with a narrower bound say why.
+dependencies = [
+  # The shared code and Inspect (inspect-ai>=0.3.289,<0.4). Never the llm-behavior-eval
+  # distribution: it carries the legacy engine (torch, transformers).
+  "llm-behavior-eval-common>=0.1.12,<0.2",
+  # AgentDyn's suites, tools, attacks and checks (MIT), pinned to one commit: the fork
+  # is published under the distribution name agentdojo and replaces stock AgentDojo.
+  "agentdojo @ git+https://github.com/SaFo-Lab/AgentDyn.git@5353cf7615b135cace8d07c8f12dac53a16b6db3",
+  # The summary CLI's bootstrap.
+  "numpy>=1.26,<3",
+]
+
+[project.urls]
+Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
+
+[project.entry-points.inspect_ai]
+# Inspect loads only the entry points named after a task's package prefix, so every
+# benchmark distribution uses the name llm_behavior_eval and its own task module.
+llm_behavior_eval = "llm_behavior_eval.security.agentdyn.task"
+
+[project.scripts]
+llm-behavior-eval-agentdyn = "llm_behavior_eval.security.agentdyn.run:main"
+llm-behavior-eval-agentdyn-summary = "llm_behavior_eval.security.agentdyn.summarize:main"
+
+[tool.setuptools]
+# The package's own directory: a benchmark's pyproject.toml sits inside its package,
+# llm_behavior_eval/[<group>/]<benchmark>/ (see "Packaging" in INSPECT_MIGRATION.md).
+packages = ["llm_behavior_eval.security.agentdyn"]
+package-dir = { "llm_behavior_eval.security.agentdyn" = "." }
+# Only the modules and the files listed below: otherwise pyproject.toml, LICENSE and
+# NOTICE would ship inside the package.
+include-package-data = false
+
+[tool.setuptools.package-data]
+"llm_behavior_eval.security.agentdyn" = ["README.md", "parity.yaml", "target_metrics.json"]
+
+[tool.llm-behavior-eval]
+# PyPI rejects the direct Git dependency, and installing this distribution replaces a
+# stock AgentDojo; see "Unpublished and isolated benchmarks" in ../README.md.
+unpublished = "depends on the agentdojo fork from git, which replaces stock AgentDojo"

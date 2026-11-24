@@ -86,7 +86,8 @@ environment marker.
 
 For a local checkout, run `uv sync` with Python 3.11 through 3.13 (the uv
 workspace: this distribution and every native benchmark distribution in its
-directory under `llm_behavior_eval/`, all editable). `uv.lock` covers the
+directory under `llm_behavior_eval/`, all editable, except AgentDyn, which uv
+resolves and installs apart; see its README). `uv.lock` covers the
 whole workspace, so it targets Python 3.11+ only; developing on Python 3.10
 is not supported, although the published `llm-behavior-eval` still installs
 there.

@@ -75,7 +75,8 @@ dev = [
   "pyyaml>=6.0.2",
   "pre-commit>=4.3.0",
   "llm-behavior-eval[mlflow,vllm,gcs,azure]",
-  # Every workspace distribution, installed editable in the dev environment.
+  # Every workspace distribution, installed editable in the dev environment, except
+  # those that conflict with it ([tool.uv] conflicts).
   "llm-behavior-eval-common",
   "llm-behavior-eval-security",
   "pyrefly>=0.63.1",
@@ -95,6 +96,16 @@ exclude-newer = "7 days"
 # (Not `{ include-group = ... }` in dev: bumpver's TOML parser rejects inline tables
 # in arrays.)
 default-groups = ["dev", "ci"]
+# AgentDyn's agentdojo fork pins old Google libraries (vertexai, so protobuf 5 and
+# google-cloud-storage 2), so it resolves apart from the dev group: the default
+# environment keeps its own versions and lacks AgentDyn, which installs and tests in
+# its own environment (`--package llm-behavior-eval-agentdyn`; see "Unpublished and
+# isolated benchmarks" in llm_behavior_eval/security/README.md). A conflict naming a
+# `package` is a uv preview feature; enabling it here stops uv warning on every command.
+conflicts = [
+  [{ package = "llm-behavior-eval-agentdyn" }, { group = "dev" }],
+]
+preview-features = ["package-conflicts"]
 
 [tool.uv.workspace]
 # Every distribution in this repository; see "Packaging" in INSPECT_MIGRATION.md.
@@ -103,12 +114,14 @@ default-groups = ["dev", "ci"]
 members = [
   "llm_behavior_eval/common",
   "llm_behavior_eval/security",
+  "llm_behavior_eval/security/agentdyn",
 ]
 
 [tool.uv.sources]
 llm-behavior-eval = { workspace = true }
 llm-behavior-eval-common = { workspace = true }
 llm-behavior-eval-security = { workspace = true }
+llm-behavior-eval-agentdyn = { workspace = true }
 
 [tool.uv.config-settings-package]
 # Every native distribution's directory sits inside llm_behavior_eval/ (each maps its
@@ -198,6 +211,10 @@ project-excludes = ["**/build/**", "**/.venv/**"]
 # place; tests/ and scripts/ are on pytest's pythonpath (shared helpers and repository
 # tools).
 search-path = [".", "tests", "scripts"]
+# AgentDyn's agentdojo fork conflicts with the dev group ([tool.uv] conflicts), so the
+# dev environment lacks it and its imports type as Any here; CI checks AgentDyn again
+# in its own environment, where they resolve (.github/workflows/pyrefly.yaml).
+ignore-missing-imports = ["agentdojo", "agentdojo.*"]
 
 [tool.pytest.ini_options]
 # The default prepend mode puts the repository root first on sys.path for each

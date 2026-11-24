@@ -1,0 +1,20 @@
+# AgentDyn reference settings as an opt-in Inspect run config. Pass it explicitly:
+#
+#   inspect eval llm_behavior_eval/agentdyn --model <provider/model> \
+#     --run-config llm_behavior_eval/security/agentdyn/parity.yaml
+#
+# (the path in a checkout and in an installed package).
+#
+# AgentDyn has no judge: the utility and security checks are programmatic, so
+# there is no grader role. There is no legacy-engine run of AgentDyn; the
+# settings are the reference code's, SaFo-Lab/AgentDyn at commit
+# 5353cf7615b135cace8d07c8f12dac53a16b6db3: its OpenAI-compatible client
+# (agentdojo/agent_pipeline/llms/openai_llm.py, OpenAILLM, also used for local
+# vLLM servers by the vllm_parsed provider) sends temperature 0.0 and leaves
+# the output budget, sampling cut-offs and reasoning effort to the server.
+# The task's defaults already match the benchmark script's other defaults:
+# the default system message, no defense, YAML tool output, 15 tool rounds.
+
+# Model under test (eval-level GenerateConfig).
+generate_config:
+  temperature: 0
