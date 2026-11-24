@@ -1,0 +1,42 @@
+{
+  "llm_behavior_eval/tensor_trust_extraction": [
+    {
+      "name": "extraction_robustness_rate",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "defense_validity",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ],
+  "llm_behavior_eval/tensor_trust_hijacking": [
+    {
+      "name": "hijacking_robustness_rate",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "defense_validity",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    },
+    {
+      "name": "incomplete_response_rate",
+      "is_percentage": true,
+      "is_higher_better": false,
+      "is_normalized": true
+    }
+  ]
+}

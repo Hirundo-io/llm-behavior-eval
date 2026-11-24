@@ -1,0 +1,29 @@
+# Tensor Trust paper settings for the model under test, as an Inspect run
+# config. Opt in explicitly; it names no task, so it applies to both:
+#
+#   inspect eval llm_behavior_eval/tensor_trust_extraction --model <provider/model> \
+#     --run-config <this file>
+#   inspect eval llm_behavior_eval/tensor_trust_hijacking --model <provider/model> \
+#     --run-config <this file> --max-tokens 50
+#
+# This file is llm_behavior_eval/security/tensor_trust/parity.yaml, in a checkout and in
+# the installed package
+# (importlib.resources.files("llm_behavior_eval.security.tensor_trust") / "parity.yaml").
+#
+# There is no grader: both benchmarks are scored by rules.
+# Sources (HumanCompatibleAI/tensor-trust @ f0b055451415e23d444703fbb8a47daf1d4b2c3c,
+# data-pipeline/src/ttdata/):
+#   call_llm.py llm_predict: temperature 0.0, max_length_tokens 500, one
+#     prediction per input.
+#   eval_extraction.py: extraction attacks at the 500-token default; access
+#     codes at max_length_tokens=50.
+#   eval_hijacking.py: attacks and access codes at max_length_tokens=50.
+# Inspect applies one max_tokens to every sample of a run, so this config uses
+# 500. The "access granted" rule reads only the start of a reply, so 500 and 50
+# give the same verdict unless more than 50 tokens of non-word characters come
+# before "access granted". For the hijacking paper setting exactly, add
+# --max-tokens 50 (command-line flags override this file).
+
+generate_config:
+  temperature: 0.0
+  max_tokens: 500
