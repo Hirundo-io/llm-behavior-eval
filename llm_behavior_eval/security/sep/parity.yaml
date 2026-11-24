@@ -1,0 +1,36 @@
+# SEP opt-in run config: the generation settings the authors' evaluation code
+# fixes for the model under test. Pass it explicitly (in the repository this file
+# is llm_behavior_eval/security/sep/parity.yaml):
+#
+#   inspect eval llm_behavior_eval/sep --model <provider/model> \
+#     --run-config <this file>
+#
+# Source: egozverev/Should-It-Be-Executed-Or-Processed at
+# 7606c0696f20f5aa433169fd2221f76852d1d4f5, model_eval/get_model_outputs.py:
+#   OpenAI models: completions(..., max_tokens=2048), no temperature (API default).
+#   Hugging Face models: pipeline("text-generation", max_new_tokens=2048,
+#     return_full_text=False), no sampling arguments (the model's own
+#     generation_config decides greedy or sampled decoding).
+# The code fixes nothing else (no temperature, top-p or seed), so neither does
+# this config. SEP has no grader.
+#
+# Models without a system role (the paper's Gemma and Starling runs) also need
+# -T system_role=false.
+#
+# The adaptations have no authors' settings. The same budget keeps them
+# comparable with sep: sep_instruction_control takes this file as is, and
+# sep_tool also needs a grader. No reference judge exists for sep_tool (its
+# earlier port named none and set only temperature 0), so use the team's
+# standard judge, greedy with thinking off and its weights pinned, bound on the
+# command line (a role given there overrides the run config's):
+#
+#   inspect eval llm_behavior_eval/sep_tool --model <provider/model> \
+#     --run-config <this file> \
+#     --model-role grader="{model: vllm/google/gemma-4-12B-it, temperature: 0, extra_body: {chat_template_kwargs: {enable_thinking: false}}, model_args: {revision: 43c9d014b231474fa7212dbb48a762566c2b255d, tokenizer_revision: 43c9d014b231474fa7212dbb48a762566c2b255d}}"
+#
+# The grader is not in this file because a model_roles entry here would start
+# the judge for sep and sep_instruction_control too.
+
+# Model under test (eval-level GenerateConfig).
+generate_config:
+  max_tokens: 2048
