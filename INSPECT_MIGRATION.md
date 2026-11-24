@@ -410,7 +410,7 @@ Keep entries sorted by key, separated by a blank line.
   disagree; `tests/test_renovate_configuration.py` checks that Renovate's
   regex manager extracts every entry.
 * Renovate (`.github/renovate.json`, run weekly by
-  `.github/workflows/renovate.yaml`) opens a pull request labelled
+  `.github/workflows/renovate.yaml` as the Renovate GitHub App) opens a pull request labelled
   `upstream-revision` that moves only the manifest when the tracked branch
   moves. In that pull request, run `python scripts/sync_upstream_revisions.py`
   (it replaces the old commit in every text file of the owning distribution),
@@ -447,6 +447,13 @@ sources and builds two distributions to check them too.
   triaged), and zizmor on the workflows (`.github/zizmor.yml`). Every action
   is pinned to a commit with its version in a comment, which Renovate keeps
   current.
+* `renovate.yaml` runs Renovate weekly from the default branch with a
+  short-lived token of the Renovate GitHub App (contents, issues, pull requests
+  and workflows write, this repository only), so its pull requests start CI and
+  it can update the pinned actions. It needs the App installed on the
+  repository, the `RENOVATE_APP_ID` variable, and an Actions environment named
+  `renovate`, restricted to the default branch and with no required reviewer,
+  holding the App's private key as `RENOVATE_APP_PRIVATE_KEY`.
 * `deploy_to_pypi.yaml` builds and publishes every distribution except the
   unpublished ones; each needs its own PyPI project with this workflow as a
   trusted publisher before its first release.
