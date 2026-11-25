@@ -16,10 +16,7 @@ from llm_behavior_eval.statecensor_bench.prompts import RUBRIC_VERSION
 from llm_behavior_eval.statecensor_bench.scorer import statecensor_bench_scorer
 
 TASK_VERSION = 1
-"""Bump when a change can alter results (prompts, parsing, data, metrics).
-
-StateCensor-Bench results are not comparable with CCPC-500 (v1) results.
-"""
+"""Bump when a change can alter results (prompts, parsing, data, metrics)."""
 REFERENCE_JUDGE = "google/gemma-4-26B-A4B-it"
 
 

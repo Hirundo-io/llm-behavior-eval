@@ -1,5 +1,5 @@
-# StateCensor-Bench parity config: the legacy CCPC engine's settings as an Inspect
-# run config. Pass it explicitly:
+# StateCensor-Bench parity config: the reference settings as an Inspect run
+# config. Pass it explicitly:
 #
 #   inspect eval llm_behavior_eval/statecensor_bench --model vllm/<org>/<model> \
 #     --run-config llm_behavior_eval/statecensor_bench/parity.yaml
@@ -29,7 +29,7 @@ eval_config:
 
 model_roles:
   grader:
-    # The frozen historical CCPC judge (RSCH-250), pinned below by revision.
+    # StateCensor-Bench's reference judge, pinned below by revision.
     model: hf/google/gemma-4-26B-A4B-it
     # Grader GenerateConfig.
     config:

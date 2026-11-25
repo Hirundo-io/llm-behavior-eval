@@ -7,13 +7,11 @@ Chinese Communist Party (CCP).
 
 It is a native [Inspect AI](https://inspect.aisi.org.uk/) task,
 `llm_behavior_eval/statecensor_bench`, built on
-[StateCensor-Bench](https://github.com/Hirundo-io/StateCensor-Bench) (formerly
-CCPC-500-v2). It asks 500 English questions on politically sensitive Chinese
-topics, and a binary LLM judge with a fixed rubric marks each answer as
-censored or not. The headline metric is the **censorship rate: censored
-judgments over all judgments. Lower is better.** Results are labelled
-separately: they are **not comparable** with CCPC-500 (v1) results, which come
-from a different prompt population.
+[StateCensor-Bench](https://github.com/Hirundo-io/StateCensor-Bench). It asks
+500 English questions on politically sensitive Chinese topics, and a binary LLM
+judge with a fixed rubric marks each answer as censored or not. The headline
+metric is the **censorship rate: censored judgments over all judgments. Lower
+is better.**
 
 "CCP-aligned" describes a behavioral resemblance, not a proven cause. The
 rubric does not count legitimate safety, privacy, legal, lack-of-access or
@@ -122,7 +120,7 @@ judge sees (`judged_answer`), the grader call (`ask_grader`),
 | File | Contents |
 | --- | --- |
 | `dataset.py` | Pinned coordinates and SHA-256, the download or local file, full-source validation, `record_to_sample` |
-| `prompts.py` | Rubric `statecensor_binary` (the legacy engine's `ccpc_binary_v4`, verbatim); JSON judge input; verdict parser |
+| `prompts.py` | Rubric `statecensor_binary`; JSON judge input; verdict parser |
 | `scorer.py` | The judge scorer (the task also lists the shared `completion_scorer()`, which reports `incomplete_response_rate`, and `response_validity_scorer()`, which reports `valid_response_rate`) |
 | `metrics.py` | `censorship_rate`, `stderr`, `judged_fraction` |
 | `task.py` | The task, its version and contract metadata |
@@ -142,7 +140,7 @@ answer: the judge scores behavior, not factual accuracy. `id` is the stable
 row identity, in file order; Inspect's `--sample-id` matches digit strings by
 value, so `7` and `007` both select `"007"`.
 
-The questions are StateCensor-Bench's public release of the set first curated as CCPC-500-v2.
+The questions are StateCensor-Bench's public release.
 Before release, most questions were reworded to remove verbatim overlap with
 public prompt collections, keeping each question's topic, request form and
 intent, and row IDs were renumbered `"000"`–`"499"`; labels and row order are
@@ -209,8 +207,7 @@ The model sees the question plus a trailing newline, with no system prompt.
 The judge gets the rubric as its system message and a JSON object
 `{"question", "response"}` (non-ASCII kept, compact separators) as its user
 message; its chat template must support a system role. The rubric is
-StateCensor-Bench's `statecensor_binary` (the legacy CCPC engine's
-`ccpc_binary_v4`): byte for byte the same system prompt and user template (SHA-256 of the system
+StateCensor-Bench's `statecensor_binary`, byte for byte (SHA-256 of the system
 prompt, a newline and the user template:
 `f02b961939f0f4b6aba0b6a30b02fd2fdc86ffd1250bc0b8c226be22bba908bc`). The
 verdict must be a bare `True` (censored) or `False` (trimmed, any case);
@@ -327,9 +324,9 @@ naming another task on the command line would hand it this config's
 
 ## Parity
 
-`parity.yaml` holds the legacy CCPC settings: answers greedy, 8192 tokens,
-thinking off; grader `hf/google/gemma-4-26B-A4B-it`, the frozen historical CCPC
-judge and StateCensor-Bench's reference judge, at revision
+`parity.yaml` holds the reference settings: answers greedy, 8192 tokens,
+thinking off; grader `hf/google/gemma-4-26B-A4B-it`, StateCensor-Bench's
+reference judge, at revision
 `4d7ae4984b7db7de8f8457170b3f1a419ee76d52`, greedy, 4096 tokens, thinking off;
 `limit: 500`. Inspect's `hf/` provider applies the revision to the model
 weights only; the judge's tokenizer and chat template load from `main`. A

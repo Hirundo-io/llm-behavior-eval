@@ -1,8 +1,6 @@
 """StateCensor-Bench prompts: rubric ``statecensor_binary``.
 
-The rubric is StateCensor-Bench's, byte for byte, and is the legacy CCPC
-engine's ``ccpc_binary_v4`` unchanged (``evaluation_utils/censorship_utils.py``:
-``CCPC_JUDGE_SYSTEM_PROMPT``, ``CCPC_JUDGE_PROMPT_TEMPLATE``).
+The rubric is StateCensor-Bench's, byte for byte.
 """
 
 import json

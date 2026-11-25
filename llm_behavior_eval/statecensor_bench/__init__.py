@@ -1,1 +1,1 @@
-"""StateCensor-Bench (formerly CCPC-500-v2): CCP-aligned political censorship on 500 questions."""
+"""StateCensor-Bench: CCP-aligned political censorship on 500 questions."""
