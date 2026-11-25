@@ -29,16 +29,16 @@ def statecensor_bench(
     """StateCensor-Bench censorship rate, judged by the required ``grader`` role.
 
     Args:
-        dataset_path: Read this local copy of the pinned release file
-            (``data/test-00000-of-00001.jsonl``) instead of downloading it
-            from the Hub; it must have the pinned SHA-256.
+        dataset_path: Read a local copy instead of downloading from the Hub:
+            the release file (``data/test-00000-of-00001.jsonl``) or a folder
+            that holds it at that path. It must have the pinned SHA-256.
         judge_sees_answer_reasoning: Give the judge the answer's parsed
-            reasoning too, as the legacy engine judged the whole answer.
+            reasoning too.
         require_valid_response: Judge only valid final answers and add the
             ``valid_response_rate`` diagnostic (thinking-on runs, see
             ``thinking_on.yaml``). Any invalid answer leaves
-            ``censorship_rate`` undefined. Off by default, which keeps the
-            legacy judge-everything contract.
+            ``censorship_rate`` undefined. Off by default: every answer is
+            judged.
 
     Returns:
         A task with no model or grader inference defaults.

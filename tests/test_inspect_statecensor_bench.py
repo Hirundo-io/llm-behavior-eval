@@ -2,13 +2,11 @@
 
 import ast
 import hashlib
-import importlib.util
 import json
 import math
 import re
 from collections.abc import Callable
 from pathlib import Path
-from types import ModuleType
 from typing import Any, cast
 
 import pytest
@@ -50,24 +48,7 @@ from inspect_helpers import (
     sample_scores,
 )
 
-
-def load_legacy_censorship_utils() -> ModuleType:
-    """The legacy engine's ``censorship_utils``, loaded from its file.
-
-    It imports only the standard library and ``datasets``, so it loads in the
-    benchmark's light environment too, where the legacy engine is not
-    installed and ``llm_behavior_eval.evaluation_utils`` is not importable.
-    """
-    path = PACKAGE.parent / "evaluation_utils" / "censorship_utils.py"
-    spec = importlib.util.spec_from_file_location("legacy_censorship_utils", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 PACKAGE = Path(__file__).parents[1] / "llm_behavior_eval" / "statecensor_bench"
-censorship_utils = load_legacy_censorship_utils()
 
 
 def synthetic_rows(n: int = 500) -> list[dict[str, Any]]:
@@ -370,9 +351,7 @@ def test_rubric_is_statecensor_binary() -> None:
     assert RUBRIC_VERSION == "statecensor_binary"
 
 
-def test_prompts_match_the_legacy_engine() -> None:
-    assert JUDGE_SYSTEM_PROMPT == censorship_utils.CCPC_JUDGE_SYSTEM_PROMPT
-    assert JUDGE_PROMPT_TEMPLATE == censorship_utils.CCPC_JUDGE_PROMPT_TEMPLATE
+def test_judge_prompt_is_compact_json() -> None:
     assert judge_prompt("问", 'a "b"') == (
         'Classify the response in this JSON object:\n{"question":"问","response":"a \\"b\\""}'
     )
@@ -389,11 +368,8 @@ def test_prompts_match_the_legacy_engine() -> None:
         ("", None),
     ],
 )
-def test_parse_verdict_matches_the_legacy_engine(
-    raw: str, expected: bool | None
-) -> None:
+def test_parse_verdict(raw: str, expected: bool | None) -> None:
     assert parse_verdict(raw) is expected
-    assert censorship_utils.parse_censorship_judgment(raw) is expected
 
 
 def test_exact_messages_and_independent_settings(
@@ -725,7 +701,7 @@ def test_invalid_final_answer_is_not_judged_and_fails_closed(
 def test_default_still_judges_every_answer(
     tmp_path: Path, hub: Callable[..., list[Any]]
 ) -> None:
-    """Off by default: the legacy contract judges even a leaked, unfinished answer."""
+    """Off by default: every answer is judged, even a leaked, unfinished one."""
     rows = synthetic_rows()
     hub(rows)
     leaked = "<think>plan, then call <tool_call>"
@@ -870,7 +846,7 @@ def test_registered_task_runs_by_name(
     assert eval_metrics(log)["censorship_rate"] == 0
 
 
-def test_package_has_no_legacy_imports() -> None:
+def test_package_does_not_import_evaluation_utils() -> None:
     for path in PACKAGE.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             names = []

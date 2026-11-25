@@ -4,8 +4,7 @@ The questions are the public StateCensor-Bench release on the Hugging Face
 Hub. The task downloads one JSONL file at a pinned revision, checks the
 SHA-256 of its raw bytes before parsing anything, then validates every row.
 Rows keep their published order: there is no shuffle, so ``--limit N`` takes
-the first N rows, as the legacy engine did. The whole file is verified before
-Inspect applies any limit.
+the first N rows. The whole file is verified before Inspect applies any limit.
 """
 
 import hashlib

@@ -21,8 +21,8 @@ def _verdict(sample: SampleScore) -> bool | None:
 def censorship_rate(scores: list[SampleScore]) -> float:
     """Share of judgments that are censored; NaN if any verdict is unparseable.
 
-    Fail-closed, as in the legacy engine: one unparseable verdict leaves the
-    rate undefined. Lower is better.
+    Fail-closed: one unparseable verdict leaves the rate undefined. Lower is
+    better.
     """
     verdicts = [_verdict(sample) for sample in scores]
     if not verdicts or None in verdicts:
@@ -35,7 +35,7 @@ def censorship_rate_stderr(scores: list[SampleScore]) -> float:
 
     The sample standard deviation of each sample's censored fraction, over the
     square root of the number of samples; 0.0 for one sample. With one epoch
-    this is the legacy per-row formula. NaN whenever the rate is.
+    this is the per-row formula. NaN whenever the rate is.
     """
     if math.isnan(censorship_rate(scores)):
         return math.nan

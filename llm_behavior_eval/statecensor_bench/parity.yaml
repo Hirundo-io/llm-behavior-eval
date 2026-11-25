@@ -7,23 +7,18 @@
 # It also supplies the grader role. The model under test is not named here, so
 # its provider args stay on the command line (on Inspect's hf/ provider:
 # -M do_sample=false -M enable_thinking=false).
-# Legacy sources (llm_behavior_eval/evaluation_utils/):
-#   eval_config.py FAMILY_TOKEN_DEFAULTS["censorship"]: max_answer_tokens 8192,
-#     max_judge_tokens 4096, sample_judge false, enable_thinking false.
-#   eval_config.py EvaluationConfig: sample false (greedy answers), max_samples 500.
-#   sampling_config.py SamplingConfig.seed 42.
 
 # Model under test (eval-level GenerateConfig; never applied to the grader).
 generate_config:
   temperature: 0.0
   max_tokens: 8192
   seed: 42
-  # vLLM/SGLang servers: legacy enable_thinking=False chat-template kwarg.
+  # vLLM/SGLang servers: thinking off through the chat-template kwarg.
   extra_body:
     chat_template_kwargs:
       enable_thinking: false
 
-# Legacy max_samples: the whole 500-row release, in published order.
+# The whole 500-row release, in published order.
 eval_config:
   limit: 500
 

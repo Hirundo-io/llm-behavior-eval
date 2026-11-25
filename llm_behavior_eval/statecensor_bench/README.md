@@ -77,7 +77,7 @@ inspect eval llm_behavior_eval/statecensor_bench \
 The task downloads the pinned dataset file (see [Dataset](#dataset)) and
 refuses to run if its SHA-256 does not match. The grader role is required and
 never falls back to the model under test; the task has no `judge_model`
-argument. The task sets no inference options for either role. For the legacy
+argument. The task sets no inference options for either role. For the reference
 settings, pass the run config, which also supplies the grader role (the
 reference judge, see [Parity](#parity)):
 
@@ -94,7 +94,7 @@ smoke test.
 
 This benchmark is the `llm-behavior-eval-statecensor-bench` distribution (Python
 3.11+). It installs with Inspect, `huggingface-hub` and
-`llm-behavior-eval-common` only, without the legacy engine; installing
+`llm-behavior-eval-common` only; installing
 `llm-behavior-eval` on Python 3.11+ installs it too:
 
 ```sh
@@ -108,7 +108,7 @@ checkout. Neither is `figures/`, which is only in the repository.
 
 ## Implementation
 
-The package imports no legacy-engine code. It owns its dataset contract,
+The package owns its dataset contract,
 rubric, verdict parsing and metrics. It downloads the dataset file with
 `huggingface_hub.hf_hub_download` and uses the shared foundation
 (`llm_behavior_eval.common`, see `INSPECT_MIGRATION.md`) only for what every
@@ -124,7 +124,7 @@ judge sees (`judged_answer`), the grader call (`ask_grader`),
 | `scorer.py` | The judge scorer (the task also lists the shared `completion_scorer()`, which reports `incomplete_response_rate`, and `response_validity_scorer()`, which reports `valid_response_rate`) |
 | `metrics.py` | `censorship_rate`, `stderr`, `judged_fraction` |
 | `task.py` | The task, its version and contract metadata |
-| `parity.yaml` | Legacy settings for both roles as an Inspect run config (thinking off) |
+| `parity.yaml` | Reference settings for both roles as an Inspect run config (thinking off) |
 | `thinking_on.yaml` | Opt-in thinking-on run config, with response validity required |
 | `target_metrics.json`, `thinking_on_target_metrics.json` | Metrics to report for each config, in inspect-brief's format |
 | `figures/` | StateCensor-Bench's published figures (see [Results](#results)); not packaged |
@@ -175,7 +175,7 @@ with an error naming the repository, file, revision and both hashes. Then
 every line must be a JSON object with exactly the four columns as non-empty
 strings, with exactly 500 rows and unique IDs. Error messages name columns
 and line numbers, never row values. There is no shuffle, so `--limit N` takes
-the first N rows, as in the legacy engine.
+the first N rows.
 
 Renovate tracks the revision through `.github/upstream-revisions.env`, and
 `scripts/sync_upstream_revisions.py` moves it in this package's files. The
@@ -212,7 +212,7 @@ prompt, a newline and the user template:
 `f02b961939f0f4b6aba0b6a30b02fd2fdc86ffd1250bc0b8c226be22bba908bc`). The
 verdict must be a bare `True` (censored) or `False` (trimmed, any case);
 anything else is unparseable. By default every answer is judged, whatever its
-stop reason (the legacy contract); `require_valid_response` changes that, see
+stop reason; `require_valid_response` changes that, see
 [Thinking on](#thinking-on).
 
 Metrics are unreduced: each (sample, epoch) is an observation.
@@ -253,7 +253,7 @@ if they were:
   this task reports whole-run metrics only.
 - Its validity rules and markup list differ from this task's
   `require_valid_response` check (see [Thinking on](#thinking-on)).
-- The answer prompt here ends with a newline (the legacy engine's prompt);
+- The answer prompt here ends with a newline;
   StateCensor-Bench sends the question alone. Its task sets answer defaults
   (temperature 0, 8,192 tokens); this task sets none and leaves them to
   `parity.yaml`.
@@ -273,8 +273,7 @@ grader's unparsed reasoning makes the reply unparseable. Serve reasoning models
 with a reasoning parser or turn thinking off per role, as `parity.yaml` does.
 
 `-T judge_sees_answer_reasoning=true` gives the judge the answer with its
-parsed reasoning, rendered by `common.scoring.judged_answer` as `<reasoning>` blocks,
-as the legacy engine judged the whole answer.
+parsed reasoning, rendered by `common.scoring.judged_answer` as `<reasoning>` blocks.
 
 ## Thinking on
 

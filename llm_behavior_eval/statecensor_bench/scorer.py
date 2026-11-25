@@ -1,7 +1,7 @@
 """StateCensor-Bench judge scorer.
 
-By default every answer is judged, whatever its stop reason (the legacy
-contract), so the judge scorer runs with any provider. With
+By default every answer is judged, whatever its stop reason, so the judge
+scorer runs with any provider. With
 ``require_valid_response`` (for thinking-on runs) an answer that is not a valid
 final answer is not judged and leaves the rate undefined. The grader is the
 required ``grader`` role with only its own settings; this module passes none.
