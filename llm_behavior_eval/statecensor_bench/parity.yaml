@@ -1,0 +1,43 @@
+# StateCensor-Bench parity config: the reference settings as an Inspect run
+# config. Pass it explicitly:
+#
+#   inspect eval llm_behavior_eval/statecensor_bench --model vllm/<org>/<model> \
+#     --run-config llm_behavior_eval/statecensor_bench/parity.yaml
+#
+# It also supplies the grader role. The model under test is not named here, so
+# its provider args stay on the command line (on Inspect's hf/ provider:
+# -M do_sample=false -M enable_thinking=false).
+
+# Model under test (eval-level GenerateConfig; never applied to the grader).
+generate_config:
+  temperature: 0.0
+  max_tokens: 8192
+  seed: 42
+  # vLLM/SGLang servers: thinking off through the chat-template kwarg.
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+
+# The whole 500-row release, in published order.
+eval_config:
+  limit: 500
+
+model_roles:
+  grader:
+    # StateCensor-Bench's reference judge, pinned below by revision.
+    model: hf/google/gemma-4-26B-A4B-it
+    # Grader GenerateConfig.
+    config:
+      temperature: 0.0
+      max_tokens: 4096
+      seed: 42
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+    # Grader HF provider args: greedy decoding, thinking off, and the pinned
+    # weights. Inspect's hf/ provider passes revision to the model only; the
+    # tokenizer and chat template load from the repository's main branch.
+    args:
+      do_sample: false
+      enable_thinking: false
+      revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52

@@ -142,6 +142,10 @@ class LocalOpenAIJudge:
     base_url: str
     reply: str | Callable[[dict[str, Any]], str] = "SCORE: 0"
     """The reply text, or a function of the request body that returns it."""
+    reasoning: str | None = None
+    """``reasoning_content`` to send, as vLLM's ``--reasoning-parser`` does."""
+    finish_reason: str = "stop"
+    """The choice's ``finish_reason``."""
     requests: list[dict[str, Any]] = field(default_factory=list)
     """Request bodies, in arrival order."""
     paths: list[str] = field(default_factory=list)
@@ -161,6 +165,9 @@ def message_text(message: dict[str, Any]) -> str:
 @contextmanager
 def local_openai_judge(
     reply: str | Callable[[dict[str, Any]], str] = "SCORE: 0",
+    *,
+    reasoning: str | None = None,
+    finish_reason: str = "stop",
 ) -> Generator[LocalOpenAIJudge]:
     """Serve chat completions on loopback that always answer ``judge.reply``.
 
@@ -168,7 +175,9 @@ def local_openai_judge(
     ``reply`` before the eval; read ``requests`` afterwards to see exactly
     what Inspect sent.
     """
-    judge = LocalOpenAIJudge(base_url="", reply=reply)
+    judge = LocalOpenAIJudge(
+        base_url="", reply=reply, reasoning=reasoning, finish_reason=finish_reason
+    )
 
     # BaseHTTPRequestHandler logs each request to stderr, which pytest captures.
     class Handler(BaseHTTPRequestHandler):
@@ -178,6 +187,9 @@ def local_openai_judge(
             judge.authorizations.append(self.headers.get("Authorization"))
             judge.requests.append(body)
             reply = judge.reply if isinstance(judge.reply, str) else judge.reply(body)
+            message: dict[str, Any] = {"role": "assistant", "content": reply}
+            if judge.reasoning is not None:
+                message["reasoning_content"] = judge.reasoning
             payload = json.dumps(
                 {
                     "id": "local-test",
@@ -187,8 +199,8 @@ def local_openai_judge(
                     "choices": [
                         {
                             "index": 0,
-                            "message": {"role": "assistant", "content": reply},
-                            "finish_reason": "stop",
+                            "message": message,
+                            "finish_reason": judge.finish_reason,
                         }
                     ],
                     "usage": {

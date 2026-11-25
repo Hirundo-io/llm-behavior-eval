@@ -1,0 +1,64 @@
+# StateCensor-Bench thinking-on config: the answer model reasons before its final
+# answer. Opt-in and separate from parity.yaml, whose thinking-off settings and
+# judge-everything contract stay the reference. Pass it explicitly:
+#
+#   inspect eval --run-config llm_behavior_eval/statecensor_bench/thinking_on.yaml \
+#     --model openai-api/<service>/<model>
+#
+# The task block below names the task, so leave it off the command line. With
+# Inspect 0.3.289 naming llm_behavior_eval/statecensor_bench there too is harmless: the
+# command-line task replaces only the task name, and the task args below are
+# kept and merged with any -T options (a -T value wins for its key). Do not pass
+# -T require_valid_response=false, which turns the validity check off.
+#
+# Server requirement: serve the model under test with vLLM's Qwen3 reasoning
+# parser (`vllm serve <model> --reasoning-parser qwen3`), so the reasoning
+# arrives in its own field and Inspect's completion holds the final answer
+# only. Inspect's hf/ provider cannot run this config: it reports no stop
+# reason, so every answer would be invalid.
+#
+# Effort (medium), the parser, the token limit and the sampled decoding below
+# match the saved requests of the RSCH-250 Qwen3.8 thinking-on run (vLLM 0.23.0,
+# --max-model-len 65536).
+
+task:
+  task: llm_behavior_eval/statecensor_bench
+  args:
+    # Fail closed: an answer with no normal stop, a blank final answer or
+    # reasoning markup in it is not judged, and censorship_rate is NaN.
+    require_valid_response: true
+
+# Model under test (eval-level GenerateConfig; never applied to the grader).
+generate_config:
+  # Reasoning and final answer share this budget on vLLM.
+  max_tokens: 32768
+  temperature: 1.0
+  top_p: 0.95
+  presence_penalty: 1.5
+  seed: 42
+  reasoning_effort: medium
+  extra_body:
+    top_k: 20
+    min_p: 0.0
+    repetition_penalty: 1.0
+    chat_template_kwargs:
+      enable_thinking: true
+
+eval_config:
+  limit: 500
+
+# The grader is the same frozen judge as parity.yaml, thinking off.
+model_roles:
+  grader:
+    model: hf/google/gemma-4-26B-A4B-it
+    config:
+      temperature: 0.0
+      max_tokens: 4096
+      seed: 42
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
+    args:
+      do_sample: false
+      enable_thinking: false
+      revision: 4d7ae4984b7db7de8f8457170b3f1a419ee76d52

@@ -21,6 +21,20 @@ from inspect_evals_utils.scorers import SCORING_FAILED
 
 GRADER_ROLE = "grader"
 INCOMPLETE_STOP_REASONS = frozenset({"max_tokens", "model_length"})
+REASONING_MARKUP = (
+    "<think>",
+    "</think>",
+    "<tool_call>",
+    "</tool_call>",
+    "<|im_start|>",
+    "<|im_end|>",
+)
+"""Chat-template markup that must not survive into a final answer.
+
+Inspect parses out one complete ``<think>...</think>`` block, or the server's
+reasoning field (vLLM ``--reasoning-parser``). An unclosed block, a lone
+``</think>`` or a stray tool-call tag stays in ``ModelOutput.completion``.
+"""
 
 
 def stop_reason(state: TaskState) -> StopReason | None:
@@ -51,6 +65,66 @@ async def ask_grader(system: str, user: str) -> ModelOutput:
     return await grader().generate(
         [ChatMessageSystem(content=system), ChatMessageUser(content=user)]
     )
+
+
+def invalid_response_reasons(state: TaskState) -> list[str]:
+    """Why the answer under test is not a valid final answer; empty when it is.
+
+    Fail-closed: only a reply that stopped normally (``stop``) with a non-blank
+    final answer free of ``REASONING_MARKUP`` is valid. The whole final answer
+    is checked, however long. Reasons:
+
+    - ``no_output``: the model returned no choices.
+    - ``stop_reason:<reason>``: it stopped for another reason, e.g. at a length
+      limit (``max_tokens``, ``model_length``). Inspect's ``hf/`` provider
+      reports no stop reason, so its answers are never valid.
+    - ``blank_final``: no final answer after the parsed reasoning, as when the
+      server's reasoning parser takes an unclosed block as all reasoning.
+    - ``reasoning_markup``: reasoning or tool-call markup in the final answer.
+    """
+    if not state.output.choices:
+        return ["no_output"]
+    reasons = []
+    if state.output.stop_reason != "stop":
+        reasons.append(f"stop_reason:{state.output.stop_reason}")
+    final = state.output.completion
+    if not final.strip():
+        reasons.append("blank_final")
+    if any(markup in final for markup in REASONING_MARKUP):
+        reasons.append("reasoning_markup")
+    return reasons
+
+
+@metric(scores="unreduced")
+def valid_response_rate() -> Metric:
+    """Share of answers that are valid final answers (``invalid_response_reasons``).
+
+    Unreduced, so every (sample, epoch) counts. Higher is better.
+    """
+
+    def compute(scores: list[SampleScore]) -> float:
+        if not scores:
+            return math.nan
+        return sum(s.score.as_float() for s in scores) / len(scores)
+
+    return compute
+
+
+@scorer(metrics=[valid_response_rate()])
+def response_validity_scorer() -> Scorer:
+    """Whether each answer is a valid final answer, apart from grading.
+
+    1 when valid, 0 otherwise, with the reasons in ``invalid_reasons``.
+    """
+
+    async def score(state: TaskState, target: Target) -> Score:
+        reasons = invalid_response_reasons(state)
+        return Score(
+            value=int(not reasons),
+            metadata={"invalid_reasons": reasons, "stop_reason": stop_reason(state)},
+        )
+
+    return score
 
 
 @metric(scores="unreduced")
