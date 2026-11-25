@@ -12,6 +12,7 @@ from types import ModuleType
 from typing import Any, cast
 
 import pytest
+import tomllib
 import yaml
 from inspect_ai import eval as inspect_eval
 from inspect_ai._cli.eval import RunConfigInput, merge_run_config_params
@@ -861,3 +862,28 @@ def test_package_has_no_legacy_imports() -> None:
                 not name.startswith("llm_behavior_eval.evaluation_utils")
                 for name in names
             ), (path, names)
+
+
+FIGURES = {
+    "overall.png",
+    "by_topic.png",
+    "by_request_form.png",
+    "heatmap_thinking_off.png",
+    "heatmap_thinking_on.png",
+}
+
+
+def test_figures_are_documented_and_not_packaged() -> None:
+    readme = (PACKAGE / "README.md").read_text(encoding="utf-8")
+    assert set(re.findall(r"\]\(figures/([^)]+)\)", readme)) == FIGURES
+    assert {path.name for path in (PACKAGE / "figures").iterdir()} == FIGURES
+    # Only listed package data ships, so the figures stay out of the wheel
+    # and the sdist; a MANIFEST.in could still add them to the sdist.
+    pyproject = tomllib.loads((PACKAGE / "pyproject.toml").read_text())
+    setuptools = pyproject["tool"]["setuptools"]
+    assert setuptools["include-package-data"] is False
+    shipped = setuptools["package-data"]["llm_behavior_eval.ccpc_v2"]
+    assert not any(
+        pattern.endswith(".png") or "figures" in pattern for pattern in shipped
+    )
+    assert not (PACKAGE / "MANIFEST.in").exists()
