@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "llm-behavior-eval-ccpc-v2"
+name = "llm-behavior-eval-statecensor-bench"
 version = "0.1.12"
-description = "CCPC-500-v2 (CCP-aligned political censorship) as a native Inspect benchmark."
+description = "StateCensor-Bench (CCP-aligned political censorship) as a native Inspect benchmark."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -27,16 +27,16 @@ Homepage = "https://github.com/Hirundo-io/llm-behavior-eval"
 [project.entry-points.inspect_ai]
 # Inspect loads only the entry points named after a task's package prefix, so every
 # benchmark distribution uses the name llm_behavior_eval and its own task module.
-llm_behavior_eval = "llm_behavior_eval.ccpc_v2.task"
+llm_behavior_eval = "llm_behavior_eval.statecensor_bench.task"
 
 [tool.setuptools]
-# The package's own directory: this pyproject.toml sits inside llm_behavior_eval/ccpc_v2/
+# The package's own directory: this pyproject.toml sits inside llm_behavior_eval/statecensor_bench/
 # (see "Packaging" in INSPECT_MIGRATION.md).
-packages = ["llm_behavior_eval.ccpc_v2"]
-package-dir = { "llm_behavior_eval.ccpc_v2" = "." }
+packages = ["llm_behavior_eval.statecensor_bench"]
+package-dir = { "llm_behavior_eval.statecensor_bench" = "." }
 # Only the modules and the files listed below: otherwise pyproject.toml and LICENSE
 # would ship inside the package.
 include-package-data = false
 
 [tool.setuptools.package-data]
-"llm_behavior_eval.ccpc_v2" = ["README.md", "parity.yaml", "target_metrics.json"]
+"llm_behavior_eval.statecensor_bench" = ["README.md", "parity.yaml", "target_metrics.json"]

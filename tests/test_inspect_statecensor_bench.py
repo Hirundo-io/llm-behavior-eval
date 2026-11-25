@@ -1,4 +1,4 @@
-"""Native CCPC-500-v2 contracts, on synthetic rows only (no real dataset rows)."""
+"""Native StateCensor-Bench contracts, on synthetic rows only (no real dataset rows)."""
 
 import ast
 import hashlib
@@ -21,24 +21,24 @@ from inspect_ai.log import EvalLog
 from inspect_ai.model import GenerateConfig, ModelOutput, get_model
 from inspect_ai.scorer import MetricProtocol, SampleScore, Score
 
-from llm_behavior_eval.ccpc_v2 import dataset as ccpc_dataset
-from llm_behavior_eval.ccpc_v2.dataset import (
+from llm_behavior_eval.common.scoring import REASONING_MARKUP
+from llm_behavior_eval.common.target_metrics import missing_target_metrics
+from llm_behavior_eval.statecensor_bench import dataset as statecensor_dataset
+from llm_behavior_eval.statecensor_bench.dataset import (
     DATASET_FILE,
     DATASET_REPOSITORY,
     DATASET_REVISION,
     DATASET_SHA256,
 )
-from llm_behavior_eval.ccpc_v2.metrics import ccpc_v2_metrics
-from llm_behavior_eval.ccpc_v2.prompts import (
+from llm_behavior_eval.statecensor_bench.metrics import statecensor_bench_metrics
+from llm_behavior_eval.statecensor_bench.prompts import (
     JUDGE_PROMPT_TEMPLATE,
     JUDGE_SYSTEM_PROMPT,
     RUBRIC_VERSION,
     judge_prompt,
     parse_verdict,
 )
-from llm_behavior_eval.ccpc_v2.task import TASK_VERSION, ccpc_v2
-from llm_behavior_eval.common.scoring import REASONING_MARKUP
-from llm_behavior_eval.common.target_metrics import missing_target_metrics
+from llm_behavior_eval.statecensor_bench.task import TASK_VERSION, statecensor_bench
 
 from inspect_helpers import (
     assert_grader_required,
@@ -66,7 +66,7 @@ def load_legacy_censorship_utils() -> ModuleType:
     return module
 
 
-PACKAGE = Path(__file__).parents[1] / "llm_behavior_eval" / "ccpc_v2"
+PACKAGE = Path(__file__).parents[1] / "llm_behavior_eval" / "statecensor_bench"
 censorship_utils = load_legacy_censorship_utils()
 
 
@@ -93,7 +93,7 @@ def jsonl(rows: list[Any], **dumps_args: Any) -> bytes:
 def pin(monkeypatch: pytest.MonkeyPatch, content: bytes) -> None:
     """Pin the expected SHA-256 to these bytes (tests never use the real file)."""
     found = hashlib.sha256(content).hexdigest()
-    monkeypatch.setattr(ccpc_dataset, "DATASET_SHA256", found)
+    monkeypatch.setattr(statecensor_dataset, "DATASET_SHA256", found)
 
 
 @pytest.fixture
@@ -118,7 +118,7 @@ def hub(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Callable[..., list[A
             calls.append((args, kwargs))
             return str(file)
 
-        monkeypatch.setattr(ccpc_dataset, "hf_hub_download", download)
+        monkeypatch.setattr(statecensor_dataset, "hf_hub_download", download)
         if pinned:
             pin(monkeypatch, served)
         return calls
@@ -136,7 +136,7 @@ def evaluate(
         "display": "none",
         "limit": 3,
     }
-    [log] = inspect_eval(ccpc_v2(**(task_args or {})), **(defaults | options))
+    [log] = inspect_eval(statecensor_bench(**(task_args or {})), **(defaults | options))
     return log
 
 
@@ -145,7 +145,7 @@ def test_hub_download_is_pinned_and_keeps_published_order(
 ) -> None:
     rows = synthetic_rows()
     calls = hub(rows)
-    task = ccpc_v2()
+    task = statecensor_bench()
     # The public file, at the pinned revision, with no dataset token.
     assert calls == [
         (
@@ -172,7 +172,7 @@ def test_hub_download_is_pinned_and_keeps_published_order(
         "dataset_file": DATASET_FILE,
         "dataset_sha256": DATASET_SHA256,
         "dataset_rows": 500,
-        "rubric_version": "ccpc_binary_v4",
+        "rubric_version": "statecensor_binary",
         "reference_judge": "google/gemma-4-26B-A4B-it",
     }
 
@@ -199,7 +199,7 @@ def test_synthetic_file_fails_the_real_hash(hub: Callable[..., list[Any]]) -> No
         f"{DATASET_REPOSITORY}/{DATASET_FILE} at revision {DATASET_REVISION}"
     )
     with pytest.raises(ValueError, match=re.escape(message)):
-        ccpc_v2()
+        statecensor_bench()
 
 
 SENTINEL = "SENTINEL-ROW-VALUE"
@@ -232,7 +232,7 @@ def test_any_byte_change_is_rejected_before_parsing(
     hub(synthetic_rows(), content=content, pinned=False)
     pin(monkeypatch, jsonl(synthetic_rows()))
     with pytest.raises(ValueError, match="not the pinned") as error:
-        ccpc_v2()
+        statecensor_bench()
     assert SENTINEL not in str(error.value)
     assert "问题" not in str(error.value)
 
@@ -272,7 +272,7 @@ def test_full_source_validation(
     # The SHA-256 is pinned to the served bytes, so the row checks run.
     hub(rows)
     with pytest.raises(ValueError, match=message) as error:
-        ccpc_v2()
+        statecensor_bench()
     assert SENTINEL not in str(error.value)
     assert "问题" not in str(error.value)
 
@@ -287,10 +287,10 @@ def test_local_file_matches_the_hub(
     def download(*args: Any, **kwargs: Any) -> str:
         raise AssertionError("a local file is not downloaded")
 
-    monkeypatch.setattr(ccpc_dataset, "hf_hub_download", download)
+    monkeypatch.setattr(statecensor_dataset, "hf_hub_download", download)
     path = tmp_path / "test.jsonl"
     path.write_bytes(content)
-    data = ccpc_v2(dataset_path=str(path)).dataset
+    data = statecensor_bench(dataset_path=str(path)).dataset
     assert [s.id for s in data] == [r["id"] for r in rows]
     assert data[0].metadata == {
         "id": "000",
@@ -312,11 +312,11 @@ def test_local_file_needs_the_pinned_hash(
     found = hashlib.sha256(content).hexdigest()
     message = (
         f"dataset_path {path} has SHA-256 {found}, not the pinned "
-        f"{ccpc_dataset.DATASET_SHA256} of {DATASET_REPOSITORY}/{DATASET_FILE} "
+        f"{statecensor_dataset.DATASET_SHA256} of {DATASET_REPOSITORY}/{DATASET_FILE} "
         f"at revision {DATASET_REVISION}"
     )
     with pytest.raises(ValueError, match=re.escape(message)):
-        ccpc_v2(dataset_path=str(path))
+        statecensor_bench(dataset_path=str(path))
 
 
 def test_local_snapshot_folder_is_read(
@@ -331,18 +331,18 @@ def test_local_snapshot_folder_is_read(
     def download(*args: Any, **kwargs: Any) -> str:
         raise AssertionError("a local snapshot is not downloaded")
 
-    monkeypatch.setattr(ccpc_dataset, "hf_hub_download", download)
+    monkeypatch.setattr(statecensor_dataset, "hf_hub_download", download)
     snapshot = tmp_path / "snapshot"
     (snapshot / DATASET_FILE).parent.mkdir(parents=True)
     (snapshot / DATASET_FILE).write_bytes(content)
-    data = ccpc_v2(dataset_path=str(snapshot)).dataset
+    data = statecensor_bench(dataset_path=str(snapshot)).dataset
     assert [s.id for s in data] == [r["id"] for r in rows]
 
 
 def test_local_path_must_hold_the_file(tmp_path: Path) -> None:
     for path in (tmp_path, tmp_path / "missing.jsonl"):
         with pytest.raises(ValueError, match="nor a folder that holds it"):
-            ccpc_v2(dataset_path=str(path))
+            statecensor_bench(dataset_path=str(path))
 
 
 def test_sample_id_selects_by_value(
@@ -367,7 +367,7 @@ def test_rubric_is_statecensor_binary() -> None:
     assert hashlib.sha256(rubric.encode("utf-8")).hexdigest() == (
         STATECENSOR_BINARY_SHA256
     )
-    assert RUBRIC_VERSION == "ccpc_binary_v4"
+    assert RUBRIC_VERSION == "statecensor_binary"
 
 
 def test_prompts_match_the_legacy_engine() -> None:
@@ -443,7 +443,7 @@ def test_exact_messages_and_independent_settings(
 
 def test_grader_is_required(tmp_path: Path, hub: Callable[..., list[Any]]) -> None:
     hub(synthetic_rows())
-    assert_grader_required(ccpc_v2(), tmp_path, limit=1)
+    assert_grader_required(statecensor_bench(), tmp_path, limit=1)
 
 
 def test_grader_is_required_when_no_answer_is_judged(
@@ -453,7 +453,7 @@ def test_grader_is_required_when_no_answer_is_judged(
     # role must still fail the run rather than go unnoticed.
     hub(synthetic_rows())
     assert_grader_required(
-        ccpc_v2(require_valid_response=True),
+        statecensor_bench(require_valid_response=True),
         tmp_path,
         model=mock_grader("<think>unfinished", "mockllm/answer"),
         limit=2,
@@ -463,7 +463,7 @@ def test_grader_is_required_when_no_answer_is_judged(
 @pytest.mark.parametrize("path", ["", "  "])
 def test_blank_dataset_path_is_rejected(path: str) -> None:
     with pytest.raises(ValueError, match="dataset_path is blank"):
-        ccpc_v2(dataset_path=path)
+        statecensor_bench(dataset_path=path)
 
 
 def score(verdict: bool | None, sample_id: str = "s") -> SampleScore:
@@ -473,7 +473,7 @@ def score(verdict: bool | None, sample_id: str = "s") -> SampleScore:
 
 
 def test_metric_formulas_and_fail_closed() -> None:
-    compute = cast("MetricProtocol", ccpc_v2_metrics())
+    compute = cast("MetricProtocol", statecensor_bench_metrics())
     result = compute([score(True, "a"), score(False, "b"), score(False, "c")])
     assert isinstance(result, dict)
     assert result["censorship_rate"] == pytest.approx(1 / 3)
@@ -487,7 +487,7 @@ def test_metric_formulas_and_fail_closed() -> None:
 
 
 def test_stderr_clusters_epochs_by_sample() -> None:
-    compute = cast("MetricProtocol", ccpc_v2_metrics())
+    compute = cast("MetricProtocol", statecensor_bench_metrics())
     result = compute(
         [score(True, "a"), score(False, "a"), score(False, "b"), score(False, "b")]
     )
@@ -523,7 +523,7 @@ def test_every_answer_is_judged_and_completion_is_separate(
         s.name: (s.scored_samples, s.unscored_samples) for s in log.results.scores
     }
     assert counts == {
-        "ccpc_v2_scorer": (6, 0),
+        "statecensor_bench_scorer": (6, 0),
         "completion_scorer": (6, 0),
     }
 
@@ -536,7 +536,7 @@ def test_unparseable_verdict_makes_the_rate_undefined(
     metrics = eval_metrics(log)
     assert math.isnan(metrics["censorship_rate"])
     assert metrics["judged_fraction"] == 0
-    [first, *_] = sample_scores(log, "ccpc_v2_scorer")
+    [first, *_] = sample_scores(log, "statecensor_bench_scorer")
     assert first.metadata is not None
     assert first.metadata["raw_judge_text"] == "Probably"
 
@@ -715,7 +715,7 @@ def test_invalid_final_answer_is_not_judged_and_fails_closed(
     assert math.isnan(metrics["stderr"])
     assert metrics["judged_fraction"] == 0
     assert metrics["valid_response_rate"] == 0
-    [judge_score] = sample_scores(log, "ccpc_v2_scorer")
+    [judge_score] = sample_scores(log, "statecensor_bench_scorer")
     [validity] = sample_scores(log, "response_validity_scorer")
     for score_ in (judge_score, validity):
         assert score_.metadata is not None
@@ -739,7 +739,7 @@ def test_default_still_judges_every_answer(
         "judged_fraction": 1.0,
         "incomplete_response_rate": 1.0,
     }
-    [judge_score] = sample_scores(log, "ccpc_v2_scorer")
+    [judge_score] = sample_scores(log, "statecensor_bench_scorer")
     assert judge_score.metadata is not None
     assert "invalid_reasons" not in judge_score.metadata
 
@@ -785,7 +785,7 @@ def test_reasoning_markup_covers_the_qwen3_template() -> None:
 def test_thinking_on_task_args_survive_a_command_line_task(
     cli_args: tuple[str, ...], task_args: dict[str, Any]
 ) -> None:
-    """``inspect eval llm_behavior_eval/ccpc_v2 --run-config thinking_on.yaml``.
+    """``inspect eval llm_behavior_eval/statecensor_bench --run-config thinking_on.yaml``.
 
     The command-line task replaces the config's task name only; the config's
     task arguments are kept and merged with ``-T`` (as the config documents).
@@ -794,11 +794,11 @@ def test_thinking_on_task_args_survive_a_command_line_task(
     del config["model_roles"]  # Building the hf/ grader would load its weights.
     run_params = RunConfigInput.model_validate(config).to_params()
     cli_params = {
-        "tasks": ["llm_behavior_eval/ccpc_v2"],
+        "tasks": ["llm_behavior_eval/statecensor_bench"],
         "task_args": parse_cli_config(cli_args, None),
     }
     params = merge_run_config_params(run_params, cli_params)
-    assert params["tasks"] == ["llm_behavior_eval/ccpc_v2"]
+    assert params["tasks"] == ["llm_behavior_eval/statecensor_bench"]
     assert params["task_args"] == task_args
 
 
@@ -815,7 +815,7 @@ def test_thinking_on_config_is_separate_and_pinned(
         "enable_thinking": False
     }
     assert thinking_on["task"] == {
-        "task": "llm_behavior_eval/ccpc_v2",
+        "task": "llm_behavior_eval/statecensor_bench",
         "args": {"require_valid_response": True},
     }
     # The settings in the RSCH-250 Qwen3.8 thinking-on run's saved requests.
@@ -851,7 +851,7 @@ def test_target_metrics_match_written_log(
 
 def test_metrics_are_unreduced(hub: Callable[..., list[Any]]) -> None:
     hub(synthetic_rows())
-    assert reduced_metrics(ccpc_v2()) == []
+    assert reduced_metrics(statecensor_bench()) == []
 
 
 def test_registered_task_runs_by_name(
@@ -859,14 +859,14 @@ def test_registered_task_runs_by_name(
 ) -> None:
     hub(synthetic_rows())
     [log] = inspect_eval(
-        "llm_behavior_eval/ccpc_v2",
+        "llm_behavior_eval/statecensor_bench",
         model=mock_grader("answer", "mockllm/answer"),
         model_roles={"grader": mock_grader("False")},
         limit=2,
         log_dir=str(tmp_path),
         display="none",
     )
-    assert log.eval.task == "llm_behavior_eval/ccpc_v2"
+    assert log.eval.task == "llm_behavior_eval/statecensor_bench"
     assert eval_metrics(log)["censorship_rate"] == 0
 
 
@@ -902,7 +902,7 @@ def test_figures_are_documented_and_not_packaged() -> None:
     pyproject = tomllib.loads((PACKAGE / "pyproject.toml").read_text())
     setuptools = pyproject["tool"]["setuptools"]
     assert setuptools["include-package-data"] is False
-    shipped = setuptools["package-data"]["llm_behavior_eval.ccpc_v2"]
+    shipped = setuptools["package-data"]["llm_behavior_eval.statecensor_bench"]
     assert not any(
         pattern.endswith(".png") or "figures" in pattern for pattern in shipped
     )

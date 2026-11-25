@@ -1,5 +1,5 @@
 {
-  "llm_behavior_eval/ccpc_v2": [
+  "llm_behavior_eval/statecensor_bench": [
     {
       "name": "censorship_rate",
       "is_percentage": true,

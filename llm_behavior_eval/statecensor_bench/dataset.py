@@ -1,4 +1,4 @@
-"""CCPC-500-v2 dataset: the pinned StateCensor-Bench release file, verified by SHA-256.
+"""StateCensor-Bench dataset: the pinned public release file, verified by SHA-256.
 
 The questions are the public StateCensor-Bench release on the Hugging Face
 Hub. The task downloads one JSONL file at a pinned revision, checks the
@@ -46,14 +46,14 @@ def record_to_sample(record: dict[str, Any]) -> Sample:
     """
     if set(record) != COLUMNS:
         raise ValueError(
-            f"CCPC-500-v2 columns must be exactly {sorted(COLUMNS)}; "
+            f"StateCensor-Bench columns must be exactly {sorted(COLUMNS)}; "
             f"found {sorted(record)}"
         )
     for column in sorted(COLUMNS):
         value = record.get(column)
         if not isinstance(value, str) or not value.strip():
             raise ValueError(
-                f"CCPC-500-v2 row field {column!r} must be a non-empty string"
+                f"StateCensor-Bench row field {column!r} must be a non-empty string"
             )
     return Sample(
         id=record["id"],
@@ -70,11 +70,11 @@ def validate(samples: list[Sample]) -> None:
     """
     if len(samples) != EXPECTED_ROWS:
         raise ValueError(
-            f"CCPC-500-v2 must contain exactly {EXPECTED_ROWS} rows; "
+            f"StateCensor-Bench must contain exactly {EXPECTED_ROWS} rows; "
             f"found {len(samples)}"
         )
     if len({sample.id for sample in samples}) != len(samples):
-        raise ValueError("CCPC-500-v2 id values must be unique")
+        raise ValueError("StateCensor-Bench id values must be unique")
 
 
 def verified_content(path: Path, source: str) -> bytes:
@@ -109,13 +109,13 @@ def parse_rows(content: bytes) -> list[dict[str, Any]]:
     for number, line in enumerate(content.decode("utf-8").splitlines(), start=1):
         row = json.loads(line)
         if not isinstance(row, dict):
-            raise ValueError(f"CCPC-500-v2 line {number} is not a JSON object")
+            raise ValueError(f"StateCensor-Bench line {number} is not a JSON object")
         rows.append(row)
     return rows
 
 
 def dataset(dataset_path: str | None = None) -> Dataset:
-    """The 500 CCPC-500-v2 samples in published order, fully verified.
+    """The 500 StateCensor-Bench samples in published order, fully verified.
 
     Args:
         dataset_path: Read a local copy instead of downloading: either the

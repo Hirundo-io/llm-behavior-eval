@@ -175,8 +175,8 @@ cython_debug/
 # Benchmark-owned report metrics ship with each package (and the synthetic one).
 !llm_behavior_eval/**/target_metrics.json
 !tests/example_benchmark/target_metrics.json
-# CCPC-500-v2 also ships the thinking-on config's report metrics.
-!llm_behavior_eval/ccpc_v2/thinking_on_target_metrics.json
+# StateCensor-Bench also ships the thinking-on config's report metrics.
+!llm_behavior_eval/statecensor_bench/thinking_on_target_metrics.json
 
 # ACT Secrets
 act-events/pr.secrets

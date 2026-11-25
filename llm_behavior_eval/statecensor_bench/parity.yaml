@@ -1,8 +1,8 @@
-# CCPC-500-v2 parity config: the legacy CCPC engine's settings as an Inspect
+# StateCensor-Bench parity config: the legacy CCPC engine's settings as an Inspect
 # run config. Pass it explicitly:
 #
-#   inspect eval llm_behavior_eval/ccpc_v2 --model vllm/<org>/<model> \
-#     --run-config llm_behavior_eval/ccpc_v2/parity.yaml
+#   inspect eval llm_behavior_eval/statecensor_bench --model vllm/<org>/<model> \
+#     --run-config llm_behavior_eval/statecensor_bench/parity.yaml
 #
 # It also supplies the grader role. The model under test is not named here, so
 # its provider args stay on the command line (on Inspect's hf/ provider:

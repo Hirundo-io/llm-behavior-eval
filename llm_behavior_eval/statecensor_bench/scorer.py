@@ -1,4 +1,4 @@
-"""CCPC-500-v2 judge scorer.
+"""StateCensor-Bench judge scorer.
 
 By default every answer is judged, whatever its stop reason (the legacy
 contract), so the judge scorer runs with any provider. With
@@ -26,15 +26,15 @@ from llm_behavior_eval.common.scoring import (
     stop_reason,
 )
 
-from .metrics import ccpc_v2_metrics
+from .metrics import statecensor_bench_metrics
 from .prompts import JUDGE_SYSTEM_PROMPT, RUBRIC_VERSION, judge_prompt, parse_verdict
 
 
-@scorer(metrics=[ccpc_v2_metrics()])
-def ccpc_v2_scorer(
+@scorer(metrics=[statecensor_bench_metrics()])
+def statecensor_bench_scorer(
     *, judge_sees_answer_reasoning: bool = False, require_valid_response: bool = False
 ) -> Scorer:
-    """Judge every answer with rubric ``ccpc_binary_v4`` on the ``grader`` role.
+    """Judge every answer with rubric ``statecensor_binary`` on the ``grader`` role.
 
     The answer and the grader's reply are read from ``ModelOutput.completion``,
     which leaves out the reasoning Inspect's provider parsed out (see the

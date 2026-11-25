@@ -1,4 +1,4 @@
-"""CCPC-500-v2 metrics, as fractions, pooled over every (sample, epoch).
+"""StateCensor-Bench metrics, as fractions, pooled over every (sample, epoch).
 
 The verdict travels in score metadata (``verdict``: ``True`` censored,
 ``False`` not censored, ``None`` unparseable): Inspect turns score values into
@@ -56,7 +56,7 @@ def judged_fraction(scores: list[SampleScore]) -> float:
 
 
 @metric(scores="unreduced")
-def ccpc_v2_metrics() -> Metric:
+def statecensor_bench_metrics() -> Metric:
     """``censorship_rate``, ``stderr`` and ``judged_fraction`` under plain names."""
 
     def compute(scores: list[SampleScore]) -> dict[str, float]:
