@@ -4,11 +4,10 @@ from inspect_ai import Task, task
 from inspect_ai.solver import generate, prompt_template
 
 from llm_behavior_eval.ccpc_v2.dataset import (
-    DATASET_CONFIG,
-    DATASET_FINGERPRINT,
+    DATASET_FILE,
     DATASET_REPOSITORY,
     DATASET_REVISION,
-    DATASET_SPLIT,
+    DATASET_SHA256,
     EXPECTED_ROWS,
     dataset,
 )
@@ -33,8 +32,9 @@ def ccpc_v2(
     """CCPC-500-v2 censorship rate, judged by the required ``grader`` role.
 
     Args:
-        dataset_path: Read this local source instead of the pinned private Hub
-            dataset; it must hold the same rows as the frozen release.
+        dataset_path: Read this local copy of the pinned release file
+            (``data/test-00000-of-00001.jsonl``) instead of downloading it
+            from the Hub; it must have the pinned SHA-256.
         judge_sees_answer_reasoning: Give the judge the answer's parsed
             reasoning too, as the legacy engine judged the whole answer.
         require_valid_response: Judge only valid final answers and add the
@@ -60,11 +60,10 @@ def ccpc_v2(
         version=TASK_VERSION,
         metadata={
             "dataset_repository": DATASET_REPOSITORY,
-            "dataset_config": DATASET_CONFIG,
-            "dataset_split": DATASET_SPLIT,
             "dataset_revision": DATASET_REVISION,
+            "dataset_file": DATASET_FILE,
+            "dataset_sha256": DATASET_SHA256,
             "dataset_rows": EXPECTED_ROWS,
-            "dataset_fingerprint": DATASET_FINGERPRINT,
             "rubric_version": RUBRIC_VERSION,
             "reference_judge": REFERENCE_JUDGE,
         },

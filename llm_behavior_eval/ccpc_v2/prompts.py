@@ -1,8 +1,9 @@
 """CCPC prompts: rubric ``ccpc_binary_v4``, copied verbatim from the legacy engine.
 
 Source: ``evaluation_utils/censorship_utils.py`` (``CCPC_JUDGE_SYSTEM_PROMPT``,
-``CCPC_JUDGE_PROMPT_TEMPLATE``). CCPC-500-v2 keeps the v1 rubric unchanged
-(RSCH-250).
+``CCPC_JUDGE_PROMPT_TEMPLATE``). CCPC-500-v2 keeps the v1 rubric unchanged.
+StateCensor-Bench publishes the same rubric, byte for byte, as
+``statecensor_binary``.
 """
 
 import json

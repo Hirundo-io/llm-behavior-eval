@@ -1,9 +1,11 @@
-"""Native CCPC-500-v2 contracts, on synthetic rows only (the release is private)."""
+"""Native CCPC-500-v2 contracts, on synthetic rows only (no real dataset rows)."""
 
 import ast
+import hashlib
 import importlib.util
 import json
 import math
+import re
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
@@ -11,8 +13,6 @@ from typing import Any, cast
 
 import pytest
 import yaml
-from datasets import Dataset as HFDataset
-from datasets import DatasetDict
 from inspect_ai import eval as inspect_eval
 from inspect_ai._cli.eval import RunConfigInput, merge_run_config_params
 from inspect_ai._cli.util import parse_cli_config
@@ -22,15 +22,16 @@ from inspect_ai.scorer import MetricProtocol, SampleScore, Score
 
 from llm_behavior_eval.ccpc_v2 import dataset as ccpc_dataset
 from llm_behavior_eval.ccpc_v2.dataset import (
+    DATASET_FILE,
     DATASET_REPOSITORY,
     DATASET_REVISION,
-    fingerprint,
-    record_to_sample,
+    DATASET_SHA256,
 )
 from llm_behavior_eval.ccpc_v2.metrics import ccpc_v2_metrics
 from llm_behavior_eval.ccpc_v2.prompts import (
     JUDGE_PROMPT_TEMPLATE,
     JUDGE_SYSTEM_PROMPT,
+    RUBRIC_VERSION,
     judge_prompt,
     parse_verdict,
 )
@@ -40,7 +41,6 @@ from llm_behavior_eval.common.target_metrics import missing_target_metrics
 
 from inspect_helpers import (
     assert_grader_required,
-    assert_no_credentials_logged,
     eval_metrics,
     local_openai_judge,
     message_text,
@@ -73,31 +73,53 @@ def synthetic_rows(n: int = 500) -> list[dict[str, Any]]:
     """Synthetic stand-ins with the release's four columns."""
     return [
         {
-            "benchmark_id": f"syn-{i:03d}",
+            "id": f"{i:03d}",
             "question": f"问题 {i}?",
-            "topic": f"topic-{i % 19}",
-            "request_form": f"form-{i % 5}",
+            "topic": f"topic-{i % 14}",
+            "request_form": f"form-{i % 8}",
         }
         for i in range(n)
     ]
 
 
-def pin(monkeypatch: pytest.MonkeyPatch, rows: list[dict[str, Any]]) -> None:
-    """Pin the expected fingerprint to these rows (the real one is private)."""
-    samples = [record_to_sample(row) for row in rows]
-    monkeypatch.setattr(ccpc_dataset, "DATASET_FINGERPRINT", fingerprint(samples))
+def jsonl(rows: list[Any], **dumps_args: Any) -> bytes:
+    """Rows serialized as the release file is: one JSON object per line."""
+    options: dict[str, Any] = {"ensure_ascii": False, **dumps_args}
+    lines = (json.dumps(row, **options) + "\n" for row in rows)
+    return "".join(lines).encode("utf-8")
+
+
+def pin(monkeypatch: pytest.MonkeyPatch, content: bytes) -> None:
+    """Pin the expected SHA-256 to these bytes (tests never use the real file)."""
+    found = hashlib.sha256(content).hexdigest()
+    monkeypatch.setattr(ccpc_dataset, "DATASET_SHA256", found)
 
 
 @pytest.fixture
-def hub(
-    monkeypatch: pytest.MonkeyPatch, hub: Callable[..., list[Any]]
-) -> Callable[..., list[Any]]:
-    """The shared ``hub`` fixture, also pinning the fingerprint to the rows."""
+def hub(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Callable[..., list[Any]]:
+    """Serve a file as the pinned Hub file; returns the ``hf_hub_download`` calls.
 
-    def install(rows: list[dict[str, Any]], *, pinned: bool = True) -> list[Any]:
-        calls = hub(rows)
+    Only the download is replaced: hashing, parsing and validation run for
+    real. ``pinned`` pins the SHA-256 to the served bytes; give ``content``
+    to serve other bytes than ``rows`` serialized.
+    """
+    calls: list[Any] = []
+
+    def install(
+        rows: list[Any], *, pinned: bool = True, content: bytes | None = None
+    ) -> list[Any]:
+        served = jsonl(rows) if content is None else content
+        file = tmp_path / "hub" / DATASET_FILE
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_bytes(served)
+
+        def download(*args: Any, **kwargs: Any) -> str:
+            calls.append((args, kwargs))
+            return str(file)
+
+        monkeypatch.setattr(ccpc_dataset, "hf_hub_download", download)
         if pinned:
-            pin(monkeypatch, rows)
+            pin(monkeypatch, served)
         return calls
 
     return install
@@ -117,32 +139,49 @@ def evaluate(
     return log
 
 
-def test_hub_load_is_pinned_and_keeps_published_order(
+def test_hub_download_is_pinned_and_keeps_published_order(
     hub: Callable[..., list[Any]],
 ) -> None:
     rows = synthetic_rows()
     calls = hub(rows)
     task = ccpc_v2()
-    kwargs = calls[0][1]
-    assert kwargs["path"] == DATASET_REPOSITORY
-    assert (kwargs["name"], kwargs["split"]) == ("default", "test")
-    assert kwargs["revision"] == DATASET_REVISION
-    assert [s.id for s in task.dataset] == [r["benchmark_id"] for r in rows]
+    # The public file, at the pinned revision, with no dataset token.
+    assert calls == [
+        (
+            (DATASET_REPOSITORY, DATASET_FILE),
+            {"repo_type": "dataset", "revision": DATASET_REVISION},
+        )
+    ]
+    assert [s.id for s in task.dataset] == [r["id"] for r in rows]
     assert task.dataset[0].input == rows[0]["question"]
     assert task.dataset[0].metadata == {
-        "benchmark_id": "syn-000",
+        "id": "000",
         "topic": "topic-0",
         "request_form": "form-0",
     }
+    assert task.dataset.name == DATASET_REPOSITORY
+    assert task.dataset.location == (
+        f"{DATASET_REPOSITORY}@{DATASET_REVISION}/{DATASET_FILE}"
+    )
     assert task.config == GenerateConfig()
     assert task.version == TASK_VERSION
-    assert task.metadata and task.metadata["rubric_version"] == "ccpc_binary_v4"
+    assert task.metadata == {
+        "dataset_repository": DATASET_REPOSITORY,
+        "dataset_revision": DATASET_REVISION,
+        "dataset_file": DATASET_FILE,
+        "dataset_sha256": DATASET_SHA256,
+        "dataset_rows": 500,
+        "rubric_version": "ccpc_binary_v4",
+        "reference_judge": "google/gemma-4-26B-A4B-it",
+    }
 
 
 def test_pinned_release_constants() -> None:
-    assert DATASET_REVISION == "a00eee8cf918ee0d00197a9ca1aebb097756c849"
-    assert ccpc_dataset.DATASET_FINGERPRINT == (
-        "a4de18b4fc728e45c2f8aec01d025255a3892530fb15835b370b31fc537705bc"
+    assert DATASET_REPOSITORY == "hirundo-io/StateCensor-Bench"
+    assert DATASET_REVISION == "05684cbddef75e2e78b73c125f666d44fb06ed02"
+    assert DATASET_FILE == "data/test-00000-of-00001.jsonl"
+    assert DATASET_SHA256 == (
+        "748ee10e9d94e033d6490963708c564f3145df5768279068cbd29054df557e90"
     )
     parity = yaml.safe_load((PACKAGE / "parity.yaml").read_text())
     grader = parity["model_roles"]["grader"]
@@ -150,104 +189,164 @@ def test_pinned_release_constants() -> None:
     assert grader["args"]["revision"] == "4d7ae4984b7db7de8f8457170b3f1a419ee76d52"
 
 
-def test_synthetic_rows_fail_the_real_fingerprint(
-    hub: Callable[..., list[Any]],
-) -> None:
+def test_synthetic_file_fails_the_real_hash(hub: Callable[..., list[Any]]) -> None:
     hub(synthetic_rows(), pinned=False)
-    with pytest.raises(ValueError, match="do not match the frozen"):
+    found = hashlib.sha256(jsonl(synthetic_rows())).hexdigest()
+    message = (
+        f"{DATASET_REPOSITORY}/{DATASET_FILE} at revision {DATASET_REVISION} has "
+        f"SHA-256 {found}, not the pinned {DATASET_SHA256} of "
+        f"{DATASET_REPOSITORY}/{DATASET_FILE} at revision {DATASET_REVISION}"
+    )
+    with pytest.raises(ValueError, match=re.escape(message)):
         ccpc_v2()
 
 
-def test_unpinned_fingerprint_refuses_to_load(
-    monkeypatch: pytest.MonkeyPatch, hub: Callable[..., list[Any]]
-) -> None:
-    hub(synthetic_rows(), pinned=False)
-    monkeypatch.setattr(ccpc_dataset, "DATASET_FINGERPRINT", None)
-    with pytest.raises(ValueError, match="not pinned yet"):
-        ccpc_v2()
+SENTINEL = "SENTINEL-ROW-VALUE"
+"""A row value that must never appear in an error message."""
 
 
 @pytest.mark.parametrize(
-    ("change", "message"),
+    "content",
     [
-        (lambda rows: rows[:499], "exactly 500 rows"),
-        (lambda rows: [*rows[:499], {**rows[0]}], "must be unique"),
-        (lambda rows: [*rows[:499], {**rows[499], "question": ""}], "'question'"),
-        (
-            lambda rows: [*rows[:499], {**rows[499], "benchmark_id": None}],
-            "'benchmark_id'",
+        pytest.param(jsonl(synthetic_rows()[:499]), id="missing-row"),
+        pytest.param(
+            jsonl([synthetic_rows()[1], synthetic_rows()[0], *synthetic_rows()[2:]]),
+            id="reordered",
         ),
-        (lambda rows: [rows[1], rows[0], *rows[2:]], "do not match the frozen"),
+        pytest.param(
+            jsonl([{**row, "extra": "x"} for row in synthetic_rows()]),
+            id="extra-column",
+        ),
+        # Same decoded rows, different bytes.
+        pytest.param(jsonl(synthetic_rows(), separators=(",", ":")), id="whitespace"),
+        pytest.param(jsonl(synthetic_rows(), sort_keys=True), id="key-order"),
+        pytest.param(jsonl(synthetic_rows(), ensure_ascii=True), id="ascii-escapes"),
+        # Rejected on the bytes, before any row is parsed.
+        pytest.param(b'{"question": "' + SENTINEL.encode(), id="unparseable"),
+    ],
+)
+def test_any_byte_change_is_rejected_before_parsing(
+    hub: Callable[..., list[Any]], monkeypatch: pytest.MonkeyPatch, content: bytes
+) -> None:
+    hub(synthetic_rows(), content=content, pinned=False)
+    pin(monkeypatch, jsonl(synthetic_rows()))
+    with pytest.raises(ValueError, match="not the pinned") as error:
+        ccpc_v2()
+    assert SENTINEL not in str(error.value)
+    assert "问题" not in str(error.value)
+
+
+def change_last(**fields: Any) -> list[dict[str, Any]]:
+    rows = synthetic_rows()
+    rows[-1] = {**rows[-1], **fields}
+    return rows
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        (synthetic_rows()[:499], "exactly 500 rows"),
+        ([*synthetic_rows()[:499], synthetic_rows()[0]], "must be unique"),
+        (change_last(question=""), "'question'"),
+        (change_last(id=None), "'id'"),
+        (change_last(id=7), "'id'"),
+        (change_last(topic=" "), "'topic'"),
         (
-            lambda rows: [{**row, "extra": "x"} for row in rows],
+            [{**row, "extra": SENTINEL} for row in synthetic_rows()],
             "columns must be exactly",
         ),
         (
-            lambda rows: [*rows[:499], {**rows[499], "topic": " "}],
-            "'topic'",
+            [
+                {k: v for k, v in r.items() if k != "request_form"}
+                for r in synthetic_rows()
+            ],
+            "columns must be exactly",
         ),
+        ([*synthetic_rows()[:499], [SENTINEL]], "line 500 is not a JSON object"),
     ],
 )
 def test_full_source_validation(
-    monkeypatch: pytest.MonkeyPatch,
-    hub: Callable[..., list[Any]],
-    change: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
-    message: str,
+    hub: Callable[..., list[Any]], rows: list[Any], message: str
 ) -> None:
-    rows = synthetic_rows()
-    hub(change(rows), pinned=False)
-    pin(monkeypatch, rows)
-    with pytest.raises(ValueError, match=message):
+    # The SHA-256 is pinned to the served bytes, so the row checks run.
+    hub(rows)
+    with pytest.raises(ValueError, match=message) as error:
         ccpc_v2()
+    assert SENTINEL not in str(error.value)
+    assert "问题" not in str(error.value)
 
 
-def test_fingerprint_matches_the_legacy_definition() -> None:
-    rows = synthetic_rows()
-    legacy = censorship_utils.censorship_dataset_fingerprint(
-        HFDataset.from_list(
-            [{k: r[k] for k in ("question", "benchmark_id")} for r in rows]
-        )
-    )
-    assert fingerprint([record_to_sample(r) for r in rows]) == legacy
-
-
-@pytest.mark.parametrize("layout", ["jsonl", "dataset", "dataset_dict"])
-def test_local_sources_match_the_hub(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    hf_dataset_cache: Path,
-    layout: str,
-) -> None:
-    rows = synthetic_rows()
-    pin(monkeypatch, rows)
-    path = tmp_path / "source"
-    if layout == "jsonl":
-        path.mkdir()
-        HFDataset.from_list(rows).to_json(path / "test.jsonl", force_ascii=False)
-    elif layout == "dataset":
-        HFDataset.from_list(rows).save_to_disk(path)
-    else:
-        DatasetDict({"test": HFDataset.from_list(rows)}).save_to_disk(path)
-    files = sorted(p.relative_to(path) for p in path.rglob("*"))
-    data = ccpc_v2(dataset_path=str(path)).dataset
-    assert [s.id for s in data] == [r["benchmark_id"] for r in rows]
-    assert data[0].metadata == {
-        "benchmark_id": "syn-000",
-        "topic": "topic-0",
-        "request_form": "form-0",
-    }
-    # Loading leaves the source untouched.
-    assert sorted(p.relative_to(path) for p in path.rglob("*")) == files
-
-
-def test_saved_dataset_dict_needs_the_test_split(
+def test_local_file_matches_the_hub(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rows = synthetic_rows()
-    pin(monkeypatch, rows)
-    DatasetDict({"train": HFDataset.from_list(rows)}).save_to_disk(tmp_path / "s")
-    with pytest.raises(ValueError, match="no split 'test'"):
-        ccpc_v2(dataset_path=str(tmp_path / "s"))
+    content = jsonl(rows)
+    pin(monkeypatch, content)
+
+    def download(*args: Any, **kwargs: Any) -> str:
+        raise AssertionError("a local file is not downloaded")
+
+    monkeypatch.setattr(ccpc_dataset, "hf_hub_download", download)
+    path = tmp_path / "test.jsonl"
+    path.write_bytes(content)
+    data = ccpc_v2(dataset_path=str(path)).dataset
+    assert [s.id for s in data] == [r["id"] for r in rows]
+    assert data[0].metadata == {
+        "id": "000",
+        "topic": "topic-0",
+        "request_form": "form-0",
+    }
+    assert data.location == str(path)
+    # Loading leaves the source untouched.
+    assert path.read_bytes() == content
+
+
+def test_local_file_needs_the_pinned_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pin(monkeypatch, jsonl(synthetic_rows()))
+    path = tmp_path / "test.jsonl"
+    content = jsonl(synthetic_rows(), sort_keys=True)
+    path.write_bytes(content)
+    found = hashlib.sha256(content).hexdigest()
+    message = (
+        f"dataset_path {path} has SHA-256 {found}, not the pinned "
+        f"{ccpc_dataset.DATASET_SHA256} of {DATASET_REPOSITORY}/{DATASET_FILE} "
+        f"at revision {DATASET_REVISION}"
+    )
+    with pytest.raises(ValueError, match=re.escape(message)):
+        ccpc_v2(dataset_path=str(path))
+
+
+def test_local_path_must_be_a_file(tmp_path: Path) -> None:
+    for path in (tmp_path, tmp_path / "missing.jsonl"):
+        with pytest.raises(ValueError, match="is not a file"):
+            ccpc_v2(dataset_path=str(path))
+
+
+def test_sample_id_selects_by_value(
+    tmp_path: Path, hub: Callable[..., list[Any]]
+) -> None:
+    # Inspect matches digit-string IDs by value, so "7" selects "007".
+    hub(synthetic_rows())
+    log = evaluate(tmp_path, limit=None, sample_id="7")
+    assert log.samples is not None
+    assert [sample.id for sample in log.samples] == ["007"]
+
+
+STATECENSOR_BINARY_SHA256 = (
+    "f02b961939f0f4b6aba0b6a30b02fd2fdc86ffd1250bc0b8c226be22bba908bc"
+)
+"""StateCensor-Bench's pinned SHA-256 of its rubric ``statecensor_binary``."""
+
+
+def test_rubric_is_statecensor_binary() -> None:
+    # StateCensor-Bench hashes the system prompt, a newline and the template.
+    rubric = f"{JUDGE_SYSTEM_PROMPT}\n{JUDGE_PROMPT_TEMPLATE}"
+    assert hashlib.sha256(rubric.encode("utf-8")).hexdigest() == (
+        STATECENSOR_BINARY_SHA256
+    )
+    assert RUBRIC_VERSION == "ccpc_binary_v4"
 
 
 def test_prompts_match_the_legacy_engine() -> None:
@@ -720,19 +819,6 @@ def test_thinking_on_config_is_separate_and_pinned(
     targets = json.loads((PACKAGE / "thinking_on_target_metrics.json").read_text())
     log = evaluate(tmp_path, thinking_on["task"]["args"])
     assert missing_target_metrics(log.location, targets) == []
-
-
-def test_dataset_token_stays_out_of_task_args_and_log(
-    tmp_path: Path,
-    hub: Callable[..., list[Any]],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls = hub(synthetic_rows())
-    secret = "hf_CCPC_V2_TEST_SENTINEL"
-    monkeypatch.setenv("LLM_BEHAVIOR_EVAL_DATASET_TOKEN", secret)
-    log = evaluate(tmp_path)
-    assert calls[0][1]["token"] == secret
-    assert_no_credentials_logged(log, secret)
 
 
 def test_target_metrics_match_written_log(

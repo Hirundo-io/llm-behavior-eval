@@ -2532,11 +2532,15 @@ name = "llm-behavior-eval-ccpc-v2"
 version = "0.1.12"
 source = { editable = "llm_behavior_eval/ccpc_v2" }
 dependencies = [
+    { name = "huggingface-hub" },
     { name = "llm-behavior-eval-common" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "llm-behavior-eval-common", editable = "llm_behavior_eval/common" }]
+requires-dist = [
+    { name = "huggingface-hub", specifier = ">=1,<2" },
+    { name = "llm-behavior-eval-common", editable = "llm_behavior_eval/common" },
+]
 
 [[package]]
 name = "llm-behavior-eval-common"

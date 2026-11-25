@@ -1,58 +1,48 @@
-"""CCPC-500-v2 dataset: pinned source, local sources and full-source validation.
+"""CCPC-500-v2 dataset: the pinned StateCensor-Bench release file, verified by SHA-256.
 
-The Hub dataset is private (``hirundo-io/ccpc-500-v2``); load it with a token
-that has access (``LLM_BEHAVIOR_EVAL_DATASET_TOKEN`` or ``HF_TOKEN``). Rows
-keep their published order: there is no shuffle, so ``--limit N`` takes the
-first N rows, as the legacy engine did. Every source, Hub or local, is
-validated in full before Inspect applies any limit.
+The questions are the public StateCensor-Bench release on the Hugging Face
+Hub. The task downloads one JSONL file at a pinned revision, checks the
+SHA-256 of its raw bytes before parsing anything, then validates every row.
+Rows keep their published order: there is no shuffle, so ``--limit N`` takes
+the first N rows, as the legacy engine did. The whole file is verified before
+Inspect applies any limit.
 """
 
 import hashlib
 import json
+from pathlib import Path
 from typing import Any
 
-from inspect_ai.dataset import Dataset, Sample
+from huggingface_hub import hf_hub_download
+from inspect_ai.dataset import Dataset, MemoryDataset, Sample
 
-from llm_behavior_eval.common.dataset import load_dataset
+DATASET_REPOSITORY = "hirundo-io/StateCensor-Bench"
+"""The Hub dataset repository (public)."""
+DATASET_REVISION = "05684cbddef75e2e78b73c125f666d44fb06ed02"
+"""The pinned commit, tracked in ``.github/upstream-revisions.env``.
 
-DATASET_REPOSITORY = "hirundo-io/ccpc-500-v2"
-DATASET_CONFIG = "default"
-DATASET_SPLIT = "test"
-DATASET_REVISION = "a00eee8cf918ee0d00197a9ca1aebb097756c849"
-"""Owner-frozen R8 release (RSCH-250)."""
-EXPECTED_ROWS = 500
-COLUMNS = frozenset({"benchmark_id", "question", "request_form", "topic"})
-"""The release's columns, all non-empty strings."""
-DATASET_FINGERPRINT: str | None = (
-    "a4de18b4fc728e45c2f8aec01d025255a3892530fb15835b370b31fc537705bc"
-)
-"""SHA-256 of ``(question, benchmark_id)`` for every row in published order.
-
-Confirmed against the private release at ``DATASET_REVISION``. ``None`` would
-make loading fail rather than skip the check.
+When it moves, update ``DATASET_SHA256`` by hand: syncing the manifest moves
+only the revision.
 """
-
-
-def fingerprint(samples: list[Sample]) -> str:
-    """SHA-256 of every row's question and benchmark ID, in order.
-
-    The same serialization as the legacy CCPC-500 fingerprint: a JSON list of
-    ``{"question", "benchmark_id"}`` objects, non-ASCII kept, compact.
-    """
-    rows = [{"question": s.input, "benchmark_id": s.id} for s in samples]
-    serialized = json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+DATASET_FILE = "data/test-00000-of-00001.jsonl"
+"""The release file in the repository: one JSON object per line."""
+DATASET_SHA256 = "748ee10e9d94e033d6490963708c564f3145df5768279068cbd29054df557e90"
+"""SHA-256 of ``DATASET_FILE`` at ``DATASET_REVISION``, checked on the raw bytes."""
+EXPECTED_ROWS = 500
+COLUMNS = frozenset({"id", "question", "request_form", "topic"})
+"""The release's columns, all non-empty strings."""
 
 
 def record_to_sample(record: dict[str, Any]) -> Sample:
-    """One row as a sample: ID ``benchmark_id``, input ``question``.
+    """One row as a sample: ID ``id``, input ``question``.
 
-    ``topic`` and ``request_form`` (the taxonomy cell) and ``benchmark_id``
-    are kept as sample metadata.
+    ``topic`` and ``request_form`` (the taxonomy cell) and ``id`` are kept as
+    sample metadata.
 
     Raises:
         ValueError: The row does not have exactly ``COLUMNS``, or one of them
-            is not a non-empty string.
+            is not a non-empty string. The message names columns only, never
+            a row value.
     """
     if set(record) != COLUMNS:
         raise ValueError(
@@ -66,17 +56,17 @@ def record_to_sample(record: dict[str, Any]) -> Sample:
                 f"CCPC-500-v2 row field {column!r} must be a non-empty string"
             )
     return Sample(
-        id=record["benchmark_id"],
+        id=record["id"],
         input=record["question"],
         metadata={key: value for key, value in record.items() if key != "question"},
     )
 
 
 def validate(samples: list[Sample]) -> None:
-    """Check the whole source: row count, unique IDs and the pinned fingerprint.
+    """Check the whole source: row count and unique IDs.
 
     Raises:
-        ValueError: Any check fails, or the fingerprint is not pinned yet.
+        ValueError: Either check fails.
     """
     if len(samples) != EXPECTED_ROWS:
         raise ValueError(
@@ -84,53 +74,86 @@ def validate(samples: list[Sample]) -> None:
             f"found {len(samples)}"
         )
     if len({sample.id for sample in samples}) != len(samples):
-        raise ValueError("CCPC-500-v2 benchmark_id values must be unique")
-    if DATASET_FINGERPRINT is None:
+        raise ValueError("CCPC-500-v2 id values must be unique")
+
+
+def verified_content(path: Path, source: str) -> bytes:
+    """The file's bytes, once their SHA-256 matches ``DATASET_SHA256``.
+
+    Args:
+        path: The downloaded or local copy of ``DATASET_FILE``.
+        source: Where the file came from, for the error message.
+
+    Raises:
+        ValueError: The SHA-256 differs; the message names the pinned file
+            and both hashes.
+    """
+    content = path.read_bytes()
+    found = hashlib.sha256(content).hexdigest()
+    if found != DATASET_SHA256:
         raise ValueError(
-            "The CCPC-500-v2 row fingerprint is not pinned yet (LLM-175), so "
-            "the dataset cannot be verified"
+            f"{source} has SHA-256 {found}, not the pinned {DATASET_SHA256} of "
+            f"{DATASET_REPOSITORY}/{DATASET_FILE} at revision {DATASET_REVISION}"
         )
-    found = fingerprint(samples)
-    if found != DATASET_FINGERPRINT:
-        raise ValueError(
-            "CCPC-500-v2 rows do not match the frozen release; expected "
-            f"fingerprint {DATASET_FINGERPRINT}, found {found}"
-        )
+    return content
+
+
+def parse_rows(content: bytes) -> list[dict[str, Any]]:
+    """The JSONL rows, in file order.
+
+    Raises:
+        ValueError: A line is not a JSON object; the message gives its line
+            number only.
+    """
+    rows = []
+    for number, line in enumerate(content.decode("utf-8").splitlines(), start=1):
+        row = json.loads(line)
+        if not isinstance(row, dict):
+            raise ValueError(f"CCPC-500-v2 line {number} is not a JSON object")
+        rows.append(row)
+    return rows
 
 
 def dataset(dataset_path: str | None = None) -> Dataset:
-    """The 500 CCPC-500-v2 samples in published order, fully validated.
+    """The 500 CCPC-500-v2 samples in published order, fully verified.
 
     Args:
-        dataset_path: Read this local source instead of the pinned Hub
-            dataset: a folder ``datasets.load_dataset`` reads (for example a
-            Hub snapshot) or a ``save_to_disk`` folder. It must hold the same
-            rows as the frozen release.
+        dataset_path: Read this local copy of the release file
+            (``DATASET_FILE``) instead of downloading it. It must have the
+            same SHA-256.
 
     Returns:
-        Samples with ID ``benchmark_id``, input ``question`` and the other
-        columns as metadata.
+        Samples with ID ``id``, input ``question`` and the other columns as
+        metadata.
 
     Raises:
-        ValueError: A blank ``dataset_path``, or a row, the row count, the IDs
-            or the fingerprint is invalid.
+        ValueError: A blank ``dataset_path`` or one that is not a file, a
+            SHA-256 that is not ``DATASET_SHA256``, or an invalid row, row
+            count or ID.
     """
-    if dataset_path is not None and not dataset_path.strip():
-        raise ValueError("dataset_path is blank; omit it to use the Hub dataset")
-    # ``common.dataset.load_dataset`` reads the pinned Hub dataset (with the
-    # dataset token), a local ``load_dataset`` folder or a ``save_to_disk``
-    # folder; no seed, so rows keep their published order.
     if dataset_path is None:
-        data = load_dataset(
-            DATASET_REPOSITORY,
-            split=DATASET_SPLIT,
-            sample_fields=record_to_sample,
-            revision=DATASET_REVISION,
-            name=DATASET_CONFIG,
+        path = Path(
+            hf_hub_download(
+                DATASET_REPOSITORY,
+                DATASET_FILE,
+                repo_type="dataset",
+                revision=DATASET_REVISION,
+            )
         )
+        source = f"{DATASET_REPOSITORY}/{DATASET_FILE} at revision {DATASET_REVISION}"
+        location = f"{DATASET_REPOSITORY}@{DATASET_REVISION}/{DATASET_FILE}"
     else:
-        data = load_dataset(
-            dataset_path, split=DATASET_SPLIT, sample_fields=record_to_sample
-        )
-    validate(list(data))
-    return data
+        if not dataset_path.strip():
+            raise ValueError("dataset_path is blank; omit it to download the file")
+        path = Path(dataset_path)
+        if not path.is_file():
+            raise ValueError(
+                f"dataset_path {dataset_path} is not a file; give the path of "
+                f"a local copy of {DATASET_FILE}"
+            )
+        source = f"dataset_path {dataset_path}"
+        location = dataset_path
+    rows = parse_rows(verified_content(path, source))
+    samples = [record_to_sample(row) for row in rows]
+    validate(samples)
+    return MemoryDataset(samples, name=DATASET_REPOSITORY, location=location)
