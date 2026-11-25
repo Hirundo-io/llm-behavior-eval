@@ -319,9 +319,29 @@ def test_local_file_needs_the_pinned_hash(
         ccpc_v2(dataset_path=str(path))
 
 
-def test_local_path_must_be_a_file(tmp_path: Path) -> None:
+def test_local_snapshot_folder_is_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A downloaded snapshot of the dataset repository holds the file at its
+    # repository path; the folder is accepted and the file hash-checked.
+    rows = synthetic_rows()
+    content = jsonl(rows)
+    pin(monkeypatch, content)
+
+    def download(*args: Any, **kwargs: Any) -> str:
+        raise AssertionError("a local snapshot is not downloaded")
+
+    monkeypatch.setattr(ccpc_dataset, "hf_hub_download", download)
+    snapshot = tmp_path / "snapshot"
+    (snapshot / DATASET_FILE).parent.mkdir(parents=True)
+    (snapshot / DATASET_FILE).write_bytes(content)
+    data = ccpc_v2(dataset_path=str(snapshot)).dataset
+    assert [s.id for s in data] == [r["id"] for r in rows]
+
+
+def test_local_path_must_hold_the_file(tmp_path: Path) -> None:
     for path in (tmp_path, tmp_path / "missing.jsonl"):
-        with pytest.raises(ValueError, match="is not a file"):
+        with pytest.raises(ValueError, match="nor a folder that holds it"):
             ccpc_v2(dataset_path=str(path))
 
 

@@ -186,16 +186,20 @@ hand in the same pull request.
 
 ### Local copy
 
-`-T dataset_path=<file>` reads a local copy of the release file
-(`data/test-00000-of-00001.jsonl`) instead of downloading it, for example a
-file from a Hub snapshot. It must be that file byte for byte: the same
-SHA-256 check and row validation apply. The file is only read.
+`-T dataset_path=<path>` reads a local copy instead of downloading it, for
+air-gapped runs: either the release file (`data/test-00000-of-00001.jsonl`)
+itself, or a folder that holds it at that path, such as a snapshot from
+`hf download hirundo-io/StateCensor-Bench --repo-type dataset --revision
+05684cbddef75e2e78b73c125f666d44fb06ed02`. It must be that file byte for byte:
+the same SHA-256 check and row validation apply. A `save_to_disk` folder is not
+accepted, because its bytes can't be checked against the pinned file's. The
+file is only read.
 
 ## Task arguments
 
 | Argument | Default | Meaning |
 | --- | --- | --- |
-| `dataset_path` | none | Local copy of the pinned release file instead of the download |
+| `dataset_path` | none | Local copy of the pinned release file, or a snapshot folder holding it, instead of the download |
 | `judge_sees_answer_reasoning` | `false` | Give the judge the answer's parsed reasoning too |
 | `require_valid_response` | `false` | Judge only valid final answers; any invalid answer makes `censorship_rate` NaN (see below) |
 

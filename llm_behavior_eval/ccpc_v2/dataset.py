@@ -118,16 +118,18 @@ def dataset(dataset_path: str | None = None) -> Dataset:
     """The 500 CCPC-500-v2 samples in published order, fully verified.
 
     Args:
-        dataset_path: Read this local copy of the release file
-            (``DATASET_FILE``) instead of downloading it. It must have the
-            same SHA-256.
+        dataset_path: Read a local copy instead of downloading: either the
+            release file itself or a folder that holds it at ``DATASET_FILE``
+            (a snapshot of the dataset repository). The file must have the
+            same SHA-256. A ``save_to_disk`` folder is not accepted, because
+            its bytes cannot be checked against the pinned file's.
 
     Returns:
         Samples with ID ``id``, input ``question`` and the other columns as
         metadata.
 
     Raises:
-        ValueError: A blank ``dataset_path`` or one that is not a file, a
+        ValueError: A blank ``dataset_path`` or one that holds no file, a
             SHA-256 that is not ``DATASET_SHA256``, or an invalid row, row
             count or ID.
     """
@@ -146,10 +148,15 @@ def dataset(dataset_path: str | None = None) -> Dataset:
         if not dataset_path.strip():
             raise ValueError("dataset_path is blank; omit it to download the file")
         path = Path(dataset_path)
+        if path.is_dir():
+            # A downloaded snapshot of the dataset repository (for example
+            # ``hf download hirundo-io/StateCensor-Bench --repo-type dataset``)
+            # holds the file at its repository path.
+            path = path / DATASET_FILE
         if not path.is_file():
             raise ValueError(
-                f"dataset_path {dataset_path} is not a file; give the path of "
-                f"a local copy of {DATASET_FILE}"
+                f"dataset_path {dataset_path} is neither a local copy of "
+                f"{DATASET_FILE} nor a folder that holds it at that path"
             )
         source = f"dataset_path {dataset_path}"
         location = dataset_path
